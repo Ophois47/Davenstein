@@ -1,0 +1,16 @@
+[package]
+name = "Davenstein"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "davelib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "Davenstein"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+bevy = "0.17"
