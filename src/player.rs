@@ -108,8 +108,8 @@ pub fn player_move(
 
     let step = wish * settings.speed * time.delta_secs();
 
-    // --- helpers: world pos (x,z) -> tile index (x,z) ---
-    // Your tiles are centered on integer coords (wall cubes are centered at x=0,1,2...),
+    // --- Helpers: world pos (x,z) -> tile index (x,z) ---
+    // Tiles are centered on integer coords (wall cubes are centered at x=0,1,2...),
     // so "which tile am I in?" is floor(pos + 0.5).
     fn world_to_tile(p: Vec2) -> IVec2 {
         IVec2::new((p.x + 0.5).floor() as i32, (p.y + 0.5).floor() as i32)
