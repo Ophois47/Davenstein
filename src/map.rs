@@ -10,6 +10,13 @@ pub struct DoorState {
 	pub open_timer: f32,
 }
 
+#[derive(Component, Debug, Clone, Copy)]
+pub struct DoorAnim {
+    pub progress: f32,    // 0.0 = closed, 1.0 = open
+    pub closed_pos: Vec3, // world-space position when fully closed
+    pub slide_axis: Vec3, // world-space unit direction to slide into the wall
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tile {
     Empty,

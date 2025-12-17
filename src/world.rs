@@ -171,12 +171,40 @@ pub fn setup(
 				        z as f32 * TILE_SIZE,
 				    );
 
+				    let left_wall  = x > 0 && matches!(grid.tile(x - 1, z), Tile::Wall);
+					let right_wall = x + 1 < grid.width  && matches!(grid.tile(x + 1, z), Tile::Wall);
+					let up_wall    = z > 0 && matches!(grid.tile(x, z - 1), Tile::Wall);
+					let down_wall  = z + 1 < grid.height && matches!(grid.tile(x, z + 1), Tile::Wall);
+
+					// Door slides into a wall tile (pick a stable side)
+					let slide_axis = if left_wall && right_wall {
+					    // corridor runs N/S -> slide along +X (or into a side wall)
+					    if right_wall { Vec3::X } else { -Vec3::X }
+					} else if up_wall && down_wall {
+					    // corridor runs E/W -> slide along +Z (or into a side wall)
+					    if down_wall { Vec3::Z } else { -Vec3::Z }
+					} else {
+					    // fallback for odd placement
+					    if right_wall { Vec3::X }
+					    else if left_wall { -Vec3::X }
+					    else if down_wall { Vec3::Z }
+					    else { -Vec3::Z }
+					};
+
+					let progress = if is_open { 1.0 } else { 0.0 };
+					let start_pos = center + slide_axis * (progress * TILE_SIZE);
+
 				    commands
 				        .spawn((
 					        DoorTile(IVec2::new(x as i32, z as i32)),
 					        DoorState { open_timer: 0.0 },
-					        Transform::from_translation(center),
-					        if is_open { Visibility::Hidden } else { Visibility::Visible },
+					        DoorAnim {
+					        	progress,
+					        	closed_pos: center,
+					        	slide_axis,
+					        },
+					        Transform::from_translation(start_pos),
+					        Visibility::Visible,
 					    ))
 				        .with_children(|parent| {
 				            // Front
