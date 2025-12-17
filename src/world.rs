@@ -1,22 +1,26 @@
+use bevy::audio::SpatialListener;
 use bevy::prelude::*;
-use crate::player::{Player, LookAngles};
+use std::f32::consts::{FRAC_PI_2, PI};
+use crate::map::{DoorTile, MapGrid, Tile};
+use crate::player::{LookAngles, Player};
+
+const TILE_SIZE: f32 = 1.0;
+const WALL_H: f32 = 1.0;
+const DOOR_THICKNESS: f32 = 0.20;
 
 // ---------- Assets ----------
-#[allow(dead_code)]
 #[derive(Resource)]
-struct GameAssets {
-    wall_tex: Handle<Image>,
-    floor_tex: Handle<Image>,
-    // Examples for later:
-    // shoot_sfx: Handle<AudioSource>,
-    // door_open_sfx: Handle<AudioSource>,
+pub struct GameAssets {
+    pub wall_tex: Handle<Image>,
+    pub floor_tex: Handle<Image>,
+    pub door_tex: Handle<Image>,
 }
 
-#[allow(dead_code)]
 fn load_assets(asset_server: &AssetServer) -> GameAssets {
     GameAssets {
         wall_tex: asset_server.load("textures/walls/wall.png"),
         floor_tex: asset_server.load("textures/floors/floor.png"),
+        door_tex: asset_server.load("textures/doors/door.png"),
     }
 }
 
@@ -26,14 +30,37 @@ pub fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    const TILE: f32 = 1.0;
-    const WALL_H: f32 = 1.0;
-    const ROOM_W: usize = 12;
-    const ROOM_H: usize = 12;
+    // 12x12 example map.
+    // Legend:  '#' = wall, 'D' = closed door, '.' or ' ' = empty, 'P' = player spawn
+    const MAP: [&str; 12] = [
+        "############",
+        "#P.........#",
+        "#..........#",
+        "#..........#",
+        "#..........#",
+        "#..........#",
+        "#..........#",
+        "#..........#",
+        "#..........#",
+        "#..........#",
+        "#..........#",
+        "######D#####",
+    ];
 
-    // --- load textures (you said you'll handle assets; these are the paths Bevy will look for) ---
-    let wall_tex: Handle<Image> = asset_server.load("textures/walls/wall.png");
-    let floor_tex: Handle<Image> = asset_server.load("textures/floors/floor.png");
+    let (grid, spawn) = MapGrid::from_ascii(&MAP);
+    let spawn = spawn.unwrap_or(IVec2::new(1, 1));
+
+    // Make map available for collision / doors / raycasts later
+    commands.insert_resource(grid.clone());
+
+    // Load + store assets
+    let assets = load_assets(&asset_server);
+
+    let wall_tex = assets.wall_tex.clone();
+    let floor_tex = assets.floor_tex.clone();
+    let door_tex = assets.door_tex.clone();
+
+    commands.insert_resource(assets);
 
     let wall_mat = materials.add(StandardMaterial {
         base_color_texture: Some(wall_tex),
@@ -45,14 +72,19 @@ pub fn setup(
         ..default()
     });
 
-    // Room center in world coords (tiles are at 0..ROOM-1)
+    let door_mat = materials.add(StandardMaterial {
+        base_color_texture: Some(door_tex),
+        ..default()
+    });
+
+    // Center helpers (our tiles live at x,z = 0..width-1)
     let room_center = Vec3::new(
-        (ROOM_W as f32 - 1.0) * TILE * 0.5,
+        (grid.width as f32 - 1.0) * TILE_SIZE * 0.5,
         0.0,
-        (ROOM_H as f32 - 1.0) * TILE * 0.5,
+        (grid.height as f32 - 1.0) * TILE_SIZE * 0.5,
     );
 
-    // Light (also center it so lighting makes sense)
+    // Light
     commands.spawn((
         PointLight {
             intensity: 2_000_000.0,
@@ -62,57 +94,127 @@ pub fn setup(
         Transform::from_translation(room_center + Vec3::new(0.0, 6.0, 0.0)),
     ));
 
-    // Floor: size covers the whole room, but translated to sit under your 0..11 tiles
+    // Floor
     commands.spawn((
         Mesh3d(meshes.add(
             Plane3d::default()
                 .mesh()
-                .size(ROOM_W as f32 * TILE, ROOM_H as f32 * TILE),
+                .size(grid.width as f32 * TILE_SIZE, grid.height as f32 * TILE_SIZE),
         )),
         MeshMaterial3d(floor_mat),
         Transform::from_translation(room_center),
     ));
 
-    // Walls: rotate border cubes so the inward-facing side uses the same cube face
+    // Walls + Doors from grid
     let cube = meshes.add(Cuboid::default());
-    for z in 0..ROOM_H {
-        for x in 0..ROOM_W {
-            let is_border = x == 0 || z == 0 || x == ROOM_W - 1 || z == ROOM_H - 1;
-            if !is_border {
-                continue;
-            }
+    for z in 0..grid.height {
+        for x in 0..grid.width {
+            let tile = grid.tile(x, z);
 
-            use std::f32::consts::{FRAC_PI_2, PI};
-
-            // Make the cube's +Z face point inward for each edge.
-            // (Corners still show 2 faces; think "pillar".)
-            let rot = if z == 0 {
+            // Rotate border walls so the cube's +Z face points inward
+            let rot_wall = if z == 0 {
                 Quat::IDENTITY
-            } else if z == ROOM_H - 1 {
+            } else if z == grid.height - 1 {
                 Quat::from_rotation_y(PI)
             } else if x == 0 {
                 Quat::from_rotation_y(FRAC_PI_2)
-            } else {
+            } else if x == grid.width - 1 {
                 Quat::from_rotation_y(-FRAC_PI_2)
+            } else {
+                Quat::IDENTITY
             };
 
-            commands.spawn((
-                Mesh3d(cube.clone()),
-                MeshMaterial3d(wall_mat.clone()),
-                Transform {
-                    translation: Vec3::new(x as f32 * TILE, WALL_H * 0.5, z as f32 * TILE),
-                    rotation: rot,
-                    scale: Vec3::new(TILE, WALL_H, TILE),
-                },
-            ));
+            let door_panel = meshes.add(
+            	Plane3d::default()
+            		.mesh()
+            		.size(TILE_SIZE, WALL_H),
+            );
+
+            match tile {
+                Tile::Wall => {
+                    commands.spawn((
+                        Mesh3d(cube.clone()),
+                        MeshMaterial3d(wall_mat.clone()),
+                        Transform {
+                            translation: Vec3::new(
+                                x as f32 * TILE_SIZE,
+                                WALL_H * 0.5,
+                                z as f32 * TILE_SIZE,
+                            ),
+                            rotation: rot_wall,
+                            scale: Vec3::new(TILE_SIZE, WALL_H, TILE_SIZE),
+                        },
+                    ));
+                }
+                Tile::DoorClosed | Tile::DoorOpen => {
+				    let is_open = matches!(tile, Tile::DoorOpen);
+
+				    // Determine door axis (same idea as before)
+				    let up_wall = z > 0 && matches!(grid.tile(x, z - 1), Tile::Wall);
+				    let down_wall = z + 1 < grid.height && matches!(grid.tile(x, z + 1), Tile::Wall);
+
+				    let base = Quat::from_rotation_x(-FRAC_PI_2);
+				    let yaw = if up_wall && down_wall { FRAC_PI_2 } else { 0.0 };
+				    let rot = Quat::from_rotation_y(yaw) * base;
+
+				    let normal = rot * Vec3::Y;
+				    let half = (DOOR_THICKNESS * TILE_SIZE) * 0.5;
+
+				    let center = Vec3::new(
+				        x as f32 * TILE_SIZE,
+				        WALL_H * 0.5,
+				        z as f32 * TILE_SIZE,
+				    );
+
+				    commands
+				        .spawn((
+					        DoorTile(IVec2::new(x as i32, z as i32)),
+					        Transform::from_translation(center),
+					        if is_open { Visibility::Hidden } else { Visibility::Visible },
+					    ))
+				        .with_children(|parent| {
+				            // Front
+				            parent.spawn((
+				                Mesh3d(door_panel.clone()),
+				                MeshMaterial3d(door_mat.clone()),
+				                Transform {
+				                    translation: normal * half,
+				                    rotation: rot,
+				                    scale: Vec3::ONE,
+				                },
+				            ));
+
+				            // Back
+				            parent.spawn((
+				                Mesh3d(door_panel.clone()),
+				                MeshMaterial3d(door_mat.clone()),
+				                Transform {
+				                    translation: -normal * half,
+				                    rotation: Quat::from_rotation_y(PI) * rot,
+				                    scale: Vec3::ONE,
+				                },
+				            ));
+				        });
+				}
+				_ => {}
+			}
         }
     }
 
-    // Camera/player (keep yours as-is; just showing a typical placement)
+    // Player spawn from grid
+    let player_pos = Vec3::new(
+        spawn.x as f32 * TILE_SIZE,
+        0.6,
+        spawn.y as f32 * TILE_SIZE,
+    );
+
     commands.spawn((
         Camera3d::default(),
         Player,
         LookAngles::default(),
-        Transform::from_xyz(6.0, 0.6, 6.0).looking_at(Vec3::new(6.0, 0.6, 5.0), Vec3::Y),
+        SpatialListener::new(0.2),
+        Transform::from_translation(player_pos)
+            .looking_at(player_pos + Vec3::NEG_Z, Vec3::Y),
     ));
 }
+

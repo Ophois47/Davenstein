@@ -1,0 +1,46 @@
+use bevy::prelude::*;
+use bevy::audio::{AudioPlayer, AudioSource, PlaybackSettings};
+
+#[derive(Clone, Copy, Debug)]
+pub enum SfxKind {
+    DoorOpen,
+    DoorClose,
+}
+
+#[derive(Clone, Copy, Debug, Message)]
+pub struct PlaySfx {
+    pub kind: SfxKind,
+    pub pos: Vec3,
+}
+
+#[derive(Resource)]
+pub struct GameAudio {
+    pub door_open: Handle<AudioSource>,
+    pub door_close: Handle<AudioSource>,
+}
+
+pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.insert_resource(GameAudio {
+        door_open: asset_server.load("sounds/sfx/door_open.ogg"),
+        door_close: asset_server.load("sounds/sfx/door_close.ogg"),
+    });
+}
+
+pub fn play_sfx_events(
+    audio: Res<GameAudio>,
+    mut commands: Commands,
+    mut ev: MessageReader<PlaySfx>,
+) {
+    for e in ev.read() {
+        let clip = match e.kind {
+            SfxKind::DoorOpen => audio.door_open.clone(),
+            SfxKind::DoorClose => audio.door_close.clone(),
+        };
+
+        commands.spawn((
+            Transform::from_translation(e.pos),
+            AudioPlayer::new(clip),
+            PlaybackSettings::DESPAWN.with_spatial(true),
+        ));
+    }
+}
