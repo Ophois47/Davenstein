@@ -5,6 +5,7 @@ use davelib::audio::{
 	PlaySfx,
 };
 use davelib::player::{
+    door_animate,
 	door_auto_close,
 	grab_mouse, mouse_look,
 	player_move,
@@ -26,6 +27,10 @@ fn main() {
         	use_doors,
         	play_sfx_events,
         ))
-        .add_systems(FixedUpdate, (player_move, door_auto_close))
+        .add_systems(FixedUpdate, (
+            player_move,
+            door_auto_close,
+            door_animate,
+        ))
         .run();
 }

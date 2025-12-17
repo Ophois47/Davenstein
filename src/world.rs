@@ -2,6 +2,7 @@ use bevy::audio::SpatialListener;
 use bevy::prelude::*;
 use std::f32::consts::{FRAC_PI_2, PI};
 use crate::map::{
+    DoorAnim,
 	DoorState,
 	DoorTile,
 	MapGrid,

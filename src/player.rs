@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use crate::map::{
+	DoorAnim,
 	DoorState,
 	DoorTile,
 	MapGrid,
@@ -214,10 +215,10 @@ pub fn use_doors(
     let cur = grid.tile(tx, tz);
 
     let (new_tile, new_vis, sfx_kind) = match cur {
-        Tile::DoorClosed => (Tile::DoorOpen, Visibility::Hidden, SfxKind::DoorOpen),
-        Tile::DoorOpen => (Tile::DoorClosed, Visibility::Visible, SfxKind::DoorClose),
-        _ => return,
-    };
+		Tile::DoorClosed => (Tile::DoorOpen, Visibility::Visible, SfxKind::DoorOpen),
+		Tile::DoorOpen => (Tile::DoorClosed, Visibility::Visible, SfxKind::DoorClose),
+		_ => return,
+	};
 
     grid.set_tile(tx, tz, new_tile);
 
@@ -243,15 +244,53 @@ pub fn use_doors(
     });
 }
 
+pub fn door_animate(
+    time: Res<Time<Fixed>>,
+    grid: Res<MapGrid>,
+    mut q_doors: Query<(&DoorTile, &mut DoorAnim, &mut Transform, &mut Visibility)>,
+) {
+    const TILE_SIZE: f32 = 1.0;
+    const SLIDE_SPEED: f32 = 2.0; // 0->1 in ~0.5s
+
+    for (door, mut anim, mut tf, mut vis) in q_doors.iter_mut() {
+        let tx = door.0.x;
+        let tz = door.0.y;
+
+        if tx < 0 || tz < 0 || tx >= grid.width as i32 || tz >= grid.height as i32 {
+            continue;
+        }
+
+        let want_open = matches!(grid.tile(tx as usize, tz as usize), Tile::DoorOpen);
+        let target = if want_open { 1.0 } else { 0.0 };
+
+        let step = SLIDE_SPEED * time.delta_secs();
+        if anim.progress < target {
+            anim.progress = (anim.progress + step).min(1.0);
+        } else if anim.progress > target {
+            anim.progress = (anim.progress - step).max(0.0);
+        }
+
+        tf.translation = anim.closed_pos + anim.slide_axis * (anim.progress * TILE_SIZE);
+
+        // Wolf-ish: door disappears into the wall when fully open
+        if want_open && anim.progress >= 0.999 {
+            *vis = Visibility::Hidden;
+        } else {
+            *vis = Visibility::Visible;
+        }
+    }
+}
+
 pub fn door_auto_close(
-    time: Res<Time>,
+    time: Res<Time<Fixed>>,
     mut grid: ResMut<MapGrid>,
     q_player: Query<&Transform, With<Player>>,
-    mut q_doors: Query<(&DoorTile, &mut DoorState, &mut Visibility)>,
+    mut q_doors: Query<(&DoorTile, &mut DoorState, &DoorAnim, &mut Visibility)>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
     const TILE_SIZE: f32 = 1.0;
     const RETRY_SECS_IF_BLOCKED: f32 = 0.2;
+    const FULLY_OPEN_EPS: f32 = 0.999;
 
     let Ok(player_tf) = q_player.single() else { return; };
 
@@ -259,22 +298,35 @@ pub fn door_auto_close(
         IVec2::new((p.x + 0.5).floor() as i32, (p.y + 0.5).floor() as i32)
     }
 
-    let player_tile = world_to_tile(Vec2::new(
-        player_tf.translation.x,
-        player_tf.translation.z,
-    ));
+    let player_tile = world_to_tile(Vec2::new(player_tf.translation.x, player_tf.translation.z));
 
-    for (door, mut state, mut vis) in q_doors.iter_mut() {
+    for (door, mut state, anim, mut vis) in q_doors.iter_mut() {
+        // Only care about open doors
+        let dt = door.0;
+        if dt.x < 0 || dt.y < 0 || dt.x >= grid.width as i32 || dt.y >= grid.height as i32 {
+            continue;
+        }
+        let (tx, tz) = (dt.x as usize, dt.y as usize);
+
+        if grid.tile(tx, tz) != Tile::DoorOpen {
+            state.open_timer = 0.0;
+            continue;
+        }
+
+        // Don't start the "hold open" countdown until the door has fully slid open
+        if anim.progress < FULLY_OPEN_EPS {
+            continue;
+        }
+
         if state.open_timer <= 0.0 {
             continue;
         }
 
+        // Tick down
         state.open_timer -= time.delta_secs();
         if state.open_timer > 0.0 {
             continue;
         }
-
-        let dt = door.0;
 
         // If the player is standing in the doorway, don't slam it shut; retry shortly.
         if dt == player_tile {
@@ -282,12 +334,7 @@ pub fn door_auto_close(
             continue;
         }
 
-        let (tx, tz) = (dt.x as usize, dt.y as usize);
-        if grid.tile(tx, tz) != Tile::DoorOpen {
-            continue;
-        }
-
-        // Close it (solid again)
+        // Close it (solid again). Animation system will slide it shut.
         grid.set_tile(tx, tz, Tile::DoorClosed);
         *vis = Visibility::Visible;
 
