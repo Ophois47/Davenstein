@@ -1,7 +1,12 @@
 use bevy::audio::SpatialListener;
 use bevy::prelude::*;
 use std::f32::consts::{FRAC_PI_2, PI};
-use crate::map::{DoorTile, MapGrid, Tile};
+use crate::map::{
+	DoorState,
+	DoorTile,
+	MapGrid,
+	Tile,
+};
 use crate::player::{LookAngles, Player};
 
 const TILE_SIZE: f32 = 1.0;
@@ -169,6 +174,7 @@ pub fn setup(
 				    commands
 				        .spawn((
 					        DoorTile(IVec2::new(x as i32, z as i32)),
+					        DoorState { open_timer: 0.0 },
 					        Transform::from_translation(center),
 					        if is_open { Visibility::Hidden } else { Visibility::Visible },
 					    ))

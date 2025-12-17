@@ -1,7 +1,12 @@
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy::input::mouse::AccumulatedMouseMotion;
-use crate::map::{DoorTile, MapGrid, Tile};
+use crate::map::{
+	DoorState,
+	DoorTile,
+	MapGrid,
+	Tile,
+};
 use crate::audio::{PlaySfx, SfxKind};
 
 #[derive(Component)]
@@ -156,10 +161,11 @@ pub fn use_doors(
     keys: Res<ButtonInput<KeyCode>>,
     mut grid: ResMut<MapGrid>,
     q_player: Query<&Transform, With<Player>>,
-    mut q_doors: Query<(&DoorTile, &mut Visibility)>,
+    mut q_doors: Query<(&DoorTile, &mut DoorState, &mut Visibility)>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
     const TILE_SIZE: f32 = 1.0;
+    const DOOR_OPEN_SECS: f32 = 4.5;
 
     if !keys.just_pressed(KeyCode::Space) {
         return;
@@ -215,17 +221,80 @@ pub fn use_doors(
 
     grid.set_tile(tx, tz, new_tile);
 
-    // Update the door entity visibility
-    for (door, mut vis) in q_doors.iter_mut() {
-        if door.0 == target {
-            *vis = new_vis;
-            break;
-        }
-    }
+    // Update the door entity (visibility + timer)
+	for (door, mut state, mut vis) in q_doors.iter_mut() {
+	    if door.0 == target {
+	        *vis = new_vis;
+
+	        // Start/reset the auto-close timer
+	        state.open_timer = match new_tile {
+	            Tile::DoorOpen => DOOR_OPEN_SECS,
+	            _ => 0.0,
+	        };
+
+	        break;
+	    }
+	}
 
     // Play SFX at the door center
     sfx.write(PlaySfx {
         kind: sfx_kind,
         pos: Vec3::new(target.x as f32 * TILE_SIZE, 0.6, target.y as f32 * TILE_SIZE),
     });
+}
+
+pub fn door_auto_close(
+    time: Res<Time>,
+    mut grid: ResMut<MapGrid>,
+    q_player: Query<&Transform, With<Player>>,
+    mut q_doors: Query<(&DoorTile, &mut DoorState, &mut Visibility)>,
+    mut sfx: MessageWriter<PlaySfx>,
+) {
+    const TILE_SIZE: f32 = 1.0;
+    const RETRY_SECS_IF_BLOCKED: f32 = 0.2;
+
+    let Ok(player_tf) = q_player.single() else { return; };
+
+    fn world_to_tile(p: Vec2) -> IVec2 {
+        IVec2::new((p.x + 0.5).floor() as i32, (p.y + 0.5).floor() as i32)
+    }
+
+    let player_tile = world_to_tile(Vec2::new(
+        player_tf.translation.x,
+        player_tf.translation.z,
+    ));
+
+    for (door, mut state, mut vis) in q_doors.iter_mut() {
+        if state.open_timer <= 0.0 {
+            continue;
+        }
+
+        state.open_timer -= time.delta_secs();
+        if state.open_timer > 0.0 {
+            continue;
+        }
+
+        let dt = door.0;
+
+        // If the player is standing in the doorway, don't slam it shut; retry shortly.
+        if dt == player_tile {
+            state.open_timer = RETRY_SECS_IF_BLOCKED;
+            continue;
+        }
+
+        let (tx, tz) = (dt.x as usize, dt.y as usize);
+        if grid.tile(tx, tz) != Tile::DoorOpen {
+            continue;
+        }
+
+        // Close it (solid again)
+        grid.set_tile(tx, tz, Tile::DoorClosed);
+        *vis = Visibility::Visible;
+
+        // Play close SFX at the door center
+        sfx.write(PlaySfx {
+            kind: SfxKind::DoorClose,
+            pos: Vec3::new(dt.x as f32 * TILE_SIZE, 0.6, dt.y as f32 * TILE_SIZE),
+        });
+    }
 }

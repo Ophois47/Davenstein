@@ -1,5 +1,9 @@
 use bevy::prelude::*;
-use bevy::audio::{AudioPlayer, AudioSource, PlaybackSettings};
+use bevy::audio::{
+	AudioPlayer,
+	AudioSource,
+	PlaybackSettings,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub enum SfxKind {

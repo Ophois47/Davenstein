@@ -3,6 +3,13 @@ use bevy::prelude::*;
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DoorTile(pub IVec2); // (x, z) in tile coords
 
+#[derive(Component, Debug, Clone, Copy)]
+pub struct DoorState {
+	// seconds remaining while open
+	// 0 = no pending close
+	pub open_timer: f32,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tile {
     Empty,
