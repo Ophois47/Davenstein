@@ -72,7 +72,7 @@ pub fn play_sfx_events(
                 PlaybackSettings::DESPAWN
                     .with_spatial(true)
                     // smaller scale => "audio distance" grows slower => audible farther
-                    .with_spatial_scale(SpatialScale::new(0.35))
+                    .with_spatial_scale(SpatialScale::new(0.15))
                     .with_volume(Volume::Linear(1.25)),
             ),
         };

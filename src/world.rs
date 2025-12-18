@@ -20,6 +20,7 @@ pub struct GameAssets {
     pub wall_tex: Handle<Image>,
     pub floor_tex: Handle<Image>,
     pub door_tex: Handle<Image>,
+    pub jamb_tex: Handle<Image>,
 }
 
 fn load_assets(asset_server: &AssetServer) -> GameAssets {
@@ -27,6 +28,7 @@ fn load_assets(asset_server: &AssetServer) -> GameAssets {
         wall_tex: asset_server.load("textures/walls/wall.png"),
         floor_tex: asset_server.load("textures/floors/floor.png"),
         door_tex: asset_server.load("textures/doors/door.png"),
+        jamb_tex: asset_server.load("textures/walls/jamb.png"),
     }
 }
 
@@ -69,8 +71,15 @@ pub fn setup(
     let wall_tex = assets.wall_tex.clone();
     let floor_tex = assets.floor_tex.clone();
     let door_tex = assets.door_tex.clone();
+    let jamb_tex = assets.jamb_tex.clone();
 
     commands.insert_resource(assets);
+
+    let jamb_mat = materials.add(StandardMaterial {
+        base_color_texture: Some(jamb_tex),
+        cull_mode: None, // match your wall faces (double-sided)
+        ..default()
+    });
 
     let wall_mat = materials.add(StandardMaterial {
         base_color_texture: Some(wall_tex),
@@ -137,10 +146,11 @@ pub fn setup(
                     let cz = z as f32 * TILE_SIZE;
                     let y  = WALL_H * 0.5;
 
-                    let mut spawn_face = |pos: Vec3, yaw: f32| {
+                    let is_door = |t: Tile| matches!(t, Tile::DoorClosed | Tile::DoorOpen);
+                    let mut spawn_face = |pos: Vec3, yaw: f32, mat: Handle<StandardMaterial>| {
                         commands.spawn((
                             Mesh3d(wall_face.clone()),
-                            MeshMaterial3d(wall_mat.clone()),
+                            MeshMaterial3d(mat),
                             Transform {
                                 translation: pos,
                                 rotation: Quat::from_rotation_y(yaw) * wall_base,
@@ -150,20 +160,36 @@ pub fn setup(
                     };
 
                     // North (-Z)
-                    if z > 0 && !matches!(grid.tile(x, z - 1), Tile::Wall) {
-                        spawn_face(Vec3::new(cx, y, cz - half), PI);
+                    if z > 0 {
+                        let n = grid.tile(x, z - 1);
+                        if !matches!(n, Tile::Wall) {
+                            let mat = if is_door(n) { jamb_mat.clone() } else { wall_mat.clone() };
+                            spawn_face(Vec3::new(cx, y, cz - half), PI, mat);
+                        }
                     }
                     // South (+Z)
-                    if z + 1 < grid.height && !matches!(grid.tile(x, z + 1), Tile::Wall) {
-                        spawn_face(Vec3::new(cx, y, cz + half), 0.0);
+                    if z + 1 < grid.height {
+                        let s = grid.tile(x, z + 1);
+                        if !matches!(s, Tile::Wall) {
+                            let mat = if is_door(s) { jamb_mat.clone() } else { wall_mat.clone() };
+                            spawn_face(Vec3::new(cx, y, cz + half), 0.0, mat);
+                        }
                     }
                     // West (-X)
-                    if x > 0 && !matches!(grid.tile(x - 1, z), Tile::Wall) {
-                        spawn_face(Vec3::new(cx - half, y, cz), -FRAC_PI_2);
+                    if x > 0 {
+                        let w = grid.tile(x - 1, z);
+                        if !matches!(w, Tile::Wall) {
+                            let mat = if is_door(w) { jamb_mat.clone() } else { wall_mat.clone() };
+                            spawn_face(Vec3::new(cx - half, y, cz), -FRAC_PI_2, mat);
+                        }
                     }
                     // East (+X)
-                    if x + 1 < grid.width && !matches!(grid.tile(x + 1, z), Tile::Wall) {
-                        spawn_face(Vec3::new(cx + half, y, cz), FRAC_PI_2);
+                    if x + 1 < grid.width {
+                        let e = grid.tile(x + 1, z);
+                        if !matches!(e, Tile::Wall) {
+                            let mat = if is_door(e) { jamb_mat.clone() } else { wall_mat.clone() };
+                            spawn_face(Vec3::new(cx + half, y, cz), FRAC_PI_2, mat);
+                        }
                     }
                 }
                 Tile::DoorClosed | Tile::DoorOpen => {
