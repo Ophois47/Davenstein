@@ -38,19 +38,23 @@ pub fn setup(
 ) {
     // 12x12 example map.
     // Legend:  '#' = wall, 'D' = closed door, '.' or ' ' = empty, 'P' = player spawn
-    const MAP: [&str; 12] = [
-        "############",
-        "#P.........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "#..........#",
-        "######D#####",
+    const MAP: [&str; 16] = [
+        "########################",
+        "#..........#...........#",
+        "#..........D...........#",
+        "#..........#...........#",
+        "#..........#....###D####",
+        "#..........#....#......#",
+        "#..........#....#......#",
+        "##D#########....###D####",
+        "#......................#",
+        "#....###########.......#",
+        "#....#.........#.......#",
+        "#....#.........D.......#",
+        "#....#.........#.......#",
+        "#....###########.......#",
+        "#.....................P#",
+        "########################",
     ];
 
     let (grid, spawn) = MapGrid::from_ascii(&MAP);
@@ -70,6 +74,7 @@ pub fn setup(
 
     let wall_mat = materials.add(StandardMaterial {
         base_color_texture: Some(wall_tex),
+        cull_mode: None, // IMPORTANT: double-sided so faces never "disappear"
         ..default()
     });
 
@@ -112,23 +117,13 @@ pub fn setup(
     ));
 
     // Walls + Doors from grid
-    let cube = meshes.add(Cuboid::default());
     for z in 0..grid.height {
         for x in 0..grid.width {
             let tile = grid.tile(x, z);
 
-            // Rotate border walls so the cube's +Z face points inward
-            let rot_wall = if z == 0 {
-                Quat::IDENTITY
-            } else if z == grid.height - 1 {
-                Quat::from_rotation_y(PI)
-            } else if x == 0 {
-                Quat::from_rotation_y(FRAC_PI_2)
-            } else if x == grid.width - 1 {
-                Quat::from_rotation_y(-FRAC_PI_2)
-            } else {
-                Quat::IDENTITY
-            };
+            let wall_face = meshes.add(Plane3d::default().mesh().size(TILE_SIZE, WALL_H));
+            let wall_base = Quat::from_rotation_x(-FRAC_PI_2); // make Plane3d vertical
+            let half = TILE_SIZE * 0.5;
 
             let door_panel = meshes.add(
             	Plane3d::default()
@@ -138,30 +133,60 @@ pub fn setup(
 
             match tile {
                 Tile::Wall => {
-                    commands.spawn((
-                        Mesh3d(cube.clone()),
-                        MeshMaterial3d(wall_mat.clone()),
-                        Transform {
-                            translation: Vec3::new(
-                                x as f32 * TILE_SIZE,
-                                WALL_H * 0.5,
-                                z as f32 * TILE_SIZE,
-                            ),
-                            rotation: rot_wall,
-                            scale: Vec3::new(TILE_SIZE, WALL_H, TILE_SIZE),
-                        },
-                    ));
+                    let cx = x as f32 * TILE_SIZE;
+                    let cz = z as f32 * TILE_SIZE;
+                    let y  = WALL_H * 0.5;
+
+                    let mut spawn_face = |pos: Vec3, yaw: f32| {
+                        commands.spawn((
+                            Mesh3d(wall_face.clone()),
+                            MeshMaterial3d(wall_mat.clone()),
+                            Transform {
+                                translation: pos,
+                                rotation: Quat::from_rotation_y(yaw) * wall_base,
+                                ..default()
+                            },
+                        ));
+                    };
+
+                    // North (-Z)
+                    if z > 0 && !matches!(grid.tile(x, z - 1), Tile::Wall) {
+                        spawn_face(Vec3::new(cx, y, cz - half), PI);
+                    }
+                    // South (+Z)
+                    if z + 1 < grid.height && !matches!(grid.tile(x, z + 1), Tile::Wall) {
+                        spawn_face(Vec3::new(cx, y, cz + half), 0.0);
+                    }
+                    // West (-X)
+                    if x > 0 && !matches!(grid.tile(x - 1, z), Tile::Wall) {
+                        spawn_face(Vec3::new(cx - half, y, cz), -FRAC_PI_2);
+                    }
+                    // East (+X)
+                    if x + 1 < grid.width && !matches!(grid.tile(x + 1, z), Tile::Wall) {
+                        spawn_face(Vec3::new(cx + half, y, cz), FRAC_PI_2);
+                    }
                 }
                 Tile::DoorClosed | Tile::DoorOpen => {
 				    let is_open = matches!(tile, Tile::DoorOpen);
 
-				    // Determine door axis (same idea as before)
-				    let up_wall = z > 0 && matches!(grid.tile(x, z - 1), Tile::Wall);
-				    let down_wall = z + 1 < grid.height && matches!(grid.tile(x, z + 1), Tile::Wall);
+				    let left_open  = x > 0 && matches!(grid.tile(x - 1, z), Tile::Empty | Tile::DoorOpen);
+                    let right_open = x + 1 < grid.width  && matches!(grid.tile(x + 1, z), Tile::Empty | Tile::DoorOpen);
+                    let up_open    = z > 0 && matches!(grid.tile(x, z - 1), Tile::Empty | Tile::DoorOpen);
+                    let down_open  = z + 1 < grid.height && matches!(grid.tile(x, z + 1), Tile::Empty | Tile::DoorOpen);
 
-				    let base = Quat::from_rotation_x(-FRAC_PI_2);
-				    let yaw = if up_wall && down_wall { FRAC_PI_2 } else { 0.0 };
-				    let rot = Quat::from_rotation_y(yaw) * base;
+                    // Passage runs E/W if left+right are open; runs N/S if up+down are open.
+                    let pass_x = left_open && right_open; // passage along X (E/W)
+                    let pass_z = up_open && down_open;    // passage along Z (N/S)
+
+                    // Your door panel uses Plane3d (normal +Y by default :contentReference[oaicite:0]{index=0})
+                    // and you rotate it vertical with -90deg X. Yaw decides whether it faces +/-Z or +/-X.
+                    let base = Quat::from_rotation_x(-FRAC_PI_2);
+                    let yaw = if pass_x && !pass_z {
+                        FRAC_PI_2 // faces +/-X (correct for E/W passage)
+                    } else {
+                        0.0       // faces +/-Z (correct for N/S passage; also stable fallback)
+                    };
+                    let rot = Quat::from_rotation_y(yaw) * base;
 
 				    let normal = rot * Vec3::Y;
 				    let half = (DOOR_THICKNESS * TILE_SIZE) * 0.5;

@@ -3,6 +3,7 @@ use bevy::audio::{
 	AudioPlayer,
 	AudioSource,
 	PlaybackSettings,
+    SpatialScale,
     Volume,
 };
 
@@ -49,7 +50,7 @@ pub fn start_music(
     commands.spawn((
         Music,
         AudioPlayer::new(audio.music_level.clone()),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(0.35)),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(0.45)),
     ));
 }
 
@@ -59,15 +60,27 @@ pub fn play_sfx_events(
     mut ev: MessageReader<PlaySfx>,
 ) {
     for e in ev.read() {
-        let clip = match e.kind {
-            SfxKind::DoorOpen => audio.door_open.clone(),
-            SfxKind::DoorClose => audio.door_close.clone(),
+        let (clip, settings) = match e.kind {
+            SfxKind::DoorOpen => (
+                audio.door_open.clone(),
+                PlaybackSettings::DESPAWN
+                    .with_spatial(true)
+                    .with_spatial_scale(SpatialScale::new(0.60)),
+            ),
+            SfxKind::DoorClose => (
+                audio.door_close.clone(),
+                PlaybackSettings::DESPAWN
+                    .with_spatial(true)
+                    // smaller scale => "audio distance" grows slower => audible farther
+                    .with_spatial_scale(SpatialScale::new(0.35))
+                    .with_volume(Volume::Linear(1.25)),
+            ),
         };
 
         commands.spawn((
             Transform::from_translation(e.pos),
             AudioPlayer::new(clip),
-            PlaybackSettings::DESPAWN.with_spatial(true),
+            settings,
         ));
     }
 }
