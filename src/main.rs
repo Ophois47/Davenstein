@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use davelib::audio::{
 	play_sfx_events,
 	setup_audio,
+    start_music,
 	PlaySfx,
 };
 use davelib::player::{
@@ -15,12 +16,14 @@ use davelib::player::{
 use davelib::world::setup;
 
 fn main() {
+    info!("Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
+
     App::new()
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
         .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
         .init_resource::<PlayerSettings>()
         .add_message::<PlaySfx>()
-        .add_systems(Startup, (setup, setup_audio))
+        .add_systems(Startup, (setup_audio, start_music, setup).chain())
         .add_systems(Update, (
         	grab_mouse,
         	mouse_look,

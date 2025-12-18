@@ -3,6 +3,7 @@ use bevy::audio::{
 	AudioPlayer,
 	AudioSource,
 	PlaybackSettings,
+    Volume,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -21,13 +22,35 @@ pub struct PlaySfx {
 pub struct GameAudio {
     pub door_open: Handle<AudioSource>,
     pub door_close: Handle<AudioSource>,
+    pub music_level: Handle<AudioSource>,
 }
+
+#[derive(Component)]
+pub struct Music;
 
 pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(GameAudio {
         door_open: asset_server.load("sounds/sfx/door_open.ogg"),
         door_close: asset_server.load("sounds/sfx/door_close.ogg"),
+        music_level: asset_server.load("sounds/music/level1.ogg"),
     });
+}
+
+pub fn start_music(
+    mut commands: Commands,
+    audio: Res<GameAudio>,
+    q_music: Query<(), With<Music>>,
+) {
+    // prevent duplicates if Startup runs again (hot reload etc)
+    if q_music.iter().next().is_some() {
+        return;
+    }
+
+    commands.spawn((
+        Music,
+        AudioPlayer::new(audio.music_level.clone()),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(0.35)),
+    ));
 }
 
 pub fn play_sfx_events(
