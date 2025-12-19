@@ -11,6 +11,7 @@ use bevy::audio::{
 pub enum SfxKind {
     DoorOpen,
     DoorClose,
+    PistolFire,
 }
 
 #[derive(Clone, Copy, Debug, Message)]
@@ -24,6 +25,7 @@ pub struct GameAudio {
     pub door_open: Handle<AudioSource>,
     pub door_close: Handle<AudioSource>,
     pub music_level: Handle<AudioSource>,
+    pub pistol_fire: Handle<AudioSource>,
 }
 
 #[derive(Component)]
@@ -34,6 +36,7 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         door_open: asset_server.load("sounds/sfx/door_open.ogg"),
         door_close: asset_server.load("sounds/sfx/door_close.ogg"),
         music_level: asset_server.load("sounds/music/level1.ogg"),
+        pistol_fire: asset_server.load("sounds/sfx/pistol_fire.ogg"),
     });
 }
 
@@ -74,6 +77,11 @@ pub fn play_sfx_events(
                     // smaller scale => "audio distance" grows slower => audible farther
                     .with_spatial_scale(SpatialScale::new(0.15))
                     .with_volume(Volume::Linear(1.25)),
+            ),
+            SfxKind::PistolFire => (
+                audio.pistol_fire.clone(),
+                PlaybackSettings::DESPAWN
+                    .with_volume(Volume::Linear(1.5)),
             ),
         };
 
