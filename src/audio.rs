@@ -81,6 +81,8 @@ pub fn play_sfx_events(
             SfxKind::PistolFire => (
                 audio.pistol_fire.clone(),
                 PlaybackSettings::DESPAWN
+                    .with_spatial(true)
+                    .with_speed(1.0)
                     .with_volume(Volume::Linear(1.5)),
             ),
         };

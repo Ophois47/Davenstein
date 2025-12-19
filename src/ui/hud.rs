@@ -36,7 +36,7 @@ impl Default for WeaponState {
         let flash_secs = PISTOL_FLASH_TICS * TIC;
 
         let mut cooldown = Timer::from_seconds(cooldown_secs, TimerMode::Once);
-        cooldown.set_elapsed(std::time::Duration::from_secs_f32(cooldown_secs)); // start ready
+        cooldown.set_elapsed(std::time::Duration::from_secs_f32(cooldown_secs));
 
         Self {
             cooldown,
