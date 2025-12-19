@@ -1,5 +1,6 @@
 use bevy::audio::SpatialListener;
 use bevy::prelude::*;
+use bevy::ui::prelude::IsDefaultUiCamera;
 use std::f32::consts::{FRAC_PI_2, PI};
 use crate::map::{
     DoorAnim,
@@ -315,6 +316,7 @@ pub fn setup(
 
     commands.spawn((
         Camera3d::default(),
+        IsDefaultUiCamera,
         Player,
         LookAngles::default(),
         SpatialListener::new(0.2),

@@ -1,3 +1,5 @@
+mod ui;
+
 use bevy::prelude::*;
 use davelib::audio::{
 	play_sfx_events,
@@ -20,6 +22,7 @@ fn main() {
 
     App::new()
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
+        .add_plugins(ui::UiPlugin)
         .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
         .init_resource::<PlayerSettings>()
         .add_message::<PlaySfx>()
