@@ -29,8 +29,8 @@ pub(crate) struct WeaponState {
 impl Default for WeaponState {
     fn default() -> Self {
         const TIC: f32 = 1.0 / 70.0;
-        const PISTOL_COOLDOWN_TICS: f32 = 32.0;
-        const PISTOL_FLASH_TICS: f32 = 14.0;
+        const PISTOL_COOLDOWN_TICS: f32 = 20.0;
+        const PISTOL_FLASH_TICS: f32 = 12.0;
 
         let cooldown_secs = PISTOL_COOLDOWN_TICS * TIC;
         let flash_secs = PISTOL_FLASH_TICS * TIC;
