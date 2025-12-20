@@ -152,30 +152,32 @@ fn process_fire_shots(
             }
 
             // TEMP: reuse wall-hit SFX as “enemy hit” until we add a real one
-            sfx.write(PlaySfx {
-                kind: SfxKind::ShootWall,
-                pos: Vec3::new(shot.origin.x, 0.6, shot.origin.z),
-            });
+            // sfx.write(PlaySfx {
+            //     kind: SfxKind::ShootWall,
+            //     pos: Vec3::new(shot.origin.x, 0.6, shot.origin.z),
+            // });
 
             continue;
         }
-
+        
         // Otherwise, world feedback as before
         let Some(hit) = world_hit else { continue; };
+        
+        // TODO: Have switches for more modern things like sounds and
+        // graphics for hitting walls and enemies
+        // if matches!(hit.tile, davelib::map::Tile::Wall | davelib::map::Tile::DoorClosed) {
+        //     sfx.write(PlaySfx {
+        //         kind: SfxKind::ShootWall,
+        //         pos: Vec3::new(hit.pos.x, 0.6, hit.pos.z),
+        //     });
+        // }
 
-        if matches!(hit.tile, davelib::map::Tile::Wall | davelib::map::Tile::DoorClosed) {
-            sfx.write(PlaySfx {
-                kind: SfxKind::ShootWall,
-                pos: Vec3::new(hit.pos.x, 0.6, hit.pos.z),
-            });
-        }
-
-        if hit.tile_coord.x < 0 {
-            sfx.write(PlaySfx {
-                kind: SfxKind::ShootWall,
-                pos: Vec3::new(hit.pos.x, 0.6, hit.pos.z),
-            });
-            continue;
-        }
+        // if hit.tile_coord.x < 0 {
+        //     sfx.write(PlaySfx {
+        //         kind: SfxKind::ShootWall,
+        //         pos: Vec3::new(hit.pos.x, 0.6, hit.pos.z),
+        //     });
+        //     continue;
+        // }
     }
 }

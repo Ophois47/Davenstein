@@ -8,6 +8,6 @@ pub struct HudState {
 
 impl Default for HudState {
     fn default() -> Self {
-        Self { hp: 100, ammo: 8 }
+        Self { hp: 100, ammo: 25 }
     }
 }

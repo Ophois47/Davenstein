@@ -189,14 +189,14 @@ pub(crate) fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) 
                 bar.spawn((
                     HudHpText,
                     Text::new("HP 100"),
-                    TextFont { font: font.clone(), font_size: 24.0, ..default() },
+                    TextFont { font: font.clone(), font_size: 32.0, ..default() },
                     TextColor(Color::WHITE),
                 ));
 
                 bar.spawn((
                     HudAmmoText,
-                    Text::new("AMMO 8"),
-                    TextFont { font, font_size: 24.0, ..default() },
+                    Text::new("AMMO 25"),
+                    TextFont { font, font_size: 32.0, ..default() },
                     TextColor(Color::WHITE),
                 ));
             });

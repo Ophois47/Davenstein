@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use crate::actors::{Dead, Health, OccupiesTile};
 use crate::player::Player;
 
-const GUARD_MAX_HP: i32 = 16;
+const GUARD_MAX_HP: i32 = 6;
 
 #[derive(Resource)]
 pub struct GuardSprites {
