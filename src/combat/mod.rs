@@ -16,8 +16,29 @@ use davelib::map::MapGrid;
 mod hitscan;
 use hitscan::raycast_grid;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WeaponSlot {
+    Knife = 0,
+    Pistol = 1,
+    MachineGun = 2,
+    Chaingun = 3,
+}
+
+impl WeaponSlot {
+    pub fn from_digit_key(code: KeyCode) -> Option<Self> {
+        match code {
+            KeyCode::Digit1 => Some(Self::Knife),
+            KeyCode::Digit2 => Some(Self::Pistol),
+            KeyCode::Digit3 => Some(Self::MachineGun),
+            KeyCode::Digit4 => Some(Self::Chaingun),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Message, Debug, Clone, Copy)]
 pub struct FireShot {
+    pub weapon: WeaponSlot,
     pub origin: Vec3,
     pub dir: Vec3,
     pub max_dist: f32,

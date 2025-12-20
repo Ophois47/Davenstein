@@ -15,8 +15,39 @@ pub(super) struct ViewModelImage;
 
 #[derive(Resource, Clone)]
 pub(crate) struct ViewModelSprites {
-    pub idle: Handle<Image>,
-    pub fire: Handle<Image>,
+    pub knife_idle: Handle<Image>,
+    pub knife_fire: Handle<Image>,
+
+    pub pistol_idle: Handle<Image>,
+    pub pistol_fire: Handle<Image>,
+
+    pub mg_idle: Handle<Image>,
+    pub mg_fire: Handle<Image>,
+
+    pub chaingun_idle: Handle<Image>,
+    pub chaingun_fire: Handle<Image>,
+}
+
+impl ViewModelSprites {
+    pub fn idle(&self, w: crate::combat::WeaponSlot) -> Handle<Image> {
+        use crate::combat::WeaponSlot::*;
+        match w {
+            Knife => self.knife_idle.clone(),
+            Pistol => self.pistol_idle.clone(),
+            MachineGun => self.mg_idle.clone(),
+            Chaingun => self.chaingun_idle.clone(),
+        }
+    }
+
+    pub fn fire(&self, w: crate::combat::WeaponSlot) -> Handle<Image> {
+        use crate::combat::WeaponSlot::*;
+        match w {
+            Knife => self.knife_fire.clone(),
+            Pistol => self.pistol_fire.clone(),
+            MachineGun => self.mg_fire.clone(),
+            Chaingun => self.chaingun_fire.clone(),
+        }
+    }
 }
 
 #[derive(Resource)]
@@ -49,6 +80,7 @@ impl Default for WeaponState {
 pub(crate) fn weapon_fire_and_viewmodel(
     time: Res<Time>,
     mouse: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
     cursor: Single<&CursorOptions>,
     sprites: Option<Res<ViewModelSprites>>,
     mut weapon: ResMut<WeaponState>,
@@ -59,25 +91,24 @@ pub(crate) fn weapon_fire_and_viewmodel(
     mut fire_ev: MessageWriter<crate::combat::FireShot>,
     mut armed: Local<bool>,
 ) {
-    // Don’t do anything until setup_hud has inserted the sprite handles
     let Some(sprites) = sprites else { return; };
 
     // Tick timers
     let dt = time.delta();
     weapon.cooldown.tick(dt);
 
-    // Handle the "flash" (fire frame -> back to idle)
+    // Revert fire->idle when flash finishes
     if weapon.showing_fire {
         weapon.flash.tick(dt);
         if weapon.flash.is_finished() {
             weapon.showing_fire = false;
             if let Ok(mut img) = vm_q.single_mut() {
-                img.image = sprites.idle.clone();
+                img.image = sprites.idle(hud.selected);
             }
         }
     }
 
-    // Only allow firing while mouse is locked
+    // Only allow weapon selection/firing while mouse is locked (Wolf-ish)
     let locked = cursor.grab_mode == CursorGrabMode::Locked;
     if !locked {
         *armed = false;
@@ -90,51 +121,102 @@ pub(crate) fn weapon_fire_and_viewmodel(
         return;
     }
 
+    // Weapon selection (1–4)
+    for code in [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4] {
+        if keys.just_pressed(code) {
+            if let Some(slot) = crate::combat::WeaponSlot::from_digit_key(code) {
+                if hud.owns(slot) {
+                    hud.selected = slot;
+                    weapon.showing_fire = false;
+                    weapon.flash.reset(); // harmless
+                    if let Ok(mut img) = vm_q.single_mut() {
+                        img.image = sprites.idle(hud.selected);
+                    }
+                }
+            }
+        }
+    }
+
+    // Per-weapon params (Wolf-ish tics)
+    const TIC: f32 = 1.0 / 70.0;
+    let (cooldown_secs, flash_secs, ammo_cost, max_dist) = match hud.selected {
+        crate::combat::WeaponSlot::Knife => (10.0 * TIC, 8.0 * TIC, 0, 1.5),
+        crate::combat::WeaponSlot::Pistol => (20.0 * TIC, 12.0 * TIC, 1, 64.0),
+        crate::combat::WeaponSlot::MachineGun => (8.0 * TIC, 8.0 * TIC, 1, 64.0),
+        crate::combat::WeaponSlot::Chaingun => (6.0 * TIC, 8.0 * TIC, 1, 64.0),
+    };
+
+    // Ensure timers match current weapon (simple + safe)
+    if weapon.cooldown.duration().as_secs_f32() != cooldown_secs {
+        weapon.cooldown = Timer::from_seconds(cooldown_secs, TimerMode::Once);
+        weapon.cooldown.set_elapsed(std::time::Duration::from_secs_f32(cooldown_secs));
+    }
+    if weapon.flash.duration().as_secs_f32() != flash_secs {
+        weapon.flash = Timer::from_seconds(flash_secs, TimerMode::Once);
+    }
+
     // Fire
-    if mouse.just_pressed(MouseButton::Left)
-        && weapon.cooldown.is_finished()
-        && hud.ammo > 0
-    {
-        hud.ammo -= 1;
+    let has_ammo = ammo_cost == 0 || hud.ammo >= ammo_cost;
+    if mouse.just_pressed(MouseButton::Left) && weapon.cooldown.is_finished() && has_ammo {
+        if ammo_cost > 0 {
+            hud.ammo -= ammo_cost;
+        }
 
         weapon.cooldown.reset();
         weapon.flash.reset();
         weapon.showing_fire = true;
 
         if let Ok(mut img) = vm_q.single_mut() {
-            img.image = sprites.fire.clone();
+            img.image = sprites.fire(hud.selected);
         }
 
         if let Ok(tf) = q_player.single() {
-            // Shot origin at player/camera position
             let origin = tf.translation;
-
-            // Shot direction: player forward in world space
-            // (Your camera looks along -Z)
             let forward = (tf.rotation * Vec3::NEG_Z).normalize();
 
-            // keep y consistent with your other SFX
-            let sfx_pos = Vec3::new(origin.x, 0.6, origin.z);
-            sfx.write(PlaySfx { kind: SfxKind::PistolFire, pos: sfx_pos });
+            // SFX (don’t invent new kinds yet)
+            if hud.selected == crate::combat::WeaponSlot::Pistol {
+                let sfx_pos = Vec3::new(origin.x, 0.6, origin.z);
+                sfx.write(PlaySfx { kind: SfxKind::PistolFire, pos: sfx_pos });
+            }
 
             fire_ev.write(crate::combat::FireShot {
+                weapon: hud.selected,
                 origin,
                 dir: forward,
-                max_dist: 64.0,
+                max_dist,
             });
         }
     }
 }
 
-pub(crate) fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
+pub(crate) fn setup_hud(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    hud: Res<HudState>,
+) {
     let font: Handle<Font> = asset_server.load("fonts/honda_font.ttf");
-    let weapon_idle: Handle<Image> = asset_server.load("ui/weapons/pistol_idle.png");
-    let weapon_fire: Handle<Image> = asset_server.load("ui/weapons/pistol_fire.png");
 
-    commands.insert_resource(ViewModelSprites {
-        idle: weapon_idle.clone(),
-        fire: weapon_fire.clone(),
-    });
+    // New Wolf sheet naming (assets/weapons/*.png)
+    let sprites = ViewModelSprites {
+        knife_idle: asset_server.load("weapons/knife_0.png"),
+        knife_fire: asset_server.load("weapons/knife_2.png"),
+
+        pistol_idle: asset_server.load("weapons/pistol_0.png"),
+        pistol_fire: asset_server.load("weapons/pistol_2.png"),
+
+        mg_idle: asset_server.load("weapons/machinegun_0.png"),
+        mg_fire: asset_server.load("weapons/machinegun_2.png"),
+
+        chaingun_idle: asset_server.load("weapons/chaingun_0.png"),
+        chaingun_fire: asset_server.load("weapons/chaingun_2.png"),
+    };
+
+    // Make sprites available to the firing/viewmodel system
+    commands.insert_resource(sprites.clone());
+
+    // Pick the correct starting viewmodel based on currently selected weapon
+    let weapon_idle: Handle<Image> = sprites.idle(hud.selected);
 
     const STATUS_BAR_H: f32 = 64.0;
     const UI_PAD: f32 = 8.0;
@@ -173,7 +255,7 @@ pub(crate) fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) 
                 ));
             });
 
-            // Status bar
+            // Status bar (still simple for now)
             ui.spawn((
                 Node {
                     width: Val::Percent(100.0),
@@ -189,14 +271,22 @@ pub(crate) fn setup_hud(mut commands: Commands, asset_server: Res<AssetServer>) 
                 bar.spawn((
                     HudHpText,
                     Text::new("HP 100"),
-                    TextFont { font: font.clone(), font_size: 32.0, ..default() },
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 32.0,
+                        ..default()
+                    },
                     TextColor(Color::WHITE),
                 ));
 
                 bar.spawn((
                     HudAmmoText,
                     Text::new("AMMO 25"),
-                    TextFont { font, font_size: 32.0, ..default() },
+                    TextFont {
+                        font,
+                        font_size: 32.0,
+                        ..default()
+                    },
                     TextColor(Color::WHITE),
                 ));
             });
