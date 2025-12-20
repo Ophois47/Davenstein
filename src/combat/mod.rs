@@ -1,7 +1,16 @@
 use bevy::prelude::*;
-use davelib::actors::{Dead, Health, OccupiesTile};
-use davelib::audio::{PlaySfx, SfxKind};
-use davelib::enemies::{Guard, GuardDying};
+use bevy::time::{Timer, TimerMode};
+use davelib::actors::{
+    Dead,
+    Health,
+    OccupiesTile,
+};
+use davelib::audio::{PlaySfx, /*SfxKind*/};
+use davelib::enemies::{
+    Guard,
+    GuardDying,
+    GuardPain,
+};
 use davelib::map::MapGrid;
 
 mod hitscan;
@@ -26,7 +35,7 @@ impl Plugin for CombatPlugin {
 fn process_fire_shots(
     grid: Res<MapGrid>,
     mut shots: MessageReader<FireShot>,
-    mut sfx: MessageWriter<PlaySfx>,
+    mut _sfx: MessageWriter<PlaySfx>,
     mut commands: Commands,
     q_alive: Query<(Entity, &OccupiesTile), (With<Guard>, Without<Dead>)>,
     mut q_hp: Query<&mut Health, (With<Guard>, Without<Dead>)>,
@@ -141,13 +150,13 @@ fn process_fire_shots(
                 if hp.cur <= 0 {
                     hp.cur = 0;
 
-                    // Immediate Wolf rules: dead = non-solid + non-shootable
                     commands.entity(e).insert(Dead);
-
-                    // Start death animation (Wolf-style tics)
-                    commands
-                        .entity(e)
-                        .insert(GuardDying { frame: 0, tics: 0 });
+                    commands.entity(e).insert(GuardDying { frame: 0, tics: 0 });
+                } else {
+                    // 80ms is a very Wolf-like "blink"
+                    commands.entity(e).insert(GuardPain {
+                        timer: Timer::from_seconds(0.20, TimerMode::Once),
+                    });
                 }
             }
 
@@ -161,7 +170,7 @@ fn process_fire_shots(
         }
         
         // Otherwise, world feedback as before
-        let Some(hit) = world_hit else { continue; };
+        // let Some(hit) = world_hit else { continue; };
         
         // TODO: Have switches for more modern things like sounds and
         // graphics for hitting walls and enemies

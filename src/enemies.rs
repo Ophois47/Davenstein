@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::time::Timer;
 use crate::actors::{Dead, Health, OccupiesTile};
 use crate::player::Player;
 
@@ -7,6 +8,7 @@ const GUARD_MAX_HP: i32 = 6;
 #[derive(Resource)]
 pub struct GuardSprites {
     pub idle: [Handle<Image>; 8],
+    pub pain: Handle<Image>,
     pub death: [Handle<Image>; 4],
     pub corpse: Handle<Image>,
 }
@@ -17,15 +19,13 @@ impl FromWorld for GuardSprites {
 
         Self {
             idle: std::array::from_fn(|i| asset_server.load(format!("enemies/guard/guard_idle_a{i}.png"))),
-
-            // New death anim frames (Wolf-style, non-directional)
+            pain: asset_server.load("enemies/guard/guard_pain.png"),
             death: [
                 asset_server.load("enemies/guard/guard_death_0.png"),
                 asset_server.load("enemies/guard/guard_death_1.png"),
                 asset_server.load("enemies/guard/guard_death_2.png"),
                 asset_server.load("enemies/guard/guard_death_3.png"),
             ],
-
             corpse: asset_server.load("enemies/guard/guard_corpse.png"),
         }
     }
@@ -33,6 +33,25 @@ impl FromWorld for GuardSprites {
 
 #[derive(Component)]
 pub struct Guard;
+
+#[derive(Component)]
+pub struct GuardPain {
+    pub timer: Timer,
+}
+
+pub fn tick_guard_pain(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut GuardPain), With<Guard>>,
+) {
+    for (e, mut pain) in q.iter_mut() {
+        pain.timer.tick(time.delta());
+
+        if pain.timer.is_finished() {
+            commands.entity(e).remove::<GuardPain>();
+        }
+    }
+}
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct GuardDying {
@@ -159,6 +178,7 @@ pub fn update_guard_views(
     mut q: Query<(
         Option<&Dead>,
         Option<&GuardDying>,
+        Option<&GuardPain>,
         &GlobalTransform,
         &Dir8,
         &mut View8,
@@ -169,7 +189,7 @@ pub fn update_guard_views(
     let Ok(pgt) = q_player.single() else { return; };
     let cam_pos = pgt.translation();
 
-    for (dead, dying, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+    for (dead, dying, pain, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
         let enemy_pos = gt.translation();
 
         // Always billboard (alive or dead), Wolf-style
@@ -182,6 +202,15 @@ pub fn update_guard_views(
             let i = (dying.frame as usize).min(sprites.death.len() - 1);
             if let Some(mat) = materials.get_mut(&mat3d.0) {
                 mat.base_color_texture = Some(sprites.death[i].clone());
+            }
+            continue;
+        }
+
+        // Pain sprite (non-directional)
+        if pain.is_some() {
+            view.0 = 255; // <--- IMPORTANT
+            if let Some(mat) = materials.get_mut(&mat3d.0) {
+                mat.base_color_texture = Some(sprites.pain.clone());
             }
             continue;
         }
@@ -208,7 +237,7 @@ impl Plugin for EnemiesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GuardSprites>()
             .add_systems(Update, update_guard_views)
-            .add_systems(FixedUpdate, tick_guard_dying)
+            .add_systems(FixedUpdate, (tick_guard_dying, tick_guard_pain))
             .add_systems(PostUpdate, apply_guard_corpses);
     }
 }

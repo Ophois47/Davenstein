@@ -3,9 +3,11 @@ use davelib::map::{MapGrid, Tile};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RayHit {
+    #[allow(dead_code)]
     pub tile: Tile,
     #[allow(dead_code)]
     pub tile_coord: IVec2,
+    #[allow(dead_code)]
     pub pos: Vec3,
     #[allow(dead_code)]
     pub normal: Vec3,
