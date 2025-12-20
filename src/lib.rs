@@ -1,3 +1,4 @@
+pub mod actors;
 pub mod audio;
 pub mod enemies;
 pub mod map;

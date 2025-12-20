@@ -1,9 +1,13 @@
 use bevy::prelude::*;
+use crate::actors::{Dead, Health, OccupiesTile};
 use crate::player::Player;
+
+const GUARD_MAX_HP: i32 = 16;
 
 #[derive(Resource)]
 pub struct GuardSprites {
     pub idle: [Handle<Image>; 8],
+    pub corpse: Handle<Image>,
 }
 
 impl FromWorld for GuardSprites {
@@ -13,6 +17,7 @@ impl FromWorld for GuardSprites {
             idle: std::array::from_fn(|i| {
                 asset_server.load(format!("enemies/guard/guard_idle_a{i}.png"))
             }),
+            corpse: asset_server.load("enemies/guard/guard_corpse.png"),
         }
     }
 }
@@ -52,6 +57,8 @@ pub fn spawn_guard(
         Guard,
         Dir8(0),
         View8(0),
+        Health::new(GUARD_MAX_HP),
+        OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos), // <-- no base rotation, no negative scale
@@ -77,11 +84,32 @@ fn quantize_view8(enemy_dir8: u8, enemy_pos: Vec3, player_pos: Vec3) -> u8 {
     (((rel + step * 0.5) / step).floor() as i32 & 7) as u8
 }
 
+pub fn apply_guard_corpses(
+    sprites: Res<GuardSprites>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut q: Query<(Entity, &MeshMaterial3d<StandardMaterial>, &mut Transform, Option<&mut Visibility>), (With<Guard>, Added<Dead>)>,
+) {
+    for (e, mat3d, mut tf, vis) in q.iter_mut() {
+        if let Some(mat) = materials.get_mut(&mat3d.0) {
+            mat.base_color_texture = Some(sprites.corpse.clone());
+            mat.alpha_mode = AlphaMode::Blend;
+            mat.unlit = true;
+            mat.cull_mode = None;
+        }
+        if let Some(mut v) = vis {
+            *v = Visibility::Visible;
+        }
+        tf.translation.y = 0.5;
+        bevy::log::info!("Guard {:?} -> corpse applied", e);
+    }
+}
+
 pub fn update_guard_views(
     sprites: Res<GuardSprites>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     q_player: Query<&GlobalTransform, With<Player>>,
     mut q: Query<(
+        Option<&Dead>,
         &GlobalTransform,
         &Dir8,
         &mut View8,
@@ -92,19 +120,20 @@ pub fn update_guard_views(
     let Ok(pgt) = q_player.single() else { return; };
     let cam_pos = pgt.translation();
 
-    for (gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+    for (dead, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
         let enemy_pos = gt.translation();
 
-        // Billboard yaw-only toward the player/camera
+        // ALWAYS billboard (alive or dead)
         let to_cam = cam_pos - enemy_pos;
         let yaw = to_cam.x.atan2(to_cam.z);
-
-        // Rectangle faces +Z at yaw=0, so this is correct (no base rotation).
         tf.rotation = Quat::from_rotation_y(yaw);
 
-        // 8-way sprite selection (your existing function)
-        let v = quantize_view8(dir8.0, enemy_pos, cam_pos);
+        // If dead, do not swap sprite frames anymore
+        if dead.is_some() {
+            continue;
+        }
 
+        let v = quantize_view8(dir8.0, enemy_pos, cam_pos);
         if v != view.0 {
             view.0 = v;
             if let Some(mat) = materials.get_mut(&mat3d.0) {
@@ -115,9 +144,11 @@ pub fn update_guard_views(
 }
 
 pub struct EnemiesPlugin;
+
 impl Plugin for EnemiesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GuardSprites>()
-            .add_systems(Update, update_guard_views);
+            .add_systems(Update, update_guard_views)
+            .add_systems(PostUpdate, apply_guard_corpses);
     }
 }

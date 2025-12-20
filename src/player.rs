@@ -8,6 +8,7 @@ use crate::map::{
 	MapGrid,
 	Tile,
 };
+use crate::actors::{Dead, OccupiesTile};
 use crate::audio::{PlaySfx, SfxKind};
 
 #[derive(Component)]
@@ -78,6 +79,7 @@ pub fn player_move(
     time: Res<Time<Fixed>>,
     keys: Res<ButtonInput<KeyCode>>,
     grid: Res<MapGrid>,
+    q_enemies: Query<&OccupiesTile, Without<Dead>>,
     mut q_player: Query<&mut Transform, With<Player>>,
     settings: Res<PlayerSettings>,
 ) {
@@ -86,6 +88,9 @@ pub fn player_move(
     let Ok(mut transform) = q_player.single_mut() else {
         return;
     };
+
+    // Snapshot occupied tiles (tiny, Carmack-simple, no allocations beyond Vec)
+    let occupied: Vec<IVec2> = q_enemies.iter().map(|t| t.0).collect();
 
     // Movement basis (XZ only)
     let mut forward = transform.rotation * Vec3::NEG_Z;
@@ -110,20 +115,28 @@ pub fn player_move(
     let step = wish * settings.speed * time.delta_secs();
 
     // --- Helpers: world pos (x,z) -> tile index (x,z) ---
-    // Tiles are centered on integer coords (wall cubes are centered at x=0,1,2...),
-    // so "which tile am I in?" is floor(pos + 0.5).
     fn world_to_tile(p: Vec2) -> IVec2 {
         IVec2::new((p.x + 0.5).floor() as i32, (p.y + 0.5).floor() as i32)
     }
 
-    fn is_solid(grid: &MapGrid, tx: i32, tz: i32) -> bool {
+    fn is_occupied(occupied: &[IVec2], tx: i32, tz: i32) -> bool {
+        occupied.iter().any(|t| t.x == tx && t.y == tz)
+    }
+
+    fn is_solid(grid: &MapGrid, occupied: &[IVec2], tx: i32, tz: i32) -> bool {
         if tx < 0 || tz < 0 || tx >= grid.width as i32 || tz >= grid.height as i32 {
             return true; // outside map = solid
         }
+
+        // Wolf-style: living enemies are solid (corpses will be excluded by query later)
+        if is_occupied(occupied, tx, tz) {
+            return true;
+        }
+
         matches!(grid.tile(tx as usize, tz as usize), Tile::Wall | Tile::DoorClosed)
     }
 
-    fn collides(grid: &MapGrid, pos_xz: Vec2, radius: f32) -> bool {
+    fn collides(grid: &MapGrid, occupied: &[IVec2], pos_xz: Vec2, radius: f32) -> bool {
         let samples = [
             pos_xz + Vec2::new(-radius, -radius),
             pos_xz + Vec2::new(-radius,  radius),
@@ -133,7 +146,7 @@ pub fn player_move(
 
         for s in samples {
             let t = world_to_tile(s);
-            if is_solid(grid, t.x, t.y) {
+            if is_solid(grid, occupied, t.x, t.y) {
                 return true;
             }
         }
@@ -145,12 +158,12 @@ pub fn player_move(
 
     // Slide: resolve X, then Z
     let try_x = Vec2::new(pos.x + step.x, pos.y);
-    if !collides(&grid, try_x, PLAYER_RADIUS) {
+    if !collides(&grid, &occupied, try_x, PLAYER_RADIUS) {
         pos.x = try_x.x;
     }
 
     let try_z = Vec2::new(pos.x, pos.y + step.z);
-    if !collides(&grid, try_z, PLAYER_RADIUS) {
+    if !collides(&grid, &occupied, try_z, PLAYER_RADIUS) {
         pos.y = try_z.y;
     }
 
