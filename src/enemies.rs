@@ -7,16 +7,25 @@ const GUARD_MAX_HP: i32 = 16;
 #[derive(Resource)]
 pub struct GuardSprites {
     pub idle: [Handle<Image>; 8],
+    pub death: [Handle<Image>; 4],
     pub corpse: Handle<Image>,
 }
 
 impl FromWorld for GuardSprites {
     fn from_world(world: &mut World) -> Self {
         let asset_server = world.resource::<AssetServer>();
+
         Self {
-            idle: std::array::from_fn(|i| {
-                asset_server.load(format!("enemies/guard/guard_idle_a{i}.png"))
-            }),
+            idle: std::array::from_fn(|i| asset_server.load(format!("enemies/guard/guard_idle_a{i}.png"))),
+
+            // New death anim frames (Wolf-style, non-directional)
+            death: [
+                asset_server.load("enemies/guard/guard_death_0.png"),
+                asset_server.load("enemies/guard/guard_death_1.png"),
+                asset_server.load("enemies/guard/guard_death_2.png"),
+                asset_server.load("enemies/guard/guard_death_3.png"),
+            ],
+
             corpse: asset_server.load("enemies/guard/guard_corpse.png"),
         }
     }
@@ -24,6 +33,15 @@ impl FromWorld for GuardSprites {
 
 #[derive(Component)]
 pub struct Guard;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct GuardDying {
+    pub frame: u8, // 0..DEATH_FRAMES-1
+    pub tics: u8,  // fixed-step counter
+}
+
+#[derive(Component)]
+pub struct GuardCorpse;
 
 #[derive(Component, Clone, Copy)]
 pub struct Dir8(pub u8); // 0..7, 0 = facing -Z
@@ -84,12 +102,41 @@ fn quantize_view8(enemy_dir8: u8, enemy_pos: Vec3, player_pos: Vec3) -> u8 {
     (((rel + step * 0.5) / step).floor() as i32 & 7) as u8
 }
 
+pub fn tick_guard_dying(
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut GuardDying), With<Guard>>,
+) {
+    // Wolf-ish: simple fixed tics. At 60Hz FixedUpdate:
+    // 6 tics/frame ≈ 0.10s per frame → 4 frames ≈ 0.4s total.
+    const DEATH_FRAMES: u8 = 4;
+    const TICS_PER_FRAME: u8 = 6;
+
+    for (e, mut dying) in q.iter_mut() {
+        dying.tics = dying.tics.saturating_add(1);
+
+        if dying.tics >= TICS_PER_FRAME {
+            dying.tics = 0;
+            dying.frame = dying.frame.saturating_add(1);
+
+            if dying.frame >= DEATH_FRAMES {
+                // End of animation → permanent corpse
+                commands.entity(e).remove::<GuardDying>();
+                commands.entity(e).insert(GuardCorpse);
+            }
+        }
+    }
+}
+
 pub fn apply_guard_corpses(
     sprites: Res<GuardSprites>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut q: Query<(Entity, &MeshMaterial3d<StandardMaterial>, &mut Transform, Option<&mut Visibility>), (With<Guard>, Added<Dead>)>,
+    mut q: Query<(
+        &MeshMaterial3d<StandardMaterial>,
+        &mut Transform,
+        Option<&mut Visibility>,
+    ), (With<Guard>, Added<GuardCorpse>)>,
 ) {
-    for (e, mat3d, mut tf, vis) in q.iter_mut() {
+    for (mat3d, mut tf, vis) in q.iter_mut() {
         if let Some(mat) = materials.get_mut(&mat3d.0) {
             mat.base_color_texture = Some(sprites.corpse.clone());
             mat.alpha_mode = AlphaMode::Blend;
@@ -99,8 +146,9 @@ pub fn apply_guard_corpses(
         if let Some(mut v) = vis {
             *v = Visibility::Visible;
         }
+
+        // Keep the working floor-anchor fix (do NOT push into floor)
         tf.translation.y = 0.5;
-        bevy::log::info!("Guard {:?} -> corpse applied", e);
     }
 }
 
@@ -110,6 +158,7 @@ pub fn update_guard_views(
     q_player: Query<&GlobalTransform, With<Player>>,
     mut q: Query<(
         Option<&Dead>,
+        Option<&GuardDying>,
         &GlobalTransform,
         &Dir8,
         &mut View8,
@@ -120,19 +169,29 @@ pub fn update_guard_views(
     let Ok(pgt) = q_player.single() else { return; };
     let cam_pos = pgt.translation();
 
-    for (dead, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+    for (dead, dying, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
         let enemy_pos = gt.translation();
 
-        // ALWAYS billboard (alive or dead)
+        // Always billboard (alive or dead), Wolf-style
         let to_cam = cam_pos - enemy_pos;
         let yaw = to_cam.x.atan2(to_cam.z);
         tf.rotation = Quat::from_rotation_y(yaw);
 
-        // If dead, do not swap sprite frames anymore
+        // Dying anim (non-directional)
+        if let Some(dying) = dying {
+            let i = (dying.frame as usize).min(sprites.death.len() - 1);
+            if let Some(mat) = materials.get_mut(&mat3d.0) {
+                mat.base_color_texture = Some(sprites.death[i].clone());
+            }
+            continue;
+        }
+
+        // Dead (not dying) → corpse is stable, don't overwrite
         if dead.is_some() {
             continue;
         }
 
+        // Alive → 8-dir idle
         let v = quantize_view8(dir8.0, enemy_pos, cam_pos);
         if v != view.0 {
             view.0 = v;
@@ -149,6 +208,7 @@ impl Plugin for EnemiesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GuardSprites>()
             .add_systems(Update, update_guard_views)
+            .add_systems(FixedUpdate, tick_guard_dying)
             .add_systems(PostUpdate, apply_guard_corpses);
     }
 }

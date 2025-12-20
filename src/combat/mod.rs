@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use davelib::actors::{Dead, Health, OccupiesTile};
 use davelib::audio::{PlaySfx, SfxKind};
-use davelib::enemies::Guard;
+use davelib::enemies::{Guard, GuardDying};
 use davelib::map::MapGrid;
 
 mod hitscan;
@@ -140,7 +140,14 @@ fn process_fire_shots(
                 hp.cur -= dmg;
                 if hp.cur <= 0 {
                     hp.cur = 0;
+
+                    // Immediate Wolf rules: dead = non-solid + non-shootable
                     commands.entity(e).insert(Dead);
+
+                    // Start death animation (Wolf-style tics)
+                    commands
+                        .entity(e)
+                        .insert(GuardDying { frame: 0, tics: 0 });
                 }
             }
 
