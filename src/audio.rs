@@ -12,6 +12,7 @@ pub enum SfxKind {
     DoorOpen,
     DoorClose,
     PistolFire,
+    ShootWall,
 }
 
 #[derive(Clone, Copy, Debug, Message)]
@@ -26,6 +27,7 @@ pub struct GameAudio {
     pub door_close: Handle<AudioSource>,
     pub music_level: Handle<AudioSource>,
     pub pistol_fire: Handle<AudioSource>,
+    pub shoot_wall: Handle<AudioSource>,
 }
 
 #[derive(Component)]
@@ -37,6 +39,7 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         door_close: asset_server.load("sounds/sfx/door_close.ogg"),
         music_level: asset_server.load("sounds/music/level1.ogg"),
         pistol_fire: asset_server.load("sounds/sfx/pistol_fire.ogg"),
+        shoot_wall: asset_server.load("sounds/sfx/shoot_wall.ogg"),
     });
 }
 
@@ -84,6 +87,13 @@ pub fn play_sfx_events(
                     .with_spatial(true)
                     .with_speed(1.0)
                     .with_volume(Volume::Linear(1.5)),
+            ),
+            SfxKind::ShootWall => (
+                audio.shoot_wall.clone(),
+                PlaybackSettings::DESPAWN
+                    .with_spatial(true)
+                    .with_spatial_scale(SpatialScale::new(0.15))
+                    .with_volume(Volume::Linear(0.5)),
             ),
         };
 

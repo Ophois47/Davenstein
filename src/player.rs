@@ -176,17 +176,13 @@ pub fn use_doors(
         return;
     };
 
-    // Player tile (same convention as collision: floor(pos + 0.5))
     fn world_to_tile(p: Vec2) -> IVec2 {
         IVec2::new((p.x + 0.5).floor() as i32, (p.y + 0.5).floor() as i32)
     }
 
-    let player_tile = world_to_tile(Vec2::new(
-        player_tf.translation.x,
-        player_tf.translation.z,
-    ));
+    let player_tile = world_to_tile(Vec2::new(player_tf.translation.x, player_tf.translation.z));
 
-    // Facing direction -> choose the dominant axis (Wolf-style 4-way use)
+    // Wolf-style 4-way use
     let mut fwd = player_tf.rotation * Vec3::NEG_Z;
     fwd.y = 0.0;
     if fwd.length_squared() < 1e-6 {
@@ -202,7 +198,6 @@ pub fn use_doors(
 
     let target = IVec2::new(player_tile.x + dx, player_tile.y + dz);
 
-    // Bounds check
     if target.x < 0
         || target.y < 0
         || target.x >= grid.width as i32
@@ -214,45 +209,56 @@ pub fn use_doors(
     let (tx, tz) = (target.x as usize, target.y as usize);
     let cur = grid.tile(tx, tz);
 
-    let (new_tile, new_vis, sfx_kind) = match cur {
-		Tile::DoorClosed => (Tile::DoorOpen, Visibility::Visible, SfxKind::DoorOpen),
-		Tile::DoorOpen => (Tile::DoorClosed, Visibility::Visible, SfxKind::DoorClose),
-		_ => return,
-	};
+    if !matches!(cur, Tile::DoorClosed | Tile::DoorOpen) {
+        return;
+    }
 
-    grid.set_tile(tx, tz, new_tile);
+    let mut sfx_kind: Option<SfxKind> = None;
 
-    // Update the door entity (visibility + timer)
-	for (door, mut state, mut vis) in q_doors.iter_mut() {
-	    if door.0 == target {
-	        *vis = new_vis;
+    for (door, mut state, mut vis) in q_doors.iter_mut() {
+        if door.0 != target {
+            continue;
+        }
 
-	        // Start/reset the auto-close timer
-	        state.open_timer = match new_tile {
-	            Tile::DoorOpen => DOOR_OPEN_SECS,
-	            _ => 0.0,
-	        };
+        *vis = Visibility::Visible;
 
-	        break;
-	    }
-	}
+        match cur {
+            Tile::DoorOpen => {
+                // Closing: solid immediately
+                state.want_open = false;
+                state.open_timer = 0.0;
+                grid.set_tile(tx, tz, Tile::DoorClosed);
+                sfx_kind = Some(SfxKind::DoorClose);
+            }
+            Tile::DoorClosed => {
+                // Opening: DO NOT flip grid yet (Option 2)
+                state.want_open = true;
+                state.open_timer = DOOR_OPEN_SECS;
+                sfx_kind = Some(SfxKind::DoorOpen);
+            }
+            _ => {}
+        }
 
-    // Play SFX at the door center
-    sfx.write(PlaySfx {
-        kind: sfx_kind,
-        pos: Vec3::new(target.x as f32 * TILE_SIZE, 0.6, target.y as f32 * TILE_SIZE),
-    });
+        break;
+    }
+
+    if let Some(kind) = sfx_kind {
+        sfx.write(PlaySfx {
+            kind,
+            pos: Vec3::new(target.x as f32 * TILE_SIZE, 0.6, target.y as f32 * TILE_SIZE),
+        });
+    }
 }
 
 pub fn door_animate(
     time: Res<Time<Fixed>>,
-    grid: Res<MapGrid>,
-    mut q_doors: Query<(&DoorTile, &mut DoorAnim, &mut Transform, &mut Visibility)>,
+    mut grid: ResMut<MapGrid>,
+    mut q_doors: Query<(&DoorTile, &DoorState, &mut DoorAnim, &mut Transform, &mut Visibility)>,
 ) {
     const TILE_SIZE: f32 = 1.0;
-    const SLIDE_SPEED: f32 = 2.0; // 0->1 in ~0.5s
+    const SLIDE_SPEED: f32 = 2.0;
 
-    for (door, mut anim, mut tf, mut vis) in q_doors.iter_mut() {
+    for (door, state, mut anim, mut tf, mut vis) in q_doors.iter_mut() {
         let tx = door.0.x;
         let tz = door.0.y;
 
@@ -260,8 +266,15 @@ pub fn door_animate(
             continue;
         }
 
-        let want_open = matches!(grid.tile(tx as usize, tz as usize), Tile::DoorOpen);
+        let (ux, uz) = (tx as usize, tz as usize);
+
+        let want_open = state.want_open;
         let target = if want_open { 1.0 } else { 0.0 };
+
+        // If we're closing, ensure grid is solid immediately (robustness)
+        if !want_open && grid.tile(ux, uz) == Tile::DoorOpen {
+            grid.set_tile(ux, uz, Tile::DoorClosed);
+        }
 
         let step = SLIDE_SPEED * time.delta_secs();
         if anim.progress < target {
@@ -272,8 +285,11 @@ pub fn door_animate(
 
         tf.translation = anim.closed_pos + anim.slide_axis * (anim.progress * TILE_SIZE);
 
-        // Wolf-ish: door disappears into the wall when fully open
+        // Only when fully open does the tile become passable / shoot-through.
         if want_open && anim.progress >= 0.999 {
+            if grid.tile(ux, uz) != Tile::DoorOpen {
+                grid.set_tile(ux, uz, Tile::DoorOpen);
+            }
             *vis = Visibility::Hidden;
         } else {
             *vis = Visibility::Visible;
@@ -301,44 +317,35 @@ pub fn door_auto_close(
     let player_tile = world_to_tile(Vec2::new(player_tf.translation.x, player_tf.translation.z));
 
     for (door, mut state, anim, mut vis) in q_doors.iter_mut() {
-        // Only care about open doors
         let dt = door.0;
         if dt.x < 0 || dt.y < 0 || dt.x >= grid.width as i32 || dt.y >= grid.height as i32 {
             continue;
         }
         let (tx, tz) = (dt.x as usize, dt.y as usize);
 
+        // Only once the door is actually passable (Option 2)
         if grid.tile(tx, tz) != Tile::DoorOpen {
-            state.open_timer = 0.0;
             continue;
         }
 
-        // Don't start the "hold open" countdown until the door has fully slid open
         if anim.progress < FULLY_OPEN_EPS {
             continue;
         }
 
-        if state.open_timer <= 0.0 {
-            continue;
-        }
-
-        // Tick down
         state.open_timer -= time.delta_secs();
         if state.open_timer > 0.0 {
             continue;
         }
 
-        // If the player is standing in the doorway, don't slam it shut; retry shortly.
         if dt == player_tile {
             state.open_timer = RETRY_SECS_IF_BLOCKED;
             continue;
         }
 
-        // Close it (solid again). Animation system will slide it shut.
+        state.want_open = false;
         grid.set_tile(tx, tz, Tile::DoorClosed);
         *vis = Visibility::Visible;
 
-        // Play close SFX at the door center
         sfx.write(PlaySfx {
             kind: SfxKind::DoorClose,
             pos: Vec3::new(dt.x as f32 * TILE_SIZE, 0.6, dt.y as f32 * TILE_SIZE),

@@ -5,10 +5,13 @@ pub struct DoorTile(pub IVec2); // (x, z) in tile coords
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct DoorState {
-	// seconds remaining while open
-	// 0 = no pending close
-	pub open_timer: f32,
+    // Seconds remaining while open (countdown starts once fully open)
+    // 0 = no pending close
+    pub open_timer: f32,
+    // Door only becomes passable once fully open
+    pub want_open: bool,
 }
+
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct DoorAnim {
@@ -48,16 +51,17 @@ impl MapGrid {
 
     // ASCII Legend:
     // '#' = wall, '.' or ' ' = empty, 'P' = player spawn (treated as empty)
-    pub fn from_ascii(lines: &[&str]) -> (Self, Option<IVec2>) {
+    // 'G' = guard spawn (treated as empty)
+    pub fn from_ascii(lines: &[&str]) -> (Self, Option<IVec2>, Vec<IVec2>) {
         let height = lines.len();
         let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
 
         let mut tiles = Vec::with_capacity(width * height);
         let mut player_spawn: Option<IVec2> = None;
+        let mut guards: Vec<IVec2> = Vec::new();
 
         for (z, line) in lines.iter().enumerate() {
             let mut chars = line.chars().collect::<Vec<_>>();
-            // Pad Short Lines with Empty
             while chars.len() < width {
                 chars.push(' ');
             }
@@ -71,6 +75,10 @@ impl MapGrid {
                         tiles.push(Tile::Empty);
                         player_spawn = Some(IVec2::new(x as i32, z as i32));
                     }
+                    'G' => {
+                        tiles.push(Tile::Empty);
+                        guards.push(IVec2::new(x as i32, z as i32));
+                    }
                     '.' | ' ' => tiles.push(Tile::Empty),
                     _ => tiles.push(Tile::Empty),
                 }
@@ -78,12 +86,9 @@ impl MapGrid {
         }
 
         (
-            Self {
-                width,
-                height,
-                tiles,
-            },
+            Self { width, height, tiles },
             player_spawn,
+            guards,
         )
     }
 }

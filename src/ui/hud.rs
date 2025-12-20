@@ -56,6 +56,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     mut vm_q: Query<&mut ImageNode, With<ViewModelImage>>,
     q_player: Query<&Transform, With<Player>>,
     mut sfx: MessageWriter<PlaySfx>,
+    mut fire_ev: MessageWriter<crate::combat::FireShot>,
     mut armed: Local<bool>,
 ) {
     // Don’t do anything until setup_hud has inserted the sprite handles
@@ -105,9 +106,22 @@ pub(crate) fn weapon_fire_and_viewmodel(
         }
 
         if let Ok(tf) = q_player.single() {
+            // Shot origin at player/camera position
+            let origin = tf.translation;
+
+            // Shot direction: player forward in world space
+            // (Your camera looks along -Z)
+            let forward = (tf.rotation * Vec3::NEG_Z).normalize();
+
             // keep y consistent with your other SFX
-            let pos = Vec3::new(tf.translation.x, 0.6, tf.translation.z);
-            sfx.write(PlaySfx { kind: SfxKind::PistolFire, pos });
+            let sfx_pos = Vec3::new(origin.x, 0.6, origin.z);
+            sfx.write(PlaySfx { kind: SfxKind::PistolFire, pos: sfx_pos });
+
+            fire_ev.write(crate::combat::FireShot {
+                origin,
+                dir: forward,
+                max_dist: 64.0,
+            });
         }
     }
 }

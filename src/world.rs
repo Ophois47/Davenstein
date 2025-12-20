@@ -38,6 +38,7 @@ pub fn setup(
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    guard_sprites: Res<crate::enemies::GuardSprites>,
 ) {
     use bevy::mesh::VertexAttributeValues;
 
@@ -45,7 +46,7 @@ pub fn setup(
     const MAP: [&str; 16] = [
         "########################",
         "#..........#...........#",
-        "#..........D...........#",
+        "#...G......D...........#",
         "#..........#...........#",
         "#..........#....##D#####",
         "#..........#....#......#",
@@ -61,7 +62,7 @@ pub fn setup(
         "########################",
     ];
 
-    let (grid, spawn) = MapGrid::from_ascii(&MAP);
+    let (grid, spawn, guards) = MapGrid::from_ascii(&MAP);
     let spawn = spawn.unwrap_or(IVec2::new(1, 1));
 
     // Make map available for collision / doors / raycasts later
@@ -69,12 +70,10 @@ pub fn setup(
 
     // Load + store assets
     let assets = load_assets(&asset_server);
-
     let wall_tex = assets.wall_tex.clone();
     let floor_tex = assets.floor_tex.clone();
     let door_tex = assets.door_tex.clone();
     let jamb_tex = assets.jamb_tex.clone();
-
     commands.insert_resource(assets);
 
     let wall_mat = materials.add(StandardMaterial {
@@ -131,7 +130,7 @@ pub fn setup(
         Transform::from_translation(room_center),
     ));
 
-    // ---------- Reusable meshes / constants (CREATE ONCE) ----------
+    // ---------- Reusable meshes / constants ----------
     let wall_face = meshes.add(Plane3d::default().mesh().size(TILE_SIZE, WALL_H));
     let wall_base = Quat::from_rotation_x(-FRAC_PI_2); // make Plane3d vertical
     let half_tile = TILE_SIZE * 0.5;
@@ -269,7 +268,7 @@ pub fn setup(
                     commands
                         .spawn((
                             DoorTile(IVec2::new(x as i32, z as i32)),
-                            DoorState { open_timer: 0.0 },
+                            DoorState { open_timer: 0.0, want_open: is_open },
                             DoorAnim {
                                 progress,
                                 closed_pos: center,
@@ -305,6 +304,16 @@ pub fn setup(
                 _ => {}
             }
         }
+    }
+
+    for g in guards {
+        crate::enemies::spawn_guard(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            &guard_sprites,
+            g,
+        );
     }
 
     // Player spawn from grid
