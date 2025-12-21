@@ -158,32 +158,50 @@ pub(crate) fn weapon_fire_and_viewmodel(
     // Fire
     let has_ammo = ammo_cost == 0 || hud.ammo >= ammo_cost;
     if mouse.just_pressed(MouseButton::Left) && weapon.cooldown.is_finished() && has_ammo {
+        // Spend ammo (knife is 0 cost)
         if ammo_cost > 0 {
             hud.ammo -= ammo_cost;
         }
 
+        // Start cooldown + flash
         weapon.cooldown.reset();
         weapon.flash.reset();
         weapon.showing_fire = true;
 
+        // Swap viewmodel to "fire" frame
         if let Ok(mut img) = vm_q.single_mut() {
             img.image = sprites.fire(hud.selected);
         }
 
+        // Emit SFX + FireShot
         if let Ok(tf) = q_player.single() {
             let origin = tf.translation;
-            let forward = (tf.rotation * Vec3::NEG_Z).normalize();
+            let dir = (tf.rotation * Vec3::NEG_Z).normalize();
+            let sfx_pos = Vec3::new(origin.x, 0.6, origin.z);
 
-            // SFX (don’t invent new kinds yet)
-            if hud.selected == crate::combat::WeaponSlot::Pistol {
-                let sfx_pos = Vec3::new(origin.x, 0.6, origin.z);
-                sfx.write(PlaySfx { kind: SfxKind::PistolFire, pos: sfx_pos });
+            // Weapon fire SFX (knife swing vs pistol shot)
+            match hud.selected {
+                crate::combat::WeaponSlot::Knife => {
+                    sfx.write(PlaySfx { kind: SfxKind::KnifeSwing, pos: sfx_pos });
+                }
+                crate::combat::WeaponSlot::Pistol => {
+                    sfx.write(PlaySfx { kind: SfxKind::PistolFire, pos: sfx_pos });
+                }
+                crate::combat::WeaponSlot::MachineGun => {
+                    // (we'll add once you have the MG sound registered)
+                    // sfx.write(PlaySfx { kind: SfxKind::MachineGunFire, pos: sfx_pos });
+                }
+                crate::combat::WeaponSlot::Chaingun => {
+                    // (we'll add once you have the chaingun sound registered)
+                    // sfx.write(PlaySfx { kind: SfxKind::ChaingunFire, pos: sfx_pos });
+                }
             }
 
+            // FireShot (combat decides what gets hit)
             fire_ev.write(crate::combat::FireShot {
                 weapon: hud.selected,
                 origin,
-                dir: forward,
+                dir,
                 max_dist,
             });
         }

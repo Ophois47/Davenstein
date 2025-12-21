@@ -38,6 +38,7 @@ impl WeaponSlot {
 
 #[derive(Message, Debug, Clone, Copy)]
 pub struct FireShot {
+    #[allow(dead_code)]
     pub weapon: WeaponSlot,
     pub origin: Vec3,
     pub dir: Vec3,

@@ -1,9 +1,16 @@
 use bevy::prelude::*;
 use bevy::time::Timer;
 use crate::actors::{Dead, Health, OccupiesTile};
+use crate::audio::{PlaySfx, SfxKind};
 use crate::player::Player;
 
 const GUARD_MAX_HP: i32 = 6;
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EnemyKind {
+    Guard,
+    // later: Officer, SS, Dog, Boss, etc.
+}
 
 #[derive(Resource)]
 pub struct GuardSprites {
@@ -68,6 +75,21 @@ pub struct Dir8(pub u8); // 0..7, 0 = facing -Z
 #[derive(Component, Clone, Copy)]
 pub struct View8(pub u8); // cached to avoid redundant texture swaps
 
+pub fn play_enemy_death_sfx(
+    mut sfx: MessageWriter<PlaySfx>,
+    q: Query<(&GlobalTransform, &EnemyKind), Added<Dead>>,
+) {
+    for (gt, kind) in q.iter() {
+        let p = gt.translation();
+        let pos = Vec3::new(p.x, 0.6, p.z);
+
+        sfx.write(PlaySfx {
+            kind: SfxKind::EnemyDeath(*kind),
+            pos,
+        });
+    }
+}
+
 pub fn spawn_guard(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -92,6 +114,7 @@ pub fn spawn_guard(
 
     commands.spawn((
         Guard,
+        EnemyKind::Guard,
         Dir8(0),
         View8(0),
         Health::new(GUARD_MAX_HP),
@@ -238,6 +261,6 @@ impl Plugin for EnemiesPlugin {
         app.init_resource::<GuardSprites>()
             .add_systems(Update, update_guard_views)
             .add_systems(FixedUpdate, (tick_guard_dying, tick_guard_pain))
-            .add_systems(PostUpdate, apply_guard_corpses);
+            .add_systems(PostUpdate, (apply_guard_corpses, play_enemy_death_sfx));
     }
 }

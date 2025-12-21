@@ -14,3 +14,4 @@ doc = false
 
 [dependencies]
 bevy = "0.17"
+rand = "0.8"
