@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use crate::combat::WeaponSlot;
 use crate::ui::HudState;
 use std::f32::consts::FRAC_PI_2;
+use davelib::audio::{PlaySfx, SfxKind};
 use davelib::map::{MapGrid, Tile};
 use davelib::player::Player;
 
@@ -152,6 +153,7 @@ pub fn collect_pickups(
     q_player: Query<&Transform, With<Player>>,
     mut hud: ResMut<HudState>,
     q_pickups: Query<(Entity, &Pickup)>,
+    mut sfx: MessageWriter<PlaySfx>,
 ) {
     let mut it = q_player.iter();
     let Some(player_tf) = it.next() else {
@@ -170,15 +172,22 @@ pub fn collect_pickups(
 
         match p.kind {
             PickupKind::Weapon(w) => {
+                // Play the pickup sound for this specific pickup type.
+                // (Right now we only have a chaingun pickup sound registered.)
+                if matches!(w, WeaponSlot::Chaingun) {
+                    sfx.write(PlaySfx {
+                        kind: SfxKind::PickupChaingun,
+                        pos: player_tf.translation,
+                    });
+                }
+
                 if !hud.owns(w) {
                     hud.grant(w);
-                    hud.selected = w; // ✅ auto-switch only when newly acquired
+                    hud.selected = w; // auto-switch only when newly acquired
                     info!("Picked up weapon: {:?} (now owned, auto-selected)", w);
                 } else {
                     info!("Picked up weapon: {:?} (already owned)", w);
                 }
-
-                // TODO (next step): always play pickup SFX here.
             }
         }
 
