@@ -29,7 +29,7 @@ impl Default for HudState {
     fn default() -> Self {
         let mut s = Self {
             hp: 100,
-            ammo: 100,
+            ammo: 8,
             selected: WeaponSlot::Pistol,
             owned_mask: 0,
         };
@@ -37,8 +37,6 @@ impl Default for HudState {
         // Start with Knife + Pistol (Wolf-style)
         s.grant(WeaponSlot::Knife);
         s.grant(WeaponSlot::Pistol);
-        s.grant(WeaponSlot::MachineGun);
-        s.grant(WeaponSlot::Chaingun);
         s
     }
 }

@@ -1,4 +1,5 @@
 mod combat;
+mod pickups;
 mod ui;
 
 use bevy::prelude::*;
@@ -64,9 +65,19 @@ fn main() {
         .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
         .init_resource::<PlayerSettings>()
         .add_message::<PlaySfx>()
-        .add_systems(Startup, (setup_audio, start_music, setup).chain())
-        .add_systems(Update, (grab_mouse, mouse_look, use_doors).chain())
+        .add_systems(
+            Startup,
+            (setup_audio, start_music, setup, pickups::spawn_test_weapon_pickup).chain(),
+        )
+        .add_systems(
+            Update,
+            // billboard after mouse_look so the pickup faces the camera correctly each frame
+            (grab_mouse, mouse_look, pickups::billboard_pickups, use_doors).chain(),
+        )
         .add_systems(PostUpdate, play_sfx_events)
-        .add_systems(FixedUpdate, (door_auto_close, door_animate, player_move).chain())
+        .add_systems(
+            FixedUpdate,
+            (door_auto_close, door_animate, player_move, pickups::collect_pickups).chain(),
+        )
         .run();
 }

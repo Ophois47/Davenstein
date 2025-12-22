@@ -482,16 +482,16 @@ pub(crate) fn setup_hud(
     // New Wolf sheet naming (assets/weapons/*.png)
     let sprites = ViewModelSprites {
         knife: std::array::from_fn(|i| {
-            asset_server.load(format!("weapons/knife_{i}.png"))
+            asset_server.load(format!("textures/weapons/knife_{i}.png"))
         }),
         pistol: std::array::from_fn(|i| {
-            asset_server.load(format!("weapons/pistol_{i}.png"))
+            asset_server.load(format!("textures/weapons/pistol_{i}.png"))
         }),
         machinegun: std::array::from_fn(|i| {
-            asset_server.load(format!("weapons/machinegun_{i}.png"))
+            asset_server.load(format!("textures/weapons/machinegun_{i}.png"))
         }),
         chaingun: std::array::from_fn(|i| {
-            asset_server.load(format!("weapons/chaingun_{i}.png"))
+            asset_server.load(format!("textures/weapons/chaingun_{i}.png"))
         }),
     };
 
@@ -564,7 +564,7 @@ pub(crate) fn setup_hud(
 
                 bar.spawn((
                     HudAmmoText,
-                    Text::new("AMMO 100"),
+                    Text::new("AMMO 8"),
                     TextFont {
                         font,
                         font_size: 36.0,
