@@ -3,7 +3,6 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::player::Player;
-use crate::combat::WeaponSlot::*;
 
 #[derive(Component)]
 pub(super) struct HudHpText;
@@ -48,6 +47,7 @@ impl ViewModelSprites {
     }
 
     // Direct indexing (keep this for any code that truly wants idx)
+    #[allow(dead_code)]
     pub fn fire_frame(&self, w: crate::combat::WeaponSlot, idx: usize) -> Handle<Image> {
         use crate::combat::WeaponSlot::*;
         match w {
@@ -65,7 +65,9 @@ impl ViewModelSprites {
         match w {
             // Machinegun: "bring up/forward" (1) <-> flash (2)
             MachineGun => {
-                const SEQ: [usize; 2] = [1, 2];
+                // Wolf-like MG cycle: bring up/forward -> flash -> recover/back
+                // Choose the "back" frame as 3 OR 4 depending on which looks like recoil recovery.
+                const SEQ: [usize; 3] = [1, 2, 3];
                 self.machinegun[SEQ[cycle % SEQ.len()]].clone()
             }
 
@@ -170,6 +172,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
                     weapon.cooldown.set_elapsed(dur);
                     *fire_anim_accum = 0.0;
                     *last_weapon = Some(hud.selected);
+                    *auto_linger = 0.0;
                     if let Ok(mut img) = vm_q.single_mut() {
                         img.image = sprites.idle(hud.selected);
                     }
@@ -184,6 +187,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
         weapon.fire_cycle = 0;
         weapon.showing_fire = false;
         *last_weapon = Some(hud.selected);
+        *auto_linger = 0.0;
         if let Ok(mut img) = vm_q.single_mut() {
             img.image = sprites.idle(hud.selected);
         }
@@ -207,40 +211,47 @@ pub(crate) fn weapon_fire_and_viewmodel(
         weapon.flash = Timer::from_seconds(flash_secs, TimerMode::Once);
     }
 
-    let is_full_auto = matches!(hud.selected, WeaponSlot::MachineGun | WeaponSlot::Chaingun);
+    // --- Weapon kind flags (MG handled differently; CG unchanged) ---
+    let is_machinegun = hud.selected == WeaponSlot::MachineGun;
+    let is_chaingun = hud.selected == WeaponSlot::Chaingun;
+    let is_full_auto = is_machinegun || is_chaingun;
+
     let trigger_down = mouse.pressed(MouseButton::Left);
     let trigger_pressed = mouse.just_pressed(MouseButton::Left);
 
     // Tick cooldown always
     weapon.cooldown.tick(dt);
 
-    // Revert fire->idle when flash finishes (NOT for full-auto)
-    if weapon.showing_fire && !is_full_auto {
+    // Ammo check
+    let mut has_ammo = ammo_cost == 0 || hud.ammo >= ammo_cost;
+
+    // --- Flash timer handling ---
+    // Knife + Pistol keep existing flash behavior.
+    // MachineGun ALSO uses flash timer, but Chaingun does NOT (it has its own cycling).
+    if weapon.showing_fire && (!is_chaingun) {
         weapon.flash.tick(dt);
         if weapon.flash.is_finished() {
             weapon.showing_fire = false;
+
             if let Ok(mut img) = vm_q.single_mut() {
-                img.image = sprites.idle(hud.selected);
+                // MG: after flash, while holding and with ammo, stay in "forward" pose
+                if is_machinegun && trigger_down && has_ammo {
+                    img.image = sprites.fire_frame(WeaponSlot::MachineGun, 1); // forward
+                } else {
+                    img.image = sprites.idle(hud.selected);
+                }
             }
         }
     }
 
-    // Ammo check
-    let mut has_ammo = ammo_cost == 0 || hud.ammo >= ammo_cost;
-
-    // FULL-AUTO ANIMATION (Wolf-like):
-    // While held + has ammo, loop firing frames (2 <-> 4) every 6 tics.
-    // Only return to idle when trigger released or ammo is gone.
+    // --- CHAINGUN ONLY: keep your current perfect cycling behavior ---
     let firing_anim_tic_secs = 12.0 * TIC;
 
-    if is_full_auto && trigger_down && has_ammo {
+    if is_chaingun && trigger_down && has_ammo {
         *auto_linger = 0.0;
 
-        // If we just entered firing, force an immediate firing frame (tap/hold responsiveness)
         if weapon.fire_cycle == 0 {
             weapon.showing_fire = true;
-
-            // Start at cycle 0 and immediately display it
             if let Ok(mut img) = vm_q.single_mut() {
                 img.image = sprites.auto_fire(hud.selected, weapon.fire_cycle);
             }
@@ -248,11 +259,9 @@ pub(crate) fn weapon_fire_and_viewmodel(
 
         *fire_anim_accum += dt_secs;
 
-        // Advance at most one anim step per rendered frame (prevents flicker)
         if *fire_anim_accum >= firing_anim_tic_secs {
             *fire_anim_accum -= firing_anim_tic_secs;
 
-            // Cycle counter advances (do NOT use 2/4 here anymore)
             weapon.fire_cycle = weapon.fire_cycle.wrapping_add(1);
             weapon.showing_fire = true;
 
@@ -263,13 +272,10 @@ pub(crate) fn weapon_fire_and_viewmodel(
     } else {
         *fire_anim_accum = 0.0;
 
-        if is_full_auto && (!trigger_down || !has_ammo) {
-            // Count down linger time after the last shot.
+        if is_chaingun && (!trigger_down || !has_ammo) {
             if *auto_linger > 0.0 {
                 *auto_linger = (*auto_linger - dt_secs).max(0.0);
 
-                // Keep showing the last firing frame during the linger.
-                // (Any non-zero fire_cycle means we have a last firing pose to show.)
                 if weapon.fire_cycle != 0 {
                     weapon.showing_fire = true;
                     if let Ok(mut img) = vm_q.single_mut() {
@@ -277,7 +283,6 @@ pub(crate) fn weapon_fire_and_viewmodel(
                     }
                 }
             } else {
-                // Linger expired: now snap to idle.
                 weapon.fire_cycle = 0;
                 weapon.showing_fire = false;
                 if let Ok(mut img) = vm_q.single_mut() {
@@ -285,8 +290,29 @@ pub(crate) fn weapon_fire_and_viewmodel(
                 }
             }
         } else {
-            // If we're not in a "need to idle" condition, make sure linger isn't accumulating weirdly.
             *auto_linger = 0.0;
+        }
+    }
+
+    // --- MACHINEGUN: while holding (and not flashing), keep forward pose ---
+    // (This is what makes it look like Wolf between flashes.)
+    if is_machinegun && trigger_down && has_ammo && !weapon.showing_fire {
+        if let Ok(mut img) = vm_q.single_mut() {
+            img.image = sprites.fire_frame(WeaponSlot::MachineGun, 1); // forward
+        }
+    }
+
+    // MACHINEGUN: ALWAYS snap back to idle when trigger is not held.
+    // (Prevents rare "stuck forward" posture after releasing the mouse.)
+    if is_machinegun && !trigger_down {
+        weapon.showing_fire = false;
+        weapon.fire_cycle = 0;
+        *auto_linger = 0.0;
+        // optional: also reset flash so we don't keep counting down invisibly
+        weapon.flash.reset();
+
+        if let Ok(mut img) = vm_q.single_mut() {
+            img.image = sprites.idle(WeaponSlot::MachineGun);
         }
     }
 
@@ -299,7 +325,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
 
     // Prevent ROF wobble: allow small catch-up under frame jitter
     let max_shots_per_frame = match hud.selected {
-        crate::combat::WeaponSlot::Chaingun => 1,
+        WeaponSlot::Chaingun => 1,
         _ => 3,
     };
     let mut shots_fired_this_frame = 0usize;
@@ -318,21 +344,28 @@ pub(crate) fn weapon_fire_and_viewmodel(
 
         weapon.cooldown.reset();
         weapon.flash.reset();
-        
-        if is_full_auto {
-            *auto_linger = 0.10; // seconds; tweak 0.08..0.14
+
+        // --- MachineGun: show muzzle flash EXACTLY on the shot moment (syncs with sound) ---
+        if is_machinegun {
+            weapon.showing_fire = true;
+            weapon.flash.reset(); // flash timer starts NOW
+
+            if let Ok(mut img) = vm_q.single_mut() {
+                img.image = sprites.fire_frame(WeaponSlot::MachineGun, 2); // muzzle flash
+            }
+
+            // optional: tiny linger makes taps readable (doesn't affect holding)
+            *auto_linger = 0.10;
         }
 
-        // Full-auto: tapping should still show a firing frame on the shot
-        if is_full_auto {
+
+        // --- Chaingun: keep your existing behavior (cycle advance on shot is OK for you) ---
+        if is_chaingun {
             weapon.showing_fire = true;
 
-            // Start on a firing frame immediately
-            weapon.fire_cycle = match hud.selected {
-                WeaponSlot::Chaingun => 2,     // firing frame
-                WeaponSlot::MachineGun => 2,   // firing frame
-                _ => weapon.fire_cycle,
-            };
+            weapon.fire_cycle = weapon.fire_cycle.wrapping_add(1);
+            *fire_anim_accum = 0.0;
+            *auto_linger = 0.10;
 
             if let Ok(mut img) = vm_q.single_mut() {
                 img.image = sprites.auto_fire(hud.selected, weapon.fire_cycle);
