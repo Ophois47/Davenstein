@@ -206,11 +206,16 @@ pub fn collect_pickups(
 
         match p.kind {
             PickupKind::Weapon(w) => {
-                // Play the pickup sound for this specific pickup type.
-                // (Right now we only have a chaingun pickup sound registered.)
-                if matches!(w, WeaponSlot::Chaingun) {
+                // Play per-weapon pickup SFX (plays even if already owned).
+                let kind = match w {
+                    WeaponSlot::Chaingun => Some(SfxKind::PickupChaingun),
+                    WeaponSlot::MachineGun => Some(SfxKind::PickupMachineGun),
+                    _ => None,
+                };
+
+                if let Some(kind) = kind {
                     sfx.write(PlaySfx {
-                        kind: SfxKind::PickupChaingun,
+                        kind,
                         pos: player_tf.translation,
                     });
                 }

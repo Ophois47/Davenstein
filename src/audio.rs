@@ -25,6 +25,7 @@ pub enum SfxKind {
 
     // Pickups
     PickupChaingun,
+    PickupMachineGun,
 
     // Enemies
     EnemyDeath(EnemyKind),
@@ -79,6 +80,10 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     lib.insert_one(
         SfxKind::PickupChaingun,
         asset_server.load("sounds/sfx/weapons/chaingun/chaingun_pickup.ogg"),
+    );
+    lib.insert_one(
+        SfxKind::PickupMachineGun,
+        asset_server.load("sounds/sfx/weapons/machinegun/machinegun_pickup.ogg"),
     );
 
     // Guard death set (random pick in play_sfx_events)
@@ -159,6 +164,11 @@ pub fn play_sfx_events(
                 .with_spatial(true)
                 .with_speed(1.0)
                 .with_volume(Volume::Linear(1.5)),
+
+            SfxKind::PickupMachineGun => PlaybackSettings::DESPAWN
+                .with_spatial(true)
+                .with_spatial_scale(SpatialScale::new(0.15))
+                .with_volume(Volume::Linear(1.2)),
 
             SfxKind::ChaingunFire => PlaybackSettings::DESPAWN
                 .with_spatial(true)
