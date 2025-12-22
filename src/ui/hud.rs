@@ -28,6 +28,7 @@ pub(crate) struct ViewModelSprites {
 
 impl ViewModelSprites {
     pub fn idle(&self, w: crate::combat::WeaponSlot) -> Handle<Image> {
+        use crate::combat::WeaponSlot::*;
         match w {
             Knife => self.knife_idle.clone(),
             Pistol => self.pistol_idle.clone(),
@@ -38,6 +39,7 @@ impl ViewModelSprites {
 
     pub fn fire_simple(&self, w: crate::combat::WeaponSlot) -> Handle<Image> {
         // For Knife/Pistol only (2-frame behavior stays)
+        use crate::combat::WeaponSlot::*;
         match w {
             Knife => self.knife_fire.clone(),
             Pistol => self.pistol_fire.clone(),
@@ -45,10 +47,34 @@ impl ViewModelSprites {
         }
     }
 
+    // Direct indexing (keep this for any code that truly wants idx)
     pub fn fire_frame(&self, w: crate::combat::WeaponSlot, idx: usize) -> Handle<Image> {
+        use crate::combat::WeaponSlot::*;
         match w {
             MachineGun => self.machinegun[idx].clone(),
             Chaingun => self.chaingun[idx].clone(),
+            _ => self.fire_simple(w),
+        }
+    }
+
+    // NEW: Wolf-faithful full-auto animation frame selection.
+    // `cycle` is a counter (0,1,2,3,...) NOT a direct sprite index.
+    pub fn auto_fire(&self, w: crate::combat::WeaponSlot, cycle: usize) -> Handle<Image> {
+        use crate::combat::WeaponSlot::*;
+
+        match w {
+            // Machinegun: "bring up/forward" (1) <-> flash (2)
+            MachineGun => {
+                const SEQ: [usize; 2] = [1, 2];
+                self.machinegun[SEQ[cycle % SEQ.len()]].clone()
+            }
+
+            // Chaingun: forward (1), flash A (2), forward (1), flash B (3)
+            Chaingun => {
+                const SEQ: [usize; 4] = [1, 2, 1, 3];
+                self.chaingun[SEQ[cycle % SEQ.len()]].clone()
+            }
+
             _ => self.fire_simple(w),
         }
     }
@@ -208,24 +234,30 @@ pub(crate) fn weapon_fire_and_viewmodel(
     let firing_anim_tic_secs = 12.0 * TIC;
 
     if is_full_auto && trigger_down && has_ammo {
-        // If we just entered firing, force an immediate firing frame
         *auto_linger = 0.0;
-        if weapon.fire_cycle != 2 && weapon.fire_cycle != 4 {
-            weapon.fire_cycle = 2;
+
+        // If we just entered firing, force an immediate firing frame (tap/hold responsiveness)
+        if weapon.fire_cycle == 0 {
             weapon.showing_fire = true;
+
+            // Start at cycle 0 and immediately display it
             if let Ok(mut img) = vm_q.single_mut() {
-                img.image = sprites.fire_frame(hud.selected, weapon.fire_cycle);
+                img.image = sprites.auto_fire(hud.selected, weapon.fire_cycle);
             }
         }
 
         *fire_anim_accum += dt_secs;
 
+        // Advance at most one anim step per rendered frame (prevents flicker)
         if *fire_anim_accum >= firing_anim_tic_secs {
             *fire_anim_accum -= firing_anim_tic_secs;
-            weapon.fire_cycle = if weapon.fire_cycle == 2 { 4 } else { 2 };
+
+            // Cycle counter advances (do NOT use 2/4 here anymore)
+            weapon.fire_cycle = weapon.fire_cycle.wrapping_add(1);
             weapon.showing_fire = true;
+
             if let Ok(mut img) = vm_q.single_mut() {
-                img.image = sprites.fire_frame(hud.selected, weapon.fire_cycle);
+                img.image = sprites.auto_fire(hud.selected, weapon.fire_cycle);
             }
         }
     } else {
@@ -237,10 +269,11 @@ pub(crate) fn weapon_fire_and_viewmodel(
                 *auto_linger = (*auto_linger - dt_secs).max(0.0);
 
                 // Keep showing the last firing frame during the linger.
-                if weapon.fire_cycle == 2 || weapon.fire_cycle == 4 {
+                // (Any non-zero fire_cycle means we have a last firing pose to show.)
+                if weapon.fire_cycle != 0 {
                     weapon.showing_fire = true;
                     if let Ok(mut img) = vm_q.single_mut() {
-                        img.image = sprites.fire_frame(hud.selected, weapon.fire_cycle);
+                        img.image = sprites.auto_fire(hud.selected, weapon.fire_cycle);
                     }
                 }
             } else {
@@ -302,7 +335,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
             };
 
             if let Ok(mut img) = vm_q.single_mut() {
-                img.image = sprites.fire_frame(hud.selected, weapon.fire_cycle);
+                img.image = sprites.auto_fire(hud.selected, weapon.fire_cycle);
             }
         }
 
