@@ -71,13 +71,19 @@ fn main() {
         )
         .add_systems(
             Update,
-            // billboard after mouse_look so the pickup faces the camera correctly each frame
             (grab_mouse, mouse_look, pickups::billboard_pickups, use_doors).chain(),
         )
         .add_systems(PostUpdate, play_sfx_events)
         .add_systems(
             FixedUpdate,
-            (door_auto_close, door_animate, player_move, pickups::collect_pickups).chain(),
+            (
+                door_auto_close,
+                door_animate,
+                player_move,
+                pickups::drop_guard_ammo,
+                pickups::collect_pickups,
+            )
+                .chain(),
         )
         .run();
 }

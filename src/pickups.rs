@@ -3,6 +3,7 @@ use crate::combat::WeaponSlot;
 use crate::ui::HudState;
 use std::f32::consts::FRAC_PI_2;
 use davelib::audio::{PlaySfx, SfxKind};
+use davelib::enemies::GuardCorpse;
 use davelib::map::{MapGrid, Tile};
 use davelib::player::Player;
 
@@ -15,8 +16,14 @@ pub struct Pickup {
 #[derive(Debug, Clone, Copy)]
 pub enum PickupKind {
     Weapon(WeaponSlot),
-    AmmoClip { rounds: i32 }, // +8 in map, +4 from enemy drop
+    Ammo { rounds: i32 }, // +8 in map, +4 from enemy drop
 }
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct DroppedLoot;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct EnemyDrop;
 
 // Visual size (height in world units). Width is derived from sprite aspect
 const PICKUP_H: f32 = 0.28;
@@ -75,6 +82,67 @@ fn find_first_empty_tile(grid: &MapGrid, avoid: IVec2) -> Option<IVec2> {
         }
     }
     None
+}
+
+pub fn drop_guard_ammo(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    q_corpses: Query<(Entity, &GlobalTransform), (With<GuardCorpse>, Without<DroppedLoot>)>,
+) {
+    // Depth tweak: with AlphaMode::Mask this will actually affect depth testing.
+    // If you ever see it “punch through” walls at extreme angles, reduce magnitude (e.g. -50.0).
+    const DROP_DEPTH_BIAS: f32 = -150.0;
+
+    // Tiny lift just to avoid z-fighting with the floor (not a “float toward camera”).
+    const DROP_Y_LIFT: f32 = 0.01;
+
+    for (e, gt) in q_corpses.iter() {
+        // Drop once per corpse.
+        commands.entity(e).insert(DroppedLoot);
+
+        // Drop at the corpse tile.
+        let p = gt.translation();
+        let tile = world_to_tile_xz(Vec2::new(p.x, p.z));
+
+        let rounds = 4;
+
+        let (w, h) = ammo_clip_size();
+        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
+        let tex: Handle<Image> = asset_server.load(ammo_clip_texture());
+
+        let mat = materials.add(StandardMaterial {
+            base_color_texture: Some(tex),
+
+            // IMPORTANT: Mask writes depth, so the corpse can’t overwrite it later.
+            // Pick a cutoff that keeps edges crisp; adjust to 0.25 if you see “holes”.
+            alpha_mode: AlphaMode::Mask(0.5),
+
+            unlit: true,
+            cull_mode: None,
+
+            // IMPORTANT: make this slightly “closer” in depth than the corpse at the same tile.
+            depth_bias: DROP_DEPTH_BIAS,
+
+            ..default()
+        });
+
+        let y = (h * 0.5) + DROP_Y_LIFT;
+
+        commands.spawn((
+            Name::new("Pickup_Drop_Ammo"),
+            Pickup {
+                tile,
+                kind: PickupKind::Ammo { rounds },
+            },
+            Mesh3d(quad),
+            MeshMaterial3d(mat),
+            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
+                .with_rotation(pickup_base_rot()),
+            GlobalTransform::default(),
+        ));
+    }
 }
 
 /// Startup: spawn one test weapon pickup (Chaingun) on the first empty tile
@@ -212,7 +280,7 @@ pub fn spawn_test_weapon_pickup(
             Name::new("Pickup_Test_AmmoClip"),
             Pickup {
                 tile,
-                kind: PickupKind::AmmoClip { rounds },
+                kind: PickupKind::Ammo { rounds },
             },
             Mesh3d(quad),
             MeshMaterial3d(mat),
@@ -225,28 +293,40 @@ pub fn spawn_test_weapon_pickup(
 
 pub fn billboard_pickups(
     q_player: Query<&Transform, (With<Player>, Without<Pickup>)>,
-    mut q_pickups: Query<(&GlobalTransform, &mut Transform), (With<Pickup>, Without<Player>)>,
+    mut q_pickups: Query<(&Pickup, &mut Transform), (With<Pickup>, Without<Player>)>,
 ) {
+    const DEPTH_EPS: f32 = 0.10; // small "pull toward camera" to avoid being hidden by corpses
+
     let mut it = q_player.iter();
     let Some(player_tf) = it.next() else { return; };
 
     let player_pos = player_tf.translation;
-    let base = pickup_base_rot();
+    let base_rot = pickup_base_rot();
 
-    for (gt, mut tf) in q_pickups.iter_mut() {
-        let pos = gt.translation();
+    for (p, mut tf) in q_pickups.iter_mut() {
+        // Reset the pickup to its tile center each frame (prevents drift)
+        let base_pos = Vec3::new(p.tile.x as f32, tf.translation.y, p.tile.y as f32);
 
-        let mut dir = player_pos - pos;
+        // Direction to player in XZ
+        let mut dir = player_pos - base_pos;
         dir.y = 0.0;
 
         let len2 = dir.length_squared();
         if len2 < 0.0001 {
+            tf.translation = base_pos;
+            tf.rotation = base_rot;
             continue;
         }
-        dir /= len2.sqrt();
 
-        let yaw = dir.x.atan2(dir.z);
-        tf.rotation = Quat::from_rotation_y(yaw) * base;
+        let inv_len = 1.0 / len2.sqrt();
+        let dir_n = dir * inv_len;
+
+        // Face the player
+        let yaw = dir_n.x.atan2(dir_n.z);
+        tf.rotation = Quat::from_rotation_y(yaw) * base_rot;
+
+        // Pull slightly toward the player so it renders in front of corpse on same tile
+        tf.translation = base_pos + Vec3::new(dir_n.x * DEPTH_EPS, 0.0, dir_n.z * DEPTH_EPS);
     }
 }
 
@@ -297,7 +377,7 @@ pub fn collect_pickups(
                     info!("Picked up weapon: {:?} (already owned)", w);
                 }
             }
-            PickupKind::AmmoClip { rounds } => {
+            PickupKind::Ammo { rounds } => {
                 // ammo clip pickup sfx
                 sfx.write(PlaySfx {
                     kind: SfxKind::PickupAmmo,
