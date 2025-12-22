@@ -2,6 +2,9 @@ mod combat;
 mod ui;
 
 use bevy::prelude::*;
+use bevy::asset::AssetPlugin;
+use include_dir::{include_dir, Dir};
+use std::path::PathBuf;
 use davelib::audio::{
 	play_sfx_events,
 	setup_audio,
@@ -19,11 +22,42 @@ use davelib::player::{
 };
 use davelib::world::setup;
 
+static ASSETS: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets");
+
+fn extract_embedded_assets_to_temp() -> String {
+    // Put extracted assets somewhere predictable.
+    // (Version in the path avoids stale files when assets change.)
+    let out_dir: PathBuf = std::env::temp_dir().join(format!(
+        "{}_assets_{}",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION"),
+    ));
+
+    // Dir::extract() fails if files already exist, so clear first.
+    let _ = std::fs::remove_dir_all(&out_dir);
+    std::fs::create_dir_all(&out_dir).expect("create temp assets dir");
+
+    ASSETS
+        .extract(&out_dir)
+        .expect("extract embedded assets");
+
+    out_dir.to_string_lossy().to_string()
+}
+
 fn main() {
+    let assets_path = extract_embedded_assets_to_temp();
+
     info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
 
     App::new()
-        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
+        .add_plugins(
+            DefaultPlugins
+                .set(AssetPlugin {
+                    file_path: assets_path,
+                    ..default()
+                })
+                .set(ImagePlugin::default_nearest()),
+        )
         .add_plugins(ui::UiPlugin)
         .add_plugins(EnemiesPlugin)
         .add_plugins(combat::CombatPlugin)

@@ -45,6 +45,7 @@ impl ViewModelSprites {
         self.pistol[idx.min(4)].clone()
     }
 
+    #[allow(dead_code)]
     pub fn knife_frame(&self, idx: usize) -> Handle<Image> {
         self.knife[idx.min(4)].clone()
     }

@@ -18,7 +18,7 @@ pub enum SfxKind {
     
     // Weapons
     KnifeSwing,
-    KnifeHit,
+    // KnifeHit,
     PistolFire,
     MachineGunFire,
     ChaingunFire,
@@ -69,7 +69,7 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     lib.insert_one(SfxKind::DoorOpen, asset_server.load("sounds/sfx/door_open.ogg"));
     lib.insert_one(SfxKind::DoorClose, asset_server.load("sounds/sfx/door_close.ogg"));
     lib.insert_one(SfxKind::KnifeSwing, asset_server.load("sounds/sfx/weapons/knife/knife_swing.ogg"));
-    lib.insert_one(SfxKind::KnifeHit, asset_server.load("sounds/sfx/weapons/knife/knife_hit.ogg"));
+    // lib.insert_one(SfxKind::KnifeHit, asset_server.load("sounds/sfx/weapons/knife/knife_hit.ogg"));
     lib.insert_one(SfxKind::PistolFire, asset_server.load("sounds/sfx/weapons/pistol/pistol_fire.ogg"));
     lib.insert_one(SfxKind::MachineGunFire, asset_server.load("sounds/sfx/weapons/machinegun/machinegun_fire_0.ogg"));
     lib.insert_one(SfxKind::ChaingunFire, asset_server.load("sounds/sfx/weapons/chaingun/chaingun_fire_0.ogg"));
@@ -138,10 +138,10 @@ pub fn play_sfx_events(
                 .with_spatial_scale(SpatialScale::new(0.15))
                 .with_volume(Volume::Linear(1.2)),
 
-            SfxKind::KnifeHit => PlaybackSettings::DESPAWN
+            /*SfxKind::KnifeHit => PlaybackSettings::DESPAWN
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.15))
-                .with_volume(Volume::Linear(1.2)),
+                .with_volume(Volume::Linear(1.2)),*/
                 
             SfxKind::PistolFire => PlaybackSettings::DESPAWN
                 .with_spatial(true)
