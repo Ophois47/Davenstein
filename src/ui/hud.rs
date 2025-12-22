@@ -18,9 +18,7 @@ pub(crate) struct ViewModelSprites {
     pub knife_idle: Handle<Image>,
     pub knife_fire: Handle<Image>,
 
-    pub pistol_idle: Handle<Image>,
-    pub pistol_fire: Handle<Image>,
-
+    pub pistol: [Handle<Image>; 5],
     pub machinegun: [Handle<Image>; 5],
     pub chaingun: [Handle<Image>; 5],
 }
@@ -30,20 +28,23 @@ impl ViewModelSprites {
         use crate::combat::WeaponSlot::*;
         match w {
             Knife => self.knife_idle.clone(),
-            Pistol => self.pistol_idle.clone(),
+            Pistol => self.pistol[0].clone(),
             MachineGun => self.machinegun[0].clone(),
             Chaingun => self.chaingun[0].clone(),
         }
     }
 
     pub fn fire_simple(&self, w: crate::combat::WeaponSlot) -> Handle<Image> {
-        // For Knife/Pistol only (2-frame behavior stays)
         use crate::combat::WeaponSlot::*;
         match w {
+            Pistol => self.pistol[2].clone(),
             Knife => self.knife_fire.clone(),
-            Pistol => self.pistol_fire.clone(),
             _ => self.idle(w),
         }
+    }
+
+    pub fn pistol_frame(&self, idx: usize) -> Handle<Image> {
+        self.pistol[idx.min(4)].clone()
     }
 
     // Direct indexing (keep this for any code that truly wants idx)
@@ -197,7 +198,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     const TIC: f32 = 1.0 / 70.0;
     let (cooldown_secs, flash_secs, ammo_cost, max_dist) = match hud.selected {
         WeaponSlot::Knife => (10.0 * TIC, 8.0 * TIC, 0, 1.5),
-        WeaponSlot::Pistol => (25.0 * TIC, 12.0 * TIC, 1, 64.0),
+        WeaponSlot::Pistol => (25.0 * TIC, 16.0 * TIC, 1, 64.0),
         WeaponSlot::MachineGun => (12.0 * TIC, 8.0 * TIC, 1, 64.0),
         WeaponSlot::Chaingun => (6.0 * TIC, 8.0 * TIC, 1, 64.0),
     };
@@ -230,12 +231,34 @@ pub(crate) fn weapon_fire_and_viewmodel(
     // MachineGun ALSO uses flash timer, but Chaingun does NOT (it has its own cycling).
     if weapon.showing_fire && (!is_chaingun) {
         weapon.flash.tick(dt);
+
+        // PISTOL: advance through 4-frame sequence across the flash timer
+        if hud.selected == WeaponSlot::Pistol {
+            let dur = weapon.flash.duration().as_secs_f32().max(0.0001);
+            let t = (weapon.flash.elapsed_secs() / dur).clamp(0.0, 1.0);
+
+            let frame = if t < 0.25 {
+                1 // raise
+            } else if t < 0.50 {
+                2 // muzzle flash
+            } else if t < 0.75 {
+                3 // recover
+            } else {
+                4 // settle
+            };
+
+            if let Ok(mut img) = vm_q.single_mut() {
+                img.image = sprites.pistol_frame(frame);
+            }
+        }
+
         if weapon.flash.is_finished() {
             weapon.showing_fire = false;
 
             if let Ok(mut img) = vm_q.single_mut() {
-                // MG: after flash, while holding and with ammo, stay in "forward" pose
-                if is_machinegun && trigger_down && has_ammo {
+                if hud.selected == WeaponSlot::Pistol {
+                    img.image = sprites.pistol_frame(0); // idle
+                } else if is_machinegun && trigger_down && has_ammo {
                     img.image = sprites.fire_frame(WeaponSlot::MachineGun, 1); // forward
                 } else {
                     img.image = sprites.idle(hud.selected);
@@ -375,8 +398,18 @@ pub(crate) fn weapon_fire_and_viewmodel(
         // For non-full-auto, show the simple fire sprite immediately
         if !is_full_auto {
             weapon.showing_fire = true;
-            if let Ok(mut img) = vm_q.single_mut() {
-                img.image = sprites.fire_simple(hud.selected);
+            weapon.flash.reset();
+
+            if hud.selected == WeaponSlot::Pistol {
+                // Start pistol anim on "raise" frame, not flash
+                if let Ok(mut img) = vm_q.single_mut() {
+                    img.image = sprites.pistol_frame(1);
+                }
+            } else {
+                // Knife stays 2-frame behavior
+                if let Ok(mut img) = vm_q.single_mut() {
+                    img.image = sprites.fire_simple(hud.selected);
+                }
             }
         }
 
@@ -425,9 +458,9 @@ pub(crate) fn setup_hud(
         knife_idle: asset_server.load("weapons/knife_0.png"),
         knife_fire: asset_server.load("weapons/knife_2.png"),
 
-        pistol_idle: asset_server.load("weapons/pistol_0.png"),
-        pistol_fire: asset_server.load("weapons/pistol_2.png"),
-
+        pistol: std::array::from_fn(|i| {
+            asset_server.load(format!("weapons/pistol_{i}.png"))
+        }),
         machinegun: std::array::from_fn(|i| {
             asset_server.load(format!("weapons/machinegun_{i}.png"))
         }),
