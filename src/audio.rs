@@ -38,6 +38,9 @@ pub struct PlaySfx {
     pub pos: Vec3,
 }
 
+#[derive(Component)]
+pub struct ActivePickupSfx;
+
 #[derive(Resource, Default)]
 pub struct SfxLibrary {
     pub map: HashMap<SfxKind, Vec<Handle<AudioSource>>>,
@@ -120,12 +123,33 @@ pub fn start_music(
     ));
 }
 
+fn is_pickup_kind(k: SfxKind) -> bool {
+    matches!(
+        k,
+        SfxKind::PickupChaingun | SfxKind::PickupMachineGun | SfxKind::PickupAmmo
+    )
+}
+
 pub fn play_sfx_events(
     lib: Res<SfxLibrary>,
     mut commands: Commands,
     mut ev: MessageReader<PlaySfx>,
+    q_active_pickup: Query<Entity, With<ActivePickupSfx>>,
 ) {
+    // Collect events: play all non-pickups; only the last pickup (no overlap).
+    let mut last_pickup: Option<PlaySfx> = None;
+    let mut non_pickups: Vec<PlaySfx> = Vec::new();
+
     for e in ev.read() {
+        if is_pickup_kind(e.kind) {
+            last_pickup = Some(e.clone());
+        } else {
+            non_pickups.push(e.clone());
+        }
+    }
+
+    // 1) Play all non-pickup SFX normally (overlap allowed).
+    for e in non_pickups {
         let Some(list) = lib.map.get(&e.kind) else {
             warn!("Missing SFX for {:?}", e.kind);
             continue;
@@ -134,66 +158,32 @@ pub fn play_sfx_events(
             continue;
         }
 
-        // Random choice (works for list len 1 too)
         let i = rand::rng().random_range(0..list.len());
         let clip = list[i].clone();
 
-        // Settings by kind (keep your current style/values)
         let settings = match e.kind {
-            SfxKind::DoorOpen => PlaybackSettings::DESPAWN
+            SfxKind::DoorOpen | SfxKind::DoorClose => PlaybackSettings::DESPAWN
                 .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.15))
+                .with_spatial_scale(SpatialScale::new(0.12))
+                .with_volume(Volume::Linear(0.9)),
+
+            SfxKind::KnifeSwing
+            | SfxKind::PistolFire
+            | SfxKind::MachineGunFire
+            | SfxKind::ChaingunFire => PlaybackSettings::DESPAWN
+                .with_spatial(true)
+                .with_spatial_scale(SpatialScale::new(0.12))
                 .with_volume(Volume::Linear(1.25)),
-
-            SfxKind::DoorClose => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.15))
-                .with_volume(Volume::Linear(1.25)),
-
-            SfxKind::KnifeSwing => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.15))
-                .with_volume(Volume::Linear(1.2)),
-
-            /*SfxKind::KnifeHit => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.15))
-                .with_volume(Volume::Linear(1.2)),*/
-                
-            SfxKind::PistolFire => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_speed(1.0)
-                .with_volume(Volume::Linear(1.5)),
-
-            SfxKind::MachineGunFire => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_speed(1.0)
-                .with_volume(Volume::Linear(1.5)),
-
-            SfxKind::PickupMachineGun => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.15))
-                .with_volume(Volume::Linear(1.2)),
-
-            SfxKind::ChaingunFire => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_speed(1.0)
-                .with_volume(Volume::Linear(1.5)),
-
-			SfxKind::PickupChaingun => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.15))
-                .with_volume(Volume::Linear(1.2)),
-
-            SfxKind::PickupAmmo => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.15))
-                .with_volume(Volume::Linear(1.2)),
 
             SfxKind::EnemyDeath(_) => PlaybackSettings::DESPAWN
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.15))
                 .with_volume(Volume::Linear(1.3)),
+
+            // Pickups are handled below.
+            SfxKind::PickupChaingun | SfxKind::PickupMachineGun | SfxKind::PickupAmmo => {
+                unreachable!()
+            }
         };
 
         commands.spawn((
@@ -202,4 +192,35 @@ pub fn play_sfx_events(
             settings,
         ));
     }
+
+    // 2) Pickups: only newest pickup plays; it cuts off any previous pickup.
+    let Some(e) = last_pickup else { return; };
+
+    let Some(list) = lib.map.get(&e.kind) else {
+        warn!("Missing SFX for {:?}", e.kind);
+        return;
+    };
+    if list.is_empty() {
+        return;
+    }
+
+    // Stop ONLY the previous pickup sound, not weapon fire / deaths / doors.
+    for ent in q_active_pickup.iter() {
+        commands.entity(ent).despawn();
+    }
+
+    let i = rand::rng().random_range(0..list.len());
+    let clip = list[i].clone();
+
+    let settings = PlaybackSettings::DESPAWN
+        .with_spatial(true)
+        .with_spatial_scale(SpatialScale::new(0.12))
+        .with_volume(Volume::Linear(1.15));
+
+    commands.spawn((
+        ActivePickupSfx,
+        Transform::from_translation(e.pos),
+        AudioPlayer::new(clip),
+        settings,
+    ));
 }

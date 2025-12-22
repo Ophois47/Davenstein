@@ -107,7 +107,13 @@ pub fn spawn_test_weapon_pickup(
     ];
 
     let desired_ammo: &[(IVec2, i32)] = &[
-        (IVec2::new(27, 16), 8), // found clip = +8
+        // found ammo = +8
+        (IVec2::new(27, 16), 8),
+        (IVec2::new(27, 17), 8),
+        (IVec2::new(27, 18), 8),
+        (IVec2::new(26, 16), 8),
+        (IVec2::new(26, 17), 8),
+        (IVec2::new(26, 18), 8),
     ];
 
     for &(weapon, mut tile) in desired_weapons {
