@@ -188,12 +188,10 @@ pub(crate) fn weapon_fire_and_viewmodel(
                     sfx.write(PlaySfx { kind: SfxKind::PistolFire, pos: sfx_pos });
                 }
                 crate::combat::WeaponSlot::MachineGun => {
-                    // (we'll add once you have the MG sound registered)
-                    // sfx.write(PlaySfx { kind: SfxKind::MachineGunFire, pos: sfx_pos });
+                    sfx.write(PlaySfx { kind: SfxKind::MachineGunFire, pos: sfx_pos });
                 }
                 crate::combat::WeaponSlot::Chaingun => {
-                    // (we'll add once you have the chaingun sound registered)
-                    // sfx.write(PlaySfx { kind: SfxKind::ChaingunFire, pos: sfx_pos });
+                    sfx.write(PlaySfx { kind: SfxKind::ChaingunFire, pos: sfx_pos });
                 }
             }
 
