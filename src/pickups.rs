@@ -35,6 +35,14 @@ fn weapon_pickup_size(w: WeaponSlot) -> (f32, f32) {
     }
 }
 
+fn weapon_pickup_texture(w: WeaponSlot) -> &'static str {
+    match w {
+        WeaponSlot::Chaingun => "textures/pickups/chaingun.png",
+        WeaponSlot::MachineGun => "textures/pickups/machinegun.png",
+        _ => "textures/pickups/chaingun.png", // placeholder (won't be used yet)
+    }
+}
+
 fn world_to_tile_xz(pos_xz: Vec2) -> IVec2 {
     // Matches the logic used in player_move()
     IVec2::new((pos_xz.x + 0.5).floor() as i32, (pos_xz.y + 0.5).floor() as i32)
@@ -83,41 +91,67 @@ pub fn spawn_test_weapon_pickup(
         player_tf.translation.z,
     ));
 
-    let Some(tile) = find_first_empty_tile(&grid, player_tile) else {
-        warn!("spawn_test_weapon_pickup: no empty tiles found");
-        return;
-    };
+    // In your current 32x32 test layout, the right-side lab door is around row 10.
+    // These two tiles are meant to be inside the lab just past that door.
+    let desired: &[(WeaponSlot, IVec2)] = &[
+        (WeaponSlot::Chaingun, IVec2::new(25, 10)),
+        (WeaponSlot::MachineGun, IVec2::new(27, 10)),
+    ];
 
-    let weapon = WeaponSlot::Chaingun;
-    let (w, h) = weapon_pickup_size(weapon);
+    for &(weapon, mut tile) in desired {
+        // Validate the desired tile is in-bounds, empty, and not the player tile.
+        let in_bounds = tile.x >= 0
+            && tile.y >= 0
+            && (tile.x as usize) < grid.width
+            && (tile.y as usize) < grid.height;
 
-    info!("Spawning TEST weapon pickup at tile {:?} ({:?})", tile, weapon);
+        let ok_tile = in_bounds
+            && tile != player_tile
+            && matches!(grid.tile(tile.x as usize, tile.y as usize), Tile::Empty);
 
-    let quad = meshes.add(Plane3d::default().mesh().size(w, h));
-    let tex: Handle<Image> = asset_server.load("textures/pickups/chaingun.png");
+        if !ok_tile {
+            // Fallback: just find *some* empty tile (avoiding player).
+            let Some(fallback) = find_first_empty_tile(&grid, player_tile) else {
+                warn!("spawn_test_weapon_pickup: no empty tiles found for {:?}", weapon);
+                continue;
+            };
+            tile = fallback;
+        }
 
-    let mat = materials.add(StandardMaterial {
-        base_color_texture: Some(tex),
-        alpha_mode: AlphaMode::Blend,
-        unlit: true,
-        cull_mode: None,
-        ..default()
-    });
+        let (w, h) = weapon_pickup_size(weapon);
+        let tex_path = weapon_pickup_texture(weapon);
 
-    let y = h * 0.5;
+        info!(
+            "Spawning TEST weapon pickup at tile {:?} ({:?}) using {}",
+            tile, weapon, tex_path
+        );
 
-    commands.spawn((
-        Name::new("Pickup_Test_Chaingun"),
-        Pickup {
-            tile,
-            kind: PickupKind::Weapon(weapon),
-        },
-        Mesh3d(quad),
-        MeshMaterial3d(mat),
-        Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
-            .with_rotation(pickup_base_rot()),
-        GlobalTransform::default(),
-    ));
+        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
+        let tex: Handle<Image> = asset_server.load(tex_path);
+
+        let mat = materials.add(StandardMaterial {
+            base_color_texture: Some(tex),
+            alpha_mode: AlphaMode::Blend,
+            unlit: true,
+            cull_mode: None,
+            ..default()
+        });
+
+        let y = h * 0.5;
+
+        commands.spawn((
+            Name::new(format!("Pickup_Test_{:?}", weapon)),
+            Pickup {
+                tile,
+                kind: PickupKind::Weapon(weapon),
+            },
+            Mesh3d(quad),
+            MeshMaterial3d(mat),
+            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
+                .with_rotation(pickup_base_rot()),
+            GlobalTransform::default(),
+        ));
+    }
 }
 
 pub fn billboard_pickups(
