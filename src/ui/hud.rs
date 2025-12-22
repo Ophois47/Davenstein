@@ -15,9 +15,7 @@ pub(super) struct ViewModelImage;
 
 #[derive(Resource, Clone)]
 pub(crate) struct ViewModelSprites {
-    pub knife_idle: Handle<Image>,
-    pub knife_fire: Handle<Image>,
-
+    pub knife: [Handle<Image>; 5],
     pub pistol: [Handle<Image>; 5],
     pub machinegun: [Handle<Image>; 5],
     pub chaingun: [Handle<Image>; 5],
@@ -27,7 +25,7 @@ impl ViewModelSprites {
     pub fn idle(&self, w: crate::combat::WeaponSlot) -> Handle<Image> {
         use crate::combat::WeaponSlot::*;
         match w {
-            Knife => self.knife_idle.clone(),
+            Knife => self.knife[0].clone(),
             Pistol => self.pistol[0].clone(),
             MachineGun => self.machinegun[0].clone(),
             Chaingun => self.chaingun[0].clone(),
@@ -38,13 +36,17 @@ impl ViewModelSprites {
         use crate::combat::WeaponSlot::*;
         match w {
             Pistol => self.pistol[2].clone(),
-            Knife => self.knife_fire.clone(),
+            Knife => self.knife[2].clone(),
             _ => self.idle(w),
         }
     }
 
     pub fn pistol_frame(&self, idx: usize) -> Handle<Image> {
         self.pistol[idx.min(4)].clone()
+    }
+
+    pub fn knife_frame(&self, idx: usize) -> Handle<Image> {
+        self.knife[idx.min(4)].clone()
     }
 
     // Direct indexing (keep this for any code that truly wants idx)
@@ -197,7 +199,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     // Per-weapon params (Wolf-ish tics)
     const TIC: f32 = 1.0 / 70.0;
     let (cooldown_secs, flash_secs, ammo_cost, max_dist) = match hud.selected {
-        WeaponSlot::Knife => (10.0 * TIC, 8.0 * TIC, 0, 1.5),
+        WeaponSlot::Knife => (10.0 * TIC, 12.0 * TIC, 0, 1.5),
         WeaponSlot::Pistol => (25.0 * TIC, 16.0 * TIC, 1, 64.0),
         WeaponSlot::MachineGun => (12.0 * TIC, 8.0 * TIC, 1, 64.0),
         WeaponSlot::Chaingun => (6.0 * TIC, 8.0 * TIC, 1, 64.0),
@@ -249,6 +251,24 @@ pub(crate) fn weapon_fire_and_viewmodel(
 
             if let Ok(mut img) = vm_q.single_mut() {
                 img.image = sprites.pistol_frame(frame);
+            }
+        }
+
+        // KNIFE: 3-frame swing over the flash timer (wind-up -> hit -> recover)
+        if hud.selected == WeaponSlot::Knife {
+            let dur = weapon.flash.duration().as_secs_f32().max(0.0001);
+            let t = (weapon.flash.elapsed_secs() / dur).clamp(0.0, 1.0);
+
+            let frame = if t < 0.33 {
+                1 // wind-up
+            } else if t < 0.66 {
+                2 // hit
+            } else {
+                3 // recover (swap to 4 if it looks better)
+            };
+
+            if let Ok(mut img) = vm_q.single_mut() {
+                img.image = sprites.knife[frame].clone();
             }
         }
 
@@ -396,6 +416,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
         }
 
         // For non-full-auto, show the simple fire sprite immediately
+        // For non-full-auto, start the attack animation immediately
         if !is_full_auto {
             weapon.showing_fire = true;
             weapon.flash.reset();
@@ -405,8 +426,12 @@ pub(crate) fn weapon_fire_and_viewmodel(
                 if let Ok(mut img) = vm_q.single_mut() {
                     img.image = sprites.pistol_frame(1);
                 }
+            } else if hud.selected == WeaponSlot::Knife {
+                // Start knife on wind-up (3-step swing)
+                if let Ok(mut img) = vm_q.single_mut() {
+                    img.image = sprites.knife[1].clone(); // wind-up
+                }
             } else {
-                // Knife stays 2-frame behavior
                 if let Ok(mut img) = vm_q.single_mut() {
                     img.image = sprites.fire_simple(hud.selected);
                 }
@@ -455,9 +480,9 @@ pub(crate) fn setup_hud(
 
     // New Wolf sheet naming (assets/weapons/*.png)
     let sprites = ViewModelSprites {
-        knife_idle: asset_server.load("weapons/knife_0.png"),
-        knife_fire: asset_server.load("weapons/knife_2.png"),
-
+        knife: std::array::from_fn(|i| {
+            asset_server.load(format!("weapons/knife_{i}.png"))
+        }),
         pistol: std::array::from_fn(|i| {
             asset_server.load(format!("weapons/pistol_{i}.png"))
         }),
