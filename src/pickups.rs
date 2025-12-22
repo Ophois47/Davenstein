@@ -6,16 +6,16 @@ use davelib::audio::{PlaySfx, SfxKind};
 use davelib::map::{MapGrid, Tile};
 use davelib::player::Player;
 
-
-#[derive(Debug, Clone, Copy)]
-pub enum PickupKind {
-    Weapon(WeaponSlot),
-}
-
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Pickup {
     pub tile: IVec2, // (x, z) tile coords
     pub kind: PickupKind,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PickupKind {
+    Weapon(WeaponSlot),
+    AmmoClip { rounds: i32 }, // +8 in map, +4 from enemy drop
 }
 
 // Visual size (height in world units). Width is derived from sprite aspect
@@ -26,6 +26,8 @@ const PICKUP_H: f32 = 0.28;
 // machinegun.png: 47x18 => ~2.611
 const CHAINGUN_ASPECT: f32 = 60.0 / 21.0;
 const MACHINEGUN_ASPECT: f32 = 47.0 / 18.0;
+const AMMOCLIP_ASPECT: f32 = 16.0 / 12.0;
+const AMMOCLIP_H: f32 = 0.22;
 
 fn weapon_pickup_size(w: WeaponSlot) -> (f32, f32) {
     match w {
@@ -41,6 +43,14 @@ fn weapon_pickup_texture(w: WeaponSlot) -> &'static str {
         WeaponSlot::MachineGun => "textures/pickups/machinegun.png",
         _ => "textures/pickups/chaingun.png", // placeholder (won't be used yet)
     }
+}
+
+fn ammo_clip_size() -> (f32, f32) {
+    (AMMOCLIP_H * AMMOCLIP_ASPECT, AMMOCLIP_H)
+}
+
+fn ammo_clip_texture() -> &'static str {
+    "textures/pickups/ammo_clip.png"
 }
 
 fn world_to_tile_xz(pos_xz: Vec2) -> IVec2 {
@@ -91,14 +101,16 @@ pub fn spawn_test_weapon_pickup(
         player_tf.translation.z,
     ));
 
-    // In your current 32x32 test layout, the right-side lab door is around row 10.
-    // These two tiles are meant to be inside the lab just past that door.
-    let desired: &[(WeaponSlot, IVec2)] = &[
-        (WeaponSlot::Chaingun, IVec2::new(25, 10)),
-        (WeaponSlot::MachineGun, IVec2::new(27, 10)),
+    let desired_weapons: &[(WeaponSlot, IVec2)] = &[
+        (WeaponSlot::Chaingun, IVec2::new(27, 14)),
+        (WeaponSlot::MachineGun, IVec2::new(29, 14)),
     ];
 
-    for &(weapon, mut tile) in desired {
+    let desired_ammo: &[(IVec2, i32)] = &[
+        (IVec2::new(27, 16), 8), // found clip = +8
+    ];
+
+    for &(weapon, mut tile) in desired_weapons {
         // Validate the desired tile is in-bounds, empty, and not the player tile.
         let in_bounds = tile.x >= 0
             && tile.y >= 0
@@ -144,6 +156,57 @@ pub fn spawn_test_weapon_pickup(
             Pickup {
                 tile,
                 kind: PickupKind::Weapon(weapon),
+            },
+            Mesh3d(quad),
+            MeshMaterial3d(mat),
+            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
+                .with_rotation(pickup_base_rot()),
+            GlobalTransform::default(),
+        ));
+    }
+
+    for &(mut tile, rounds) in desired_ammo {
+        // same validation/fallback pattern you already use
+        let in_bounds = tile.x >= 0
+            && tile.y >= 0
+            && (tile.x as usize) < grid.width
+            && (tile.y as usize) < grid.height;
+
+        let ok_tile = in_bounds
+            && tile != player_tile
+            && matches!(grid.tile(tile.x as usize, tile.y as usize), Tile::Empty);
+
+        if !ok_tile {
+            let Some(fallback) = find_first_empty_tile(&grid, player_tile) else {
+                warn!("spawn_test_weapon_pickup: no empty tiles found for AmmoClip");
+                continue;
+            };
+            tile = fallback;
+        }
+
+        let (w, h) = ammo_clip_size();
+        let tex_path = ammo_clip_texture();
+
+        info!("Spawning TEST ammo clip at tile {:?} (+{})", tile, rounds);
+
+        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
+        let tex: Handle<Image> = asset_server.load(tex_path);
+
+        let mat = materials.add(StandardMaterial {
+            base_color_texture: Some(tex),
+            alpha_mode: AlphaMode::Blend,
+            unlit: true,
+            cull_mode: None,
+            ..default()
+        });
+
+        let y = h * 0.5;
+
+        commands.spawn((
+            Name::new("Pickup_Test_AmmoClip"),
+            Pickup {
+                tile,
+                kind: PickupKind::AmmoClip { rounds },
             },
             Mesh3d(quad),
             MeshMaterial3d(mat),
@@ -227,6 +290,16 @@ pub fn collect_pickups(
                 } else {
                     info!("Picked up weapon: {:?} (already owned)", w);
                 }
+            }
+            PickupKind::AmmoClip { rounds } => {
+                // ammo clip pickup sfx
+                sfx.write(PlaySfx {
+                    kind: SfxKind::PickupAmmo,
+                    pos: player_tf.translation,
+                });
+
+                hud.ammo += rounds;
+                info!("Picked up ammo clip: +{} (ammo now {})", rounds, hud.ammo);
             }
         }
 
