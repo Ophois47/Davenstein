@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use crate::combat::WeaponSlot;
 use crate::ui::HudState;
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::f32::consts::FRAC_PI_2;
 use davelib::map::{MapGrid, Tile};
 use davelib::player::Player;
 
@@ -17,8 +17,22 @@ pub struct Pickup {
     pub kind: PickupKind,
 }
 
-const PICKUP_W: f32 = 0.32;
-const PICKUP_H: f32 = 0.32;
+// Visual size (height in world units). Width is derived from sprite aspect
+const PICKUP_H: f32 = 0.28;
+
+// These aspect ratios match the actual extracted sprites we're using:
+// chaingun.png: 60x21  => ~2.857
+// machinegun.png: 47x18 => ~2.611
+const CHAINGUN_ASPECT: f32 = 60.0 / 21.0;
+const MACHINEGUN_ASPECT: f32 = 47.0 / 18.0;
+
+fn weapon_pickup_size(w: WeaponSlot) -> (f32, f32) {
+    match w {
+        WeaponSlot::Chaingun => (PICKUP_H * CHAINGUN_ASPECT, PICKUP_H),
+        WeaponSlot::MachineGun => (PICKUP_H * MACHINEGUN_ASPECT, PICKUP_H),
+        _ => (PICKUP_H, PICKUP_H),
+    }
+}
 
 fn world_to_tile_xz(pos_xz: Vec2) -> IVec2 {
     // Matches the logic used in player_move()
@@ -26,8 +40,7 @@ fn world_to_tile_xz(pos_xz: Vec2) -> IVec2 {
 }
 
 fn pickup_base_rot() -> Quat {
-    // Make Plane3d vertical, then flip sprite upright (UVs end up inverted otherwise).
-    Quat::from_rotation_x(-FRAC_PI_2) * Quat::from_rotation_z(PI)
+    Quat::from_rotation_x(FRAC_PI_2)
 }
 
 fn find_first_empty_tile(grid: &MapGrid, avoid: IVec2) -> Option<IVec2> {
@@ -74,9 +87,12 @@ pub fn spawn_test_weapon_pickup(
         return;
     };
 
-    info!("Spawning TEST weapon pickup at tile {:?} (Chaingun)", tile);
+    let weapon = WeaponSlot::Chaingun;
+    let (w, h) = weapon_pickup_size(weapon);
 
-    let quad = meshes.add(Plane3d::default().mesh().size(PICKUP_W, PICKUP_H));
+    info!("Spawning TEST weapon pickup at tile {:?} ({:?})", tile, weapon);
+
+    let quad = meshes.add(Plane3d::default().mesh().size(w, h));
     let tex: Handle<Image> = asset_server.load("textures/pickups/chaingun.png");
 
     let mat = materials.add(StandardMaterial {
@@ -87,19 +103,18 @@ pub fn spawn_test_weapon_pickup(
         ..default()
     });
 
-    let base = pickup_base_rot(); // ✅ includes the flip
-    let y = PICKUP_H * 0.5;
+    let y = h * 0.5;
 
     commands.spawn((
         Name::new("Pickup_Test_Chaingun"),
         Pickup {
             tile,
-            kind: PickupKind::Weapon(WeaponSlot::Chaingun),
+            kind: PickupKind::Weapon(weapon),
         },
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
-            .with_rotation(base),
+            .with_rotation(pickup_base_rot()),
         GlobalTransform::default(),
     ));
 }
@@ -112,8 +127,7 @@ pub fn billboard_pickups(
     let Some(player_tf) = it.next() else { return; };
 
     let player_pos = player_tf.translation;
-
-    let base = pickup_base_rot(); // ✅ includes the flip
+    let base = pickup_base_rot();
 
     for (gt, mut tf) in q_pickups.iter_mut() {
         let pos = gt.translation();
