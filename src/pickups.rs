@@ -11,8 +11,6 @@ use davelib::player::Player;
 const PICKUP_H: f32 = 0.28;
 const AMMO_H: f32 = 0.22;
 const TREASURE_H: f32 = 0.24;
-const TREASURE_Y_LIFT: f32 = 0.08;
-const TREASURE_DEPTH_BIAS: f32 = -150.0;
 
 // These aspect ratios match the actual extracted sprites we're using:
 // chaingun.png: 60x21  => ~2.857
@@ -65,10 +63,6 @@ fn treasure_size(t: TreasureKind) -> (f32, f32) {
         TreasureKind::Crown => CROWN_ASPECT,
     };
     (TREASURE_H * aspect, TREASURE_H)
-}
-
-fn treasure_y(h: f32) -> f32 {
-    (h * 0.5) + TREASURE_Y_LIFT
 }
 
 fn treasure_texture(t: TreasureKind) -> &'static str {
@@ -363,6 +357,8 @@ pub fn spawn_test_weapon_pickup(
     // Treasure-only rendering tweak:
     // - Mask writes depth cleanly (no blended-depth weirdness at the floor line)
     // - depth_bias makes it win against the floor at the very bottom pixels
+    const DROP_DEPTH_BIAS: f32 = -250.0;
+
     let desired_treasure: &[(TreasureKind, IVec2)] = &[
         (TreasureKind::Cross, IVec2::new(27, 18)),
         (TreasureKind::Chalice, IVec2::new(29, 18)),
@@ -412,14 +408,14 @@ pub fn spawn_test_weapon_pickup(
             // IMPORTANT: treasure should not get “cut into” the floor.
             // Use the same approach as ammo drops: mask + depth bias.
             alpha_mode: AlphaMode::Mask(0.5),
-            depth_bias: TREASURE_DEPTH_BIAS,
+            depth_bias: DROP_DEPTH_BIAS,
 
             unlit: true,
             cull_mode: None,
             ..default()
         });
 
-        let y = treasure_y(h);
+        let y = h * 0.5;
 
         commands.spawn((
             Name::new(format!("Pickup_Test_Treasure_{:?}", t)),
@@ -445,33 +441,17 @@ pub fn billboard_pickups(
     let player_pos = player_tf.translation;
     let base_rot = pickup_base_rot();
 
-    // Treasure-only lift to keep bottom pixels off the floor seam.
-    // This will finally “do something” because it’s applied every frame.
-    const TREASURE_Y_EPS: f32 = 0.06;
-
     // Microscopic XZ nudge for DROPPED AMMO only (rounds == 4 in your guard drops).
     // Tiny enough to be invisible, big enough to break corpse/drop coplanar fighting.
     const DROP_IN_FRONT_EPS: f32 = 0.004;
 
     for (p, mut tf) in q_pickups.iter_mut() {
-        // Tile center is your stable anchor. We only override position for
-        // (1) treasure Y, and (2) dropped ammo XZ micro offset.
         let mut pos = tf.translation;
 
-        // --- Treasure: force Y up (treasure only; nothing else changes) ---
-        if let PickupKind::Treasure(t) = p.kind {
-            let (_w, h) = treasure_size(t);
-            pos.y = treasure_y(h) + TREASURE_Y_EPS;
-
-            // Keep treasure anchored at the tile center in XZ so it doesn't drift.
-            pos.x = p.tile.x as f32;
-            pos.z = p.tile.y as f32;
-        }
-
-        // --- Dropped ammo: micro XZ nudge toward the player (rounds == 4) ---
+        // Only adjust DROPPED ammo (guard drops). Nothing else moves (including treasure).
         if let PickupKind::Ammo { rounds } = p.kind {
             if rounds == 4 {
-                // Anchor to tile center, preserve current Y
+                // Anchor to tile center, preserve Y from spawn.
                 pos.x = p.tile.x as f32;
                 pos.z = p.tile.y as f32;
 
@@ -490,7 +470,7 @@ pub fn billboard_pickups(
 
         tf.translation = pos;
 
-        // --- Rotation: yaw-only billboard to face player ---
+        // Yaw-only face the player (Wolf-style)
         let mut to_player = player_pos - tf.translation;
         to_player.y = 0.0;
 
