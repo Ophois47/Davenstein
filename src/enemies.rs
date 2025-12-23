@@ -178,18 +178,29 @@ pub fn apply_guard_corpses(
         Option<&mut Visibility>,
     ), (With<Guard>, Added<GuardCorpse>)>,
 ) {
+    // Push corpses slightly "back" so item drops at the same tile can win depth ties.
+    const CORPSE_DEPTH_BIAS: f32 = 250.0;
+
     for (mat3d, mut tf, vis) in q.iter_mut() {
         if let Some(mat) = materials.get_mut(&mat3d.0) {
             mat.base_color_texture = Some(sprites.corpse.clone());
-            mat.alpha_mode = AlphaMode::Blend;
+
+            // IMPORTANT: corpses should NOT be Blend, or they will fight/cover drops.
+            // Mask is Wolf-faithful and stable.
+            mat.alpha_mode = AlphaMode::Mask(0.5);
+
             mat.unlit = true;
             mat.cull_mode = None;
+
+            // IMPORTANT: make corpse slightly farther in depth than drops.
+            mat.depth_bias = CORPSE_DEPTH_BIAS;
         }
+
         if let Some(mut v) = vis {
             *v = Visibility::Visible;
         }
 
-        // Keep the working floor-anchor fix (do NOT push into floor)
+        // Keep the working floor-anchor fix
         tf.translation.y = 0.5;
     }
 }
