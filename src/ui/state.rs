@@ -1,4 +1,8 @@
+/*
+Davenstein - by David Petnick
+*/
 use bevy::prelude::*;
+
 use crate::combat::WeaponSlot;
 
 #[derive(Resource, Debug, Clone)]
@@ -8,9 +12,10 @@ pub struct HudState {
     pub score: i32,
     pub lives: i32,
 
-    // Weapon system (Wolf 1–4)
+    // Weapon System (1–4)
     pub selected: WeaponSlot,
-    pub owned_mask: u8, // bits for weapons we own
+    // Bits For Owned Weapons
+    pub owned_mask: u8,
 }
 
 impl HudState {
@@ -38,7 +43,7 @@ impl Default for HudState {
             owned_mask: 0,
         };
 
-        // Start with Knife + Pistol (Wolf-style)
+        // Start with Knife + Pistol
         s.grant(WeaponSlot::Knife);
         s.grant(WeaponSlot::Pistol);
         s

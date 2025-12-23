@@ -1,7 +1,11 @@
+/*
+Davenstein - by David Petnick
+*/
 use bevy::audio::SpatialListener;
 use bevy::prelude::*;
 use bevy::ui::prelude::IsDefaultUiCamera;
 use std::f32::consts::{FRAC_PI_2, PI};
+
 use crate::map::{
     DoorAnim,
 	DoorState,
@@ -42,7 +46,13 @@ pub fn setup(
 ) {
     use bevy::mesh::VertexAttributeValues;
 
-    // Legend:  '#' = wall, 'D' = closed door, '.' or ' ' = empty, 'P' = player spawn, 'G' = enemy guard
+    // Legend:
+    // '#' = Wall
+    // 'D' = Closed Door
+    // 'O' = Open Door
+    // '.' or ' ' = Empty
+    // 'P' = Player Spawn
+    // 'G' = Enemy Guard
     const MAP: [&str; 32] = [
 	    "################################",
 	    "#..G...G..G...G.......#........#",
@@ -81,10 +91,10 @@ pub fn setup(
     let (grid, spawn, guards) = MapGrid::from_ascii(&MAP);
     let spawn = spawn.unwrap_or(IVec2::new(1, 1));
 
-    // Make map available for collision / doors / raycasts later
+    // Make Map Available for Collision / Doors / Raycasts
     commands.insert_resource(grid.clone());
 
-    // Load + store assets
+    // Load + Store Assets
     let assets = load_assets(&asset_server);
     let wall_tex = assets.wall_tex.clone();
     let floor_tex = assets.floor_tex.clone();
@@ -118,7 +128,7 @@ pub fn setup(
         ..default()
     });
 
-    // Center helpers (our tiles live at x,z = 0..width-1)
+    // Center Helpers (Tiles Live at X,Z = 0..Width-1)
     let room_center = Vec3::new(
         (grid.width as f32 - 1.0) * TILE_SIZE * 0.5,
         0.0,
@@ -146,12 +156,12 @@ pub fn setup(
         Transform::from_translation(room_center),
     ));
 
-    // ---------- Reusable meshes / constants ----------
+    // Reusable Meshes / Constants
     let wall_face = meshes.add(Plane3d::default().mesh().size(TILE_SIZE, WALL_H));
-    let wall_base = Quat::from_rotation_x(-FRAC_PI_2); // make Plane3d vertical
+    let wall_base = Quat::from_rotation_x(-FRAC_PI_2); // Make Plane3d Vertical
     let half_tile = TILE_SIZE * 0.5;
 
-    // Build a Plane3d mesh but flip UVs deterministically.
+    // Build a Plane3d Mesh but Flip UVs Deterministically
     let mut make_panel = |flip_u: bool, flip_v: bool| -> Handle<Mesh> {
         let mut m: Mesh = Plane3d::default().mesh().size(TILE_SIZE, WALL_H).build();
 
@@ -169,14 +179,13 @@ pub fn setup(
         meshes.add(m)
     };
 
-    // Flip V to fix upside-down on both sides.
-    // Don't flip U; the back panel's 180° rotation already makes it read correctly.
+    // Flip V to Fix Upside-Down on Both Sides
     let door_panel_front = make_panel(false, true);
     let door_panel_back  = make_panel(true, true);
 
     let is_door = |t: Tile| matches!(t, Tile::DoorClosed | Tile::DoorOpen);
 
-    // ---------- Walls + Doors from grid ----------
+    // Walls + Doors From Grid
     for z in 0..grid.height {
         for x in 0..grid.width {
             let tile = grid.tile(x, z);
@@ -235,7 +244,7 @@ pub fn setup(
                 Tile::DoorClosed | Tile::DoorOpen => {
 				    let is_open = matches!(tile, Tile::DoorOpen);
 
-				    // Determine orientation from adjacent WALLS (robust, Wolf-style)
+				    // Determine Orientation From Adjacent Walls
 				    let left_wall  = x > 0 && matches!(grid.tile(x - 1, z), Tile::Wall);
 				    let right_wall = x + 1 < grid.width && matches!(grid.tile(x + 1, z), Tile::Wall);
 				    let up_wall    = z > 0 && matches!(grid.tile(x, z - 1), Tile::Wall);
@@ -244,22 +253,23 @@ pub fn setup(
 				    let walls_x = (left_wall as u8) + (right_wall as u8);
 				    let walls_z = (up_wall as u8) + (down_wall as u8);
 
-				    // If walls are "more" above/below, corridor runs E/W => door plane faces +/-X => yaw 90deg.
-				    // Otherwise corridor runs N/S => yaw 0deg.
+				    // If Walls are "More" Above / Below, Corridor 
+                    // Runs E/W => Door Plane Faces +/-X => Yaw 90 Degrees
+				    // Otherwise Corridor Runs N/S => Yaw 0 Degrees
 				    let yaw = if walls_z > walls_x { FRAC_PI_2 } else { 0.0 };
 
 				    if walls_x == 0 && walls_z == 0 {
 				        bevy::log::warn!("Door at ({},{}) has no adjacent walls?", x, z);
 				    }
 
-				    // Plane3d normal is +Y; rotate vertical so normal becomes horizontal, then yaw.
+				    // Plane3d Normal is +Y, Rotate Vertical so Normal Becomes Horizontal, Then Yaw
 				    let base = Quat::from_rotation_x(-FRAC_PI_2);
 				    let rot = Quat::from_rotation_y(yaw) * base;
 
-				    // Plane3d local normal is +Y
+				    // Plane3d Local Normal is +Y
 				    let normal = rot * Vec3::Y;
 
-				    // Door thickness offset for the two panels
+				    // Door Thickness Offset for Two Panels
 				    let half_thickness = (DOOR_THICKNESS * TILE_SIZE) * 0.5;
 
 				    let center = Vec3::new(
@@ -268,7 +278,7 @@ pub fn setup(
 				        z as f32 * TILE_SIZE,
 				    );
 
-				    // Door slides along its local +X after yaw
+				    // Door Slides Along Local +X After Yaw
 				    let slide_axis = Quat::from_rotation_y(yaw) * Vec3::X;
 
 				    let progress = if is_open { 1.0 } else { 0.0 };
@@ -300,7 +310,7 @@ pub fn setup(
 				                },
 				            ));
 
-				            // Back (mirrored via UV flip mesh so the handle stays on the right)
+				            // Back (Mirrored via UV Flip Mesh so Handle Stays on Right)
 				            parent.spawn((
 				                Mesh3d(door_panel_back.clone()),
 				                MeshMaterial3d(door_mat.clone()),
@@ -327,7 +337,7 @@ pub fn setup(
         );
     }
 
-    // Player spawn from grid
+    // Player Spawn From Grid
     let player_pos = Vec3::new(
         spawn.x as f32 * TILE_SIZE,
         0.6,

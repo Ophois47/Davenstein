@@ -1,7 +1,10 @@
-use bevy::prelude::*;
-
+/*
+Davenstein - by David Petnick
+*/
 mod state;
 mod hud;
+
+use bevy::prelude::*;
 
 pub use state::HudState;
 
@@ -12,7 +15,6 @@ impl Plugin for UiPlugin {
         app.init_resource::<HudState>()
             .init_resource::<hud::WeaponState>()
             .add_systems(Startup, hud::setup_hud)
-            // run weapon first, then update HUD text
             .add_systems(Update, hud::weapon_fire_and_viewmodel)
             .add_systems(Update, hud::sync_hud_text.after(hud::weapon_fire_and_viewmodel));
     }

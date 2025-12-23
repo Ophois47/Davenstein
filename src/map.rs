@@ -1,22 +1,25 @@
+/*
+Davenstein - by David Petnick
+*/
 use bevy::prelude::*;
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DoorTile(pub IVec2); // (x, z) in tile coords
+pub struct DoorTile(pub IVec2); // (X, Z) in Tile Coords
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct DoorState {
-    // Seconds remaining while open (countdown starts once fully open)
-    // 0 = no pending close
+    // Seconds Remaining While Open (Countdown Starts When Fully Open)
+    // 0 = No Pending Close
     pub open_timer: f32,
-    // Door only becomes passable once fully open
+    // Door Becomes Passable Once Fully Open
     pub want_open: bool,
 }
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct DoorAnim {
-    pub progress: f32,    // 0.0 = closed, 1.0 = open
-    pub closed_pos: Vec3, // world-space position when fully closed
-    pub slide_axis: Vec3, // world-space unit direction to slide into the wall
+    pub progress: f32,    // 0.0 = Closed, 1.0 = Open
+    pub closed_pos: Vec3, // World-space Position When Fully Closed
+    pub slide_axis: Vec3, // World-space Unit Direction to Slide Into Wall
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,10 +50,7 @@ impl MapGrid {
     	let i  = self.idx(x, z);
     	self.tiles[i] = t;
     }
-
-    // ASCII Legend:
-    // '#' = wall, '.' or ' ' = empty, 'P' = player spawn (treated as empty)
-    // 'G' = guard spawn (treated as empty)
+    
     pub fn from_ascii(lines: &[&str]) -> (Self, Option<IVec2>, Vec<IVec2>) {
         let height = lines.len();
         let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);

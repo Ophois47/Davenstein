@@ -1,11 +1,10 @@
 /*
 Davenstein - by David Petnick
 */
-
-use super::HudState;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 
+use super::HudState;
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::player::Player;
 

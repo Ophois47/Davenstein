@@ -1,3 +1,6 @@
+/*
+Davenstein - by David Petnick
+*/
 use bevy::prelude::*;
 use davelib::map::{MapGrid, Tile};
 
@@ -16,7 +19,6 @@ pub struct RayHit {
 }
 
 pub fn raycast_grid(grid: &MapGrid, origin: Vec3, dir3: Vec3, max_dist: f32) -> Option<RayHit> {
-    // Keep in sync with world.rs
     const FLOOR_Y: f32 = 0.0;
     const WALL_H: f32 = 1.0;
 
@@ -33,14 +35,14 @@ pub fn raycast_grid(grid: &MapGrid, origin: Vec3, dir3: Vec3, max_dist: f32) -> 
     let dz = dir3.z;
 
     let floor_hit = |t: f32| RayHit {
-        tile: Tile::Empty,              // floor sentinel
-        tile_coord: IVec2::new(-1, -1), // floor sentinel
+        tile: Tile::Empty,
+        tile_coord: IVec2::new(-1, -1),
         pos: origin + dir3 * t,
         normal: Vec3::Y,
         dist: t,
     };
 
-    // Floor intersection (no ceiling per design)
+    // Floor Intersection
     let t_floor = if dy < -EPS_DIR {
         let t = (FLOOR_Y - origin.y) / dy;
         (t >= 0.0).then_some(t)
@@ -48,7 +50,7 @@ pub fn raycast_grid(grid: &MapGrid, origin: Vec3, dir3: Vec3, max_dist: f32) -> 
         None
     };
 
-    // If basically vertical (no XZ movement), only floor can be hit
+    // If Basically Vertical (No XZ Movement), Only Floor Can be Hit
     if dx.abs() < EPS_DIR && dz.abs() < EPS_DIR {
         if let Some(t) = t_floor {
             if t <= max_dist {
@@ -58,7 +60,7 @@ pub fn raycast_grid(grid: &MapGrid, origin: Vec3, dir3: Vec3, max_dist: f32) -> 
         return None;
     }
 
-    // DDA in XZ (tile boundaries at N+0.5, matches your collision scheme)
+    // DDA in XZ (Tile Boundaries at N+0.5, Matches Collision Scheme)
     let px = origin.x + 0.5;
     let pz = origin.z + 0.5;
 
@@ -85,14 +87,14 @@ pub fn raycast_grid(grid: &MapGrid, origin: Vec3, dir3: Vec3, max_dist: f32) -> 
     for _ in 0..max_steps {
         let t_next = t_max_x.min(t_max_z);
 
-        // Floor can be hit before we even reach the next grid boundary
+        // Floor Can be Hit Before Reaching Next Grid Boundary
         if let Some(t) = t_floor {
             if t <= t_next && t <= max_dist {
                 return Some(floor_hit(t));
             }
         }
 
-        // Step to next cell boundary; compute the normal for THIS step locally
+        // Step to Next Cell Boundary. Compute Normal for THIS Step Locally
         let (dist, step_normal) = if t_max_x < t_max_z {
             ix += step_x;
             let dist = t_max_x;
@@ -116,7 +118,7 @@ pub fn raycast_grid(grid: &MapGrid, origin: Vec3, dir3: Vec3, max_dist: f32) -> 
 
         let tile = grid.tile(ix as usize, iz as usize);
 
-        // Stops on walls + closed doors (open doors are pass-through)
+        // Stops on Walls + Closed Doors
         if matches!(tile, Tile::Wall | Tile::DoorClosed) {
             let y_at = origin.y + dy * dist;
             if y_at >= FLOOR_Y - EPS_Y && y_at <= WALL_H + EPS_Y {

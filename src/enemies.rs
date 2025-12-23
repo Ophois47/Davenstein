@@ -1,5 +1,9 @@
+/*
+Davenstein - by David Petnick
+*/
 use bevy::prelude::*;
 use bevy::time::Timer;
+
 use crate::actors::{Dead, Health, OccupiesTile};
 use crate::audio::{PlaySfx, SfxKind};
 use crate::player::Player;
@@ -9,7 +13,15 @@ const GUARD_MAX_HP: i32 = 6;
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnemyKind {
     Guard,
-    // later: Officer, SS, Dog, Boss, etc.
+    // TODO: Officer, SS, Dog, Boss, etc.
+}
+
+#[derive(Component)]
+pub struct Guard;
+
+#[derive(Component)]
+pub struct GuardPain {
+    pub timer: Timer,
 }
 
 #[derive(Resource)]
@@ -38,14 +50,6 @@ impl FromWorld for GuardSprites {
     }
 }
 
-#[derive(Component)]
-pub struct Guard;
-
-#[derive(Component)]
-pub struct GuardPain {
-    pub timer: Timer,
-}
-
 pub fn tick_guard_pain(
     time: Res<Time>,
     mut commands: Commands,
@@ -63,17 +67,18 @@ pub fn tick_guard_pain(
 #[derive(Component, Debug, Clone, Copy)]
 pub struct GuardDying {
     pub frame: u8, // 0..DEATH_FRAMES-1
-    pub tics: u8,  // fixed-step counter
+    pub tics: u8,  // Fixed-Step Counter
 }
 
 #[derive(Component)]
 pub struct GuardCorpse;
 
 #[derive(Component, Clone, Copy)]
-pub struct Dir8(pub u8); // 0..7, 0 = facing -Z
+pub struct Dir8(pub u8); // 0..7, 0 = Facing -Z
 
+// Cached to Avoid Redundant Texture Swaps
 #[derive(Component, Clone, Copy)]
-pub struct View8(pub u8); // cached to avoid redundant texture swaps
+pub struct View8(pub u8);
 
 pub fn play_enemy_death_sfx(
     mut sfx: MessageWriter<PlaySfx>,
@@ -102,13 +107,13 @@ pub fn spawn_guard(
 
     let pos = Vec3::new(tile.x as f32 * TILE_SIZE, WALL_H * 0.5, tile.y as f32 * TILE_SIZE);
 
-    // A vertical quad in the XY plane (normal +Z), UVs “upright”
+    // A Vertical Quad in XY Plane (Normal +Z), UVs "Upright"
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
         alpha_mode: AlphaMode::Blend,
-        unlit: true,       // Wolf look: no lighting on sprites
-        cull_mode: None,   // safe for billboards
+        unlit: true,       // No Lighting on Sprites
+        cull_mode: None,   // Safe for Billboards
         ..default()
     });
 
@@ -121,7 +126,7 @@ pub fn spawn_guard(
         OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
-        Transform::from_translation(pos), // <-- no base rotation, no negative scale
+        Transform::from_translation(pos),
     ));
 }
 
@@ -135,9 +140,8 @@ fn quantize_view8(enemy_dir8: u8, enemy_pos: Vec3, player_pos: Vec3) -> u8 {
     }
 
     let step = TAU / 8.0;
-    // 0 when pointing +Z (matches update_guard_views yaw)
     let angle_to_player = flat.x.atan2(flat.z).rem_euclid(TAU);
-    // Define Dir8(0) as facing +Z, Dir8(2)=+X, Dir8(4)=-Z, Dir8(6)=-X
+    // Define Dir8(0) as Facing +Z, Dir8(2)=+X, Dir8(4)=-Z, Dir8(6)=-X
     let enemy_yaw = (enemy_dir8 as f32) * step;
     let rel = (angle_to_player - enemy_yaw).rem_euclid(TAU);
 
@@ -148,8 +152,6 @@ pub fn tick_guard_dying(
     mut commands: Commands,
     mut q: Query<(Entity, &mut GuardDying), With<Guard>>,
 ) {
-    // Wolf-ish: simple fixed tics. At 60Hz FixedUpdate:
-    // 6 tics/frame ≈ 0.10s per frame → 4 frames ≈ 0.4s total.
     const DEATH_FRAMES: u8 = 4;
     const TICS_PER_FRAME: u8 = 6;
 
@@ -161,7 +163,7 @@ pub fn tick_guard_dying(
             dying.frame = dying.frame.saturating_add(1);
 
             if dying.frame >= DEATH_FRAMES {
-                // End of animation → permanent corpse
+                // End of Animation -> Permanent Corpse
                 commands.entity(e).remove::<GuardDying>();
                 commands.entity(e).insert(GuardCorpse);
             }
@@ -178,21 +180,21 @@ pub fn apply_guard_corpses(
         Option<&mut Visibility>,
     ), (With<Guard>, Added<GuardCorpse>)>,
 ) {
-    // Push corpses slightly "back" so item drops at the same tile can win depth ties.
+    // Push Corpses Slightly "Back" so Item Drops
+    // at Same Tile Can Win Depth Ties
     const CORPSE_DEPTH_BIAS: f32 = 250.0;
 
     for (mat3d, mut tf, vis) in q.iter_mut() {
         if let Some(mat) = materials.get_mut(&mat3d.0) {
             mat.base_color_texture = Some(sprites.corpse.clone());
 
-            // IMPORTANT: corpses should NOT be Blend, or they will fight/cover drops.
-            // Mask is Wolf-faithful and stable.
+            // Corpses Should NOT be Blend, or They'll Fight / Cover Drops
             mat.alpha_mode = AlphaMode::Mask(0.5);
 
             mat.unlit = true;
             mat.cull_mode = None;
 
-            // IMPORTANT: make corpse slightly farther in depth than drops.
+            // Make Corpse Slightly Farther in Depth Than Drops
             mat.depth_bias = CORPSE_DEPTH_BIAS;
         }
 
@@ -200,7 +202,6 @@ pub fn apply_guard_corpses(
             *v = Visibility::Visible;
         }
 
-        // Keep the working floor-anchor fix
         tf.translation.y = 0.5;
     }
 }
@@ -226,12 +227,12 @@ pub fn update_guard_views(
     for (dead, dying, pain, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
         let enemy_pos = gt.translation();
 
-        // Always billboard (alive or dead), Wolf-style
+        // Always Billboard as Wolfenstein 3D Did
         let to_cam = cam_pos - enemy_pos;
         let yaw = to_cam.x.atan2(to_cam.z);
         tf.rotation = Quat::from_rotation_y(yaw);
 
-        // Dying anim (non-directional)
+        // Dying Anim (Non-Directional)
         if let Some(dying) = dying {
             let i = (dying.frame as usize).min(sprites.death.len() - 1);
             if let Some(mat) = materials.get_mut(&mat3d.0) {
@@ -240,21 +241,21 @@ pub fn update_guard_views(
             continue;
         }
 
-        // Pain sprite (non-directional)
+        // Pain Sprite (Non-Directional)
         if pain.is_some() {
-            view.0 = 255; // <--- IMPORTANT
+            view.0 = 255;
             if let Some(mat) = materials.get_mut(&mat3d.0) {
                 mat.base_color_texture = Some(sprites.pain.clone());
             }
             continue;
         }
 
-        // Dead (not dying) → corpse is stable, don't overwrite
+        // Dead -> Corpse Stable, Don't Overwrite
         if dead.is_some() {
             continue;
         }
 
-        // Alive → 8-dir idle
+        // Alive -> 8-dir Idle
         let v = quantize_view8(dir8.0, enemy_pos, cam_pos);
         if v != view.0 {
             view.0 = v;
