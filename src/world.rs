@@ -42,12 +42,12 @@ pub fn setup(
 ) {
     use bevy::mesh::VertexAttributeValues;
 
-    // Legend:  '#' = wall, 'D' = closed door, '.' or ' ' = empty, 'P' = player spawn
+    // Legend:  '#' = wall, 'D' = closed door, '.' or ' ' = empty, 'P' = player spawn, 'G' = enemy guard
     const MAP: [&str; 32] = [
 	    "################################",
-	    "#..G..........G.......#........#",
-	    "#....G................#........#",
-	    "#..........G..........#........#",
+	    "#..G...G..G...G.......#........#",
+	    "#....G....G...G.......#........#",
+	    "#..G...G...G....G.....#........#",
 	    "#.######D######.......#........#",
 	    "#.#...........#.......#........#",
 	    "#.#...G.......#.......#........#",
@@ -57,23 +57,23 @@ pub fn setup(
 	    "#.....................D........#",
 	    "#######D#################D######",
 	    "#.....................#........#",
+	    "#.................G...#.G......#",
+	    "#.G...................#........#",
 	    "#.....................#........#",
 	    "#.....................#........#",
-	    "#.....................#........#",
-	    "#.....................#........#",
-	    "#.....................#........#",
+	    "#.....................#G.......#",
 	    "#.........G...........#........#",
 	    "#.....................#........#",
 	    "#.....................#........#",
 	    "######.#.################.#.####",
+	    "#.....................#G.......#",
+	    "#...............G.....#........#",
+	    "#....G................#........#",
 	    "#.....................#........#",
 	    "#.....................#........#",
-	    "#....G................#....G...#",
 	    "#.....................#........#",
 	    "#.....................#........#",
-	    "#.....................#........#",
-	    "#.....................#........#",
-	    "#.....................D........#",
+	    "#..............G......D........#",
 	    "#.P...................#........#",
 	    "################################",
 	];
@@ -232,91 +232,86 @@ pub fn setup(
                         }
                     }
                 }
-
                 Tile::DoorClosed | Tile::DoorOpen => {
-                    let is_open = matches!(tile, Tile::DoorOpen);
+				    let is_open = matches!(tile, Tile::DoorOpen);
 
-                    // Determine orientation from WALLS (robust, Wolf-style)
-                    let left_wall = x > 0 && matches!(grid.tile(x - 1, z), Tile::Wall);
-                    let right_wall = x + 1 < grid.width && matches!(grid.tile(x + 1, z), Tile::Wall);
-                    let up_wall = z > 0 && matches!(grid.tile(x, z - 1), Tile::Wall);
-                    let down_wall = z + 1 < grid.height && matches!(grid.tile(x, z + 1), Tile::Wall);
+				    // Determine orientation from adjacent WALLS (robust, Wolf-style)
+				    let left_wall  = x > 0 && matches!(grid.tile(x - 1, z), Tile::Wall);
+				    let right_wall = x + 1 < grid.width && matches!(grid.tile(x + 1, z), Tile::Wall);
+				    let up_wall    = z > 0 && matches!(grid.tile(x, z - 1), Tile::Wall);
+				    let down_wall  = z + 1 < grid.height && matches!(grid.tile(x, z + 1), Tile::Wall);
 
-                    // If walls are above+below, passage runs E/W (X), so door faces +/-X.
-                    // Otherwise default to passage running N/S (Z), door faces +/-Z.
-                    let yaw = if up_wall && down_wall { FRAC_PI_2 } else { 0.0 };
+				    let walls_x = (left_wall as u8) + (right_wall as u8);
+				    let walls_z = (up_wall as u8) + (down_wall as u8);
 
-                    // Plane3d normal is +Y; rotate vertical so normal becomes +Z, then yaw.
-                    let base = Quat::from_rotation_x(-FRAC_PI_2);
-                    let rot = Quat::from_rotation_y(yaw) * base;
+				    // If walls are "more" above/below, corridor runs E/W => door plane faces +/-X => yaw 90deg.
+				    // Otherwise corridor runs N/S => yaw 0deg.
+				    let yaw = if walls_z > walls_x { FRAC_PI_2 } else { 0.0 };
 
-                    // Plane3d's local normal is +Y
-                    let normal = rot * Vec3::Y;
+				    if walls_x == 0 && walls_z == 0 {
+				        bevy::log::warn!("Door at ({},{}) has no adjacent walls?", x, z);
+				    }
 
-                    // Door thickness offset for the two panels
-                    let half_thickness = (DOOR_THICKNESS * TILE_SIZE) * 0.5;
+				    // Plane3d normal is +Y; rotate vertical so normal becomes horizontal, then yaw.
+				    let base = Quat::from_rotation_x(-FRAC_PI_2);
+				    let rot = Quat::from_rotation_y(yaw) * base;
 
-                    let center = Vec3::new(
-                        x as f32 * TILE_SIZE,
-                        WALL_H * 0.5,
-                        z as f32 * TILE_SIZE,
-                    );
+				    // Plane3d local normal is +Y
+				    let normal = rot * Vec3::Y;
 
-                    // Robust orientation (optional but recommended)
-                    let walls_x = (left_wall as u8) + (right_wall as u8);
-                    let walls_z = (up_wall as u8) + (down_wall as u8);
-                    let yaw = if walls_z > walls_x { FRAC_PI_2 } else { 0.0 };
+				    // Door thickness offset for the two panels
+				    let half_thickness = (DOOR_THICKNESS * TILE_SIZE) * 0.5;
 
-                    // Door slides along its local +X after yaw.
-                    // This is the key: no sign flipping / fallback = consistent “handle side” feel
-                    let slide_axis = Quat::from_rotation_y(yaw) * Vec3::X;
+				    let center = Vec3::new(
+				        x as f32 * TILE_SIZE,
+				        WALL_H * 0.5,
+				        z as f32 * TILE_SIZE,
+				    );
 
-                    // Optional sanity log if the door placement is weird
-                    if walls_x == 0 && walls_z == 0 {
-                        bevy::log::warn!("Door at ({},{}) has no adjacent walls?", x, z);
-                    }
+				    // Door slides along its local +X after yaw
+				    let slide_axis = Quat::from_rotation_y(yaw) * Vec3::X;
 
-                    let progress = if is_open { 1.0 } else { 0.0 };
-                    let start_pos = center + slide_axis * (progress * TILE_SIZE);
+				    let progress = if is_open { 1.0 } else { 0.0 };
+				    let start_pos = center + slide_axis * (progress * TILE_SIZE);
 
-                    let vis = if is_open { Visibility::Hidden } else { Visibility::Visible };
+				    let vis = if is_open { Visibility::Hidden } else { Visibility::Visible };
 
-                    commands
-                        .spawn((
-                            DoorTile(IVec2::new(x as i32, z as i32)),
-                            DoorState { open_timer: 0.0, want_open: is_open },
-                            DoorAnim {
-                                progress,
-                                closed_pos: center,
-                                slide_axis,
-                            },
-                            Transform::from_translation(start_pos),
-                            vis,
-                        ))
-                        .with_children(|parent| {
-                            // Front
-                            parent.spawn((
-                                Mesh3d(door_panel_front.clone()),
-                                MeshMaterial3d(door_mat.clone()),
-                                Transform {
-                                    translation: normal * half_thickness,
-                                    rotation: rot,
-                                    ..default()
-                                },
-                            ));
+				    commands
+				        .spawn((
+				            DoorTile(IVec2::new(x as i32, z as i32)),
+				            DoorState { open_timer: 0.0, want_open: is_open },
+				            DoorAnim {
+				                progress,
+				                closed_pos: center,
+				                slide_axis,
+				            },
+				            Transform::from_translation(start_pos),
+				            vis,
+				        ))
+				        .with_children(|parent| {
+				            // Front
+				            parent.spawn((
+				                Mesh3d(door_panel_front.clone()),
+				                MeshMaterial3d(door_mat.clone()),
+				                Transform {
+				                    translation: normal * half_thickness,
+				                    rotation: rot,
+				                    ..default()
+				                },
+				            ));
 
-                            // Back (mirrored via UV flip mesh so the handle stays on the right)
-                            parent.spawn((
-                                Mesh3d(door_panel_back.clone()),
-                                MeshMaterial3d(door_mat.clone()),
-                                Transform {
-                                    translation: -normal * half_thickness,
-                                    rotation: Quat::from_rotation_y(PI) * rot,
-                                    ..default()
-                                },
-                            ));
-                        });
-                }
+				            // Back (mirrored via UV flip mesh so the handle stays on the right)
+				            parent.spawn((
+				                Mesh3d(door_panel_back.clone()),
+				                MeshMaterial3d(door_mat.clone()),
+				                Transform {
+				                    translation: -normal * half_thickness,
+				                    rotation: Quat::from_rotation_y(PI) * rot,
+				                    ..default()
+				                },
+				            ));
+				        });
+				}
                 _ => {}
             }
         }

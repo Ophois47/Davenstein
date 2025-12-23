@@ -45,6 +45,18 @@ fn extract_embedded_assets_to_temp() -> String {
     out_dir.to_string_lossy().to_string()
 }
 
+use crate::ui::HudState;
+
+fn debug_self_damage(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut hud: ResMut<HudState>,
+) {
+    if keys.just_pressed(KeyCode::KeyH) {
+        hud.hp = (hud.hp - 10).max(0);
+        info!("DEBUG: self-damage (-10) -> hp={}", hud.hp);
+    }
+}
+
 fn main() {
     let assets_path = extract_embedded_assets_to_temp();
 
@@ -71,7 +83,7 @@ fn main() {
         )
         .add_systems(
             Update,
-            (grab_mouse, mouse_look, pickups::billboard_pickups, use_doors).chain(),
+            (grab_mouse, mouse_look, debug_self_damage, pickups::billboard_pickups, use_doors).chain(),
         )
         .add_systems(PostUpdate, play_sfx_events)
         .add_systems(

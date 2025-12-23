@@ -1,6 +1,11 @@
+/*
+Davenstein - by David Petnick
+*/
+
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy::input::mouse::AccumulatedMouseMotion;
+
 use crate::map::{
 	DoorAnim,
 	DoorState,
@@ -35,7 +40,7 @@ impl Default for PlayerSettings {
 	}
 }
 
-// Left Click to Lock/Hide Cursor; Esc to Release
+// Left Click to Lock/Hide Cursor, Esc to Release
 pub fn grab_mouse(
     mut cursor_options: Single<&mut CursorOptions>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -66,11 +71,12 @@ pub fn mouse_look(
     }
 
     let Ok((mut transform, mut look)) = q.single_mut() else {
-    return; // 0 or 2+ matching entities
+    return;
 };
     look.yaw -= delta.x * settings.sensitivity;
     look.pitch -= delta.y * settings.sensitivity;
-    look.pitch = look.pitch.clamp(-1.54, 1.54); // ~ +/- 88 degrees
+    // ~ +/- 88 Degrees
+    look.pitch = look.pitch.clamp(-1.54, 1.54);
 
     transform.rotation = Quat::from_euler(EulerRot::YXZ, look.yaw, look.pitch, 0.0);
 }
@@ -83,16 +89,17 @@ pub fn player_move(
     mut q_player: Query<&mut Transform, With<Player>>,
     settings: Res<PlayerSettings>,
 ) {
-    const PLAYER_RADIUS: f32 = 0.25; // in tile units (tile = 1.0)
+    // Tile Units (Tile = 1.0)
+    const PLAYER_RADIUS: f32 = 0.25;
 
     let Ok(mut transform) = q_player.single_mut() else {
         return;
     };
 
-    // Snapshot occupied tiles (tiny, Carmack-simple, no allocations beyond Vec)
+    // Snapshot Occupied Tiles (No Allocations Beyond Vec)
     let occupied: Vec<IVec2> = q_enemies.iter().map(|t| t.0).collect();
 
-    // Movement basis (XZ only)
+    // Movement Basis (XZ Only)
     let mut forward = transform.rotation * Vec3::NEG_Z;
     forward.y = 0.0;
     forward = forward.normalize_or_zero();
@@ -114,7 +121,7 @@ pub fn player_move(
 
     let step = wish * settings.speed * time.delta_secs();
 
-    // --- Helpers: world pos (x,z) -> tile index (x,z) ---
+    // World POS (X,Z) -> Tile Index (X,Z)
     fn world_to_tile(p: Vec2) -> IVec2 {
         IVec2::new((p.x + 0.5).floor() as i32, (p.y + 0.5).floor() as i32)
     }
@@ -125,10 +132,11 @@ pub fn player_move(
 
     fn is_solid(grid: &MapGrid, occupied: &[IVec2], tx: i32, tz: i32) -> bool {
         if tx < 0 || tz < 0 || tx >= grid.width as i32 || tz >= grid.height as i32 {
-            return true; // outside map = solid
+            // Outside Map = Solid
+            return true;
         }
 
-        // Wolf-style: living enemies are solid (corpses will be excluded by query later)
+        // Living Enemies == Solid, Corpses Excluded by Query Later
         if is_occupied(occupied, tx, tz) {
             return true;
         }
@@ -153,10 +161,10 @@ pub fn player_move(
         false
     }
 
-    // Current position in XZ
+    // Current Position in XZ
     let mut pos = Vec2::new(transform.translation.x, transform.translation.z);
 
-    // Slide: resolve X, then Z
+    // Slide: Resolve X, then Z
     let try_x = Vec2::new(pos.x + step.x, pos.y);
     if !collides(&grid, &occupied, try_x, PLAYER_RADIUS) {
         pos.x = try_x.x;
@@ -195,7 +203,7 @@ pub fn use_doors(
 
     let player_tile = world_to_tile(Vec2::new(player_tf.translation.x, player_tf.translation.z));
 
-    // Wolf-style 4-way use
+    // 4-Way Use
     let mut fwd = player_tf.rotation * Vec3::NEG_Z;
     fwd.y = 0.0;
     if fwd.length_squared() < 1e-6 {
@@ -237,14 +245,12 @@ pub fn use_doors(
 
         match cur {
             Tile::DoorOpen => {
-                // Closing: solid immediately
                 state.want_open = false;
                 state.open_timer = 0.0;
                 grid.set_tile(tx, tz, Tile::DoorClosed);
                 sfx_kind = Some(SfxKind::DoorClose);
             }
             Tile::DoorClosed => {
-                // Opening: DO NOT flip grid yet (Option 2)
                 state.want_open = true;
                 state.open_timer = DOOR_OPEN_SECS;
                 sfx_kind = Some(SfxKind::DoorOpen);
@@ -284,7 +290,7 @@ pub fn door_animate(
         let want_open = state.want_open;
         let target = if want_open { 1.0 } else { 0.0 };
 
-        // If we're closing, ensure grid is solid immediately (robustness)
+        // If Closing, Ensure Grid is Solid Immediately
         if !want_open && grid.tile(ux, uz) == Tile::DoorOpen {
             grid.set_tile(ux, uz, Tile::DoorClosed);
         }
@@ -298,7 +304,7 @@ pub fn door_animate(
 
         tf.translation = anim.closed_pos + anim.slide_axis * (anim.progress * TILE_SIZE);
 
-        // Only when fully open does the tile become passable / shoot-through.
+        // Only When Fully Open Tile Becomes Passable / Able to be Shot Through
         if want_open && anim.progress >= 0.999 {
             if grid.tile(ux, uz) != Tile::DoorOpen {
                 grid.set_tile(ux, uz, Tile::DoorOpen);
@@ -336,7 +342,7 @@ pub fn door_auto_close(
         }
         let (tx, tz) = (dt.x as usize, dt.y as usize);
 
-        // Only once the door is actually passable (Option 2)
+        // Only Once Door is Actually Passable
         if grid.tile(tx, tz) != Tile::DoorOpen {
             continue;
         }

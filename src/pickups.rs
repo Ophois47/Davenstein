@@ -1,42 +1,78 @@
+/*
+Davenstein - by David Petnick
+*/
 use bevy::prelude::*;
+use std::f32::consts::FRAC_PI_2;
+
 use crate::combat::WeaponSlot;
 use crate::ui::HudState;
-use std::f32::consts::FRAC_PI_2;
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::enemies::GuardCorpse;
 use davelib::map::{MapGrid, Tile};
 use davelib::player::Player;
 
-// Ammo Drop Amounts
-const GUARD_DROP_AMMO: i32 = 4;
+// Ammo Pickup Amounts
+#[allow(dead_code)]
+const MAP_AMMO_ROUNDS: i32 = 8;
+const GUARD_DROP_AMMO_ROUNDS: i32 = 4;
 
-// Visual size (height in world units). Width is derived from sprite aspect
+// Visual Size, Height in World Units
+// Width Derived From Sprite Aspect
 const PICKUP_H: f32 = 0.28;
 const AMMO_H: f32 = 0.22;
+const HEALTH_FIRST_AID_H: f32 = 0.18;
+const HEALTH_DINNER_H: f32    = 0.18;
+const HEALTH_DOGFOOD_H: f32   = AMMO_H;
+const ONEUP_H: f32            = 0.50;
 const TREASURE_H: f32 = 0.24;
 
-// These aspect ratios match the actual extracted sprites we're using:
-// chaingun.png: 60x21  => ~2.857
-// machinegun.png: 47x18 => ~2.611
+const HEALTH_FIRST_AID_W_SCALE: f32 = 1.35;
+const HEALTH_DINNER_W_SCALE: f32    = 1.35;
+
+// Aspect Ratios
 const CHAINGUN_ASPECT: f32 = 60.0 / 21.0;
 const MACHINEGUN_ASPECT: f32 = 47.0 / 18.0;
 const AMMO_ASPECT: f32 = 16.0 / 12.0;
-const CROSS_ASPECT: f32   = 19.0 / 18.0;
+const CROSS_ASPECT: f32   = 20.0 / 19.0;
 const CHALICE_ASPECT: f32 = 18.0 / 15.0;
 const CHEST_ASPECT: f32   = 25.0 / 13.0;
 const CROWN_ASPECT: f32   = 24.0 / 17.0;
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Pickup {
-    pub tile: IVec2, // (x, z) tile coords
+    // (X, Z) Tile Coords
+    pub tile: IVec2,
     pub kind: PickupKind,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum PickupKind {
     Weapon(WeaponSlot),
-    Ammo { rounds: i32 }, // +8 in map, +4 from enemy drop
+    // +8 Map Spawn, +4 Enemy Drop
+    Ammo { rounds: i32 },
     Treasure(TreasureKind),
+    Health(HealthKind),
+    ExtraLife,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct DroppedLoot;
+
+#[derive(Debug, Clone, Copy)]
+pub enum HealthKind {
+    FirstAid,
+    Dinner,
+    DogFood,
+}
+
+impl HealthKind {
+    pub const fn heal(self) -> i32 {
+        match self {
+            HealthKind::FirstAid => 25,
+            HealthKind::Dinner => 10,
+            HealthKind::DogFood => 4,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,6 +94,39 @@ impl TreasureKind {
     }
 }
 
+fn ammo_size() -> (f32, f32) {
+    (AMMO_H * AMMO_ASPECT, AMMO_H)
+}
+
+fn weapon_pickup_size(w: WeaponSlot) -> (f32, f32) {
+    match w {
+        WeaponSlot::Chaingun => (PICKUP_H * CHAINGUN_ASPECT, PICKUP_H),
+        WeaponSlot::MachineGun => (PICKUP_H * MACHINEGUN_ASPECT, PICKUP_H),
+        _ => (PICKUP_H, PICKUP_H),
+    }
+}
+
+fn health_pickup_size(h: HealthKind) -> (f32, f32) {
+    match h {
+        HealthKind::DogFood => {
+            let h = HEALTH_DOGFOOD_H;
+            (h, h)
+        }
+        HealthKind::Dinner => {
+            let h = HEALTH_DINNER_H;
+            (h * HEALTH_DINNER_W_SCALE, h)
+        }
+        HealthKind::FirstAid => {
+            let h = HEALTH_FIRST_AID_H;
+            (h * HEALTH_FIRST_AID_W_SCALE, h)
+        }
+    }
+}
+
+fn oneup_size() -> (f32, f32) {
+    (ONEUP_H, ONEUP_H)
+}
+
 fn treasure_size(t: TreasureKind) -> (f32, f32) {
     let aspect = match t {
         TreasureKind::Cross => CROSS_ASPECT,
@@ -68,6 +137,27 @@ fn treasure_size(t: TreasureKind) -> (f32, f32) {
     (TREASURE_H * aspect, TREASURE_H)
 }
 
+fn weapon_pickup_texture(w: WeaponSlot) -> &'static str {
+    match w {
+        WeaponSlot::Chaingun => "textures/pickups/chaingun.png",
+        WeaponSlot::MachineGun => "textures/pickups/machinegun.png",
+        _ => "textures/pickups/chaingun.png", // FIXME: Placeholder
+    }
+}
+
+fn ammo_texture() -> &'static str {
+    "textures/pickups/ammo.png"
+}
+
+fn health_texture(h: HealthKind) -> &'static str {
+    match h {
+        HealthKind::FirstAid => "textures/pickups/health_first_aid.png",
+        HealthKind::Dinner => "textures/pickups/health_dinner.png",
+        HealthKind::DogFood => "textures/pickups/health_dog_food.png",
+    }
+}
+
+
 fn treasure_texture(t: TreasureKind) -> &'static str {
     match t {
         TreasureKind::Cross => "textures/pickups/treasure_cross.png",
@@ -77,35 +167,12 @@ fn treasure_texture(t: TreasureKind) -> &'static str {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy)]
-pub struct DroppedLoot;
-
-fn weapon_pickup_size(w: WeaponSlot) -> (f32, f32) {
-    match w {
-        WeaponSlot::Chaingun => (PICKUP_H * CHAINGUN_ASPECT, PICKUP_H),
-        WeaponSlot::MachineGun => (PICKUP_H * MACHINEGUN_ASPECT, PICKUP_H),
-        _ => (PICKUP_H, PICKUP_H),
-    }
+fn oneup_texture() -> &'static str {
+    "textures/pickups/oneup.png"
 }
 
-fn weapon_pickup_texture(w: WeaponSlot) -> &'static str {
-    match w {
-        WeaponSlot::Chaingun => "textures/pickups/chaingun.png",
-        WeaponSlot::MachineGun => "textures/pickups/machinegun.png",
-        _ => "textures/pickups/chaingun.png", // placeholder (won't be used yet)
-    }
-}
-
-fn ammo_size() -> (f32, f32) {
-    (AMMO_H * AMMO_ASPECT, AMMO_H)
-}
-
-fn ammo_texture() -> &'static str {
-    "textures/pickups/ammo.png"
-}
 
 fn world_to_tile_xz(pos_xz: Vec2) -> IVec2 {
-    // Matches the logic used in player_move()
     IVec2::new((pos_xz.x + 0.5).floor() as i32, (pos_xz.y + 0.5).floor() as i32)
 }
 
@@ -139,22 +206,21 @@ pub fn drop_guard_ammo(
     mut materials: ResMut<Assets<StandardMaterial>>,
     q_corpses: Query<(Entity, &GlobalTransform), (With<GuardCorpse>, Without<DroppedLoot>)>,
 ) {
-    // Depth tweak: with AlphaMode::Mask this will actually affect depth testing.
-    // If you ever see it “punch through” walls at extreme angles, reduce magnitude (e.g. -50.0).
+    // Depth Tweak: with AlphaMode::Mask this Will Actually Affect Depth Testing
     const DROP_DEPTH_BIAS: f32 = -250.0;
 
-    // Tiny lift just to avoid z-fighting with the floor (not a “float toward camera”).
+    // Tiny Lift to Avoid Z-Fighting with Floor
     const DROP_Y_LIFT: f32 = 0.01;
 
     for (e, gt) in q_corpses.iter() {
-        // Drop once per corpse.
+        // Drop Once per Corpse
         commands.entity(e).insert(DroppedLoot);
 
-        // Drop at the corpse tile.
+        // Drop at the Corpse Tile
         let p = gt.translation();
         let tile = world_to_tile_xz(Vec2::new(p.x, p.z));
 
-        let rounds = GUARD_DROP_AMMO;
+        let rounds = GUARD_DROP_AMMO_ROUNDS;
 
         let (w, h) = ammo_size();
         let quad = meshes.add(Plane3d::default().mesh().size(w, h));
@@ -163,14 +229,14 @@ pub fn drop_guard_ammo(
         let mat = materials.add(StandardMaterial {
             base_color_texture: Some(tex),
 
-            // IMPORTANT: Mask writes depth, so the corpse can’t overwrite it later.
-            // Pick a cutoff that keeps edges crisp; adjust to 0.25 if you see “holes”.
+            // Mask writes depth, so corpse can't overwrite later
+            // Choose Cutoff that Keeps Edges Crisp. Adjust to 0.25 if "holes"
             alpha_mode: AlphaMode::Mask(0.5),
 
             unlit: true,
             cull_mode: None,
 
-            // IMPORTANT: make this slightly “closer” in depth than the corpse at the same tile.
+            // Make Slightly "Closer" in Depth Than Corpse at Same Tile
             depth_bias: DROP_DEPTH_BIAS,
 
             ..default()
@@ -193,8 +259,7 @@ pub fn drop_guard_ammo(
     }
 }
 
-/// Startup: spawn one test weapon pickup (Chaingun) on the first empty tile
-/// (not on the player's current tile). Placeholder mesh for now.
+// To Test While Developing
 pub fn spawn_test_weapon_pickup(
     mut commands: Commands,
     grid: Res<MapGrid>,
@@ -217,7 +282,7 @@ pub fn spawn_test_weapon_pickup(
         player_tf.translation.z,
     ));
 
-    // Track used tiles so fallback placement doesn't stack items.
+    // Track Used Tiles, Fallback Placement Doesn't Stack Items
     let mut used_tiles: Vec<IVec2> = vec![player_tile];
 
     // --------------------
@@ -433,6 +498,132 @@ pub fn spawn_test_weapon_pickup(
             GlobalTransform::default(),
         ));
     }
+
+    // --------------------
+    // Health + 1UP (test)
+    // --------------------
+    const HEALTH_DEPTH_BIAS: f32 = -250.0;
+
+    let desired_health: &[(HealthKind, IVec2)] = &[
+        // Put these deeper into the test room so they aren’t near the door
+        (HealthKind::FirstAid, IVec2::new(27, 22)),
+        (HealthKind::Dinner,   IVec2::new(29, 22)),
+        (HealthKind::DogFood,  IVec2::new(27, 24)),
+    ];
+
+    for &(hk, mut tile) in desired_health {
+        let in_bounds = tile.x >= 0
+            && tile.y >= 0
+            && (tile.x as usize) < grid.width
+            && (tile.y as usize) < grid.height;
+
+        let ok_tile = in_bounds
+            && tile != player_tile
+            && matches!(grid.tile(tile.x as usize, tile.y as usize), Tile::Empty)
+            && !used_tiles.contains(&tile);
+
+        if !ok_tile {
+            let Some(fallback) = find_empty_tile_not_used(&grid, &used_tiles, player_tile) else {
+                warn!("spawn_test_weapon_pickup: no empty tiles found for Health");
+                continue;
+            };
+            warn!(
+                "spawn_test_weapon_pickup: Health wanted {:?}, using fallback {:?}",
+                tile, fallback
+            );
+            tile = fallback;
+        }
+
+        used_tiles.push(tile);
+
+        let (w, h) = health_pickup_size(hk);
+        let tex_path = health_texture(hk);
+
+        info!("Spawning TEST health {:?} at tile {:?} using {}", hk, tile, tex_path);
+
+        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
+        let tex: Handle<Image> = asset_server.load(tex_path);
+
+        let mat = materials.add(StandardMaterial {
+            base_color_texture: Some(tex),
+            alpha_mode: AlphaMode::Mask(0.5),
+            depth_bias: HEALTH_DEPTH_BIAS,
+            unlit: true,
+            cull_mode: None,
+            ..default()
+        });
+
+        let y = h * 0.5;
+
+        commands.spawn((
+            Name::new(format!("Pickup_Test_Health_{:?}", hk)),
+            Pickup { tile, kind: PickupKind::Health(hk) },
+            Mesh3d(quad),
+            MeshMaterial3d(mat),
+            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
+                .with_rotation(pickup_base_rot()),
+            GlobalTransform::default(),
+        ));
+    }
+
+    // Extra life (1UP)
+    {
+        let mut tile = IVec2::new(29, 24);
+
+        let in_bounds = tile.x >= 0
+            && tile.y >= 0
+            && (tile.x as usize) < grid.width
+            && (tile.y as usize) < grid.height;
+
+        let ok_tile = in_bounds
+            && tile != player_tile
+            && matches!(grid.tile(tile.x as usize, tile.y as usize), Tile::Empty)
+            && !used_tiles.contains(&tile);
+
+        if !ok_tile {
+            let Some(fallback) = find_empty_tile_not_used(&grid, &used_tiles, player_tile) else {
+                warn!("spawn_test_weapon_pickup: no empty tiles found for 1UP");
+                return;
+            };
+            warn!(
+                "spawn_test_weapon_pickup: 1UP wanted {:?}, using fallback {:?}",
+                tile, fallback
+            );
+            tile = fallback;
+        }
+
+        used_tiles.push(tile);
+
+        let (w, h) = oneup_size();
+        let tex_path = oneup_texture();
+
+        info!("Spawning TEST 1UP at tile {:?} using {}", tile, tex_path);
+
+        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
+        let tex: Handle<Image> = asset_server.load(tex_path);
+
+        let mat = materials.add(StandardMaterial {
+            base_color_texture: Some(tex),
+            alpha_mode: AlphaMode::Mask(0.5),
+            depth_bias: HEALTH_DEPTH_BIAS,
+            unlit: true,
+            cull_mode: None,
+            ..default()
+        });
+
+        let y = h * 0.5;
+
+        commands.spawn((
+            Name::new("Pickup_Test_OneUp"),
+            Pickup { tile, kind: PickupKind::ExtraLife },
+            Mesh3d(quad),
+            MeshMaterial3d(mat),
+            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
+                .with_rotation(pickup_base_rot()),
+            GlobalTransform::default(),
+        ));
+    }
+
 }
 
 pub fn billboard_pickups(
@@ -444,22 +635,20 @@ pub fn billboard_pickups(
     let player_pos = player_tf.translation;
     let base_rot = pickup_base_rot();
 
-    // Microscopic XZ nudge for DROPPED AMMO only (rounds == 4 in your guard drops).
-    // Tiny enough to be invisible, big enough to break corpse/drop coplanar fighting.
+    // Microscopic XZ Nudge for DROPPED AMMO only
     const DROP_IN_FRONT_EPS: f32 = 0.004;
 
     for (p, mut tf) in q_pickups.iter_mut() {
         let mut pos = tf.translation;
 
-        // Only adjust DROPPED ammo (guard drops). Nothing else moves (including treasure).
         if let PickupKind::Ammo { rounds } = p.kind {
             // For Dropped Loot
-            if rounds == GUARD_DROP_AMMO {
-                // Anchor to tile center, preserve Y from spawn.
+            if rounds == GUARD_DROP_AMMO_ROUNDS {
+                // Anchor to Tile Center, Preserve Y From Spawn
                 pos.x = p.tile.x as f32;
                 pos.z = p.tile.y as f32;
 
-                // Direction toward player in XZ
+                // Direction Toward Player in XZ
                 let mut to_player = player_pos - pos;
                 to_player.y = 0.0;
 
@@ -474,7 +663,7 @@ pub fn billboard_pickups(
 
         tf.translation = pos;
 
-        // Yaw-only face the player (Wolf-style)
+        // Yaw-Only Face the Player
         let mut to_player = player_pos - tf.translation;
         to_player.y = 0.0;
 
@@ -489,7 +678,6 @@ pub fn billboard_pickups(
     }
 }
 
-/// FixedUpdate: collect pickups when player steps onto their tile.
 pub fn collect_pickups(
     mut commands: Commands,
     q_player: Query<&Transform, With<Player>>,
@@ -512,9 +700,10 @@ pub fn collect_pickups(
             continue;
         }
 
+        let mut consumed = true;
+
         match p.kind {
             PickupKind::Weapon(w) => {
-                // Play per-weapon pickup SFX (plays even if already owned).
                 let kind = match w {
                     WeaponSlot::Chaingun => Some(SfxKind::PickupChaingun),
                     WeaponSlot::MachineGun => Some(SfxKind::PickupMachineGun),
@@ -522,32 +711,21 @@ pub fn collect_pickups(
                 };
 
                 if let Some(kind) = kind {
-                    sfx.write(PlaySfx {
-                        kind,
-                        pos: player_tf.translation,
-                    });
+                    sfx.write(PlaySfx { kind, pos: player_tf.translation });
                 }
 
                 if !hud.owns(w) {
                     hud.grant(w);
-                    hud.selected = w; // auto-switch only when newly acquired
-                    info!("Picked up weapon: {:?} (now owned, auto-selected)", w);
-                } else {
-                    info!("Picked up weapon: {:?} (already owned)", w);
+                    hud.selected = w;
                 }
             }
-            PickupKind::Ammo { rounds } => {
-                // ammo pickup sfx
-                sfx.write(PlaySfx {
-                    kind: SfxKind::PickupAmmo,
-                    pos: player_tf.translation,
-                });
 
+            PickupKind::Ammo { rounds } => {
+                sfx.write(PlaySfx { kind: SfxKind::PickupAmmo, pos: player_tf.translation });
                 hud.ammo += rounds;
-                info!("Picked up ammo: +{} (ammo now {})", rounds, hud.ammo);
             }
+
             PickupKind::Treasure(t) => {
-                // Per-treasure pickup SFX
                 let kind = match t {
                     TreasureKind::Cross => SfxKind::PickupTreasureCross,
                     TreasureKind::Chalice => SfxKind::PickupTreasureChalice,
@@ -555,16 +733,43 @@ pub fn collect_pickups(
                     TreasureKind::Crown => SfxKind::PickupTreasureCrown,
                 };
 
-                sfx.write(PlaySfx {
-                    kind,
-                    pos: player_tf.translation,
-                });
-
+                sfx.write(PlaySfx { kind, pos: player_tf.translation });
                 hud.score += t.points();
-                info!("Picked up treasure: {:?} (+{} score)", t, t.points());
+            }
+
+            PickupKind::Health(hk) => {
+                const HP_MAX: i32 = 100;
+
+                if hud.hp >= HP_MAX {
+                     // Health Full: Leave on Ground, No Sfx
+                    consumed = false;
+                } else {
+                    let gain = hk.heal().min(HP_MAX - hud.hp);
+                    hud.hp += gain;
+
+                    let kind = match hk {
+                        HealthKind::FirstAid => SfxKind::PickupHealthFirstAid,
+                        HealthKind::Dinner => SfxKind::PickupHealthDinner,
+                        HealthKind::DogFood => SfxKind::PickupHealthDogFood,
+                    };
+
+                    sfx.write(PlaySfx { kind, pos: player_tf.translation });
+                }
+            }
+
+            PickupKind::ExtraLife => {
+                // Wolfenstein 3D (1992):
+                // +1 Life, Full Health, +25 Ammo
+                hud.lives += 1;
+                hud.hp = 100;
+                hud.ammo += 25;
+
+                sfx.write(PlaySfx { kind: SfxKind::PickupOneUp, pos: player_tf.translation });
             }
         }
 
-        commands.entity(e).despawn();
+        if consumed {
+            commands.entity(e).despawn();
+        }
     }
 }

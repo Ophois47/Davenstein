@@ -1,6 +1,11 @@
+/*
+Davenstein - by David Petnick
+*/
+
 use super::HudState;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
+
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::player::Player;
 
@@ -12,6 +17,9 @@ pub(super) struct HudAmmoText;
 
 #[derive(Component)]
 pub(super) struct HudScoreText;
+
+#[derive(Component)]
+pub(super) struct HudLivesText;
 
 #[derive(Component)]
 pub(super) struct ViewModelImage;
@@ -53,7 +61,7 @@ impl ViewModelSprites {
         self.knife[idx.min(4)].clone()
     }
 
-    // Direct indexing (keep this for any code that truly wants idx)
+    // Direct Indexing
     #[allow(dead_code)]
     pub fn fire_frame(&self, w: crate::combat::WeaponSlot, idx: usize) -> Handle<Image> {
         use crate::combat::WeaponSlot::*;
@@ -64,21 +72,21 @@ impl ViewModelSprites {
         }
     }
 
-    // NEW: Wolf-faithful full-auto animation frame selection.
-    // `cycle` is a counter (0,1,2,3,...) NOT a direct sprite index.
+    // Full-Auto Animation Frame Selection
+    // Cycle is Counter (0, 1, 2, 3, ...) NOT Direct Sprite Index
     pub fn auto_fire(&self, w: crate::combat::WeaponSlot, cycle: usize) -> Handle<Image> {
         use crate::combat::WeaponSlot::*;
 
         match w {
-            // Machinegun: "bring up/forward" (1) <-> flash (2)
+            // Machinegun: Bring up / Forward (1) <-> Flash (2)
             MachineGun => {
-                // Wolf-like MG cycle: bring up/forward -> flash -> recover/back
-                // Choose the "back" frame as 3 OR 4 depending on which looks like recoil recovery.
+                // Bring up / Forward -> Flash -> Recover / Back
+                // Choose "Back" Frame as 3 OR 4 Depending on Which Looks Like Recoil Recovery
                 const SEQ: [usize; 3] = [1, 2, 3];
                 self.machinegun[SEQ[cycle % SEQ.len()]].clone()
             }
 
-            // Chaingun: forward (1), flash A (2), forward (1), flash B (3)
+            // Chaingun: Forward (1), Flash A (2), Forward (1), Flash B (3)
             Chaingun => {
                 const SEQ: [usize; 4] = [1, 2, 1, 3];
                 self.chaingun[SEQ[cycle % SEQ.len()]].clone()
@@ -142,14 +150,14 @@ pub(crate) fn weapon_fire_and_viewmodel(
     let dt = time.delta();
     let dt_secs = dt.as_secs_f32();
 
-    // Only allow weapon selection/firing while mouse is locked (Wolf-ish)
+    // Only Allow Weapon Selection / Firing While Mouse is Locked
     let locked = cursor.grab_mode == CursorGrabMode::Locked;
     if !locked {
         *armed = false;
         *fire_anim_accum = 0.0;
         *last_weapon = Some(hud.selected);
 
-        // Hard snap viewmodel to idle if unlocked
+        // Hard Snap Viewmodel to Idle if Unlocked
         weapon.fire_cycle = 0;
         weapon.showing_fire = false;
         if let Ok(mut img) = vm_q.single_mut() {
@@ -158,7 +166,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
         return;
     }
 
-    // Prevent the very first click (used to grab the cursor) from also firing
+    // Prevent Very First Click (Used to Grab Cursor) From Also Firing
     if !*armed {
         *armed = true;
         *fire_anim_accum = 0.0;
@@ -166,7 +174,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
         return;
     }
 
-    // Weapon selection (1–4)
+    // Weapon Selection (1–4)
     for code in [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4] {
         if keys.just_pressed(code) {
             if let Some(slot) = WeaponSlot::from_digit_key(code) {
@@ -188,7 +196,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
         }
     }
 
-    // If weapon changed externally somehow, reset anim accumulator
+    // If Weapon Changed Externally Somehow, Reset Anim Accumulator
     if last_weapon.map(|w| w != hud.selected).unwrap_or(true) {
         *fire_anim_accum = 0.0;
         weapon.fire_cycle = 0;
@@ -200,7 +208,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
         }
     }
 
-    // Per-weapon params (Wolf-ish tics)
+    // Per-Weapon Paramaters
     const TIC: f32 = 1.0 / 70.0;
     let (cooldown_secs, flash_secs, ammo_cost, max_dist) = match hud.selected {
         WeaponSlot::Knife => (10.0 * TIC, 12.0 * TIC, 0, 1.5),
@@ -209,7 +217,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
         WeaponSlot::Chaingun => (6.0 * TIC, 8.0 * TIC, 1, 64.0),
     };
 
-    // Ensure timers match current weapon
+    // Ensure Timers Match Current Weapon
     if (weapon.cooldown.duration().as_secs_f32() - cooldown_secs).abs() > f32::EPSILON {
         weapon.cooldown = Timer::from_seconds(cooldown_secs, TimerMode::Once);
         weapon.cooldown.set_elapsed(std::time::Duration::from_secs_f32(cooldown_secs));
@@ -218,7 +226,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
         weapon.flash = Timer::from_seconds(flash_secs, TimerMode::Once);
     }
 
-    // --- Weapon kind flags (MG handled differently; CG unchanged) ---
+    // Weapon Kind Flags (MG Handled Differently)
     let is_machinegun = hud.selected == WeaponSlot::MachineGun;
     let is_chaingun = hud.selected == WeaponSlot::Chaingun;
     let is_full_auto = is_machinegun || is_chaingun;
@@ -226,31 +234,31 @@ pub(crate) fn weapon_fire_and_viewmodel(
     let trigger_down = mouse.pressed(MouseButton::Left);
     let trigger_pressed = mouse.just_pressed(MouseButton::Left);
 
-    // Tick cooldown always
+    // Tick Cooldown
     weapon.cooldown.tick(dt);
 
-    // Ammo check
+    // Ammo Check
     let mut has_ammo = ammo_cost == 0 || hud.ammo >= ammo_cost;
 
-    // --- Flash timer handling ---
-    // Knife + Pistol keep existing flash behavior.
-    // MachineGun ALSO uses flash timer, but Chaingun does NOT (it has its own cycling).
+    // Flash Timer Handling
+    // Knife + Pistol Keep Existing Behavior
+    // MachineGun ALSO Uses Flash Timer, but Chaingun Does Not, Has Own Cycling
     if weapon.showing_fire && (!is_chaingun) {
         weapon.flash.tick(dt);
 
-        // PISTOL: advance through 4-frame sequence across the flash timer
+        // PISTOL: Advance Through 4-Frame Sequence Across Flash Timer
         if hud.selected == WeaponSlot::Pistol {
             let dur = weapon.flash.duration().as_secs_f32().max(0.0001);
             let t = (weapon.flash.elapsed_secs() / dur).clamp(0.0, 1.0);
 
             let frame = if t < 0.25 {
-                1 // raise
+                1 // Raise
             } else if t < 0.50 {
-                2 // muzzle flash
+                2 // Muzzle Flash
             } else if t < 0.75 {
-                3 // recover
+                3 // Recover
             } else {
-                4 // settle
+                4 // Settle
             };
 
             if let Ok(mut img) = vm_q.single_mut() {
@@ -258,17 +266,17 @@ pub(crate) fn weapon_fire_and_viewmodel(
             }
         }
 
-        // KNIFE: 3-frame swing over the flash timer (wind-up -> hit -> recover)
+        // KNIFE: 3-Frame Swing Over the Flash Timer (Wind-Up -> Hit -> Recover)
         if hud.selected == WeaponSlot::Knife {
             let dur = weapon.flash.duration().as_secs_f32().max(0.0001);
             let t = (weapon.flash.elapsed_secs() / dur).clamp(0.0, 1.0);
 
             let frame = if t < 0.33 {
-                1 // wind-up
+                1 // Wind-Up
             } else if t < 0.66 {
-                2 // hit
+                2 // Hit
             } else {
-                3 // recover (swap to 4 if it looks better)
+                3 // Recover
             };
 
             if let Ok(mut img) = vm_q.single_mut() {
@@ -281,9 +289,9 @@ pub(crate) fn weapon_fire_and_viewmodel(
 
             if let Ok(mut img) = vm_q.single_mut() {
                 if hud.selected == WeaponSlot::Pistol {
-                    img.image = sprites.pistol_frame(0); // idle
+                    img.image = sprites.pistol_frame(0); // Idle
                 } else if is_machinegun && trigger_down && has_ammo {
-                    img.image = sprites.fire_frame(WeaponSlot::MachineGun, 1); // forward
+                    img.image = sprites.fire_frame(WeaponSlot::MachineGun, 1); // Forward
                 } else {
                     img.image = sprites.idle(hud.selected);
                 }
@@ -291,7 +299,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
         }
     }
 
-    // --- CHAINGUN ONLY: keep your current perfect cycling behavior ---
+    // CHAINGUN: Cycling Only 
     let firing_anim_tic_secs = 12.0 * TIC;
 
     if is_chaingun && trigger_down && has_ammo {
@@ -341,21 +349,19 @@ pub(crate) fn weapon_fire_and_viewmodel(
         }
     }
 
-    // --- MACHINEGUN: while holding (and not flashing), keep forward pose ---
-    // (This is what makes it look like Wolf between flashes.)
+    // MACHINEGUN: While Holding (and Not Flashing), Keep Forward Pose
     if is_machinegun && trigger_down && has_ammo && !weapon.showing_fire {
         if let Ok(mut img) = vm_q.single_mut() {
-            img.image = sprites.fire_frame(WeaponSlot::MachineGun, 1); // forward
+            img.image = sprites.fire_frame(WeaponSlot::MachineGun, 1); // Forward
         }
     }
 
-    // MACHINEGUN: ALWAYS snap back to idle when trigger is not held.
-    // (Prevents rare "stuck forward" posture after releasing the mouse.)
+    // MACHINEGUN: ALWAYS Snap Back to Idle When Trigger Not Held
+    // Prevents rare "stuck forward" posture after releasing the mouse
     if is_machinegun && !trigger_down {
         weapon.showing_fire = false;
         weapon.fire_cycle = 0;
         *auto_linger = 0.0;
-        // optional: also reset flash so we don't keep counting down invisibly
         weapon.flash.reset();
 
         if let Ok(mut img) = vm_q.single_mut() {
@@ -363,7 +369,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
         }
     }
 
-    // Fire intent
+    // Fire Intent
     let wants_fire = if is_full_auto {
         trigger_down // HOLD to fire
     } else {
@@ -511,6 +517,8 @@ pub(crate) fn setup_hud(
     const GUN_SRC_PX: f32 = 64.0;
     const GUN_PX: f32 = GUN_SRC_PX * GUN_SCALE;
 
+    const BACKGROUND_COLOR: bevy::prelude::Srgba = Srgba::rgb(0.0, 0.0, 1.0);
+
     commands
         .spawn(Node {
             width: Val::Percent(100.0),
@@ -551,12 +559,13 @@ pub(crate) fn setup_hud(
                     align_items: AlignItems::Center,
                     ..default()
                 },
-                BackgroundColor(Color::BLACK.into()),
+                // BackgroundColor(Color::BLACK.into()),
+                BackgroundColor(BACKGROUND_COLOR.into()),
             ))
             .with_children(|bar| {
                 bar.spawn((
                     HudHpText,
-                    Text::new("HP 100"),
+                    Text::new(format!("HP {}", hud.hp)),
                     TextFont {
                         font: font.clone(),
                         font_size: 36.0,
@@ -567,7 +576,7 @@ pub(crate) fn setup_hud(
 
                 bar.spawn((
                     HudAmmoText,
-                    Text::new("AMMO 8"),
+                    Text::new(format!("AMMO {}", hud.ammo)),
                     TextFont {
                         font: font.clone(),
                         font_size: 36.0,
@@ -578,7 +587,18 @@ pub(crate) fn setup_hud(
 
                 bar.spawn((
                     HudScoreText,
-                    Text::new("SCORE 0"),
+                    Text::new(format!("SCORE {}", hud.score)),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 36.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+
+                bar.spawn((
+                    HudLivesText,
+                    Text::new(format!("LIVES {}", hud.lives)),
                     TextFont {
                         font: font.clone(),
                         font_size: 36.0,
@@ -597,19 +617,23 @@ pub(crate) fn sync_hud_text(
         Option<&HudHpText>,
         Option<&HudAmmoText>,
         Option<&HudScoreText>,
+        Option<&HudLivesText>,
     )>,
 ) {
     if !hud.is_changed() {
         return;
     }
 
-    for (mut text, hp_tag, ammo_tag, score_tag) in &mut q {
+    for (mut text, hp_tag, ammo_tag, score_tag, lives_tag) in &mut q {
         if hp_tag.is_some() {
             *text = Text::new(format!("HP {}", hud.hp));
         } else if ammo_tag.is_some() {
             *text = Text::new(format!("AMMO {}", hud.ammo));
         } else if score_tag.is_some() {
             *text = Text::new(format!("SCORE {}", hud.score));
+        } else if lives_tag.is_some() {
+            *text = Text::new(format!("LIVES {}", hud.lives));
         }
     }
 }
+

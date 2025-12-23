@@ -1,3 +1,6 @@
+/*
+Davenstein - by David Petnick
+*/
 use bevy::prelude::*;
 use bevy::audio::{
 	AudioPlayer,
@@ -8,25 +11,31 @@ use bevy::audio::{
 };
 use std::collections::HashMap;
 use rand::Rng;
+
 use crate::enemies::EnemyKind;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SfxKind {
-    // World
+    // Sfx - World
     DoorOpen,
     DoorClose,
     
-    // Weapons
+    // Sfx - Weapons
     KnifeSwing,
-    // KnifeHit,
     PistolFire,
     MachineGunFire,
     ChaingunFire,
 
-    // Pickups
+    // Pickups - Weapons
     PickupChaingun,
     PickupMachineGun,
     PickupAmmo,
+
+    // Pickups - Health
+    PickupHealthFirstAid,
+	PickupHealthDinner,
+	PickupHealthDogFood,
+	PickupOneUp,
 
     // Pickups - Treasure
     PickupTreasureCross,
@@ -69,36 +78,56 @@ pub struct GameAudio {
 pub struct Music;
 
 pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
-    // Keep your existing "single handles" struct for music etc.
     commands.insert_resource(GameAudio {
         door_open: asset_server.load("sounds/sfx/door_open.ogg"),
         door_close: asset_server.load("sounds/sfx/door_close.ogg"),
         music_level: asset_server.load("sounds/music/level1.ogg"),
     });
 
-    // NEW: library that supports 1-or-many clips per SfxKind (random selection happens later)
+    // Library That Supports 1 or Many Clips per SfxKind
     let mut lib = SfxLibrary::default();
 
-    // Door / weapon SFX (single-clip entries still go through the library)
+    // Doors
     lib.insert_one(SfxKind::DoorOpen, asset_server.load("sounds/sfx/door_open.ogg"));
     lib.insert_one(SfxKind::DoorClose, asset_server.load("sounds/sfx/door_close.ogg"));
-    lib.insert_one(SfxKind::KnifeSwing, asset_server.load("sounds/sfx/weapons/knife/knife_swing.ogg"));
-    // lib.insert_one(SfxKind::KnifeHit, asset_server.load("sounds/sfx/weapons/knife/knife_hit.ogg"));
-    lib.insert_one(SfxKind::PistolFire, asset_server.load("sounds/sfx/weapons/pistol/pistol_fire.ogg"));
-    lib.insert_one(SfxKind::MachineGunFire, asset_server.load("sounds/sfx/weapons/machinegun/machinegun_fire_0.ogg"));
-    lib.insert_one(SfxKind::ChaingunFire, asset_server.load("sounds/sfx/weapons/chaingun/chaingun_fire_0.ogg"));
+
+    // Weapon Attack
     lib.insert_one(
-        SfxKind::PickupChaingun,
-        asset_server.load("sounds/sfx/weapons/chaingun/chaingun_pickup.ogg"),
+    	SfxKind::KnifeSwing,
+    	asset_server.load("sounds/sfx/weapons/knife/knife_jab.ogg"),
     );
     lib.insert_one(
-        SfxKind::PickupMachineGun,
-        asset_server.load("sounds/sfx/weapons/machinegun/machinegun_pickup.ogg"),
+    	SfxKind::PistolFire,
+    	asset_server.load("sounds/sfx/weapons/pistol/pistol_fire.ogg"),
     );
     lib.insert_one(
-	    SfxKind::PickupAmmo,
-	    asset_server.load("sounds/sfx/weapons/ammo/ammo_pickup.ogg"),
-	);
+    	SfxKind::MachineGunFire,
+    	asset_server.load("sounds/sfx/weapons/machinegun/machinegun_fire_0.ogg"),
+    );
+    lib.insert_one(
+    	SfxKind::ChaingunFire,
+    	asset_server.load("sounds/sfx/weapons/chaingun/chaingun_fire_0.ogg"),
+    );
+
+    // Weapon / Ammo Pickups
+    lib.insert_one(
+    	SfxKind::PickupChaingun,
+    	asset_server.load("sounds/sfx/weapons/chaingun/chaingun_pickup.ogg"),
+    );
+    lib.insert_one(
+    	SfxKind::PickupMachineGun,
+    	asset_server.load("sounds/sfx/weapons/machinegun/machinegun_pickup.ogg"),
+    );
+    lib.insert_one(
+    	SfxKind::PickupAmmo,
+    	asset_server.load("sounds/sfx/weapons/ammo/ammo_pickup.ogg"),
+    );
+
+	// Health Pickups
+	lib.insert_one(SfxKind::PickupHealthFirstAid, asset_server.load("sounds/sfx/health/first_aid.ogg"));
+	lib.insert_one(SfxKind::PickupHealthDinner, asset_server.load("sounds/sfx/health/dinner.ogg"));
+	lib.insert_one(SfxKind::PickupHealthDogFood, asset_server.load("sounds/sfx/health/dog_food.ogg"));
+	lib.insert_one(SfxKind::PickupOneUp, asset_server.load("sounds/sfx/health/oneup.ogg"));
 
     // Treasure
     lib.insert_one(
@@ -135,7 +164,7 @@ pub fn start_music(
     audio: Res<GameAudio>,
     q_music: Query<(), With<Music>>,
 ) {
-    // prevent duplicates if Startup runs again (hot reload etc)
+    // Prevent Duplicates if Startup Runs Again
     if q_music.iter().next().is_some() {
         return;
     }
@@ -160,7 +189,7 @@ pub fn play_sfx_events(
     mut ev: MessageReader<PlaySfx>,
     q_active_pickup: Query<Entity, With<ActivePickupSfx>>,
 ) {
-    // Collect events: play all non-pickups; only the last pickup (no overlap).
+    // Collect Events: Play All Non-Pickups, Only Last Pickup (No Overlap)
     let mut last_pickup: Option<PlaySfx> = None;
     let mut non_pickups: Vec<PlaySfx> = Vec::new();
 
@@ -172,7 +201,7 @@ pub fn play_sfx_events(
         }
     }
 
-    // 1) Play all non-pickup SFX normally (overlap allowed).
+    // Play Non-Pickup SFX Normally (Overlap Permitted)
     for e in non_pickups {
         let Some(list) = lib.map.get(&e.kind) else {
             warn!("Missing SFX for {:?}", e.kind);
@@ -199,12 +228,14 @@ pub fn play_sfx_events(
                 .with_spatial_scale(SpatialScale::new(0.12))
                 .with_volume(Volume::Linear(1.25)),
 
-            SfxKind::EnemyDeath(_) => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.15))
-                .with_volume(Volume::Linear(1.3)),
+            SfxKind::PickupHealthFirstAid
+			| SfxKind::PickupHealthDinner
+			| SfxKind::PickupHealthDogFood
+			| SfxKind::PickupOneUp => PlaybackSettings::DESPAWN
+			    .with_spatial(true)
+			    .with_spatial_scale(SpatialScale::new(0.10))
+			    .with_volume(Volume::Linear(1.2)),
 
-            // Pickups are handled below.
             SfxKind::PickupTreasureCross
             | SfxKind::PickupTreasureChalice
             | SfxKind::PickupTreasureChest
@@ -212,6 +243,11 @@ pub fn play_sfx_events(
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.15))
                 .with_volume(Volume::Linear(1.15)),
+
+            SfxKind::EnemyDeath(_) => PlaybackSettings::DESPAWN
+                .with_spatial(true)
+                .with_spatial_scale(SpatialScale::new(0.15))
+                .with_volume(Volume::Linear(1.3)),
 
             SfxKind::PickupChaingun | SfxKind::PickupMachineGun | SfxKind::PickupAmmo => {
                 unreachable!()
@@ -225,7 +261,7 @@ pub fn play_sfx_events(
         ));
     }
 
-    // 2) Pickups: only newest pickup plays; it cuts off any previous pickup.
+    // Only Newest Pickup Plays, Cutting Off Any Previous Pickup
     let Some(e) = last_pickup else { return; };
 
     let Some(list) = lib.map.get(&e.kind) else {
@@ -236,7 +272,7 @@ pub fn play_sfx_events(
         return;
     }
 
-    // Stop ONLY the previous pickup sound, not weapon fire / deaths / doors.
+    // Stop ONLY Previous Pickup Sound, Not Weapon Fire / Deaths / Doors
     for ent in q_active_pickup.iter() {
         commands.entity(ent).despawn();
     }
