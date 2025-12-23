@@ -10,6 +10,7 @@ use bevy::asset::AssetPlugin;
 use include_dir::{include_dir, Dir};
 use std::path::PathBuf;
 
+use davelib::ai::EnemyAiPlugin;
 use davelib::audio::{
 	play_sfx_events,
 	setup_audio,
@@ -75,6 +76,7 @@ fn main() {
         )
         .add_plugins(ui::UiPlugin)
         .add_plugins(EnemiesPlugin)
+        .add_plugins(EnemyAiPlugin)
         .add_plugins(combat::CombatPlugin)
         .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
         .init_resource::<PlayerSettings>()

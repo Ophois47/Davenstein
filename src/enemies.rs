@@ -24,9 +24,16 @@ pub struct GuardPain {
     pub timer: Timer,
 }
 
+#[derive(Component, Debug, Default)]
+pub struct GuardWalk {
+    // Progress in "tiles moved"; frame = floor(phase*4) & 3
+    pub phase: f32,
+}
+
 #[derive(Resource)]
 pub struct GuardSprites {
     pub idle: [Handle<Image>; 8],
+    pub walk: [[Handle<Image>; 8]; 4],
     pub pain: Handle<Image>,
     pub death: [Handle<Image>; 4],
     pub corpse: Handle<Image>,
@@ -38,6 +45,11 @@ impl FromWorld for GuardSprites {
 
         Self {
             idle: std::array::from_fn(|i| asset_server.load(format!("enemies/guard/guard_idle_a{i}.png"))),
+            walk: std::array::from_fn(|r| {
+                std::array::from_fn(|d| {
+                    asset_server.load(format!("enemies/guard/guard_walk_r{r}_dir{d}.png"))
+                })
+            }),
             pain: asset_server.load("enemies/guard/guard_pain.png"),
             death: [
                 asset_server.load("enemies/guard/guard_death_0.png"),
@@ -46,6 +58,27 @@ impl FromWorld for GuardSprites {
                 asset_server.load("enemies/guard/guard_death_3.png"),
             ],
             corpse: asset_server.load("enemies/guard/guard_corpse.png"),
+        }
+    }
+}
+
+fn attach_guard_walk(mut commands: Commands, q: Query<Entity, (Added<Guard>, Without<GuardWalk>)>) {
+    for e in q.iter() {
+        commands.entity(e).insert(GuardWalk::default());
+    }
+}
+
+fn tick_guard_walk(
+    time: Res<Time>,
+    mut q: Query<(&mut GuardWalk, Option<&crate::ai::EnemyMove>), (With<Guard>, Without<Dead>, Without<GuardDying>)>,
+) {
+    let dt = time.delta_secs();
+    for (mut walk, mv) in q.iter_mut() {
+        if let Some(mv) = mv {
+            // 1.0 phase per tile; 4 frames per tile
+            walk.phase += dt * mv.speed_tps;
+        } else {
+            walk.phase = 0.0;
         }
     }
 }
@@ -74,7 +107,7 @@ pub struct GuardDying {
 pub struct GuardCorpse;
 
 #[derive(Component, Clone, Copy)]
-pub struct Dir8(pub u8); // 0..7, 0 = Facing -Z
+pub struct Dir8(pub u8);
 
 // Cached to Avoid Redundant Texture Swaps
 #[derive(Component, Clone, Copy)]
@@ -214,6 +247,8 @@ pub fn update_guard_views(
         Option<&Dead>,
         Option<&GuardDying>,
         Option<&GuardPain>,
+        Option<&GuardWalk>,
+        Option<&crate::ai::EnemyMove>,
         &GlobalTransform,
         &Dir8,
         &mut View8,
@@ -221,10 +256,10 @@ pub fn update_guard_views(
         &mut Transform,
     ), With<Guard>>,
 ) {
-    let Ok(pgt) = q_player.single() else { return; };
+    let Some(pgt) = q_player.iter().next() else { return; };
     let cam_pos = pgt.translation();
 
-    for (dead, dying, pain, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+    for (dead, dying, pain, walk, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
         let enemy_pos = gt.translation();
 
         // Always Billboard as Wolfenstein 3D Did
@@ -257,10 +292,26 @@ pub fn update_guard_views(
 
         // Alive -> 8-dir Idle
         let v = quantize_view8(dir8.0, enemy_pos, cam_pos);
-        if v != view.0 {
-            view.0 = v;
+
+        let (key, tex) = if mv.is_some() {
+            let frame = walk
+                .map(|w| ((w.phase * 4.0).floor() as u8) & 3)
+                .unwrap_or(0);
+
+            // Use View8 as a cache-key (not just 0..7)
+            let key = v + 8 * (1 + frame);
+            let tex = sprites.walk[frame as usize][v as usize].clone();
+            (key, tex)
+        } else {
+            let key = v; // 0..7
+            let tex = sprites.idle[v as usize].clone();
+            (key, tex)
+        };
+
+        if key != view.0 {
+            view.0 = key;
             if let Some(mat) = materials.get_mut(&mat3d.0) {
-                mat.base_color_texture = Some(sprites.idle[v as usize].clone());
+                mat.base_color_texture = Some(tex);
             }
         }
     }
@@ -271,8 +322,8 @@ pub struct EnemiesPlugin;
 impl Plugin for EnemiesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GuardSprites>()
-            .add_systems(Update, update_guard_views)
-            .add_systems(FixedUpdate, (tick_guard_dying, tick_guard_pain))
+            .add_systems(Update, (attach_guard_walk, update_guard_views))
+            .add_systems(FixedUpdate, (tick_guard_walk, tick_guard_dying, tick_guard_pain))
             .add_systems(PostUpdate, (apply_guard_corpses, play_enemy_death_sfx));
     }
 }
