@@ -26,8 +26,8 @@ const HEALTH_DOGFOOD_H: f32   = AMMO_H;
 const ONEUP_H: f32            = 0.50;
 const TREASURE_H: f32 = 0.24;
 
-const HEALTH_FIRST_AID_W_SCALE: f32 = 1.35;
-const HEALTH_DINNER_W_SCALE: f32    = 1.35;
+const HEALTH_FIRST_AID_W_SCALE: f32 = 3.6;
+const HEALTH_DINNER_W_SCALE: f32    = 4.0;
 
 // Aspect Ratios
 const CHAINGUN_ASPECT: f32 = 60.0 / 21.0;
