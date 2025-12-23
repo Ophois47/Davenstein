@@ -7,6 +7,9 @@ use davelib::enemies::GuardCorpse;
 use davelib::map::{MapGrid, Tile};
 use davelib::player::Player;
 
+// Ammo Drop Amounts
+const GUARD_DROP_AMMO: i32 = 4;
+
 // Visual size (height in world units). Width is derived from sprite aspect
 const PICKUP_H: f32 = 0.28;
 const AMMO_H: f32 = 0.22;
@@ -151,7 +154,7 @@ pub fn drop_guard_ammo(
         let p = gt.translation();
         let tile = world_to_tile_xz(Vec2::new(p.x, p.z));
 
-        let rounds = 4;
+        let rounds = GUARD_DROP_AMMO;
 
         let (w, h) = ammo_size();
         let quad = meshes.add(Plane3d::default().mesh().size(w, h));
@@ -357,7 +360,7 @@ pub fn spawn_test_weapon_pickup(
     // Treasure-only rendering tweak:
     // - Mask writes depth cleanly (no blended-depth weirdness at the floor line)
     // - depth_bias makes it win against the floor at the very bottom pixels
-    const DROP_DEPTH_BIAS: f32 = -250.0;
+    const TREASURE_DROP_DEPTH_BIAS: f32 = -250.0;
 
     let desired_treasure: &[(TreasureKind, IVec2)] = &[
         (TreasureKind::Cross, IVec2::new(27, 18)),
@@ -408,7 +411,7 @@ pub fn spawn_test_weapon_pickup(
             // IMPORTANT: treasure should not get “cut into” the floor.
             // Use the same approach as ammo drops: mask + depth bias.
             alpha_mode: AlphaMode::Mask(0.5),
-            depth_bias: DROP_DEPTH_BIAS,
+            depth_bias: TREASURE_DROP_DEPTH_BIAS,
 
             unlit: true,
             cull_mode: None,
@@ -450,7 +453,8 @@ pub fn billboard_pickups(
 
         // Only adjust DROPPED ammo (guard drops). Nothing else moves (including treasure).
         if let PickupKind::Ammo { rounds } = p.kind {
-            if rounds == 4 {
+            // For Dropped Loot
+            if rounds == GUARD_DROP_AMMO {
                 // Anchor to tile center, preserve Y from spawn.
                 pos.x = p.tile.x as f32;
                 pos.z = p.tile.y as f32;
