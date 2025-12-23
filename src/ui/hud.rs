@@ -11,6 +11,9 @@ pub(super) struct HudHpText;
 pub(super) struct HudAmmoText;
 
 #[derive(Component)]
+pub(super) struct HudScoreText;
+
+#[derive(Component)]
 pub(super) struct ViewModelImage;
 
 #[derive(Resource, Clone)]
@@ -566,7 +569,18 @@ pub(crate) fn setup_hud(
                     HudAmmoText,
                     Text::new("AMMO 8"),
                     TextFont {
-                        font,
+                        font: font.clone(),
+                        font_size: 36.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+
+                bar.spawn((
+                    HudScoreText,
+                    Text::new("SCORE 0"),
+                    TextFont {
+                        font: font.clone(),
                         font_size: 36.0,
                         ..default()
                     },
@@ -578,17 +592,24 @@ pub(crate) fn setup_hud(
 
 pub(crate) fn sync_hud_text(
     hud: Res<HudState>,
-    mut q: Query<(&mut Text, Option<&HudHpText>, Option<&HudAmmoText>)>,
+    mut q: Query<(
+        &mut Text,
+        Option<&HudHpText>,
+        Option<&HudAmmoText>,
+        Option<&HudScoreText>,
+    )>,
 ) {
     if !hud.is_changed() {
         return;
     }
 
-    for (mut text, hp_tag, ammo_tag) in &mut q {
+    for (mut text, hp_tag, ammo_tag, score_tag) in &mut q {
         if hp_tag.is_some() {
             *text = Text::new(format!("HP {}", hud.hp));
         } else if ammo_tag.is_some() {
             *text = Text::new(format!("AMMO {}", hud.ammo));
+        } else if score_tag.is_some() {
+            *text = Text::new(format!("SCORE {}", hud.score));
         }
     }
 }

@@ -28,6 +28,12 @@ pub enum SfxKind {
     PickupMachineGun,
     PickupAmmo,
 
+    // Pickups - Treasure
+    PickupTreasureCross,
+    PickupTreasureChalice,
+    PickupTreasureChest,
+    PickupTreasureCrown,
+
     // Enemies
     EnemyDeath(EnemyKind),
 }
@@ -93,6 +99,24 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
 	    SfxKind::PickupAmmo,
 	    asset_server.load("sounds/sfx/weapons/ammo/ammo_pickup.ogg"),
 	);
+
+    // Treasure
+    lib.insert_one(
+        SfxKind::PickupTreasureCross,
+        asset_server.load("sounds/sfx/treasure/cross.ogg"),
+    );
+    lib.insert_one(
+        SfxKind::PickupTreasureChalice,
+        asset_server.load("sounds/sfx/treasure/chalice.ogg"),
+    );
+    lib.insert_one(
+        SfxKind::PickupTreasureChest,
+        asset_server.load("sounds/sfx/treasure/chest.ogg"),
+    );
+    lib.insert_one(
+        SfxKind::PickupTreasureCrown,
+        asset_server.load("sounds/sfx/treasure/crown.ogg"),
+    );
 
     // Guard death set (random pick in play_sfx_events)
     lib.insert_one(SfxKind::EnemyDeath(EnemyKind::Guard), asset_server.load("sounds/sfx/enemies/guard/guard_death_0.ogg"));
@@ -181,6 +205,14 @@ pub fn play_sfx_events(
                 .with_volume(Volume::Linear(1.3)),
 
             // Pickups are handled below.
+            SfxKind::PickupTreasureCross
+            | SfxKind::PickupTreasureChalice
+            | SfxKind::PickupTreasureChest
+            | SfxKind::PickupTreasureCrown => PlaybackSettings::DESPAWN
+                .with_spatial(true)
+                .with_spatial_scale(SpatialScale::new(0.15))
+                .with_volume(Volume::Linear(1.15)),
+
             SfxKind::PickupChaingun | SfxKind::PickupMachineGun | SfxKind::PickupAmmo => {
                 unreachable!()
             }

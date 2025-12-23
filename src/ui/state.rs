@@ -5,6 +5,7 @@ use crate::combat::WeaponSlot;
 pub struct HudState {
     pub hp: i32,
     pub ammo: i32,
+    pub score: i32,
 
     // Weapon system (Wolf 1–4)
     pub selected: WeaponSlot,
@@ -30,6 +31,7 @@ impl Default for HudState {
         let mut s = Self {
             hp: 100,
             ammo: 8,
+            score: 0,
             selected: WeaponSlot::Pistol,
             owned_mask: 0,
         };

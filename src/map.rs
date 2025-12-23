@@ -12,7 +12,6 @@ pub struct DoorState {
     pub want_open: bool,
 }
 
-
 #[derive(Component, Debug, Clone, Copy)]
 pub struct DoorAnim {
     pub progress: f32,    // 0.0 = closed, 1.0 = open
