@@ -348,6 +348,8 @@ pub fn setup(
         Camera3d::default(),
         IsDefaultUiCamera,
         Player,
+        // NEW: gives the lib a place to apply enemy damage without touching HudState
+        crate::player::PlayerVitals::default(),
         LookAngles::default(),
         SpatialListener::new(0.2),
         Transform::from_translation(player_pos).looking_at(player_pos + Vec3::NEG_Z, Vec3::Y),

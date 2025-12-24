@@ -681,6 +681,7 @@ pub fn billboard_pickups(
 pub fn collect_pickups(
     mut commands: Commands,
     q_player: Query<&Transform, With<Player>>,
+    mut q_vitals: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
     mut hud: ResMut<HudState>,
     q_pickups: Query<(Entity, &Pickup)>,
     mut sfx: MessageWriter<PlaySfx>,
@@ -694,6 +695,10 @@ pub fn collect_pickups(
         player_tf.translation.x,
         player_tf.translation.z,
     ));
+
+    let Some(mut vitals) = q_vitals.iter_mut().next() else {
+        return;
+    };
 
     for (e, p) in q_pickups.iter() {
         if p.tile != player_tile {
@@ -738,14 +743,13 @@ pub fn collect_pickups(
             }
 
             PickupKind::Health(hk) => {
-                const HP_MAX: i32 = 100;
-
-                if hud.hp >= HP_MAX {
-                     // Health Full: Leave on Ground, No Sfx
+                // Canonical HP is gameplay vitals now.
+                if vitals.hp >= vitals.hp_max {
+                    // Full health: leave on ground, no sfx.
                     consumed = false;
                 } else {
-                    let gain = hk.heal().min(HP_MAX - hud.hp);
-                    hud.hp += gain;
+                    let gain = hk.heal().min(vitals.hp_max - vitals.hp);
+                    vitals.hp += gain;
 
                     let kind = match hk {
                         HealthKind::FirstAid => SfxKind::PickupHealthFirstAid,
@@ -758,10 +762,9 @@ pub fn collect_pickups(
             }
 
             PickupKind::ExtraLife => {
-                // Wolfenstein 3D (1992):
-                // +1 Life, Full Health, +25 Ammo
+                // Wolf 3D: +1 life, full health, +25 ammo
                 hud.lives += 1;
-                hud.hp = 100;
+                vitals.hp = vitals.hp_max;
                 hud.ammo += 25;
 
                 sfx.write(PlaySfx { kind: SfxKind::PickupOneUp, pos: player_tf.translation });

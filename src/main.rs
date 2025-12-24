@@ -12,19 +12,19 @@ use std::path::PathBuf;
 
 use davelib::ai::EnemyAiPlugin;
 use davelib::audio::{
-	play_sfx_events,
-	setup_audio,
+    play_sfx_events,
+    setup_audio,
     start_music,
-	PlaySfx,
+    PlaySfx,
 };
 use davelib::enemies::EnemiesPlugin;
 use davelib::player::{
     door_animate,
-	door_auto_close,
-	grab_mouse, mouse_look,
-	player_move,
-	use_doors,
-	PlayerSettings,
+    door_auto_close,
+    grab_mouse, mouse_look,
+    player_move,
+    use_doors,
+    PlayerSettings,
 };
 use davelib::world::setup;
 
@@ -49,16 +49,20 @@ fn extract_embedded_assets_to_temp() -> String {
     out_dir.to_string_lossy().to_string()
 }
 
-use crate::ui::HudState;
-
 fn debug_self_damage(
     keys: Res<ButtonInput<KeyCode>>,
-    mut hud: ResMut<HudState>,
+    mut q_player: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
 ) {
-    if keys.just_pressed(KeyCode::KeyH) {
-        hud.hp = (hud.hp - 10).max(0);
-        info!("DEBUG: self-damage (-10) -> hp={}", hud.hp);
+    if !keys.just_pressed(KeyCode::KeyH) {
+        return;
     }
+
+    let Some(mut vitals) = q_player.iter_mut().next() else {
+        return;
+    };
+
+    vitals.hp = (vitals.hp - 10).max(0);
+    info!("DEBUG: self-damage (-10) -> vitals.hp={}", vitals.hp);
 }
 
 fn main() {
@@ -96,6 +100,7 @@ fn main() {
                 grab_mouse,
                 mouse_look,
                 debug_self_damage,
+                ui::sync::sync_player_hp_with_hud,
                 pickups::billboard_pickups,
                 use_doors,
             ).chain(),

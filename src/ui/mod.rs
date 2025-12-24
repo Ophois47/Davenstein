@@ -3,6 +3,7 @@ Davenstein - by David Petnick
 */
 mod state;
 mod hud;
+pub mod sync;
 
 use bevy::prelude::*;
 
