@@ -44,6 +44,8 @@ pub enum SfxKind {
     PickupTreasureCrown,
 
     // Enemies
+    EnemyAlert(EnemyKind),
+    EnemyShoot(EnemyKind),
     EnemyDeath(EnemyKind),
 }
 
@@ -147,7 +149,19 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         asset_server.load("sounds/sfx/treasure/crown.ogg"),
     );
 
-    // Guard death set (random pick in play_sfx_events)
+    // Guard Alert
+    lib.insert_one(
+        SfxKind::EnemyAlert(EnemyKind::Guard),
+        asset_server.load("sounds/sfx/enemies/guard/guard_alert.ogg"),
+    );
+
+    // Guard Shoot
+    lib.insert_one(
+        SfxKind::EnemyShoot(EnemyKind::Guard),
+        asset_server.load("sounds/sfx/enemies/guard/guard_shoot.ogg"),
+    );
+
+    // Guard Death Set (Random Pick in play_sfx_events)
     lib.insert_one(SfxKind::EnemyDeath(EnemyKind::Guard), asset_server.load("sounds/sfx/enemies/guard/guard_death_0.ogg"));
     lib.insert_one(SfxKind::EnemyDeath(EnemyKind::Guard), asset_server.load("sounds/sfx/enemies/guard/guard_death_1.ogg"));
     lib.insert_one(SfxKind::EnemyDeath(EnemyKind::Guard), asset_server.load("sounds/sfx/enemies/guard/guard_death_2.ogg"));
@@ -243,6 +257,15 @@ pub fn play_sfx_events(
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.15))
                 .with_volume(Volume::Linear(1.15)),
+
+            SfxKind::EnemyAlert(_) => PlaybackSettings::DESPAWN
+                .with_spatial(true)
+                .with_spatial_scale(SpatialScale::new(0.15)),
+
+            SfxKind::EnemyShoot(_) => PlaybackSettings::DESPAWN
+                .with_spatial(true)
+                .with_spatial_scale(SpatialScale::new(0.25))
+                .with_volume(Volume::Linear(1.25)),
 
             SfxKind::EnemyDeath(_) => PlaybackSettings::DESPAWN
                 .with_spatial(true)

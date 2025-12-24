@@ -5,6 +5,9 @@ use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions};
 use bevy::input::mouse::AccumulatedMouseMotion;
 
+use crate::actors::{Dead, OccupiesTile};
+use crate::ai::EnemyFire;
+use crate::audio::{PlaySfx, SfxKind};
 use crate::map::{
 	DoorAnim,
 	DoorState,
@@ -12,8 +15,6 @@ use crate::map::{
 	MapGrid,
 	Tile,
 };
-use crate::actors::{Dead, OccupiesTile};
-use crate::audio::{PlaySfx, SfxKind};
 
 #[derive(Component)]
 pub struct Player;
@@ -37,6 +38,18 @@ impl Default for PlayerSettings {
 			sensitivity: 0.002,
 		}
 	}
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct PlayerVitals {
+    pub hp: i32,
+    pub hp_max: i32,
+}
+
+impl Default for PlayerVitals {
+    fn default() -> Self {
+        Self { hp: 100, hp_max: 100 }
+    }
 }
 
 // Left Click to Lock/Hide Cursor, Esc to Release
@@ -368,5 +381,20 @@ pub fn door_auto_close(
             kind: SfxKind::DoorClose,
             pos: Vec3::new(dt.x as f32 * TILE_SIZE, 0.6, dt.y as f32 * TILE_SIZE),
         });
+    }
+}
+
+pub fn apply_enemy_fire_to_player(
+    mut q_player: Query<&mut PlayerVitals, With<crate::player::Player>>,
+    mut ev: MessageReader<EnemyFire>,
+) {
+    let Some(mut vitals) = q_player.iter_mut().next() else { return; };
+
+    for fire in ev.read() {
+        if fire.damage <= 0 {
+            continue;
+        }
+
+        vitals.hp = (vitals.hp - fire.damage).clamp(0, vitals.hp_max);
     }
 }

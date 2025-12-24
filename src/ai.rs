@@ -10,37 +10,26 @@ use crate::enemies::{Dir8, EnemyKind, Guard};
 use crate::map::{DoorState, DoorTile, MapGrid, Tile};
 use crate::player::Player;
 
-pub struct EnemyAiPlugin;
-
-impl Plugin for EnemyAiPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<AiTicker>()
-            .add_systems(Update, attach_guard_ai)
-            .add_systems(FixedUpdate, (enemy_ai_tick, enemy_ai_move).chain());
-    }
-}
+const AI_TIC_SECS: f32 = 1.0 / 70.0;
+const DOOR_OPEN_SECS: f32 = 4.5;
+const GUARD_CHASE_SPEED_TPS: f32 = 1.6;
+const CLAIM_TILE_EARLY: bool = true;
 
 #[derive(Resource, Debug, Default)]
 struct AiTicker {
     accum: f32,
 }
 
-// Wolf3D “tic” feel. (Your world can still simulate at 60Hz; we just tick AI in 70Hz slices.)
-const AI_TIC_SECS: f32 = 1.0 / 70.0;
-
-// Keep consistent with your door timing (player.rs uses 4.5s in the snapshot you uploaded).
-const DOOR_OPEN_SECS: f32 = 4.5;
-
-// Tune later (tiles per second).
-const GUARD_CHASE_SPEED_TPS: f32 = 1.6;
-
-// Wolf-ish quirk: claim the destination tile immediately (frees old tile early).
-const CLAIM_TILE_EARLY: bool = true;
+#[derive(Clone, Copy, Debug, Message)]
+pub struct EnemyFire {
+    pub kind: EnemyKind,
+    pub damage: i32,
+}
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct EnemyAi {
     pub state: EnemyAiState,
-    pub last_step: IVec2, // last chosen 4-dir step
+    pub last_step: IVec2,
 }
 
 impl Default for EnemyAi {
@@ -61,7 +50,7 @@ pub enum EnemyAiState {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct EnemyMove {
     pub target: Vec3,
-    pub speed_tps: f32, // tiles/sec in XZ
+    pub speed_tps: f32,
 }
 
 enum ChasePick {
@@ -120,14 +109,14 @@ fn pick_chase_step(
         if step == IVec2::ZERO {
             continue;
         }
-        // Avoid immediate reversing unless forced (Wolf-ish)
+        // Avoid Immediate Reversing Unless Forced
         if last_step != IVec2::ZERO && step == reverse {
             continue;
         }
 
         let dest = my_tile + step;
 
-        // Don’t step into occupied tiles or player tile (for now)
+        // Don't Step Into Occupied Tiles or Player Tile
         if dest == player_tile || occupied.contains(&dest) {
             continue;
         }
@@ -180,7 +169,6 @@ fn tile_at(grid: &MapGrid, t: IVec2) -> Option<Tile> {
     Some(grid.tile(x, z))
 }
 
-// Bresenham through tiles (good enough to match “Wolf feel” and respects DoorClosed as blocking).
 fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
     if from == to {
         return true;
@@ -385,6 +373,8 @@ fn enemy_ai_tick(
     q_player: Query<&GlobalTransform, With<Player>>,
     mut q_doors: Query<(&DoorTile, &mut DoorState, &GlobalTransform)>,
     mut sfx: MessageWriter<PlaySfx>,
+    mut enemy_fire: MessageWriter<EnemyFire>,
+    mut shoot_cd: Local<std::collections::HashMap<Entity, f32>>,
     mut q: ParamSet<(
         Query<&OccupiesTile, (With<EnemyKind>, Without<Dead>)>,
         Query<
@@ -416,7 +406,7 @@ fn enemy_ai_tick(
     while ticker.accum >= AI_TIC_SECS {
         ticker.accum -= AI_TIC_SECS;
 
-        // Compute areas once per tic (not per enemy)
+        // Compute areas once per tic
         let areas = AreaMap::compute(&grid);
         let player_area = areas.id(player_tile);
 
@@ -425,16 +415,29 @@ fn enemy_ai_tick(
                 continue;
             }
 
+            // Tick down shoot cooldown (per-enemy, kept local to this system)
+            let cd = shoot_cd.entry(e).or_insert(0.0);
+            if *cd > 0.0 {
+                *cd = (*cd - AI_TIC_SECS).max(0.0);
+            }
+
             let speed = match kind {
                 EnemyKind::Guard => GUARD_CHASE_SPEED_TPS,
             };
 
             let my_tile = occ.0;
 
+            // Stand -> Chase (and play alert bark ONCE)
             if ai.state == EnemyAiState::Stand {
                 let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
+
                 if same_area && has_line_of_sight(&grid, my_tile, player_tile) {
                     ai.state = EnemyAiState::Chase;
+
+                    sfx.write(PlaySfx {
+                        kind: SfxKind::EnemyAlert(*kind),
+                        pos: tf.translation,
+                    });
                 }
             }
 
@@ -442,6 +445,67 @@ fn enemy_ai_tick(
                 continue;
             }
 
+            // -------------------------
+            // SHOOT GATE (NEW)
+            // -------------------------
+            const GUARD_SHOOT_RANGE_TILES: i32 = 8;
+            const GUARD_SHOOT_COOLDOWN_SECS: f32 = 0.65;
+
+            // Chebyshev distance (tile-ish)
+            let dx = (player_tile.x - my_tile.x).abs();
+            let dz = (player_tile.y - my_tile.y).abs();
+            let dist = dx.max(dz);
+
+            let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
+
+            if same_area
+                && dist <= GUARD_SHOOT_RANGE_TILES
+                && *cd <= 0.0
+                && has_line_of_sight(&grid, my_tile, player_tile)
+            {
+                // Face player before firing
+                let step = IVec2::new(
+                    (player_tile.x - my_tile.x).signum(),
+                    (player_tile.y - my_tile.y).signum(),
+                );
+                *dir8 = dir8_from_step(step);
+
+                // (Sound is Step-later; for now we're only emitting EnemyFire + damage)
+                // Simple “Wolf-ish” hit chance by distance (tune later)
+                let hit_chance = if dist <= 2 {
+                    0.65
+                } else if dist <= 4 {
+                    0.50
+                } else if dist <= 6 {
+                    0.35
+                } else {
+                    0.20
+                };
+
+                let roll: f32 = rand::random();
+                let hit = roll < hit_chance;
+
+                let damage = if hit {
+                    (rand::random::<u32>() % 7) as i32 + 2 // 2..8
+                } else {
+                    0
+                };
+
+                // ✅ FIXED: match your EnemyFire fields (no shooter/pos)
+                enemy_fire.write(EnemyFire {
+                    kind: *kind,
+                    damage,
+                });
+
+                *cd = GUARD_SHOOT_COOLDOWN_SECS;
+
+                // Don’t also move on the same tic we fired
+                continue;
+            }
+
+            // -------------------------
+            // CHASE (existing)
+            // -------------------------
             match pick_chase_step(&grid, &occupied, my_tile, player_tile, ai.last_step) {
                 ChasePick::MoveTo(dest) => {
                     let step = dest - my_tile;
@@ -467,7 +531,6 @@ fn enemy_ai_tick(
                     }
                 }
                 ChasePick::OpenDoor(door_tile) => {
-                    // Wait on the door; don't change last_step here.
                     try_open_door_at(door_tile, &mut q_doors, &mut sfx);
                 }
                 ChasePick::None => {
@@ -506,5 +569,16 @@ fn enemy_ai_move(
             let dir = to / dist;
             tf.translation += Vec3::new(dir.x * step, 0.0, dir.z * step);
         }
+    }
+}
+
+pub struct EnemyAiPlugin;
+
+impl Plugin for EnemyAiPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<AiTicker>()
+            .add_message::<EnemyFire>()
+            .add_systems(Update, attach_guard_ai)
+            .add_systems(FixedUpdate, (enemy_ai_tick, enemy_ai_move).chain());
     }
 }

@@ -21,6 +21,9 @@ pub(super) struct HudScoreText;
 pub(super) struct HudLivesText;
 
 #[derive(Component)]
+pub(super) struct DamageFlashOverlay;
+
+#[derive(Component)]
 pub(super) struct ViewModelImage;
 
 #[derive(Resource, Clone)]
@@ -537,6 +540,7 @@ pub(crate) fn setup_hud(
                 ..default()
             })
             .with_children(|vm| {
+                // Viewmodel sprite (gun) - spawn first
                 vm.spawn((
                     ViewModelImage,
                     ImageNode::new(weapon_idle),
@@ -545,6 +549,20 @@ pub(crate) fn setup_hud(
                         height: Val::Px(GUN_PX),
                         ..default()
                     },
+                ));
+
+                // Red damage overlay - spawn LAST so it draws on top
+                vm.spawn((
+                    DamageFlashOverlay,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(0.0),
+                        top: Val::Px(0.0),
+                        ..default()
+                    },
+                    BackgroundColor(Srgba::new(1.0, 0.0, 0.0, 0.0).into()),
                 ));
             });
 
@@ -558,13 +576,12 @@ pub(crate) fn setup_hud(
                     align_items: AlignItems::Center,
                     ..default()
                 },
-                // BackgroundColor(Color::BLACK.into()),
                 BackgroundColor(BACKGROUND_COLOR.into()),
             ))
             .with_children(|bar| {
                 bar.spawn((
                     HudHpText,
-                    Text::new(format!("HP {}", hud.hp)),
+                    Text::new("HP 100"),
                     TextFont {
                         font: font.clone(),
                         font_size: 36.0,
@@ -575,7 +592,7 @@ pub(crate) fn setup_hud(
 
                 bar.spawn((
                     HudAmmoText,
-                    Text::new(format!("AMMO {}", hud.ammo)),
+                    Text::new("AMMO 8"),
                     TextFont {
                         font: font.clone(),
                         font_size: 36.0,
@@ -586,18 +603,7 @@ pub(crate) fn setup_hud(
 
                 bar.spawn((
                     HudScoreText,
-                    Text::new(format!("SCORE {}", hud.score)),
-                    TextFont {
-                        font: font.clone(),
-                        font_size: 36.0,
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                ));
-
-                bar.spawn((
-                    HudLivesText,
-                    Text::new(format!("LIVES {}", hud.lives)),
+                    Text::new("SCORE 0"),
                     TextFont {
                         font: font.clone(),
                         font_size: 36.0,
@@ -636,3 +642,32 @@ pub(crate) fn sync_hud_text(
     }
 }
 
+pub(crate) fn flash_on_hp_drop(
+    hud: Res<HudState>,
+    mut flash: ResMut<super::DamageFlash>,
+    mut last_hp: Local<Option<i32>>,
+) {
+    let Some(prev) = *last_hp else {
+        *last_hp = Some(hud.hp);
+        return;
+    };
+
+    if hud.hp < prev {
+        flash.trigger();
+    }
+
+    *last_hp = Some(hud.hp);
+}
+
+pub(crate) fn tick_damage_flash(
+    time: Res<Time>,
+    mut flash: ResMut<super::DamageFlash>,
+    mut q: Query<&mut BackgroundColor, With<DamageFlashOverlay>>,
+) {
+    flash.timer.tick(time.delta());
+
+    let a = flash.alpha();
+    for mut bg in q.iter_mut() {
+        *bg = BackgroundColor(Srgba::new(1.0, 0.0, 0.0, a).into());
+    }
+}
