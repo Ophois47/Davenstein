@@ -581,7 +581,7 @@ pub(crate) fn setup_hud(
             .with_children(|bar| {
                 bar.spawn((
                     HudHpText,
-                    Text::new("HP 100"),
+                    Text::new(format!("HP {}", hud.hp)),
                     TextFont {
                         font: font.clone(),
                         font_size: 36.0,
@@ -592,7 +592,7 @@ pub(crate) fn setup_hud(
 
                 bar.spawn((
                     HudAmmoText,
-                    Text::new("AMMO 8"),
+                    Text::new(format!("AMMO {}", hud.ammo)),
                     TextFont {
                         font: font.clone(),
                         font_size: 36.0,
@@ -603,7 +603,18 @@ pub(crate) fn setup_hud(
 
                 bar.spawn((
                     HudScoreText,
-                    Text::new("SCORE 0"),
+                    Text::new(format!("SCORE {}", hud.score)),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 36.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+
+                bar.spawn((
+                    HudLivesText,
+                    Text::new(format!("LIVES {}", hud.lives)),
                     TextFont {
                         font: font.clone(),
                         font_size: 36.0,

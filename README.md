@@ -1,14 +1,14 @@
 *** Davenstein ***
 
-- This is an attempt to recreate my own version of Wolfenstein 3D written entirely in Rust, using the Bevy engine.
+This is an attempt to recreate my own version of Wolfenstein 3D written entirely in Rust, using the Bevy engine.
 
-- Build on Linux with:
- $ cargo update && cargo build && cargo build --release
+Build on Linux with:
+$ cargo update && cargo build && cargo build --release
 
- - To Cross Compile for Armv7
- $ cross build --release --target armv7-unknown-linux-gnueabihf
+To Cross Compile for Armv7
+$ cross build --release --target armv7-unknown-linux-gnueabihf
 
-- Then Run:
+Then Run:
 $ cargo run --bin Davenstein
-- or - 
+OR
 $ ./target/release/Davenstein

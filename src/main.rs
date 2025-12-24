@@ -114,6 +114,7 @@ fn main() {
                 player_move,
                 pickups::drop_guard_ammo,
                 pickups::collect_pickups,
+                ui::sync::apply_enemy_fire_to_player_vitals,
             ).chain(),
         )
         .run();

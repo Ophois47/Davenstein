@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use bevy::time::Timer;
 
 use crate::actors::{Dead, Health, OccupiesTile};
+use crate::ai::EnemyMove;
 use crate::audio::{PlaySfx, SfxKind};
 use crate::player::Player;
 
@@ -20,9 +21,7 @@ pub enum EnemyKind {
 pub struct Guard;
 
 #[derive(Component)]
-pub struct GuardPain {
-    pub timer: Timer,
-}
+pub struct GuardCorpse;
 
 #[derive(Component, Debug, Default)]
 pub struct GuardWalk {
@@ -30,12 +29,34 @@ pub struct GuardWalk {
     pub phase: f32,
 }
 
+#[derive(Component)]
+pub struct GuardPain {
+    pub timer: Timer,
+}
+
+#[derive(Component, Debug)]
+pub struct GuardShoot {
+    pub timer: Timer,
+}
+
+#[derive(Component, Clone, Copy)]
+pub struct Dir8(pub u8);
+
+// Cached to Avoid Redundant Texture Swaps
+#[derive(Component, Clone, Copy)]
+pub struct View8(pub u8);
+
 #[derive(Resource)]
 pub struct GuardSprites {
     pub idle: [Handle<Image>; 8],
     pub walk: [[Handle<Image>; 8]; 4],
+
+    pub shoot_front_aim: Handle<Image>,
+    pub shoot_front_fire: Handle<Image>,
+    pub shoot_side_fire: Handle<Image>,
+
     pub pain: Handle<Image>,
-    pub death: [Handle<Image>; 4],
+    pub dying: [Handle<Image>; 4],
     pub corpse: Handle<Image>,
 }
 
@@ -43,21 +64,48 @@ impl FromWorld for GuardSprites {
     fn from_world(world: &mut World) -> Self {
         let asset_server = world.resource::<AssetServer>();
 
+        // 8-dir idle frames (your files: guard_idle_a0..a7.png)
+        let idle: [Handle<Image>; 8] = std::array::from_fn(|dir| {
+            asset_server.load(format!("enemies/guard/guard_idle_a{}.png", dir))
+        });
+
+        // 4 walk frames x 8 directions (your files: guard_walk_r{row}_dir{dir}.png)
+        let walk: [[Handle<Image>; 8]; 4] = std::array::from_fn(|row| {
+            std::array::from_fn(|dir| {
+                asset_server.load(format!(
+                    "enemies/guard/guard_walk_r{}_dir{}.png",
+                    row, dir
+                ))
+            })
+        });
+
+        // Single-frame states
+        let pain: Handle<Image> = asset_server.load("enemies/guard/guard_pain.png");
+
+        // Dying
+        let dying: [Handle<Image>; 4] = std::array::from_fn(|i| {
+            asset_server.load(format!("enemies/guard/guard_death_{}.png", i))
+        });
+
+        let corpse: Handle<Image> = asset_server.load("enemies/guard/guard_corpse.png");
+
+        // Shooting
+        let shoot_front_aim: Handle<Image> =
+            asset_server.load("enemies/guard/guard_shoot_front_aim.png");
+        let shoot_front_fire: Handle<Image> =
+            asset_server.load("enemies/guard/guard_shoot_front_fire.png");
+        let shoot_side_fire: Handle<Image> =
+            asset_server.load("enemies/guard/guard_shoot_side_fire.png");
+
         Self {
-            idle: std::array::from_fn(|i| asset_server.load(format!("enemies/guard/guard_idle_a{i}.png"))),
-            walk: std::array::from_fn(|r| {
-                std::array::from_fn(|d| {
-                    asset_server.load(format!("enemies/guard/guard_walk_r{r}_dir{d}.png"))
-                })
-            }),
-            pain: asset_server.load("enemies/guard/guard_pain.png"),
-            death: [
-                asset_server.load("enemies/guard/guard_death_0.png"),
-                asset_server.load("enemies/guard/guard_death_1.png"),
-                asset_server.load("enemies/guard/guard_death_2.png"),
-                asset_server.load("enemies/guard/guard_death_3.png"),
-            ],
-            corpse: asset_server.load("enemies/guard/guard_corpse.png"),
+            idle,
+            walk,
+            shoot_front_aim,
+            shoot_front_fire,
+            shoot_side_fire,
+            pain,
+            dying,
+            corpse,
         }
     }
 }
@@ -97,21 +145,24 @@ pub fn tick_guard_pain(
     }
 }
 
+fn tick_guard_shoot(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut GuardShoot), With<Guard>>,
+) {
+    for (e, mut shoot) in q.iter_mut() {
+        shoot.timer.tick(time.delta());
+        if shoot.timer.is_finished() {
+            commands.entity(e).remove::<GuardShoot>();
+        }
+    }
+}
+
 #[derive(Component, Debug, Clone, Copy)]
 pub struct GuardDying {
     pub frame: u8, // 0..DEATH_FRAMES-1
     pub tics: u8,  // Fixed-Step Counter
 }
-
-#[derive(Component)]
-pub struct GuardCorpse;
-
-#[derive(Component, Clone, Copy)]
-pub struct Dir8(pub u8);
-
-// Cached to Avoid Redundant Texture Swaps
-#[derive(Component, Clone, Copy)]
-pub struct View8(pub u8);
 
 pub fn play_enemy_death_sfx(
     mut sfx: MessageWriter<PlaySfx>,
@@ -248,7 +299,7 @@ pub fn update_guard_views(
         Option<&GuardDying>,
         Option<&GuardPain>,
         Option<&GuardWalk>,
-        Option<&crate::ai::EnemyMove>,
+        Option<&EnemyMove>,
         &GlobalTransform,
         &Dir8,
         &mut View8,
@@ -256,62 +307,68 @@ pub fn update_guard_views(
         &mut Transform,
     ), With<Guard>>,
 ) {
-    let Some(pgt) = q_player.iter().next() else { return; };
+    let Ok(pgt) = q_player.single() else { return; };
     let cam_pos = pgt.translation();
 
     for (dead, dying, pain, walk, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
         let enemy_pos = gt.translation();
 
-        // Always Billboard as Wolfenstein 3D Did
+        // Billboard yaw toward camera
         let to_cam = cam_pos - enemy_pos;
         let yaw = to_cam.x.atan2(to_cam.z);
         tf.rotation = Quat::from_rotation_y(yaw);
 
-        // Dying Anim (Non-Directional)
+        // Dying (non-directional)
         if let Some(dying) = dying {
-            let i = (dying.frame as usize).min(sprites.death.len() - 1);
-            if let Some(mat) = materials.get_mut(&mat3d.0) {
-                mat.base_color_texture = Some(sprites.death[i].clone());
+            let i = (dying.frame as usize).min(sprites.dying.len() - 1);
+            if view.0 != 240 + dying.frame {
+                view.0 = 240 + dying.frame;
+                if let Some(mat) = materials.get_mut(&mat3d.0) {
+                    mat.base_color_texture = Some(sprites.dying[i].clone());
+                }
             }
             continue;
         }
 
-        // Pain Sprite (Non-Directional)
+        // Pain (non-directional)
         if pain.is_some() {
-            view.0 = 255;
-            if let Some(mat) = materials.get_mut(&mat3d.0) {
-                mat.base_color_texture = Some(sprites.pain.clone());
+            if view.0 != 255 {
+                view.0 = 255;
+                if let Some(mat) = materials.get_mut(&mat3d.0) {
+                    mat.base_color_texture = Some(sprites.pain.clone());
+                }
             }
             continue;
         }
 
-        // Dead -> Corpse Stable, Don't Overwrite
+        // Dead -> corpse handled elsewhere, don’t overwrite
         if dead.is_some() {
             continue;
         }
 
-        // Alive -> 8-dir Idle
+        // Alive -> choose 8-dir view index
         let v = quantize_view8(dir8.0, enemy_pos, cam_pos);
 
-        let (key, tex) = if mv.is_some() {
-            let frame = walk
-                .map(|w| ((w.phase * 4.0).floor() as u8) & 3)
-                .unwrap_or(0);
+        // Walking if we currently have an EnemyMove
+        if mv.is_some() {
+            // Your rule: frame = floor(phase * 4) & 3
+            let phase = walk.map(|w| w.phase).unwrap_or(0.0);
+            let frame = (((phase * 4.0).floor() as i32) & 3) as usize;
 
-            // Use View8 as a cache-key (not just 0..7)
-            let key = v + 8 * (1 + frame);
-            let tex = sprites.walk[frame as usize][v as usize].clone();
-            (key, tex)
+            let key = 32 + (frame as u8) * 8 + v;
+            if key != view.0 {
+                view.0 = key;
+                if let Some(mat) = materials.get_mut(&mat3d.0) {
+                    mat.base_color_texture = Some(sprites.walk[frame][v as usize].clone());
+                }
+            }
         } else {
-            let key = v; // 0..7
-            let tex = sprites.idle[v as usize].clone();
-            (key, tex)
-        };
-
-        if key != view.0 {
-            view.0 = key;
-            if let Some(mat) = materials.get_mut(&mat3d.0) {
-                mat.base_color_texture = Some(tex);
+            // Idle
+            if v != view.0 {
+                view.0 = v;
+                if let Some(mat) = materials.get_mut(&mat3d.0) {
+                    mat.base_color_texture = Some(sprites.idle[v as usize].clone());
+                }
             }
         }
     }
@@ -323,7 +380,14 @@ impl Plugin for EnemiesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GuardSprites>()
             .add_systems(Update, (attach_guard_walk, update_guard_views))
-            .add_systems(FixedUpdate, (tick_guard_walk, tick_guard_dying, tick_guard_pain))
-            .add_systems(PostUpdate, (apply_guard_corpses, play_enemy_death_sfx));
+            .add_systems(
+                FixedUpdate,
+                (
+                    tick_guard_walk,
+                    tick_guard_pain,
+                    tick_guard_shoot,
+                    tick_guard_dying,
+                ),
+            );
     }
 }

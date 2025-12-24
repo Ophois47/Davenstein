@@ -18,9 +18,20 @@ impl Plugin for UiPlugin {
             .init_resource::<DamageFlash>()
             .init_resource::<hud::WeaponState>()
             .add_systems(Startup, hud::setup_hud)
-            .add_systems(Update, hud::weapon_fire_and_viewmodel)
-            .add_systems(Update, hud::sync_hud_text.after(hud::weapon_fire_and_viewmodel))
-            .add_systems(Update, hud::flash_on_hp_drop)
-            .add_systems(Update, hud::tick_damage_flash);
+            // 1) Resolve enemy shots into PlayerVitals (gameplay truth)
+            // 2) Copy PlayerVitals -> HudState.hp (UI truth)
+            // 3) Then do HUD text + flash logic
+            .add_systems(
+                Update,
+                (
+                    sync::apply_enemy_fire_to_player_vitals,
+                    sync::sync_player_hp_with_hud,
+                    hud::weapon_fire_and_viewmodel,
+                    hud::sync_hud_text,
+                    hud::flash_on_hp_drop,
+                    hud::tick_damage_flash,
+                )
+                    .chain(),
+            );
     }
 }

@@ -2,7 +2,7 @@
 Davenstein - by David Petnick
 */
 use bevy::prelude::*;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 use crate::actors::{Dead, OccupiesTile};
 use crate::audio::{PlaySfx, SfxKind};
@@ -374,7 +374,7 @@ fn enemy_ai_tick(
     mut q_doors: Query<(&DoorTile, &mut DoorState, &GlobalTransform)>,
     mut sfx: MessageWriter<PlaySfx>,
     mut enemy_fire: MessageWriter<EnemyFire>,
-    mut shoot_cd: Local<std::collections::HashMap<Entity, f32>>,
+    mut shoot_cd: Local<HashMap<Entity, f32>>,
     mut q: ParamSet<(
         Query<&OccupiesTile, (With<EnemyKind>, Without<Dead>)>,
         Query<
@@ -385,7 +385,8 @@ fn enemy_ai_tick(
                 &mut OccupiesTile,
                 &mut Dir8,
                 &Transform,
-                Option<&EnemyMove>,
+                Option<&crate::ai::EnemyMove>,
+                Option<&crate::enemies::GuardShoot>, // NEW
             ),
             (With<EnemyKind>, Without<Player>, Without<Dead>),
         >,
@@ -395,7 +396,6 @@ fn enemy_ai_tick(
     let player_pos = player_gt.translation();
     let player_tile = world_to_tile_xz(Vec2::new(player_pos.x, player_pos.z));
 
-    // Snapshot occupied tiles (alive enemies only).
     let mut occupied: HashSet<IVec2> = HashSet::new();
     for ot in q.p0().iter() {
         occupied.insert(ot.0);
@@ -406,20 +406,13 @@ fn enemy_ai_tick(
     while ticker.accum >= AI_TIC_SECS {
         ticker.accum -= AI_TIC_SECS;
 
-        // Compute areas once per tic
-        let areas = AreaMap::compute(&grid);
-        let player_area = areas.id(player_tile);
-
-        for (e, kind, mut ai, mut occ, mut dir8, tf, moving) in q.p1().iter_mut() {
-            if moving.is_some() {
+        for (e, kind, mut ai, mut occ, mut dir8, tf, moving, shooting) in q.p1().iter_mut() {
+            if moving.is_some() || shooting.is_some() {
                 continue;
             }
 
-            // Tick down shoot cooldown (per-enemy, kept local to this system)
             let cd = shoot_cd.entry(e).or_insert(0.0);
-            if *cd > 0.0 {
-                *cd = (*cd - AI_TIC_SECS).max(0.0);
-            }
+            *cd = (*cd - AI_TIC_SECS).max(0.0);
 
             let speed = match kind {
                 EnemyKind::Guard => GUARD_CHASE_SPEED_TPS,
@@ -427,10 +420,11 @@ fn enemy_ai_tick(
 
             let my_tile = occ.0;
 
-            // Stand -> Chase (and play alert bark ONCE)
+            let areas = AreaMap::compute(&grid);
+            let player_area = areas.id(player_tile);
+
             if ai.state == EnemyAiState::Stand {
                 let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
-
                 if same_area && has_line_of_sight(&grid, my_tile, player_tile) {
                     ai.state = EnemyAiState::Chase;
 
@@ -446,12 +440,11 @@ fn enemy_ai_tick(
             }
 
             // -------------------------
-            // SHOOT GATE (NEW)
+            // SHOOT GATE
             // -------------------------
             const GUARD_SHOOT_RANGE_TILES: i32 = 8;
             const GUARD_SHOOT_COOLDOWN_SECS: f32 = 0.65;
 
-            // Chebyshev distance (tile-ish)
             let dx = (player_tile.x - my_tile.x).abs();
             let dz = (player_tile.y - my_tile.y).abs();
             let dist = dx.max(dz);
@@ -470,8 +463,18 @@ fn enemy_ai_tick(
                 );
                 *dir8 = dir8_from_step(step);
 
-                // (Sound is Step-later; for now we're only emitting EnemyFire + damage)
-                // Simple “Wolf-ish” hit chance by distance (tune later)
+                // NEW: play shoot SFX (even if we miss)
+                sfx.write(PlaySfx {
+                    kind: SfxKind::EnemyShoot(*kind),
+                    pos: tf.translation,
+                });
+
+                // NEW: flash shooting sprite briefly
+                commands.entity(e).insert(crate::enemies::GuardShoot {
+                    timer: bevy::time::Timer::from_seconds(0.25, bevy::time::TimerMode::Once),
+                });
+
+                // Wolf-ish hit chance by distance (tune later)
                 let hit_chance = if dist <= 2 {
                     0.65
                 } else if dist <= 4 {
@@ -491,7 +494,6 @@ fn enemy_ai_tick(
                     0
                 };
 
-                // ✅ FIXED: match your EnemyFire fields (no shooter/pos)
                 enemy_fire.write(EnemyFire {
                     kind: *kind,
                     damage,
@@ -499,12 +501,11 @@ fn enemy_ai_tick(
 
                 *cd = GUARD_SHOOT_COOLDOWN_SECS;
 
-                // Don’t also move on the same tic we fired
                 continue;
             }
 
             // -------------------------
-            // CHASE (existing)
+            // CHASE
             // -------------------------
             match pick_chase_step(&grid, &occupied, my_tile, player_tile, ai.last_step) {
                 ChasePick::MoveTo(dest) => {
