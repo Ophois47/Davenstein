@@ -40,12 +40,14 @@ const CLAIM_TILE_EARLY: bool = true;
 #[derive(Component, Debug, Clone, Copy)]
 pub struct EnemyAi {
     pub state: EnemyAiState,
+    pub last_step: IVec2, // last chosen 4-dir step
 }
 
 impl Default for EnemyAi {
     fn default() -> Self {
         Self {
             state: EnemyAiState::Stand,
+            last_step: IVec2::ZERO,
         }
     }
 }
@@ -60,6 +62,100 @@ pub enum EnemyAiState {
 pub struct EnemyMove {
     pub target: Vec3,
     pub speed_tps: f32, // tiles/sec in XZ
+}
+
+enum ChasePick {
+    MoveTo(IVec2),
+    OpenDoor(IVec2),
+    None,
+}
+
+fn pick_chase_step(
+    grid: &MapGrid,
+    occupied: &std::collections::HashSet<IVec2>,
+    my_tile: IVec2,
+    player_tile: IVec2,
+    last_step: IVec2,
+) -> ChasePick {
+    let dx = player_tile.x - my_tile.x;
+    let dz = player_tile.y - my_tile.y;
+
+    // Desired directions toward player (4-way)
+    let xdir = if dx > 0 { 1 } else if dx < 0 { -1 } else { 0 };
+    let zdir = if dz > 0 { 1 } else if dz < 0 { -1 } else { 0 };
+
+    let primary_x = dx.abs() >= dz.abs();
+
+    // Candidate steps in Wolf-ish priority order
+    let mut candidates: [IVec2; 6] = [
+        IVec2::ZERO,
+        IVec2::ZERO,
+        IVec2::ZERO,
+        IVec2::ZERO,
+        IVec2::ZERO,
+        IVec2::ZERO,
+    ];
+
+    let toward_x = IVec2::new(xdir, 0);
+    let toward_z = IVec2::new(0, zdir);
+
+    // Two “toward player” axes first
+    if primary_x {
+        candidates[0] = toward_x;
+        candidates[1] = toward_z;
+    } else {
+        candidates[0] = toward_z;
+        candidates[1] = toward_x;
+    }
+
+    // Then perpendicular fallbacks (try to go around)
+    candidates[2] = IVec2::new(0, 1);
+    candidates[3] = IVec2::new(0, -1);
+    candidates[4] = IVec2::new(1, 0);
+    candidates[5] = IVec2::new(-1, 0);
+
+    let reverse = -last_step;
+
+    for step in candidates {
+        if step == IVec2::ZERO {
+            continue;
+        }
+        // Avoid immediate reversing unless forced (Wolf-ish)
+        if last_step != IVec2::ZERO && step == reverse {
+            continue;
+        }
+
+        let dest = my_tile + step;
+
+        // Don’t step into occupied tiles or player tile (for now)
+        if dest == player_tile || occupied.contains(&dest) {
+            continue;
+        }
+
+        let Some(t) = tile_at(grid, dest) else { continue; };
+
+        match t {
+            Tile::Empty | Tile::DoorOpen => return ChasePick::MoveTo(dest),
+            Tile::DoorClosed => return ChasePick::OpenDoor(dest),
+            _ => {}
+        }
+    }
+
+    // If nothing worked, allow reverse as last resort
+    if last_step != IVec2::ZERO {
+        let dest = my_tile + reverse;
+        if dest != player_tile && !occupied.contains(&dest) {
+            if let Some(t) = tile_at(grid, dest) {
+                match t {
+                    Tile::Empty | Tile::DoorOpen => return ChasePick::MoveTo(dest),
+                    Tile::DoorClosed => return ChasePick::OpenDoor(dest),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    ChasePick::None
 }
 
 fn attach_guard_ai(mut commands: Commands, q_new: Query<Entity, (Added<Guard>, Without<EnemyAi>)>) {
@@ -320,6 +416,10 @@ fn enemy_ai_tick(
     while ticker.accum >= AI_TIC_SECS {
         ticker.accum -= AI_TIC_SECS;
 
+        // Compute areas once per tic (not per enemy)
+        let areas = AreaMap::compute(&grid);
+        let player_area = areas.id(player_tile);
+
         for (e, kind, mut ai, mut occ, mut dir8, tf, moving) in q.p1().iter_mut() {
             if moving.is_some() {
                 continue;
@@ -330,9 +430,6 @@ fn enemy_ai_tick(
             };
 
             let my_tile = occ.0;
-
-            let areas = AreaMap::compute(&grid);
-            let player_area = areas.id(player_tile);
 
             if ai.state == EnemyAiState::Stand {
                 let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
@@ -345,53 +442,11 @@ fn enemy_ai_tick(
                 continue;
             }
 
-            let current_dist =
-                (player_tile.x - my_tile.x).abs() + (player_tile.y - my_tile.y).abs();
-
-            let dirs = [
-                IVec2::new(1, 0),
-                IVec2::new(-1, 0),
-                IVec2::new(0, 1),
-                IVec2::new(0, -1),
-            ];
-
-            let mut best_move: Option<(IVec2, i32)> = None;
-            let mut best_door: Option<(IVec2, i32)> = None;
-
-            for step in dirs {
-                let dest = my_tile + step;
-
-                if dest == player_tile {
-                    continue;
-                }
-
-                if occupied.contains(&dest) {
-                    continue;
-                }
-
-                let Some(t) = tile_at(&grid, dest) else { continue; };
-
-                let score =
-                    (player_tile.x - dest.x).abs() + (player_tile.y - dest.y).abs();
-
-                match t {
-                    Tile::Empty | Tile::DoorOpen => {
-                        if best_move.map(|(_, s)| score < s).unwrap_or(true) {
-                            best_move = Some((dest, score));
-                        }
-                    }
-                    Tile::DoorClosed => {
-                        if best_door.map(|(_, s)| score < s).unwrap_or(true) {
-                            best_door = Some((dest, score));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            if let Some((dest, score)) = best_move {
-                if score <= current_dist {
+            match pick_chase_step(&grid, &occupied, my_tile, player_tile, ai.last_step) {
+                ChasePick::MoveTo(dest) => {
                     let step = dest - my_tile;
+
+                    ai.last_step = step;
                     *dir8 = dir8_from_step(step);
 
                     if CLAIM_TILE_EARLY {
@@ -411,9 +466,12 @@ fn enemy_ai_tick(
                         occupied.remove(&my_tile);
                     }
                 }
-            } else if let Some((door_tile, score)) = best_door {
-                if score <= current_dist {
+                ChasePick::OpenDoor(door_tile) => {
+                    // Wait on the door; don't change last_step here.
                     try_open_door_at(door_tile, &mut q_doors, &mut sfx);
+                }
+                ChasePick::None => {
+                    ai.last_step = IVec2::ZERO;
                 }
             }
         }
