@@ -25,6 +25,13 @@ pub struct LookAngles {
 	pitch: f32,
 }
 
+
+impl LookAngles {
+    pub fn new(yaw: f32, pitch: f32) -> Self {
+        Self { yaw, pitch }
+    }
+}
+
 #[derive(Resource)]
 pub struct PlayerSettings {
 	speed: f32,

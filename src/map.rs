@@ -2,6 +2,7 @@
 Davenstein - by David Petnick
 */
 use bevy::prelude::*;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DoorTile(pub IVec2); // (X, Z) in Tile Coords
@@ -90,5 +91,94 @@ impl MapGrid {
             guards,
         )
     }
+
+    pub fn parse_u16_grid(text: &str, width: usize, height: usize) -> Vec<u16> {
+        let mut out = Vec::with_capacity(width * height);
+
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            for tok in line.split_whitespace() {
+                if let Ok(v) = tok.parse::<u16>() {
+                    out.push(v);
+                } else {
+                    bevy::log::warn!("parse_u16_grid: failed to parse token '{tok}'");
+                }
+            }
+        }
+
+        if out.len() != width * height {
+            bevy::log::warn!(
+                "parse_u16_grid: expected {} values ({}x{}), got {}",
+                width * height,
+                width,
+                height,
+                out.len()
+            );
+            out.resize(width * height, 0);
+        }
+
+        out
+    }
+
+    /// Convert Wolf3D plane0/plane1 data into our current collision grid + basic spawns.
+    /// - plane0: walls/doors/floors (0-63=wall, 90-95/100-101=door, otherwise walkable)
+    /// - plane1: things (19-22=player start, 108-115=guards any difficulty)
+    pub fn from_wolf_planes(
+        width: usize,
+        height: usize,
+        plane0: &[u16],
+        plane1: &[u16],
+    ) -> (Self, Option<(IVec2, f32)>, Vec<IVec2>) {
+        let mut tiles = Vec::with_capacity(width * height);
+        let mut player_spawn: Option<(IVec2, f32)> = None;
+        let mut guards: Vec<IVec2> = Vec::new();
+
+        let idx = |x: usize, z: usize| -> usize { z * width + x };
+
+        for z in 0..height {
+            for x in 0..width {
+                let v0 = plane0[idx(x, z)];
+                let v1 = plane1[idx(x, z)];
+
+                // Plane0 -> collision tile
+                let tile = if v0 <= 63 {
+                    Tile::Wall
+                } else if (90..=95).contains(&v0) || (100..=101).contains(&v0) {
+                    Tile::DoorClosed
+                } else {
+                    Tile::Empty
+                };
+                tiles.push(tile);
+
+                // Plane1 -> spawns
+                if (19..=22).contains(&v1) {
+                    // 19=N, 20=E, 21=S, 22=W
+                    let yaw = match v1 {
+                        19 => 0.0,
+                        20 => -FRAC_PI_2,
+                        21 => PI,
+                        22 => FRAC_PI_2,
+                        _ => 0.0,
+                    };
+                    player_spawn = Some((IVec2::new(x as i32, z as i32), yaw));
+                }
+
+                // Guards: any-difficulty standing/patrol (108-115)
+                if (108..=115).contains(&v1) {
+                    guards.push(IVec2::new(x as i32, z as i32));
+                }
+            }
+        }
+
+        (
+            Self { width, height, tiles },
+            player_spawn,
+            guards,
+        )
+    }
+
 }
 

@@ -53,18 +53,24 @@ pub fn setup(
     // '.' or ' ' = Empty
     // 'P' = Player Spawn
     // 'G' = Enemy Guard
-    const MAP: [&str; 32] = [
+    // Toggle: load original Wolf3D E1M1 data (Wolf1 Map1) from assets/maps.
+    const USE_WOLF_E1M1: bool = true;
+
+    const E1M1_PLANE0: &str = include_str!("../assets/maps/e1m1_plane0_u16.txt");
+    const E1M1_PLANE1: &str = include_str!("../assets/maps/e1m1_plane1_u16.txt");
+
+    const TEST_MAP: [&str; 32] = [
 	    "################################",
 	    "#..G...G..G...G.......#........#",
 	    "#....G....G...G.......#........#",
-	    "#..G...G...G....G.....#....G...#",
+	    "#..G...G...G....G.....#........#",
 	    "#.######D######.......#........#",
-	    "#.#...........#.......#....G...#",
-	    "#.#...G.......#.......#........#",
-	    "#.#...........#.......#...G....#",
 	    "#.#...........#.......#........#",
-	    "#.#############.......#.G......#",
-	    "#.....................D.......P#",
+	    "#.#...G.......#.......#........#",
+	    "#.#...........#.......#........#",
+	    "#.#...........#.......#........#",
+	    "#.#############.......#........#",
+	    "#.....................D........#",
 	    "#######D#################D######",
 	    "#.....................#........#",
 	    "#.................G...#.G......#",
@@ -75,21 +81,29 @@ pub fn setup(
 	    "#.........G...........#........#",
 	    "#.....................#........#",
 	    "#.....................#........#",
-	    "######.#.#####.#,######........#",
-	    "#.....................#........#",
+	    "######.#.################.#.####",
+	    "#.....................#G.......#",
 	    "#...............G.....#........#",
 	    "#....G................#........#",
-	    "#.....................#......G.#",
-	    "#####D####........G...#........#",
-	    "#........#............#........#",
-	    "#........#..G.........#........#",
-	    "#........#.....G......D........#",
-	    "#P.......#............#........#",
+	    "#.....................#........#",
+	    "#.....................#........#",
+	    "#.....................#........#",
+	    "#.....................#........#",
+	    "#..............G......D........#",
+	    "#.P...................#........#",
 	    "################################",
 	];
 
-    let (grid, spawn, guards) = MapGrid::from_ascii(&MAP);
-    let spawn = spawn.unwrap_or(IVec2::new(1, 1));
+    let (grid, spawn, guards) = if USE_WOLF_E1M1 {
+        let plane0 = MapGrid::parse_u16_grid(E1M1_PLANE0, 64, 64);
+        let plane1 = MapGrid::parse_u16_grid(E1M1_PLANE1, 64, 64);
+        MapGrid::from_wolf_planes(64, 64, &plane0, &plane1)
+    } else {
+        let (g, spawn, guards) = MapGrid::from_ascii(&TEST_MAP);
+        (g, spawn.map(|p| (p, 0.0)), guards)
+    };
+
+    let (spawn, spawn_yaw) = spawn.unwrap_or((IVec2::new(1, 1), 0.0));
 
     // Make Map Available for Collision / Doors / Raycasts
     commands.insert_resource(grid.clone());
@@ -350,8 +364,8 @@ pub fn setup(
         Player,
         // NEW: gives the lib a place to apply enemy damage without touching HudState
         crate::player::PlayerVitals::default(),
-        LookAngles::default(),
+        LookAngles::new(spawn_yaw, 0.0),
         SpatialListener::new(0.2),
-        Transform::from_translation(player_pos).looking_at(player_pos + Vec3::NEG_Z, Vec3::Y),
+        Transform::from_translation(player_pos).with_rotation(Quat::from_rotation_y(spawn_yaw)),
     ));
 }
