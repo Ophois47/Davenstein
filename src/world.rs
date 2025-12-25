@@ -30,7 +30,9 @@ pub struct GameAssets {
 
 fn load_assets(asset_server: &AssetServer) -> GameAssets {
     GameAssets {
-        wall_tex: asset_server.load("textures/walls/wall.png"),
+        // Wolf wall-sheet (top-left 8x8 = the 64 wall textures in index order).
+        // We remap UVs per wall ID, so this is shared by all wall materials.
+        wall_tex: asset_server.load("textures/walls/wolf_walls_vswap_atlas_106.png"),
         floor_tex: asset_server.load("textures/floors/floor.png"),
         door_tex: asset_server.load("textures/doors/door.png"),
         jamb_tex: asset_server.load("textures/walls/jamb.png"),
@@ -44,8 +46,6 @@ pub fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     guard_sprites: Res<crate::enemies::GuardSprites>,
 ) {
-    use bevy::mesh::VertexAttributeValues;
-
     // Legend:
     // '#' = Wall
     // 'D' = Closed Door
@@ -53,46 +53,45 @@ pub fn setup(
     // '.' or ' ' = Empty
     // 'P' = Player Spawn
     // 'G' = Enemy Guard
-    // Toggle: load original Wolf3D E1M1 data (Wolf1 Map1) from assets/maps.
     const USE_WOLF_E1M1: bool = true;
 
     const E1M1_PLANE0: &str = include_str!("../assets/maps/e1m1_plane0_u16.txt");
     const E1M1_PLANE1: &str = include_str!("../assets/maps/e1m1_plane1_u16.txt");
 
     const TEST_MAP: [&str; 32] = [
-	    "################################",
-	    "#..G...G..G...G.......#........#",
-	    "#....G....G...G.......#........#",
-	    "#..G...G...G....G.....#........#",
-	    "#.######D######.......#........#",
-	    "#.#...........#.......#........#",
-	    "#.#...G.......#.......#........#",
-	    "#.#...........#.......#........#",
-	    "#.#...........#.......#........#",
-	    "#.#############.......#........#",
-	    "#.....................D........#",
-	    "#######D#################D######",
-	    "#.....................#........#",
-	    "#.................G...#.G......#",
-	    "#.G...................#........#",
-	    "#.....................#........#",
-	    "#.....................#........#",
-	    "#.....................#G.......#",
-	    "#.........G...........#........#",
-	    "#.....................#........#",
-	    "#.....................#........#",
-	    "######.#.################.#.####",
-	    "#.....................#G.......#",
-	    "#...............G.....#........#",
-	    "#....G................#........#",
-	    "#.....................#........#",
-	    "#.....................#........#",
-	    "#.....................#........#",
-	    "#.....................#........#",
-	    "#..............G......D........#",
-	    "#.P...................#........#",
-	    "################################",
-	];
+        "################################",
+        "#..G...G..G...G.......#........#",
+        "#....G....G...G.......#........#",
+        "#..G...G...G....G.....#........#",
+        "#.######D######.......#........#",
+        "#.#...........#.......#........#",
+        "#.#...G.......#.......#........#",
+        "#.#...........#.......#........#",
+        "#.#...........#.......#........#",
+        "#.#############.......#........#",
+        "#.....................D........#",
+        "#######D#################D######",
+        "#.....................#........#",
+        "#.................G...#.G......#",
+        "#.G...................#........#",
+        "#.....................#........#",
+        "#.....................#........#",
+        "#.....................#G.......#",
+        "#.........G...........#........#",
+        "#.....................#........#",
+        "#.....................#........#",
+        "######.#.################.#.####",
+        "#.....................#G.......#",
+        "#...............G.....#........#",
+        "#....G................#........#",
+        "#.....................#........#",
+        "#.....................#........#",
+        "#.....................#........#",
+        "#.....................#........#",
+        "#..............G......D........#",
+        "#.P...................#........#",
+        "################################",
+    ];
 
     let (grid, spawn, guards) = if USE_WOLF_E1M1 {
         let plane0 = MapGrid::parse_u16_grid(E1M1_PLANE0, 64, 64);
@@ -171,31 +170,98 @@ pub fn setup(
     ));
 
     // Reusable Meshes / Constants
-    let wall_face = meshes.add(Plane3d::default().mesh().size(TILE_SIZE, WALL_H));
-    let wall_base = Quat::from_rotation_x(-FRAC_PI_2); // Make Plane3d Vertical
-    let half_tile = TILE_SIZE * 0.5;
+    let wall_face_plain = meshes.add(Plane3d::default().mesh().size(TILE_SIZE, WALL_H));
 
-    // Build a Plane3d Mesh but Flip UVs Deterministically
-    let mut make_panel = |flip_u: bool, flip_v: bool| -> Handle<Mesh> {
+    // --- Wall atlas mapping (VSWAP walls 0..105 packed 16x7, 64x64 each) ---
+    const VSWAP_WALL_CHUNKS: usize = 106;
+    const ATLAS_COLS: usize = 16;
+    const ATLAS_ROWS: usize = 7;
+
+    fn atlas_uv(index: usize) -> (f32, f32, f32, f32) {
+        // Bevy UV origin is bottom-left, but the atlas is authored top-to-bottom.
+        // Flip V, and inset by half-texel to prevent bleeding.
+        const TILE_PX: f32 = 64.0;
+        const ATLAS_W_PX: f32 = ATLAS_COLS as f32 * TILE_PX; // 1024
+        const ATLAS_H_PX: f32 = ATLAS_ROWS as f32 * TILE_PX; // 448
+        const HALF_U: f32 = 0.5 / ATLAS_W_PX;
+        const HALF_V: f32 = 0.5 / ATLAS_H_PX;
+
+        let col = index % ATLAS_COLS;
+        let row = index / ATLAS_COLS;
+
+        let u0 = col as f32 / ATLAS_COLS as f32 + HALF_U;
+        let u1 = (col + 1) as f32 / ATLAS_COLS as f32 - HALF_U;
+
+        let v_top = row as f32 / ATLAS_ROWS as f32;
+        let v_bottom = (row + 1) as f32 / ATLAS_ROWS as f32;
+
+        let v1 = 1.0 - v_top - HALF_V;        // top edge
+        let v0 = 1.0 - v_bottom + HALF_V;     // bottom edge
+
+        (u0, u1, v0, v1)
+    }
+
+    fn build_atlas_panel(
+        meshes: &mut Assets<Mesh>,
+        u0: f32,
+        u1: f32,
+        v0: f32,
+        v1: f32,
+        flip_u: bool,
+    ) -> Handle<Mesh> {
+        use bevy::mesh::VertexAttributeValues;
+
         let mut m: Mesh = Plane3d::default().mesh().size(TILE_SIZE, WALL_H).build();
 
+        let positions: Vec<[f32; 3]> = match m.attribute(Mesh::ATTRIBUTE_POSITION) {
+            Some(VertexAttributeValues::Float32x3(p)) => p.clone(),
+            _ => Vec::new(),
+        };
+
+        let (min_x, max_x, min_z, max_z) = positions.iter().fold(
+            (f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY),
+            |(min_x, max_x, min_z, max_z), p| {
+                (
+                    min_x.min(p[0]),
+                    max_x.max(p[0]),
+                    min_z.min(p[2]),
+                    max_z.max(p[2]),
+                )
+            },
+        );
+
+        let dx = (max_x - min_x).max(1e-6);
+        let dz = (max_z - min_z).max(1e-6);
+
         if let Some(VertexAttributeValues::Float32x2(uvs)) = m.attribute_mut(Mesh::ATTRIBUTE_UV_0) {
-            for uv in uvs.iter_mut() {
+            for (p, uv) in positions.iter().zip(uvs.iter_mut()) {
+                let mut sx = (p[0] - min_x) / dx; // left->right
                 if flip_u {
-                    uv[0] = 1.0 - uv[0];
+                    sx = 1.0 - sx;
                 }
-                if flip_v {
-                    uv[1] = 1.0 - uv[1];
-                }
+                let sz = (p[2] - min_z) / dz; // bottom->top
+                uv[0] = u0 + sx * (u1 - u0);
+                uv[1] = v0 + sz * (v1 - v0);
             }
         }
 
         meshes.add(m)
-    };
+    }
 
-    // Flip V to Fix Upside-Down on Both Sides
-    let door_panel_front = make_panel(false, true);
-    let door_panel_back  = make_panel(true, true);
+    // Build wall panels from the atlas
+    let mut atlas_panels: Vec<Handle<Mesh>> = Vec::with_capacity(VSWAP_WALL_CHUNKS);
+    for i in 0..VSWAP_WALL_CHUNKS {
+        let (u0, u1, v0, v1) = atlas_uv(i);
+        atlas_panels.push(build_atlas_panel(&mut meshes, u0, u1, v0, v1, false));
+    }
+
+    // Doors use door.png, so they must NOT use atlas-cell UVs.
+    // Keep the “old” orientation by flipping V here.
+    let door_panel_front = build_atlas_panel(&mut meshes, 0.0, 1.0, 1.0, 0.0, false);
+    let door_panel_back = build_atlas_panel(&mut meshes, 0.0, 1.0, 1.0, 0.0, true);
+
+    let wall_base = Quat::from_rotation_x(-FRAC_PI_2); // Make Plane3d Vertical
+    let half_tile = TILE_SIZE * 0.5;
 
     let is_door = |t: Tile| matches!(t, Tile::DoorClosed | Tile::DoorOpen);
 
@@ -210,9 +276,14 @@ pub fn setup(
                     let cz = z as f32 * TILE_SIZE;
                     let y = WALL_H * 0.5;
 
-                    let mut spawn_face = |pos: Vec3, yaw: f32, mat: Handle<StandardMaterial>| {
+                    // Wolf wall IDs in plane0 are 1..=63 (0 means empty).
+                    let wall_id = grid.plane0_code(x, z);
+                    let wall_idx = (wall_id as usize).saturating_sub(1);
+                    let wall_mesh = atlas_panels[wall_idx.min(VSWAP_WALL_CHUNKS - 1)].clone();
+
+                    let mut spawn_face = |mesh: Handle<Mesh>, pos: Vec3, yaw: f32, mat: Handle<StandardMaterial>| {
                         commands.spawn((
-                            Mesh3d(wall_face.clone()),
+                            Mesh3d(mesh),
                             MeshMaterial3d(mat),
                             Transform {
                                 translation: pos,
@@ -226,116 +297,130 @@ pub fn setup(
                     if z > 0 {
                         let n = grid.tile(x, z - 1);
                         if !matches!(n, Tile::Wall) {
-                            let mat = if is_door(n) { jamb_mat.clone() } else { wall_mat.clone() };
-                            spawn_face(Vec3::new(cx, y, cz - half_tile), PI, mat);
+                            let (mesh, mat) = if is_door(n) {
+                                (wall_face_plain.clone(), jamb_mat.clone())
+                            } else {
+                                (wall_mesh.clone(), wall_mat.clone())
+                            };
+                            spawn_face(mesh, Vec3::new(cx, y, cz - half_tile), PI, mat);
                         }
                     }
                     // South (+Z)
                     if z + 1 < grid.height {
                         let s = grid.tile(x, z + 1);
                         if !matches!(s, Tile::Wall) {
-                            let mat = if is_door(s) { jamb_mat.clone() } else { wall_mat.clone() };
-                            spawn_face(Vec3::new(cx, y, cz + half_tile), 0.0, mat);
+                            let (mesh, mat) = if is_door(s) {
+                                (wall_face_plain.clone(), jamb_mat.clone())
+                            } else {
+                                (wall_mesh.clone(), wall_mat.clone())
+                            };
+                            spawn_face(mesh, Vec3::new(cx, y, cz + half_tile), 0.0, mat);
                         }
                     }
                     // West (-X)
                     if x > 0 {
                         let w = grid.tile(x - 1, z);
                         if !matches!(w, Tile::Wall) {
-                            let mat = if is_door(w) { jamb_mat.clone() } else { wall_mat.clone() };
-                            spawn_face(Vec3::new(cx - half_tile, y, cz), -FRAC_PI_2, mat);
+                            let (mesh, mat) = if is_door(w) {
+                                (wall_face_plain.clone(), jamb_mat.clone())
+                            } else {
+                                (wall_mesh.clone(), wall_mat.clone())
+                            };
+                            spawn_face(mesh, Vec3::new(cx - half_tile, y, cz), -FRAC_PI_2, mat);
                         }
                     }
                     // East (+X)
                     if x + 1 < grid.width {
                         let e = grid.tile(x + 1, z);
                         if !matches!(e, Tile::Wall) {
-                            let mat = if is_door(e) { jamb_mat.clone() } else { wall_mat.clone() };
-                            spawn_face(Vec3::new(cx + half_tile, y, cz), FRAC_PI_2, mat);
+                            let (mesh, mat) = if is_door(e) {
+                                (wall_face_plain.clone(), jamb_mat.clone())
+                            } else {
+                                (wall_mesh.clone(), wall_mat.clone())
+                            };
+                            spawn_face(mesh, Vec3::new(cx + half_tile, y, cz), FRAC_PI_2, mat);
                         }
                     }
                 }
                 Tile::DoorClosed | Tile::DoorOpen => {
-				    let is_open = matches!(tile, Tile::DoorOpen);
+                    let is_open = matches!(tile, Tile::DoorOpen);
 
-				    // Determine Orientation From Adjacent Walls
-				    let left_wall  = x > 0 && matches!(grid.tile(x - 1, z), Tile::Wall);
-				    let right_wall = x + 1 < grid.width && matches!(grid.tile(x + 1, z), Tile::Wall);
-				    let up_wall    = z > 0 && matches!(grid.tile(x, z - 1), Tile::Wall);
-				    let down_wall  = z + 1 < grid.height && matches!(grid.tile(x, z + 1), Tile::Wall);
+                    // Determine Orientation From Adjacent Walls
+                    let left_wall = x > 0 && matches!(grid.tile(x - 1, z), Tile::Wall);
+                    let right_wall = x + 1 < grid.width && matches!(grid.tile(x + 1, z), Tile::Wall);
+                    let up_wall = z > 0 && matches!(grid.tile(x, z - 1), Tile::Wall);
+                    let down_wall = z + 1 < grid.height && matches!(grid.tile(x, z + 1), Tile::Wall);
 
-				    let walls_x = (left_wall as u8) + (right_wall as u8);
-				    let walls_z = (up_wall as u8) + (down_wall as u8);
+                    let walls_x = (left_wall as u8) + (right_wall as u8);
+                    let walls_z = (up_wall as u8) + (down_wall as u8);
 
-				    // If Walls are "More" Above / Below, Corridor 
-                    // Runs E/W => Door Plane Faces +/-X => Yaw 90 Degrees
-				    // Otherwise Corridor Runs N/S => Yaw 0 Degrees
-				    let yaw = if walls_z > walls_x { FRAC_PI_2 } else { 0.0 };
+                    // If walls are more above/below, corridor runs E/W => door plane faces +/-X => yaw 90°
+                    // Otherwise corridor runs N/S => yaw 0°
+                    let yaw = if walls_z > walls_x { FRAC_PI_2 } else { 0.0 };
 
-				    if walls_x == 0 && walls_z == 0 {
-				        bevy::log::warn!("Door at ({},{}) has no adjacent walls?", x, z);
-				    }
+                    if walls_x == 0 && walls_z == 0 {
+                        bevy::log::warn!("Door at ({},{}) has no adjacent walls?", x, z);
+                    }
 
-				    // Plane3d Normal is +Y, Rotate Vertical so Normal Becomes Horizontal, Then Yaw
-				    let base = Quat::from_rotation_x(-FRAC_PI_2);
-				    let rot = Quat::from_rotation_y(yaw) * base;
+                    // Plane3d normal is +Y; rotate vertical then yaw.
+                    let base = Quat::from_rotation_x(-FRAC_PI_2);
+                    let rot = Quat::from_rotation_y(yaw) * base;
 
-				    // Plane3d Local Normal is +Y
-				    let normal = rot * Vec3::Y;
+                    let normal = rot * Vec3::Y;
 
-				    // Door Thickness Offset for Two Panels
-				    let half_thickness = (DOOR_THICKNESS * TILE_SIZE) * 0.5;
+                    // Door Thickness Offset for Two Panels
+                    let half_thickness = (DOOR_THICKNESS * TILE_SIZE) * 0.5;
 
-				    let center = Vec3::new(
-				        x as f32 * TILE_SIZE,
-				        WALL_H * 0.5,
-				        z as f32 * TILE_SIZE,
-				    );
+                    let center = Vec3::new(
+                        x as f32 * TILE_SIZE,
+                        WALL_H * 0.5,
+                        z as f32 * TILE_SIZE,
+                    );
 
-				    // Door Slides Along Local +X After Yaw
-				    let slide_axis = Quat::from_rotation_y(yaw) * Vec3::X;
+                    // Door Slides Along Local +X After Yaw
+                    let slide_axis = Quat::from_rotation_y(yaw) * Vec3::X;
 
-				    let progress = if is_open { 1.0 } else { 0.0 };
-				    let start_pos = center + slide_axis * (progress * TILE_SIZE);
+                    let progress = if is_open { 1.0 } else { 0.0 };
+                    let start_pos = center + slide_axis * (progress * TILE_SIZE);
 
-				    let vis = if is_open { Visibility::Hidden } else { Visibility::Visible };
+                    let vis = if is_open { Visibility::Hidden } else { Visibility::Visible };
 
-				    commands
-				        .spawn((
-				            DoorTile(IVec2::new(x as i32, z as i32)),
-				            DoorState { open_timer: 0.0, want_open: is_open },
-				            DoorAnim {
-				                progress,
-				                closed_pos: center,
-				                slide_axis,
-				            },
-				            Transform::from_translation(start_pos),
-				            vis,
-				        ))
-				        .with_children(|parent| {
-				            // Front
-				            parent.spawn((
-				                Mesh3d(door_panel_front.clone()),
-				                MeshMaterial3d(door_mat.clone()),
-				                Transform {
-				                    translation: normal * half_thickness,
-				                    rotation: rot,
-				                    ..default()
-				                },
-				            ));
+                    commands
+                        .spawn((
+                            DoorTile(IVec2::new(x as i32, z as i32)),
+                            DoorState { open_timer: 0.0, want_open: is_open },
+                            DoorAnim {
+                                progress,
+                                closed_pos: center,
+                                slide_axis,
+                            },
+                            Transform::from_translation(start_pos),
+                            vis,
+                        ))
+                        .with_children(|parent| {
+                            // Front
+                            parent.spawn((
+                                Mesh3d(door_panel_front.clone()),
+                                MeshMaterial3d(door_mat.clone()),
+                                Transform {
+                                    translation: normal * half_thickness,
+                                    rotation: rot,
+                                    ..default()
+                                },
+                            ));
 
-				            // Back (Mirrored via UV Flip Mesh so Handle Stays on Right)
-				            parent.spawn((
-				                Mesh3d(door_panel_back.clone()),
-				                MeshMaterial3d(door_mat.clone()),
-				                Transform {
-				                    translation: -normal * half_thickness,
-				                    rotation: Quat::from_rotation_y(PI) * rot,
-				                    ..default()
-				                },
-				            ));
-				        });
-				}
+                            // Back (mirrored)
+                            parent.spawn((
+                                Mesh3d(door_panel_back.clone()),
+                                MeshMaterial3d(door_mat.clone()),
+                                Transform {
+                                    translation: -normal * half_thickness,
+                                    rotation: Quat::from_rotation_y(PI) * rot,
+                                    ..default()
+                                },
+                            ));
+                        });
+                }
                 _ => {}
             }
         }
@@ -362,10 +447,10 @@ pub fn setup(
         Camera3d::default(),
         IsDefaultUiCamera,
         Player,
-        // NEW: gives the lib a place to apply enemy damage without touching HudState
         crate::player::PlayerVitals::default(),
         LookAngles::new(spawn_yaw, 0.0),
         SpatialListener::new(0.2),
         Transform::from_translation(player_pos).with_rotation(Quat::from_rotation_y(spawn_yaw)),
     ));
 }
+

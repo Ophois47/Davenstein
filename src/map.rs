@@ -49,6 +49,11 @@ impl MapGrid {
         self.tiles[self.idx(x, z)]
     }
 
+    /// Raw Wolf plane0 code at (x,z). For walls, this is the wall texture ID.
+    pub fn plane0_code(&self, x: usize, z: usize) -> u16 {
+        self.plane0[self.idx(x, z)]
+    }
+
     pub fn set_tile(&mut self, x: usize, z: usize, t: Tile) {
     	let i  = self.idx(x, z);
     	self.tiles[i] = t;
@@ -147,7 +152,7 @@ impl MapGrid {
     }
 
     /// Convert Wolf3D plane0/plane1 data into our current collision grid + basic spawns.
-    /// - plane0: walls/doors/floors (0-63=wall, 90-95/100-101=door, otherwise walkable)
+    /// - plane0: walls/doors/floors (1-63=wall, 90-95/100-101=door, otherwise walkable)
     /// - plane1: things (19-22=player start, 108-115=guards any difficulty)
     pub fn from_wolf_planes(
         width: usize,
@@ -168,35 +173,35 @@ impl MapGrid {
                 let v0 = plane0[idx(x, z)];
                 let v1 = plane1[idx(x, z)];
 
-                // Preserve the original wall/door IDs for future texturing work.
+                // Preserve plane0 codes for texture lookups.
                 raw_plane0.push(v0);
 
-                // Plane0: walls/doors
-                // - 0..=63: wall (texture index)
-                // - 90..=95: doors
-                // - 100..=101: elevator doors
-                // Everything else is treated as walkable for now.
-                if (0..=63).contains(&v0) {
+                // Plane0:
+                //   1..=63    => walls
+                //   90..=101  => doors (includes elevator doors for now)
+                //   106..=143 => areas (walkable)
+                if (1..=63).contains(&v0) {
                     tiles.push(Tile::Wall);
-                } else if (90..=95).contains(&v0) || (100..=101).contains(&v0) {
+                } else if (90..=101).contains(&v0) {
                     tiles.push(Tile::DoorClosed);
                 } else {
                     tiles.push(Tile::Empty);
                 }
 
-                // Player start: 19..=22 (N/E/S/W)
-                if (19..=22).contains(&v1) {
+                // Plane1 player start: 19..=22 (N/E/S/W)
+                if (19..=22).contains(&v1) && player_spawn.is_none() {
+                    // Bevy yaw=0 faces -Z; +PI/2 faces +X.
                     let yaw = match v1 {
-                        19 => 0.0,                    // North
-                        20 => std::f32::consts::FRAC_PI_2, // East
-                        21 => std::f32::consts::PI,    // South
-                        22 => -std::f32::consts::FRAC_PI_2, // West
+                        19 => 0.0,
+                        20 => std::f32::consts::FRAC_PI_2,
+                        21 => std::f32::consts::PI,
+                        22 => -std::f32::consts::FRAC_PI_2,
                         _ => 0.0,
                     };
                     player_spawn = Some((IVec2::new(x as i32, z as i32), yaw));
                 }
 
-                // Guards: any-difficulty standing/patrol (108-115)
+                // Guards (keep whatever your project’s final actor-id range is)
                 if (108..=115).contains(&v1) {
                     guards.push(IVec2::new(x as i32, z as i32));
                 }
@@ -214,6 +219,4 @@ impl MapGrid {
             guards,
         )
     }
-
 }
-

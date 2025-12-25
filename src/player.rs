@@ -25,7 +25,6 @@ pub struct LookAngles {
 	pitch: f32,
 }
 
-
 impl LookAngles {
     pub fn new(yaw: f32, pitch: f32) -> Self {
         Self { yaw, pitch }
@@ -129,7 +128,9 @@ pub fn player_move(
 
     let mut wish = Vec3::ZERO;
     if keys.pressed(KeyCode::KeyW) { wish += forward; }
+    if keys.pressed(KeyCode::ArrowUp) { wish += forward; }
     if keys.pressed(KeyCode::KeyS) { wish -= forward; }
+    if keys.pressed(KeyCode::ArrowDown) { wish -= forward; }
     if keys.pressed(KeyCode::KeyD) { wish += right; }
     if keys.pressed(KeyCode::KeyA) { wish -= right; }
 
