@@ -339,13 +339,31 @@ pub fn door_auto_close(
     const RETRY_SECS_IF_BLOCKED: f32 = 0.2;
     const FULLY_OPEN_EPS: f32 = 0.999;
 
+    // Must match player_move
+    const PLAYER_RADIUS: f32 = 0.25;
+    const BLOCK_PAD: f32 = 0.02;
+
     let Ok(player_tf) = q_player.single() else { return; };
 
     fn world_to_tile(p: Vec2) -> IVec2 {
         IVec2::new((p.x + 0.5).floor() as i32, (p.y + 0.5).floor() as i32)
     }
 
-    let player_tile = world_to_tile(Vec2::new(player_tf.translation.x, player_tf.translation.z));
+    fn circle_overlaps_tile(circle: Vec2, r: f32, tile: IVec2) -> bool {
+        let cx = tile.x as f32;
+        let cz = tile.y as f32;
+
+        // Tile square bounds (tile centers at integer coords; edges at +/- 0.5)
+        let min = Vec2::new(cx - 0.5, cz - 0.5);
+        let max = Vec2::new(cx + 0.5, cz + 0.5);
+
+        // Closest point on AABB to circle center
+        let closest = Vec2::new(circle.x.clamp(min.x, max.x), circle.y.clamp(min.y, max.y));
+        (circle - closest).length_squared() <= r * r
+    }
+
+    let player_xz = Vec2::new(player_tf.translation.x, player_tf.translation.z);
+    let _player_tile = world_to_tile(player_xz);
 
     for (door, mut state, anim, mut vis) in q_doors.iter_mut() {
         let dt = door.0;
@@ -354,7 +372,7 @@ pub fn door_auto_close(
         }
         let (tx, tz) = (dt.x as usize, dt.y as usize);
 
-        // Only Once Door is Actually Passable
+        // Only once door is actually passable
         if grid.tile(tx, tz) != Tile::DoorOpen {
             continue;
         }
@@ -368,7 +386,8 @@ pub fn door_auto_close(
             continue;
         }
 
-        if dt == player_tile {
+        // Block closing if player is still overlapping the doorway in world space
+        if circle_overlaps_tile(player_xz, PLAYER_RADIUS + BLOCK_PAD, dt) {
             state.open_timer = RETRY_SECS_IF_BLOCKED;
             continue;
         }
