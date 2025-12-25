@@ -411,6 +411,21 @@ pub fn enemy_ai_tick(
         >,
     )>,
 ) {
+    // Tunables (single place; later we can move these into an Options/Difficulty resource)
+    const GUARD_SHOOT_MAX_DIST_TILES: i32 = 7;
+
+    // "Stop to shoot" window (Wolf swaps to attack state and doesn't move during it)
+    const GUARD_SHOOT_PAUSE_SECS: f32 = 0.25;
+
+    // Extra delay after the pause before another shot can start
+    const GUARD_SHOOT_COOLDOWN_SECS: f32 = 0.55;
+
+    const GUARD_SHOOT_TOTAL_SECS: f32 = GUARD_SHOOT_PAUSE_SECS + GUARD_SHOOT_COOLDOWN_SECS;
+
+    // Make guards a bit more accurate
+    const GUARD_HIT_CHANCE_MIN: f32 = 0.25;
+    const GUARD_HIT_CHANCE_MAX: f32 = 0.85;
+
     let Some(player_gt) = q_player.iter().next() else { return; };
     let player_pos = player_gt.translation();
     let player_tile = world_to_tile_xz(Vec2::new(player_pos.x, player_pos.z));
@@ -463,30 +478,48 @@ pub fn enemy_ai_tick(
                 continue;
             }
 
-            let current_dist =
-                (player_tile.x - my_tile.x).abs() + (player_tile.y - my_tile.y).abs();
+            // Shared visibility checks for this tic
+            let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
+            let can_see = same_area && has_line_of_sight(&grid, my_tile, player_tile);
+
+            // Current shooting cooldown remaining (0 => ready)
+            let cd_now = shoot_cd.get(&e).copied().unwrap_or(0.0);
+
+            // Wolf-like "stop to shoot": during the initial pause window after firing,
+            // do not pick movement. (We use cd as a proxy so it works even if multiple AI tics run in one frame.)
+            if cd_now > GUARD_SHOOT_COOLDOWN_SECS {
+                // Keep facing the player so the shooting view looks consistent.
+                *dir8 = dir8_towards(my_tile, player_tile);
+                continue;
+            }
+
+            // If already moving, don't shoot mid-step and don't pick a new chase step this tic.
+            if moving.is_some() {
+                continue;
+            }
 
             // =========================
             // SHOOT LOGIC
             // =========================
-            let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
-            let can_see = same_area && has_line_of_sight(&grid, my_tile, player_tile);
+            // Wolf uses dist = max(dx,dy) (Chebyshev) for several of its combat decisions.
+            let dx = (player_tile.x - my_tile.x).abs();
+            let dy = (player_tile.y - my_tile.y).abs();
+            let shoot_dist = dx.max(dy);
 
-            // NOTE: no CHASE_MAX_SHOOT_DIST constant in your code; keep it simple for now.
-            // Adjust this number later once you’re happy with behavior.
-            let in_range = current_dist <= 6;
+            let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
 
             if can_see && in_range {
                 // Face the player for correct view selection / shooting visuals.
                 *dir8 = dir8_towards(my_tile, player_tile);
 
-                let cd = shoot_cd.get(&e).copied().unwrap_or(0.0);
-                if cd <= 0.0 {
-                    shoot_cd.insert(e, 0.8);
+                if cd_now <= 0.0 {
+                    shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
-                    let dist = current_dist as f32;
-                    let max_dist = 6.0;
-                    let hit_chance = (1.0 - (dist / max_dist)).clamp(0.15, 0.75);
+                    let dist = shoot_dist as f32;
+                    let max_dist = GUARD_SHOOT_MAX_DIST_TILES as f32;
+
+                    // Higher chance than before => fewer misses.
+                    let hit_chance = (1.0 - (dist / max_dist)).clamp(GUARD_HIT_CHANCE_MIN, GUARD_HIT_CHANCE_MAX);
 
                     let damage = if rand::random::<f32>() < hit_chance { 10 } else { 0 };
 
@@ -497,7 +530,7 @@ pub fn enemy_ai_tick(
 
                     // Drive shooting animation via GuardShoot.timer (the real struct field)
                     commands.entity(e).insert(crate::enemies::GuardShoot {
-                        timer: Timer::from_seconds(0.25, TimerMode::Once),
+                        timer: Timer::from_seconds(GUARD_SHOOT_PAUSE_SECS, TimerMode::Once),
                     });
 
                     sfx.write(PlaySfx {
@@ -507,19 +540,20 @@ pub fn enemy_ai_tick(
 
                     info!(
                         "Enemy {:?} fired: kind={:?} dist={} chance={:.2} dmg={}",
-                        e, kind, current_dist, hit_chance, damage
+                        e, kind, shoot_dist, hit_chance, damage
                     );
-                }
-            }
 
-            // If already moving, don’t pick a new chase step this tic.
-            if moving.is_some() {
-                continue;
+                    // Important: don’t schedule a move on the same tic we start a shot.
+                    continue;
+                }
             }
 
             // =========================
             // MOVE LOGIC
             // =========================
+            let current_dist =
+                (player_tile.x - my_tile.x).abs() + (player_tile.y - my_tile.y).abs();
+
             let dirs = [
                 IVec2::new(1, 0),
                 IVec2::new(-1, 0),

@@ -49,22 +49,6 @@ fn extract_embedded_assets_to_temp() -> String {
     out_dir.to_string_lossy().to_string()
 }
 
-fn debug_self_damage(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut q_player: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
-) {
-    if !keys.just_pressed(KeyCode::KeyH) {
-        return;
-    }
-
-    let Some(mut vitals) = q_player.iter_mut().next() else {
-        return;
-    };
-
-    vitals.hp = (vitals.hp - 10).max(0);
-    info!("DEBUG: self-damage (-10) -> vitals.hp={}", vitals.hp);
-}
-
 fn main() {
     let assets_path = extract_embedded_assets_to_temp();
     info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
@@ -92,18 +76,18 @@ fn main() {
                 start_music,
                 setup,
                 pickups::spawn_test_weapon_pickup,
-            ).chain(),
+            )
+                .chain(),
         )
         .add_systems(
             Update,
             (
                 grab_mouse,
                 mouse_look,
-                debug_self_damage,
-                ui::sync::sync_player_hp_with_hud,
                 pickups::billboard_pickups,
                 use_doors,
-            ).chain(),
+            )
+                .chain(),
         )
         .add_systems(PostUpdate, play_sfx_events)
         .add_systems(
@@ -114,8 +98,8 @@ fn main() {
                 player_move,
                 pickups::drop_guard_ammo,
                 pickups::collect_pickups,
-                ui::sync::apply_enemy_fire_to_player_vitals,
-            ).chain(),
+            )
+                .chain(),
         )
         .run();
 }

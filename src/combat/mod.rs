@@ -63,12 +63,12 @@ fn process_fire_shots(
     mut shots: MessageReader<FireShot>,
     mut _sfx: MessageWriter<PlaySfx>,
     mut commands: Commands,
-    q_alive: Query<(Entity, &OccupiesTile), (With<Guard>, Without<Dead>)>,
+    q_alive: Query<(Entity, &OccupiesTile, &GlobalTransform), (With<Guard>, Without<Dead>)>,
     mut q_hp: Query<&mut Health, (With<Guard>, Without<Dead>)>,
     mut rng: Local<u32>,
 ) {
-    const ENEMY_RADIUS: f32 = 0.25;   // Tile Units
-    const ENEMY_HALF_H: f32 = 0.50;   // Guard is ~1.0 Tall
+    const ENEMY_RADIUS: f32 = 0.35;   // Tile Units (slightly forgiving, Wolf-ish auto-aim feel)
+    const ENEMY_HALF_H: f32 = 0.55;   // Slightly forgiving vertical hitbox
     const ENEMY_CENTER_Y: f32 = 0.50; // Center at Y=0.5
 
     fn xorshift32(s: &mut u32) -> u32 {
@@ -99,8 +99,8 @@ fn process_fire_shots(
         let c = Vec2::new(center.x, center.z);
 
         let a = d.dot(d);
-        if a < 1e-8 {
-            return None; // Essentially Vertical in XZ. Ignore
+        if a < 0.0000001 {
+            return None;
         }
 
         let oc = o - c;
@@ -115,7 +115,13 @@ fn process_fire_shots(
         let t0 = (-b - sqrt_disc) / (2.0 * a);
         let t1 = (-b + sqrt_disc) / (2.0 * a);
 
-        let t = if t0 >= 0.0 { t0 } else if t1 >= 0.0 { t1 } else { return None; };
+        let t = if t0 >= 0.0 {
+            t0
+        } else if t1 >= 0.0 {
+            t1
+        } else {
+            return None;
+        };
 
         let y_at = origin.y + dir.y * t;
         let y_min = center.y - half_h;
@@ -148,9 +154,9 @@ fn process_fire_shots(
         let ptx = (shot.origin.x + 0.5).floor() as i32;
         let ptz = (shot.origin.z + 0.5).floor() as i32;
 
-        for (e, occ) in q_alive.iter() {
-            let tile = occ.0;
-            let center = Vec3::new(tile.x as f32, ENEMY_CENTER_Y, tile.y as f32);
+        for (e, _occ, gt) in q_alive.iter() {
+            let p = gt.translation();
+            let center = Vec3::new(p.x, ENEMY_CENTER_Y, p.z);
 
             let Some(t) = ray_hit_vertical_cylinder(
                 shot.origin,
@@ -163,7 +169,10 @@ fn process_fire_shots(
             };
 
             if t <= shot.max_dist && t < world_dist {
-                let dist_tiles = (ptx - tile.x).abs().max((ptz - tile.y).abs());
+                let etx = (center.x + 0.5).floor() as i32;
+                let etz = (center.z + 0.5).floor() as i32;
+                let dist_tiles = (ptx - etx).abs().max((ptz - etz).abs());
+
                 match best {
                     None => best = Some((e, t, dist_tiles)),
                     Some((_, best_t, _)) if t < best_t => best = Some((e, t, dist_tiles)),
@@ -191,33 +200,7 @@ fn process_fire_shots(
                 }
             }
 
-            // TODO: Allow for wall-hit SFX and "enemy hit"
-            // sfx.write(PlaySfx {
-            //     kind: SfxKind::ShootWall,
-            //     pos: Vec3::new(shot.origin.x, 0.6, shot.origin.z),
-            // });
-
             continue;
         }
-        
-        // TODO: Have switches for more modern things like sounds and
-        // graphics for hitting walls and enemies
-        // Otherwise, world feedback as before
-        // let Some(hit) = world_hit else { continue; };
-        
-        // if matches!(hit.tile, davelib::map::Tile::Wall | davelib::map::Tile::DoorClosed) {
-        //     sfx.write(PlaySfx {
-        //         kind: SfxKind::ShootWall,
-        //         pos: Vec3::new(hit.pos.x, 0.6, hit.pos.z),
-        //     });
-        // }
-
-        // if hit.tile_coord.x < 0 {
-        //     sfx.write(PlaySfx {
-        //         kind: SfxKind::ShootWall,
-        //         pos: Vec3::new(hit.pos.x, 0.6, hit.pos.z),
-        //     });
-        //     continue;
-        // }
     }
 }
