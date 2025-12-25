@@ -75,7 +75,7 @@ fn main() {
                 setup_audio,
                 start_music,
                 setup,
-                pickups::spawn_test_weapon_pickup,
+                pickups::spawn_wolf_e1m1_pickups,
             )
                 .chain(),
         )

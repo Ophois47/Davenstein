@@ -180,23 +180,141 @@ fn pickup_base_rot() -> Quat {
     Quat::from_rotation_x(FRAC_PI_2)
 }
 
-fn find_empty_tile_not_used(grid: &MapGrid, used: &[IVec2], avoid: IVec2) -> Option<IVec2> {
-    for z in 0..grid.height {
-        for x in 0..grid.width {
+/// Spawn Wolf3D E1M1 pickups (health/ammo/treasure + weapons/1UP) from the original plane1 data.
+///
+/// Plane1 value reference (WL6):
+/// - 29: Dog food
+/// - 47: Food (dinner)
+/// - 48: Medkit (first aid)
+/// - 49: Ammo clip (+8)
+/// - 50: Machine gun
+/// - 51: Chaingun
+/// - 52-55: Treasure (cross, chalice, chest, crown)
+/// - 56: 1UP
+pub fn spawn_wolf_e1m1_pickups(
+    mut commands: Commands,
+    grid: Res<MapGrid>,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    // Embedded WL6 plane dump produced from MAPHEAD.WL6 + GAMEMAPS.WL6.
+    // 64x64 u16 values, left-to-right, top-to-bottom.
+    const E1M1_PLANE1: &str = include_str!("../assets/maps/e1m1_plane1_u16.txt");
+
+    if grid.width != 64 || grid.height != 64 {
+        warn!(
+            "spawn_wolf_e1m1_pickups: expected 64x64 grid for E1M1, got {}x{}",
+            grid.width, grid.height
+        );
+        return;
+    }
+
+    let plane1 = MapGrid::parse_u16_grid(E1M1_PLANE1, 64, 64);
+
+    // Depth tuning: match the existing drop/treasure approach.
+    const DEPTH_BIAS: f32 = -250.0;
+
+    let to_pickup_kind = |v: u16| -> Option<PickupKind> {
+        match v {
+            29 => Some(PickupKind::Health(HealthKind::DogFood)),
+            47 => Some(PickupKind::Health(HealthKind::Dinner)),
+            48 => Some(PickupKind::Health(HealthKind::FirstAid)),
+            49 => Some(PickupKind::Ammo {
+                rounds: MAP_AMMO_ROUNDS,
+            }),
+            50 => Some(PickupKind::Weapon(WeaponSlot::MachineGun)),
+            51 => Some(PickupKind::Weapon(WeaponSlot::Chaingun)),
+            52 => Some(PickupKind::Treasure(TreasureKind::Cross)),
+            53 => Some(PickupKind::Treasure(TreasureKind::Chalice)),
+            54 => Some(PickupKind::Treasure(TreasureKind::Chest)),
+            55 => Some(PickupKind::Treasure(TreasureKind::Crown)),
+            56 => Some(PickupKind::ExtraLife),
+            _ => None,
+        }
+    };
+
+    let spawn_pickup = |
+        commands: &mut Commands,
+        meshes: &mut Assets<Mesh>,
+        materials: &mut Assets<StandardMaterial>,
+        asset_server: &AssetServer,
+        tile: IVec2,
+        kind: PickupKind,
+    | {
+        let (w, h, tex_path, alpha_mode) = match kind {
+            PickupKind::Weapon(slot) => {
+                let (w, h) = weapon_pickup_size(slot);
+                (w, h, weapon_pickup_texture(slot), AlphaMode::Mask(0.5))
+            }
+            PickupKind::Ammo { .. } => {
+                let (w, h) = ammo_size();
+                (w, h, ammo_texture(), AlphaMode::Mask(0.5))
+            }
+            PickupKind::Treasure(t) => {
+                let (w, h) = treasure_size(t);
+                (w, h, treasure_texture(t), AlphaMode::Mask(0.5))
+            }
+            PickupKind::Health(hk) => {
+                let (w, h) = health_pickup_size(hk);
+                (w, h, health_texture(hk), AlphaMode::Mask(0.5))
+            }
+            PickupKind::ExtraLife => {
+                let (w, h) = oneup_size();
+                (w, h, oneup_texture(), AlphaMode::Mask(0.5))
+            }
+        };
+
+        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
+        let tex: Handle<Image> = asset_server.load(tex_path);
+
+        let mat = materials.add(StandardMaterial {
+            base_color_texture: Some(tex),
+            alpha_mode,
+            depth_bias: DEPTH_BIAS,
+            unlit: true,
+            cull_mode: None,
+            ..default()
+        });
+
+        let y = h * 0.5;
+
+        commands.spawn((
+            Name::new("Pickup"),
+            Pickup { tile, kind },
+            Mesh3d(quad),
+            MeshMaterial3d(mat),
+            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
+                .with_rotation(pickup_base_rot()),
+            GlobalTransform::default(),
+        ));
+    };
+
+    let idx = |x: usize, z: usize| -> usize { z * 64 + x };
+
+    for z in 0..64 {
+        for x in 0..64 {
+            let v = plane1[idx(x, z)];
+            let Some(kind) = to_pickup_kind(v) else {
+                continue;
+            };
+
+            // Only place pickups on walkable tiles.
             if !matches!(grid.tile(x, z), Tile::Empty) {
                 continue;
             }
-            let t = IVec2::new(x as i32, z as i32);
-            if t == avoid {
-                continue;
-            }
-            if used.contains(&t) {
-                continue;
-            }
-            return Some(t);
+
+            let tile = IVec2::new(x as i32, z as i32);
+            spawn_pickup(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                &asset_server,
+                tile,
+                kind,
+            );
         }
     }
-    None
 }
 
 pub fn drop_guard_ammo(
@@ -257,373 +375,6 @@ pub fn drop_guard_ammo(
             GlobalTransform::default(),
         ));
     }
-}
-
-// To Test While Developing
-pub fn spawn_test_weapon_pickup(
-    mut commands: Commands,
-    grid: Res<MapGrid>,
-    asset_server: Res<AssetServer>,
-    q_player: Query<&Transform, With<Player>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let mut it = q_player.iter();
-    let Some(player_tf) = it.next() else {
-        warn!("spawn_test_weapon_pickup: no Player entity found");
-        return;
-    };
-    if it.next().is_some() {
-        warn!("spawn_test_weapon_pickup: multiple Player entities found; using the first");
-    }
-
-    let player_tile = world_to_tile_xz(Vec2::new(
-        player_tf.translation.x,
-        player_tf.translation.z,
-    ));
-
-    // Track Used Tiles, Fallback Placement Doesn't Stack Items
-    let mut used_tiles: Vec<IVec2> = vec![player_tile];
-
-    // --------------------
-    // Weapons (test)
-    // --------------------
-    let desired_weapons: &[(WeaponSlot, IVec2)] = &[
-        (WeaponSlot::Chaingun, IVec2::new(27, 14)),
-        (WeaponSlot::MachineGun, IVec2::new(29, 14)),
-    ];
-
-    for &(weapon, mut tile) in desired_weapons {
-        let in_bounds = tile.x >= 0
-            && tile.y >= 0
-            && (tile.x as usize) < grid.width
-            && (tile.y as usize) < grid.height;
-
-        let ok_tile = in_bounds
-            && tile != player_tile
-            && matches!(grid.tile(tile.x as usize, tile.y as usize), Tile::Empty)
-            && !used_tiles.contains(&tile);
-
-        if !ok_tile {
-            let Some(fallback) = find_empty_tile_not_used(&grid, &used_tiles, player_tile) else {
-                warn!("spawn_test_weapon_pickup: no empty tiles found for {:?}", weapon);
-                continue;
-            };
-            warn!(
-                "spawn_test_weapon_pickup: {:?} wanted {:?}, using fallback {:?}",
-                weapon, tile, fallback
-            );
-            tile = fallback;
-        }
-
-        used_tiles.push(tile);
-
-        let (w, h) = weapon_pickup_size(weapon);
-        let tex_path = weapon_pickup_texture(weapon);
-
-        info!(
-            "Spawning TEST weapon pickup at tile {:?} ({:?}) using {}",
-            tile, weapon, tex_path
-        );
-
-        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
-        let tex: Handle<Image> = asset_server.load(tex_path);
-
-        let mat = materials.add(StandardMaterial {
-            base_color_texture: Some(tex),
-            alpha_mode: AlphaMode::Blend,
-            unlit: true,
-            cull_mode: None,
-            ..default()
-        });
-
-        let y = h * 0.5;
-
-        commands.spawn((
-            Name::new(format!("Pickup_Test_{:?}", weapon)),
-            Pickup {
-                tile,
-                kind: PickupKind::Weapon(weapon),
-            },
-            Mesh3d(quad),
-            MeshMaterial3d(mat),
-            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
-                .with_rotation(pickup_base_rot()),
-            GlobalTransform::default(),
-        ));
-    }
-
-    // --------------------
-    // Ammo (test)
-    // --------------------
-    let desired_ammo: &[(IVec2, i32)] = &[
-        (IVec2::new(26, 16), 8),
-        (IVec2::new(26, 17), 8),
-        (IVec2::new(26, 18), 8),
-    ];
-
-    for &(mut tile, rounds) in desired_ammo {
-        let in_bounds = tile.x >= 0
-            && tile.y >= 0
-            && (tile.x as usize) < grid.width
-            && (tile.y as usize) < grid.height;
-
-        let ok_tile = in_bounds
-            && tile != player_tile
-            && matches!(grid.tile(tile.x as usize, tile.y as usize), Tile::Empty)
-            && !used_tiles.contains(&tile);
-
-        if !ok_tile {
-            let Some(fallback) = find_empty_tile_not_used(&grid, &used_tiles, player_tile) else {
-                warn!("spawn_test_weapon_pickup: no empty tiles found for Ammo");
-                continue;
-            };
-            warn!(
-                "spawn_test_weapon_pickup: Ammo wanted {:?}, using fallback {:?}",
-                tile, fallback
-            );
-            tile = fallback;
-        }
-
-        used_tiles.push(tile);
-
-        let (w, h) = ammo_size();
-        let tex_path = ammo_texture();
-
-        info!("Spawning TEST ammo at tile {:?} (+{}) using {}", tile, rounds, tex_path);
-
-        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
-        let tex: Handle<Image> = asset_server.load(tex_path);
-
-        let mat = materials.add(StandardMaterial {
-            base_color_texture: Some(tex),
-            alpha_mode: AlphaMode::Blend,
-            unlit: true,
-            cull_mode: None,
-            ..default()
-        });
-
-        let y = h * 0.5;
-
-        commands.spawn((
-            Name::new("Pickup_Test_Ammo"),
-            Pickup {
-                tile,
-                kind: PickupKind::Ammo { rounds },
-            },
-            Mesh3d(quad),
-            MeshMaterial3d(mat),
-            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
-                .with_rotation(pickup_base_rot()),
-            GlobalTransform::default(),
-        ));
-    }
-
-    // --------------------
-    // Treasure (test)
-    // --------------------
-    // Treasure-only rendering tweak:
-    // - Mask writes depth cleanly (no blended-depth weirdness at the floor line)
-    // - depth_bias makes it win against the floor at the very bottom pixels
-    const TREASURE_DROP_DEPTH_BIAS: f32 = -250.0;
-
-    let desired_treasure: &[(TreasureKind, IVec2)] = &[
-        (TreasureKind::Cross, IVec2::new(27, 18)),
-        (TreasureKind::Chalice, IVec2::new(29, 18)),
-        (TreasureKind::Chest, IVec2::new(27, 20)),
-        (TreasureKind::Crown, IVec2::new(29, 20)),
-    ];
-
-    for &(t, mut tile) in desired_treasure {
-        let in_bounds = tile.x >= 0
-            && tile.y >= 0
-            && (tile.x as usize) < grid.width
-            && (tile.y as usize) < grid.height;
-
-        let ok_tile = in_bounds
-            && tile != player_tile
-            && matches!(grid.tile(tile.x as usize, tile.y as usize), Tile::Empty)
-            && !used_tiles.contains(&tile);
-
-        if !ok_tile {
-            let Some(fallback) = find_empty_tile_not_used(&grid, &used_tiles, player_tile) else {
-                warn!("spawn_test_weapon_pickup: no empty tiles found for Treasure {:?}", t);
-                continue;
-            };
-            warn!(
-                "spawn_test_weapon_pickup: Treasure {:?} wanted {:?}, using fallback {:?}",
-                t, tile, fallback
-            );
-            tile = fallback;
-        }
-
-        used_tiles.push(tile);
-
-        let (w, h) = treasure_size(t);
-        let tex_path = treasure_texture(t);
-
-        info!(
-            "Spawning TEST treasure {:?} at tile {:?} using {}",
-            t, tile, tex_path
-        );
-
-        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
-        let tex: Handle<Image> = asset_server.load(tex_path);
-
-        let mat = materials.add(StandardMaterial {
-            base_color_texture: Some(tex),
-
-            // IMPORTANT: treasure should not get “cut into” the floor.
-            // Use the same approach as ammo drops: mask + depth bias.
-            alpha_mode: AlphaMode::Mask(0.5),
-            depth_bias: TREASURE_DROP_DEPTH_BIAS,
-
-            unlit: true,
-            cull_mode: None,
-            ..default()
-        });
-
-        let y = h * 0.5;
-
-        commands.spawn((
-            Name::new(format!("Pickup_Test_Treasure_{:?}", t)),
-            Pickup {
-                tile,
-                kind: PickupKind::Treasure(t),
-            },
-            Mesh3d(quad),
-            MeshMaterial3d(mat),
-            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
-                .with_rotation(pickup_base_rot()),
-            GlobalTransform::default(),
-        ));
-    }
-
-    // --------------------
-    // Health + 1UP (test)
-    // --------------------
-    const HEALTH_DEPTH_BIAS: f32 = -250.0;
-
-    let desired_health: &[(HealthKind, IVec2)] = &[
-        // Put these deeper into the test room so they aren’t near the door
-        (HealthKind::FirstAid, IVec2::new(27, 22)),
-        (HealthKind::Dinner,   IVec2::new(29, 22)),
-        (HealthKind::DogFood,  IVec2::new(27, 24)),
-    ];
-
-    for &(hk, mut tile) in desired_health {
-        let in_bounds = tile.x >= 0
-            && tile.y >= 0
-            && (tile.x as usize) < grid.width
-            && (tile.y as usize) < grid.height;
-
-        let ok_tile = in_bounds
-            && tile != player_tile
-            && matches!(grid.tile(tile.x as usize, tile.y as usize), Tile::Empty)
-            && !used_tiles.contains(&tile);
-
-        if !ok_tile {
-            let Some(fallback) = find_empty_tile_not_used(&grid, &used_tiles, player_tile) else {
-                warn!("spawn_test_weapon_pickup: no empty tiles found for Health");
-                continue;
-            };
-            warn!(
-                "spawn_test_weapon_pickup: Health wanted {:?}, using fallback {:?}",
-                tile, fallback
-            );
-            tile = fallback;
-        }
-
-        used_tiles.push(tile);
-
-        let (w, h) = health_pickup_size(hk);
-        let tex_path = health_texture(hk);
-
-        info!("Spawning TEST health {:?} at tile {:?} using {}", hk, tile, tex_path);
-
-        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
-        let tex: Handle<Image> = asset_server.load(tex_path);
-
-        let mat = materials.add(StandardMaterial {
-            base_color_texture: Some(tex),
-            alpha_mode: AlphaMode::Mask(0.5),
-            depth_bias: HEALTH_DEPTH_BIAS,
-            unlit: true,
-            cull_mode: None,
-            ..default()
-        });
-
-        let y = h * 0.5;
-
-        commands.spawn((
-            Name::new(format!("Pickup_Test_Health_{:?}", hk)),
-            Pickup { tile, kind: PickupKind::Health(hk) },
-            Mesh3d(quad),
-            MeshMaterial3d(mat),
-            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
-                .with_rotation(pickup_base_rot()),
-            GlobalTransform::default(),
-        ));
-    }
-
-    // Extra life (1UP)
-    {
-        let mut tile = IVec2::new(29, 24);
-
-        let in_bounds = tile.x >= 0
-            && tile.y >= 0
-            && (tile.x as usize) < grid.width
-            && (tile.y as usize) < grid.height;
-
-        let ok_tile = in_bounds
-            && tile != player_tile
-            && matches!(grid.tile(tile.x as usize, tile.y as usize), Tile::Empty)
-            && !used_tiles.contains(&tile);
-
-        if !ok_tile {
-            let Some(fallback) = find_empty_tile_not_used(&grid, &used_tiles, player_tile) else {
-                warn!("spawn_test_weapon_pickup: no empty tiles found for 1UP");
-                return;
-            };
-            warn!(
-                "spawn_test_weapon_pickup: 1UP wanted {:?}, using fallback {:?}",
-                tile, fallback
-            );
-            tile = fallback;
-        }
-
-        used_tiles.push(tile);
-
-        let (w, h) = oneup_size();
-        let tex_path = oneup_texture();
-
-        info!("Spawning TEST 1UP at tile {:?} using {}", tile, tex_path);
-
-        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
-        let tex: Handle<Image> = asset_server.load(tex_path);
-
-        let mat = materials.add(StandardMaterial {
-            base_color_texture: Some(tex),
-            alpha_mode: AlphaMode::Mask(0.5),
-            depth_bias: HEALTH_DEPTH_BIAS,
-            unlit: true,
-            cull_mode: None,
-            ..default()
-        });
-
-        let y = h * 0.5;
-
-        commands.spawn((
-            Name::new("Pickup_Test_OneUp"),
-            Pickup { tile, kind: PickupKind::ExtraLife },
-            Mesh3d(quad),
-            MeshMaterial3d(mat),
-            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
-                .with_rotation(pickup_base_rot()),
-            GlobalTransform::default(),
-        ));
-    }
-
 }
 
 pub fn billboard_pickups(

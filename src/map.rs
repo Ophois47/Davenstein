@@ -2,7 +2,6 @@
 Davenstein - by David Petnick
 */
 use bevy::prelude::*;
-use std::f32::consts::{FRAC_PI_2, PI};
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DoorTile(pub IVec2); // (X, Z) in Tile Coords
@@ -35,6 +34,9 @@ pub enum Tile {
 pub struct MapGrid {
     pub width: usize,
     pub height: usize,
+    /// Raw plane0 tile codes (Wolf-style). For now this is mainly used to preserve
+    /// wall/door IDs so texture work can be added later without changing the map format.
+    pub plane0: Vec<u16>,
     pub tiles: Vec<Tile>,
 }
 
@@ -56,7 +58,9 @@ impl MapGrid {
         let height = lines.len();
         let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
 
-        let mut tiles = Vec::with_capacity(width * height);
+        let mut plane0: Vec<u16> = Vec::with_capacity(width * height);
+        let mut tiles: Vec<Tile> = Vec::with_capacity(width * height);
+
         let mut player_spawn: Option<IVec2> = None;
         let mut guards: Vec<IVec2> = Vec::new();
 
@@ -68,25 +72,44 @@ impl MapGrid {
 
             for (x, c) in chars.into_iter().enumerate() {
                 match c {
-                    '#' => tiles.push(Tile::Wall),
-                    'D' => tiles.push(Tile::DoorClosed),
-                    'O' => tiles.push(Tile::DoorOpen),
+                    '#' => {
+                        plane0.push(1);
+                        tiles.push(Tile::Wall);
+                    }
+                    'D' => {
+                        // Wolf-style door code placeholder (real WL6 uses 90-95/100-101).
+                        plane0.push(90);
+                        tiles.push(Tile::DoorClosed);
+                    }
                     'P' => {
+                        plane0.push(0);
                         tiles.push(Tile::Empty);
                         player_spawn = Some(IVec2::new(x as i32, z as i32));
                     }
                     'G' => {
+                        plane0.push(0);
                         tiles.push(Tile::Empty);
                         guards.push(IVec2::new(x as i32, z as i32));
                     }
-                    '.' | ' ' => tiles.push(Tile::Empty),
-                    _ => tiles.push(Tile::Empty),
+                    '.' | ' ' => {
+                        plane0.push(0);
+                        tiles.push(Tile::Empty);
+                    }
+                    _ => {
+                        plane0.push(0);
+                        tiles.push(Tile::Empty);
+                    }
                 }
             }
         }
 
         (
-            Self { width, height, tiles },
+            Self {
+                width,
+                height,
+                plane0,
+                tiles,
+            },
             player_spawn,
             guards,
         )
@@ -132,7 +155,9 @@ impl MapGrid {
         plane0: &[u16],
         plane1: &[u16],
     ) -> (Self, Option<(IVec2, f32)>, Vec<IVec2>) {
-        let mut tiles = Vec::with_capacity(width * height);
+        let mut raw_plane0: Vec<u16> = Vec::with_capacity(width * height);
+        let mut tiles: Vec<Tile> = Vec::with_capacity(width * height);
+
         let mut player_spawn: Option<(IVec2, f32)> = None;
         let mut guards: Vec<IVec2> = Vec::new();
 
@@ -143,24 +168,29 @@ impl MapGrid {
                 let v0 = plane0[idx(x, z)];
                 let v1 = plane1[idx(x, z)];
 
-                // Plane0 -> collision tile
-                let tile = if v0 <= 63 {
-                    Tile::Wall
-                } else if (90..=95).contains(&v0) || (100..=101).contains(&v0) {
-                    Tile::DoorClosed
-                } else {
-                    Tile::Empty
-                };
-                tiles.push(tile);
+                // Preserve the original wall/door IDs for future texturing work.
+                raw_plane0.push(v0);
 
-                // Plane1 -> spawns
+                // Plane0: walls/doors
+                // - 0..=63: wall (texture index)
+                // - 90..=95: doors
+                // - 100..=101: elevator doors
+                // Everything else is treated as walkable for now.
+                if (0..=63).contains(&v0) {
+                    tiles.push(Tile::Wall);
+                } else if (90..=95).contains(&v0) || (100..=101).contains(&v0) {
+                    tiles.push(Tile::DoorClosed);
+                } else {
+                    tiles.push(Tile::Empty);
+                }
+
+                // Player start: 19..=22 (N/E/S/W)
                 if (19..=22).contains(&v1) {
-                    // 19=N, 20=E, 21=S, 22=W
                     let yaw = match v1 {
-                        19 => 0.0,
-                        20 => -FRAC_PI_2,
-                        21 => PI,
-                        22 => FRAC_PI_2,
+                        19 => 0.0,                    // North
+                        20 => std::f32::consts::FRAC_PI_2, // East
+                        21 => std::f32::consts::PI,    // South
+                        22 => -std::f32::consts::FRAC_PI_2, // West
                         _ => 0.0,
                     };
                     player_spawn = Some((IVec2::new(x as i32, z as i32), yaw));
@@ -174,7 +204,12 @@ impl MapGrid {
         }
 
         (
-            Self { width, height, tiles },
+            Self {
+                width,
+                height,
+                plane0: raw_plane0,
+                tiles,
+            },
             player_spawn,
             guards,
         )
