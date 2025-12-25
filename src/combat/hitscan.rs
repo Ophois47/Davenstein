@@ -24,6 +24,7 @@ pub fn raycast_grid(grid: &MapGrid, origin: Vec3, dir3: Vec3, max_dist: f32) -> 
 
     const EPS_DIR: f32 = 1e-8;
     const EPS_Y: f32 = 1e-4;
+    const EPS_T: f32 = 1e-6; // tie-break for corner hits
 
     let dir3 = dir3.normalize_or_zero();
     if dir3 == Vec3::ZERO {
@@ -83,6 +84,7 @@ pub fn raycast_grid(grid: &MapGrid, origin: Vec3, dir3: Vec3, max_dist: f32) -> 
     if t_max_z < 0.0 { t_max_z = 0.0; }
 
     let max_steps = (grid.width.max(grid.height) as i32) * 4;
+    let mut step_normal;
 
     for _ in 0..max_steps {
         let t_next = t_max_x.min(t_max_z);
@@ -94,17 +96,64 @@ pub fn raycast_grid(grid: &MapGrid, origin: Vec3, dir3: Vec3, max_dist: f32) -> 
             }
         }
 
-        // Step to Next Cell Boundary. Compute Normal for THIS Step Locally
-        let (dist, step_normal) = if t_max_x < t_max_z {
+        // Step to Next Cell Boundary.
+        let dist = if t_max_x + EPS_T < t_max_z {
             ix += step_x;
             let dist = t_max_x;
             t_max_x += t_delta_x;
-            (dist, Vec3::new(-(step_x as f32), 0.0, 0.0))
-        } else {
+            step_normal = Vec3::new(-(step_x as f32), 0.0, 0.0);
+            dist
+        } else if t_max_z + EPS_T < t_max_x {
             iz += step_z;
             let dist = t_max_z;
             t_max_z += t_delta_z;
-            (dist, Vec3::new(0.0, 0.0, -(step_z as f32)))
+            step_normal = Vec3::new(0.0, 0.0, -(step_z as f32));
+            dist
+        } else {
+            // Corner crossing: check both adjacent tiles, otherwise thin (1x1) walls can be skipped.
+            let dist = t_max_x; // ~= t_max_z
+            let y_at = origin.y + dy * dist;
+
+            let cand_x = (ix + step_x, iz);
+            let cand_z = (ix, iz + step_z);
+
+            // Only consider wall collisions if we're within wall vertical span.
+            if y_at >= FLOOR_Y - EPS_Y && y_at <= WALL_H + EPS_Y {
+                // Prefer X hit then Z hit for determinism.
+                for (cx, cz, normal) in [
+                    (cand_x.0, cand_x.1, Vec3::new(-(step_x as f32), 0.0, 0.0)),
+                    (cand_z.0, cand_z.1, Vec3::new(0.0, 0.0, -(step_z as f32))),
+                ] {
+                    if cx < 0 || cz < 0 || cx >= grid.width as i32 || cz >= grid.height as i32 {
+                        return None;
+                    }
+                    let tile = grid.tile(cx as usize, cz as usize);
+                    if matches!(tile, Tile::Wall | Tile::DoorClosed) {
+                        return Some(RayHit {
+                            tile,
+                            tile_coord: IVec2::new(cx, cz),
+                            pos: origin + dir3 * dist,
+                            normal,
+                            dist,
+                        });
+                    }
+                }
+            }
+
+            // Advance diagonally
+            ix += step_x;
+            iz += step_z;
+            t_max_x += t_delta_x;
+            t_max_z += t_delta_z;
+
+            // If we later hit a diagonal wall tile at this same dist, pick a consistent normal.
+            step_normal = if dx.abs() >= dz.abs() {
+                Vec3::new(-(step_x as f32), 0.0, 0.0)
+            } else {
+                Vec3::new(0.0, 0.0, -(step_z as f32))
+            };
+
+            dist
         };
 
         if dist > max_dist {

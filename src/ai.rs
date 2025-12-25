@@ -191,6 +191,7 @@ fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
     let dz = dir.y;
 
     const EPS: f32 = 1e-8;
+    const EPS_T: f32 = 1e-6; // tie-break for corner hits
 
     // Tile boundaries at N+0.5
     let px = origin.x + 0.5;
@@ -222,15 +223,43 @@ fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
     };
 
     loop {
-        let dist = if t_max_x < t_max_z {
+        let dist = if t_max_x + EPS_T < t_max_z {
             ix += step_x;
             let d = t_max_x;
             t_max_x += t_delta_x;
             d
-        } else {
+        } else if t_max_z + EPS_T < t_max_x {
             iz += step_z;
             let d = t_max_z;
             t_max_z += t_delta_z;
+            d
+        } else {
+            // Crossing a grid corner exactly: step BOTH axes and treat either adjacent blocking
+            // tile as blocking LOS, otherwise you can "see/shoot through" 1x1 walls at corners.
+            let next_ix = ix + step_x;
+            let next_iz = iz + step_z;
+
+            let d = t_max_x; // ~= t_max_z
+            t_max_x += t_delta_x;
+            t_max_z += t_delta_z;
+
+            // Side tiles we "graze" at the corner:
+            // (next_ix, iz) and (ix, next_iz)
+            for (cx, cz) in [(next_ix, iz), (ix, next_iz)] {
+                if cx < 0 || cz < 0 || cx >= grid.width as i32 || cz >= grid.height as i32 {
+                    return false;
+                }
+                if cx == to.x && cz == to.y {
+                    continue;
+                }
+                let t = grid.tile(cx as usize, cz as usize);
+                if matches!(t, Tile::Wall | Tile::DoorClosed) {
+                    return false;
+                }
+            }
+
+            ix = next_ix;
+            iz = next_iz;
             d
         };
 
@@ -448,8 +477,58 @@ pub fn enemy_ai_tick(
     while ticker.accum >= AI_TIC_SECS {
         ticker.accum -= AI_TIC_SECS;
 
+        // Areas: only used for initial activation gating.
         let areas = AreaMap::compute(&grid);
         let player_area = areas.id(player_tile);
+
+        // ============================================================
+        // BFS distance field to player (treat DoorClosed as traversable
+        // so monsters can "intend" to go through it, then open it when adjacent)
+        // ============================================================
+        let w = grid.width as i32;
+        let h = grid.height as i32;
+        let in_bounds = |t: IVec2| t.x >= 0 && t.y >= 0 && t.x < w && t.y < h;
+        let idx = |t: IVec2| (t.y * w + t.x) as usize;
+
+        let mut dist = vec![-1i32; grid.width * grid.height];
+        if in_bounds(player_tile) && grid.tile(player_tile.x as usize, player_tile.y as usize) != Tile::Wall {
+            dist[idx(player_tile)] = 0;
+
+            let mut queue: Vec<IVec2> = vec![player_tile];
+            let mut qh: usize = 0;
+
+            let dirs = [
+                IVec2::new(1, 0),
+                IVec2::new(-1, 0),
+                IVec2::new(0, 1),
+                IVec2::new(0, -1),
+            ];
+
+            while qh < queue.len() {
+                let cur = queue[qh];
+                qh += 1;
+
+                let base = dist[idx(cur)];
+                let next = base + 1;
+
+                for step in dirs {
+                    let n = cur + step;
+                    if !in_bounds(n) {
+                        continue;
+                    }
+                    let ni = idx(n);
+                    if dist[ni] >= 0 {
+                        continue;
+                    }
+                    // Only walls are hard-blocking for BFS; doors are "traversable" as intent.
+                    if grid.tile(n.x as usize, n.y as usize) == Tile::Wall {
+                        continue;
+                    }
+                    dist[ni] = next;
+                    queue.push(n);
+                }
+            }
+        }
 
         for (e, kind, mut ai, mut occ, mut dir8, tf, moving) in q.p1().iter_mut() {
             let speed = match kind {
@@ -458,7 +537,7 @@ pub fn enemy_ai_tick(
 
             let my_tile = occ.0;
 
-            // Acquire -> Chase (same "area" + LOS)
+            // Acquire -> Chase (activation gated by same area + LOS)
             if ai.state == EnemyAiState::Stand {
                 let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
                 if same_area && has_line_of_sight(&grid, my_tile, player_tile) {
@@ -478,17 +557,12 @@ pub fn enemy_ai_tick(
                 continue;
             }
 
-            // Shared visibility checks for this tic
-            let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
-            let can_see = same_area && has_line_of_sight(&grid, my_tile, player_tile);
-
             // Current shooting cooldown remaining (0 => ready)
             let cd_now = shoot_cd.get(&e).copied().unwrap_or(0.0);
 
             // Wolf-like "stop to shoot": during the initial pause window after firing,
             // do not pick movement. (We use cd as a proxy so it works even if multiple AI tics run in one frame.)
             if cd_now > GUARD_SHOOT_COOLDOWN_SECS {
-                // Keep facing the player so the shooting view looks consistent.
                 *dir8 = dir8_towards(my_tile, player_tile);
                 continue;
             }
@@ -501,7 +575,9 @@ pub fn enemy_ai_tick(
             // =========================
             // SHOOT LOGIC
             // =========================
-            // Wolf uses dist = max(dx,dy) (Chebyshev) for several of its combat decisions.
+            let can_see = has_line_of_sight(&grid, my_tile, player_tile);
+
+            // Wolf-ish distance (Chebyshev)
             let dx = (player_tile.x - my_tile.x).abs();
             let dy = (player_tile.y - my_tile.y).abs();
             let shoot_dist = dx.max(dy);
@@ -509,17 +585,14 @@ pub fn enemy_ai_tick(
             let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
 
             if can_see && in_range {
-                // Face the player for correct view selection / shooting visuals.
                 *dir8 = dir8_towards(my_tile, player_tile);
 
                 if cd_now <= 0.0 {
                     shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
-                    let dist = shoot_dist as f32;
-                    let max_dist = GUARD_SHOOT_MAX_DIST_TILES as f32;
-
-                    // Higher chance than before => fewer misses.
-                    let hit_chance = (1.0 - (dist / max_dist)).clamp(GUARD_HIT_CHANCE_MIN, GUARD_HIT_CHANCE_MAX);
+                    let distf = shoot_dist as f32;
+                    let maxf = GUARD_SHOOT_MAX_DIST_TILES as f32;
+                    let hit_chance = (1.0 - (distf / maxf)).clamp(GUARD_HIT_CHANCE_MIN, GUARD_HIT_CHANCE_MAX);
 
                     let damage = if rand::random::<f32>() < hit_chance { 10 } else { 0 };
 
@@ -528,7 +601,6 @@ pub fn enemy_ai_tick(
                         damage,
                     });
 
-                    // Drive shooting animation via GuardShoot.timer (the real struct field)
                     commands.entity(e).insert(crate::enemies::GuardShoot {
                         timer: Timer::from_seconds(GUARD_SHOOT_PAUSE_SECS, TimerMode::Once),
                     });
@@ -538,22 +610,14 @@ pub fn enemy_ai_tick(
                         pos: tf.translation,
                     });
 
-                    info!(
-                        "Enemy {:?} fired: kind={:?} dist={} chance={:.2} dmg={}",
-                        e, kind, shoot_dist, hit_chance, damage
-                    );
-
-                    // Important: don’t schedule a move on the same tic we start a shot.
+                    // Don’t also schedule a move on the same tic we start a shot.
                     continue;
                 }
             }
 
             // =========================
-            // MOVE LOGIC
+            // MOVE LOGIC (BFS gradient + door open)
             // =========================
-            let current_dist =
-                (player_tile.x - my_tile.x).abs() + (player_tile.y - my_tile.y).abs();
-
             let dirs = [
                 IVec2::new(1, 0),
                 IVec2::new(-1, 0),
@@ -561,65 +625,112 @@ pub fn enemy_ai_tick(
                 IVec2::new(0, -1),
             ];
 
-            let mut best_move: Option<(IVec2, i32)> = None;
-            let mut best_door: Option<(IVec2, i32)> = None;
+            let mut moved_or_acted = false;
 
-            for step in dirs {
-                let dest = my_tile + step;
+            if in_bounds(my_tile) {
+                let my_d = dist[idx(my_tile)];
+                if my_d >= 0 {
+                    let mut best: Option<(i32, IVec2, Tile)> = None;
 
-                if dest == player_tile {
-                    continue;
-                }
+                    for step in dirs {
+                        let dest = my_tile + step;
+                        if dest == player_tile || !in_bounds(dest) {
+                            continue;
+                        }
 
-                if occupied.contains(&dest) {
-                    continue;
-                }
+                        let tile = grid.tile(dest.x as usize, dest.y as usize);
+                        if tile == Tile::Wall {
+                            continue;
+                        }
 
-                let Some(t) = tile_at(&grid, dest) else { continue; };
+                        let d = dist[idx(dest)];
+                        if d < 0 || d >= my_d {
+                            continue; // don’t walk away / sideways on equal distance if avoidable
+                        }
 
-                let score =
-                    (player_tile.x - dest.x).abs() + (player_tile.y - dest.y).abs();
+                        if occupied.contains(&dest) {
+                            continue;
+                        }
 
-                match t {
-                    Tile::Empty | Tile::DoorOpen => {
-                        if best_move.map(|(_, s)| score < s).unwrap_or(true) {
-                            best_move = Some((dest, score));
+                        // Prefer smaller distance; avoid immediate reverse unless needed; prefer non-door if tied.
+                        let mut score = d * 10;
+                        if step == -ai.last_step {
+                            score += 5;
+                        }
+                        if tile == Tile::DoorClosed {
+                            score += 1;
+                        }
+
+                        if best.map(|(bs, _, _)| score < bs).unwrap_or(true) {
+                            best = Some((score, dest, tile));
                         }
                     }
-                    Tile::DoorClosed => {
-                        if best_door.map(|(_, s)| score < s).unwrap_or(true) {
-                            best_door = Some((dest, score));
+
+                    if let Some((_score, dest, tile)) = best {
+                        if tile == Tile::DoorClosed {
+                            try_open_door_at(dest, &mut q_doors, &mut sfx);
+                            ai.last_step = IVec2::ZERO;
+                            moved_or_acted = true;
+                        } else {
+                            let step = dest - my_tile;
+                            *dir8 = dir8_from_step(step);
+                            ai.last_step = step;
+
+                            if CLAIM_TILE_EARLY {
+                                occ.0 = dest;
+                            }
+
+                            let y = tf.translation.y;
+                            let target = Vec3::new(dest.x as f32, y, dest.y as f32);
+
+                            commands.entity(e).insert(EnemyMove {
+                                target,
+                                speed_tps: speed,
+                            });
+
+                            occupied.insert(dest);
+                            if CLAIM_TILE_EARLY {
+                                occupied.remove(&my_tile);
+                            }
+
+                            moved_or_acted = true;
                         }
                     }
-                    _ => {}
                 }
             }
 
-            if let Some((dest, score)) = best_move {
-                if score <= current_dist {
-                    let step = dest - my_tile;
-                    *dir8 = dir8_from_step(step);
+            // Fallback: keep your old helper alive (and avoids dead-code warnings)
+            if !moved_or_acted {
+                match pick_chase_step(&grid, &occupied, my_tile, player_tile, ai.last_step) {
+                    ChasePick::MoveTo(dest) => {
+                        if dest != player_tile && !occupied.contains(&dest) {
+                            let step = dest - my_tile;
+                            *dir8 = dir8_from_step(step);
+                            ai.last_step = step;
 
-                    if CLAIM_TILE_EARLY {
-                        occ.0 = dest;
+                            if CLAIM_TILE_EARLY {
+                                occ.0 = dest;
+                            }
+
+                            let y = tf.translation.y;
+                            let target = Vec3::new(dest.x as f32, y, dest.y as f32);
+
+                            commands.entity(e).insert(EnemyMove {
+                                target,
+                                speed_tps: speed,
+                            });
+
+                            occupied.insert(dest);
+                            if CLAIM_TILE_EARLY {
+                                occupied.remove(&my_tile);
+                            }
+                        }
                     }
-
-                    let y = tf.translation.y;
-                    let target = Vec3::new(dest.x as f32, y, dest.y as f32);
-
-                    commands.entity(e).insert(EnemyMove {
-                        target,
-                        speed_tps: speed,
-                    });
-
-                    occupied.insert(dest);
-                    if CLAIM_TILE_EARLY {
-                        occupied.remove(&my_tile);
+                    ChasePick::OpenDoor(door_tile) => {
+                        try_open_door_at(door_tile, &mut q_doors, &mut sfx);
+                        ai.last_step = IVec2::ZERO;
                     }
-                }
-            } else if let Some((door_tile, score)) = best_door {
-                if score <= current_dist {
-                    try_open_door_at(door_tile, &mut q_doors, &mut sfx);
+                    ChasePick::None => {}
                 }
             }
         }
