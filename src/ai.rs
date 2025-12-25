@@ -16,7 +16,7 @@ const GUARD_CHASE_SPEED_TPS: f32 = 1.6;
 const CLAIM_TILE_EARLY: bool = true;
 
 #[derive(Resource, Debug, Default)]
-struct AiTicker {
+pub struct AiTicker {
     accum: f32,
 }
 
@@ -53,12 +53,14 @@ pub struct EnemyMove {
     pub speed_tps: f32,
 }
 
+#[allow(dead_code)]
 enum ChasePick {
     MoveTo(IVec2),
     OpenDoor(IVec2),
     None,
 }
 
+#[allow(dead_code)]
 fn pick_chase_step(
     grid: &MapGrid,
     occupied: &std::collections::HashSet<IVec2>,
@@ -265,6 +267,23 @@ fn dir8_from_step(step: IVec2) -> Dir8 {
     }
 }
 
+fn dir8_towards(from: IVec2, to: IVec2) -> Dir8 {
+    let d = to - from;
+    if d == IVec2::ZERO {
+        return Dir8(0);
+    }
+
+    // 0 rad = +Z (positive "y" in grid coords), matches your yaw usage elsewhere
+    let ang = (d.x as f32).atan2(d.y as f32);
+
+    // Quantize into 8 octants (0..7), with 0 = +Z, 2 = +X, 4 = -Z, 6 = -X
+    let step = std::f32::consts::FRAC_PI_4; // 45°
+    let mut oct = ((ang + step * 0.5) / step).floor() as i32;
+    oct = ((oct % 8) + 8) % 8;
+
+    Dir8(oct as u8)
+}
+
 fn try_open_door_at(
     door_tile: IVec2,
     q_doors: &mut Query<(&DoorTile, &mut DoorState, &GlobalTransform)>,
@@ -365,7 +384,7 @@ impl AreaMap {
     }
 }
 
-fn enemy_ai_tick(
+pub fn enemy_ai_tick(
     mut commands: Commands,
     time: Res<Time>,
     mut ticker: ResMut<AiTicker>,
@@ -375,6 +394,7 @@ fn enemy_ai_tick(
     mut sfx: MessageWriter<PlaySfx>,
     mut enemy_fire: MessageWriter<EnemyFire>,
     mut shoot_cd: Local<HashMap<Entity, f32>>,
+    mut alerted: Local<HashSet<Entity>>,
     mut q: ParamSet<(
         Query<&OccupiesTile, (With<EnemyKind>, Without<Dead>)>,
         Query<
@@ -385,8 +405,7 @@ fn enemy_ai_tick(
                 &mut OccupiesTile,
                 &mut Dir8,
                 &Transform,
-                Option<&crate::ai::EnemyMove>,
-                Option<&crate::enemies::GuardShoot>, // NEW
+                Option<&EnemyMove>,
             ),
             (With<EnemyKind>, Without<Player>, Without<Dead>),
         >,
@@ -396,42 +415,47 @@ fn enemy_ai_tick(
     let player_pos = player_gt.translation();
     let player_tile = world_to_tile_xz(Vec2::new(player_pos.x, player_pos.z));
 
+    // Snapshot occupied tiles (alive enemies only).
     let mut occupied: HashSet<IVec2> = HashSet::new();
     for ot in q.p0().iter() {
         occupied.insert(ot.0);
     }
 
-    ticker.accum += time.delta_secs();
+    // Cooldowns tick down every frame
+    let dt = time.delta_secs();
+    shoot_cd.retain(|_, t| {
+        *t -= dt;
+        *t > 0.0
+    });
+
+    ticker.accum += dt;
 
     while ticker.accum >= AI_TIC_SECS {
         ticker.accum -= AI_TIC_SECS;
 
-        for (e, kind, mut ai, mut occ, mut dir8, tf, moving, shooting) in q.p1().iter_mut() {
-            if moving.is_some() || shooting.is_some() {
-                continue;
-            }
+        let areas = AreaMap::compute(&grid);
+        let player_area = areas.id(player_tile);
 
-            let cd = shoot_cd.entry(e).or_insert(0.0);
-            *cd = (*cd - AI_TIC_SECS).max(0.0);
-
+        for (e, kind, mut ai, mut occ, mut dir8, tf, moving) in q.p1().iter_mut() {
             let speed = match kind {
                 EnemyKind::Guard => GUARD_CHASE_SPEED_TPS,
             };
 
             let my_tile = occ.0;
 
-            let areas = AreaMap::compute(&grid);
-            let player_area = areas.id(player_tile);
-
+            // Acquire -> Chase (same "area" + LOS)
             if ai.state == EnemyAiState::Stand {
                 let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
                 if same_area && has_line_of_sight(&grid, my_tile, player_tile) {
                     ai.state = EnemyAiState::Chase;
 
-                    sfx.write(PlaySfx {
-                        kind: SfxKind::EnemyAlert(*kind),
-                        pos: tf.translation,
-                    });
+                    // one-time alert per enemy (without adding fields to EnemyAi)
+                    if alerted.insert(e) {
+                        sfx.write(PlaySfx {
+                            kind: SfxKind::EnemyAlert(*kind),
+                            pos: tf.translation,
+                        });
+                    }
                 }
             }
 
@@ -439,79 +463,107 @@ fn enemy_ai_tick(
                 continue;
             }
 
-            // -------------------------
-            // SHOOT GATE
-            // -------------------------
-            const GUARD_SHOOT_RANGE_TILES: i32 = 8;
-            const GUARD_SHOOT_COOLDOWN_SECS: f32 = 0.65;
+            let current_dist =
+                (player_tile.x - my_tile.x).abs() + (player_tile.y - my_tile.y).abs();
 
-            let dx = (player_tile.x - my_tile.x).abs();
-            let dz = (player_tile.y - my_tile.y).abs();
-            let dist = dx.max(dz);
-
+            // =========================
+            // SHOOT LOGIC
+            // =========================
             let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
+            let can_see = same_area && has_line_of_sight(&grid, my_tile, player_tile);
 
-            if same_area
-                && dist <= GUARD_SHOOT_RANGE_TILES
-                && *cd <= 0.0
-                && has_line_of_sight(&grid, my_tile, player_tile)
-            {
-                // Face player before firing
-                let step = IVec2::new(
-                    (player_tile.x - my_tile.x).signum(),
-                    (player_tile.y - my_tile.y).signum(),
-                );
-                *dir8 = dir8_from_step(step);
+            // NOTE: no CHASE_MAX_SHOOT_DIST constant in your code; keep it simple for now.
+            // Adjust this number later once you’re happy with behavior.
+            let in_range = current_dist <= 6;
 
-                // NEW: play shoot SFX (even if we miss)
-                sfx.write(PlaySfx {
-                    kind: SfxKind::EnemyShoot(*kind),
-                    pos: tf.translation,
-                });
+            if can_see && in_range {
+                // Face the player for correct view selection / shooting visuals.
+                *dir8 = dir8_towards(my_tile, player_tile);
 
-                // NEW: flash shooting sprite briefly
-                commands.entity(e).insert(crate::enemies::GuardShoot {
-                    timer: bevy::time::Timer::from_seconds(0.25, bevy::time::TimerMode::Once),
-                });
+                let cd = shoot_cd.get(&e).copied().unwrap_or(0.0);
+                if cd <= 0.0 {
+                    shoot_cd.insert(e, 0.8);
 
-                // Wolf-ish hit chance by distance (tune later)
-                let hit_chance = if dist <= 2 {
-                    0.65
-                } else if dist <= 4 {
-                    0.50
-                } else if dist <= 6 {
-                    0.35
-                } else {
-                    0.20
-                };
+                    let dist = current_dist as f32;
+                    let max_dist = 6.0;
+                    let hit_chance = (1.0 - (dist / max_dist)).clamp(0.15, 0.75);
 
-                let roll: f32 = rand::random();
-                let hit = roll < hit_chance;
+                    let damage = if rand::random::<f32>() < hit_chance { 10 } else { 0 };
 
-                let damage = if hit {
-                    (rand::random::<u32>() % 7) as i32 + 2 // 2..8
-                } else {
-                    0
-                };
+                    enemy_fire.write(EnemyFire {
+                        kind: *kind,
+                        damage,
+                    });
 
-                enemy_fire.write(EnemyFire {
-                    kind: *kind,
-                    damage,
-                });
+                    // Drive shooting animation via GuardShoot.timer (the real struct field)
+                    commands.entity(e).insert(crate::enemies::GuardShoot {
+                        timer: Timer::from_seconds(0.25, TimerMode::Once),
+                    });
 
-                *cd = GUARD_SHOOT_COOLDOWN_SECS;
+                    sfx.write(PlaySfx {
+                        kind: SfxKind::EnemyShoot(*kind),
+                        pos: tf.translation,
+                    });
 
+                    info!(
+                        "Enemy {:?} fired: kind={:?} dist={} chance={:.2} dmg={}",
+                        e, kind, current_dist, hit_chance, damage
+                    );
+                }
+            }
+
+            // If already moving, don’t pick a new chase step this tic.
+            if moving.is_some() {
                 continue;
             }
 
-            // -------------------------
-            // CHASE
-            // -------------------------
-            match pick_chase_step(&grid, &occupied, my_tile, player_tile, ai.last_step) {
-                ChasePick::MoveTo(dest) => {
-                    let step = dest - my_tile;
+            // =========================
+            // MOVE LOGIC
+            // =========================
+            let dirs = [
+                IVec2::new(1, 0),
+                IVec2::new(-1, 0),
+                IVec2::new(0, 1),
+                IVec2::new(0, -1),
+            ];
 
-                    ai.last_step = step;
+            let mut best_move: Option<(IVec2, i32)> = None;
+            let mut best_door: Option<(IVec2, i32)> = None;
+
+            for step in dirs {
+                let dest = my_tile + step;
+
+                if dest == player_tile {
+                    continue;
+                }
+
+                if occupied.contains(&dest) {
+                    continue;
+                }
+
+                let Some(t) = tile_at(&grid, dest) else { continue; };
+
+                let score =
+                    (player_tile.x - dest.x).abs() + (player_tile.y - dest.y).abs();
+
+                match t {
+                    Tile::Empty | Tile::DoorOpen => {
+                        if best_move.map(|(_, s)| score < s).unwrap_or(true) {
+                            best_move = Some((dest, score));
+                        }
+                    }
+                    Tile::DoorClosed => {
+                        if best_door.map(|(_, s)| score < s).unwrap_or(true) {
+                            best_door = Some((dest, score));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if let Some((dest, score)) = best_move {
+                if score <= current_dist {
+                    let step = dest - my_tile;
                     *dir8 = dir8_from_step(step);
 
                     if CLAIM_TILE_EARLY {
@@ -531,11 +583,9 @@ fn enemy_ai_tick(
                         occupied.remove(&my_tile);
                     }
                 }
-                ChasePick::OpenDoor(door_tile) => {
+            } else if let Some((door_tile, score)) = best_door {
+                if score <= current_dist {
                     try_open_door_at(door_tile, &mut q_doors, &mut sfx);
-                }
-                ChasePick::None => {
-                    ai.last_step = IVec2::ZERO;
                 }
             }
         }

@@ -292,84 +292,83 @@ pub fn apply_guard_corpses(
 
 pub fn update_guard_views(
     sprites: Res<GuardSprites>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     q_player: Query<&GlobalTransform, With<Player>>,
-    mut q: Query<(
-        Option<&Dead>,
-        Option<&GuardDying>,
-        Option<&GuardPain>,
-        Option<&GuardWalk>,
-        Option<&EnemyMove>,
-        &GlobalTransform,
-        &Dir8,
-        &mut View8,
-        &MeshMaterial3d<StandardMaterial>,
-        &mut Transform,
-    ), With<Guard>>,
+    mut q: Query<
+        (
+            Option<&Dead>,
+            Option<&GuardCorpse>,
+            Option<&GuardDying>,
+            Option<&GuardPain>,
+            Option<&GuardWalk>,
+            Option<&GuardShoot>,
+            Option<&EnemyMove>,
+            &GlobalTransform,
+            &Dir8,
+            &mut View8,
+            &MeshMaterial3d<StandardMaterial>,
+            &mut Transform,
+        ),
+        (With<Guard>, Without<Player>),
+    >,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let Ok(pgt) = q_player.single() else { return; };
-    let cam_pos = pgt.translation();
+    let Some(player_gt) = q_player.iter().next() else { return; };
+    let player_pos = player_gt.translation();
 
-    for (dead, dying, pain, walk, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+    for (_dead, corpse, dying, pain, walk, shoot, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
         let enemy_pos = gt.translation();
 
-        // Billboard yaw toward camera
-        let to_cam = cam_pos - enemy_pos;
-        let yaw = to_cam.x.atan2(to_cam.z);
-        tf.rotation = Quat::from_rotation_y(yaw);
+        // Compute view index (0..7) relative to enemy's facing + player position
+        let v = quantize_view8(dir8.0, enemy_pos, player_pos);
+        view.0 = v;
 
-        // Dying (non-directional)
-        if let Some(dying) = dying {
-            let i = (dying.frame as usize).min(sprites.dying.len() - 1);
-            if view.0 != 240 + dying.frame {
-                view.0 = 240 + dying.frame;
-                if let Some(mat) = materials.get_mut(&mat3d.0) {
-                    mat.base_color_texture = Some(sprites.dying[i].clone());
-                }
-            }
-            continue;
+        // Billboard: rotate quad to face player (don’t touch translation)
+        let to_player = player_pos - enemy_pos;
+        let flat_len2 = to_player.x * to_player.x + to_player.z * to_player.z;
+        if flat_len2 > 1e-6 {
+            let yaw = to_player.x.atan2(to_player.z);
+            tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        // Pain (non-directional)
-        if pain.is_some() {
-            if view.0 != 255 {
-                view.0 = 255;
-                if let Some(mat) = materials.get_mut(&mat3d.0) {
-                    mat.base_color_texture = Some(sprites.pain.clone());
+        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+
+        // Choose texture in priority order:
+        // corpse > dying > pain > shooting > moving(walk) > idle
+        let tex: Handle<Image> = if corpse.is_some() {
+            sprites.corpse.clone()
+        } else if let Some(d) = dying {
+            let i = (d.frame as usize).min(sprites.dying.len().saturating_sub(1));
+            sprites.dying[i].clone()
+        } else if pain.is_some() {
+            sprites.pain.clone()
+        } else if let Some(s) = shoot {
+            let frontish = matches!(v, 0 | 1 | 7);
+
+            // GuardShoot has only `timer`, so pick aim vs fire based on timer progress.
+            let dur = s.timer.duration().as_secs_f32().max(1e-6);
+            let t = s.timer.elapsed().as_secs_f32();
+            let fire_phase = t >= (dur * 0.5);
+
+            if frontish {
+                if fire_phase {
+                    sprites.shoot_front_fire.clone()
+                } else {
+                    sprites.shoot_front_aim.clone()
                 }
+            } else {
+                sprites.shoot_side_fire.clone()
             }
-            continue;
-        }
-
-        // Dead -> corpse handled elsewhere, don’t overwrite
-        if dead.is_some() {
-            continue;
-        }
-
-        // Alive -> choose 8-dir view index
-        let v = quantize_view8(dir8.0, enemy_pos, cam_pos);
-
-        // Walking if we currently have an EnemyMove
-        if mv.is_some() {
-            // Your rule: frame = floor(phase * 4) & 3
-            let phase = walk.map(|w| w.phase).unwrap_or(0.0);
-            let frame = (((phase * 4.0).floor() as i32) & 3) as usize;
-
-            let key = 32 + (frame as u8) * 8 + v;
-            if key != view.0 {
-                view.0 = key;
-                if let Some(mat) = materials.get_mut(&mat3d.0) {
-                    mat.base_color_texture = Some(sprites.walk[frame][v as usize].clone());
-                }
-            }
+        } else if mv.is_some() {
+            // Walk frame index from GuardWalk.phase (4 frames per tile)
+            let w = walk.map(|w| w.phase).unwrap_or(0.0);
+            let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
+            sprites.walk[frame_i][v as usize].clone()
         } else {
-            // Idle
-            if v != view.0 {
-                view.0 = v;
-                if let Some(mat) = materials.get_mut(&mat3d.0) {
-                    mat.base_color_texture = Some(sprites.idle[v as usize].clone());
-                }
-            }
+            sprites.idle[v as usize].clone()
+        };
+
+        if mat.base_color_texture.as_ref() != Some(&tex) {
+            mat.base_color_texture = Some(tex);
         }
     }
 }
