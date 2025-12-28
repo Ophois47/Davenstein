@@ -183,8 +183,10 @@ impl MapGrid {
                 if (1..=63).contains(&v0) {
                     tiles.push(Tile::Wall);
                 } else if (90..=101).contains(&v0) {
+                    // 90..=101 covers normal doors + locked doors + elevator doors in WL6.
                     tiles.push(Tile::DoorClosed);
                 } else {
+                    // includes 0 and 106..=143 (areas) which are walkable
                     tiles.push(Tile::Empty);
                 }
 
