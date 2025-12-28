@@ -1,6 +1,49 @@
 /*
 Davenstein - by David Petnick
 */
+// ✅ Wolf3D E1M1 wall textures + door jambs — what actually worked
+//
+// Problem:
+// - E1M1 walls showed wrong textures (often door/jamb-looking tiles).
+// - Once walls became correct, door jambs were missing around doors.
+// Goal: Map Wolf plane0 wall IDs to the *correct* original textures and restore jambs.
+//
+// What worked (final solution):
+//
+// 1) Use a VSWAP-ordered wall atlas and index it by chunk number (0..105).
+//    - Atlas layout: walls 0..105 packed as 16x7 tiles, each 64x64.
+//    - UV mapping must respect Bevy’s UV convention: (0,0) is top-left.
+//      => DO NOT flip V for the wall atlas.
+//    - Add half-texel inset in UVs to reduce bleeding between tiles.
+//
+// 2) Apply Wolf-style light/dark pairing stored as adjacent atlas chunks.
+//    - In this atlas, wall “types” are stored as pairs:
+//        type 0 => chunks (0 light, 1 dark)
+//        type 1 => chunks (2 light, 3 dark)
+//        ...
+//    - Map plane0 wall_id (1..63) to 0-based wall_type:
+//        wall_type = wall_id - 1
+//      then:
+//        pair_base = wall_type * 2
+//        light_idx = pair_base
+//        dark_idx  = pair_base + 1
+//    - Render Z faces (north/south) with the LIGHT chunk,
+//      and X faces (west/east) with the DARK chunk (classic Wolf directional shading).
+//
+// 3) Door jambs were “missing” due to spawn logic (jamb faces were impossible to spawn).
+//    - Old face condition blocked doors:
+//        if !is_wall(neighbor) && !is_door(neighbor) { spawn_face(...) }
+//      This prevents wall faces adjacent to doors from spawning, so jambs can’t appear.
+//    - Minimal fix:
+//        Spawn a wall face whenever the neighbor is NOT a wall (including doors),
+//        then choose mesh/material based on whether the neighbor is a door:
+//          neighbor is Door  => jamb_panel + jamb_mat
+//          neighbor is Empty => wall mesh + wall material
+//
+// Result:
+// - Walls now match correct E1M1 textures.
+// - Door jambs appear correctly around door openings.
+// - No hacks beyond correct atlas order + UV mapping + correct door-adjacent face spawning.
 use bevy::audio::SpatialListener;
 use bevy::prelude::*;
 use bevy::ui::prelude::IsDefaultUiCamera;
@@ -461,9 +504,9 @@ pub fn setup(
 
     // Player Spawn From Grid
     let player_pos = Vec3::new(
-        (spawn.x as f32 + 0.5) * TILE_SIZE,
+        spawn.x as f32 * TILE_SIZE,
         0.6,
-        (spawn.y as f32 + 0.5) * TILE_SIZE,
+        spawn.y as f32 * TILE_SIZE,
     );
 
     commands.spawn((
@@ -471,9 +514,9 @@ pub fn setup(
         IsDefaultUiCamera,
         Player,
         crate::player::PlayerVitals::default(),
-        LookAngles::new(spawn_yaw, 0.0),
+        LookAngles::new(spawn_yaw + PI, 0.0),
         SpatialListener::new(0.2),
-        Transform::from_translation(player_pos).with_rotation(Quat::from_rotation_y(spawn_yaw)),
+        Transform::from_translation(player_pos).with_rotation(Quat::from_rotation_y(spawn_yaw + PI)),
     ));
 }
 
