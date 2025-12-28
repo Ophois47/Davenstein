@@ -149,6 +149,8 @@ pub fn setup(
 
     // Make Map Available for Collision / Doors / Raycasts
     commands.insert_resource(grid.clone());
+    // Blocking statics (decorations) occupancy
+    commands.insert_resource(crate::decorations::SolidStatics::new(grid.width, grid.height));
 
     // Load + Store Assets
     let assets = load_assets(&asset_server);

@@ -3,6 +3,7 @@ Davenstein - by David Petnick
 */
 use bevy::prelude::*;
 use davelib::map::{MapGrid, Tile};
+use davelib::decorations::SolidStatics;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RayHit {
@@ -18,7 +19,7 @@ pub struct RayHit {
     pub dist: f32,
 }
 
-pub fn raycast_grid(grid: &MapGrid, origin: Vec3, dir3: Vec3, max_dist: f32) -> Option<RayHit> {
+pub fn raycast_grid(grid: &MapGrid, solid: &SolidStatics, origin: Vec3, dir3: Vec3, max_dist: f32) -> Option<RayHit> {
     const FLOOR_Y: f32 = 0.0;
     const WALL_H: f32 = 1.0;
 
@@ -127,6 +128,15 @@ pub fn raycast_grid(grid: &MapGrid, origin: Vec3, dir3: Vec3, max_dist: f32) -> 
                     if cx < 0 || cz < 0 || cx >= grid.width as i32 || cz >= grid.height as i32 {
                         return None;
                     }
+                    if solid.is_solid(cx, cz) {
+                        return Some(RayHit {
+                            tile: Tile::Wall,
+                            tile_coord: IVec2::new(cx, cz),
+                            pos: origin + dir3 * dist,
+                            normal,
+                            dist,
+                        });
+                    }
                     let tile = grid.tile(cx as usize, cz as usize);
                     if matches!(tile, Tile::Wall | Tile::DoorClosed) {
                         return Some(RayHit {
@@ -163,6 +173,19 @@ pub fn raycast_grid(grid: &MapGrid, origin: Vec3, dir3: Vec3, max_dist: f32) -> 
         // Bounds
         if ix < 0 || iz < 0 || ix >= grid.width as i32 || iz >= grid.height as i32 {
             return None;
+        }
+
+        if solid.is_solid(ix, iz) {
+            let y_at = origin.y + dy * dist;
+            if y_at >= FLOOR_Y - EPS_Y && y_at <= WALL_H + EPS_Y {
+                return Some(RayHit {
+                    tile: Tile::Wall,
+                    tile_coord: IVec2::new(ix, iz),
+                    pos: origin + dir3 * dist,
+                    normal: step_normal,
+                    dist,
+                });
+            }
         }
 
         let tile = grid.tile(ix as usize, iz as usize);

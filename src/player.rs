@@ -103,6 +103,7 @@ pub fn player_move(
     time: Res<Time<Fixed>>,
     keys: Res<ButtonInput<KeyCode>>,
     grid: Res<MapGrid>,
+    solid: Res<crate::decorations::SolidStatics>,
     q_enemies: Query<&OccupiesTile, Without<Dead>>,
     mut q_player: Query<&mut Transform, With<Player>>,
     settings: Res<PlayerSettings>,
@@ -159,7 +160,13 @@ pub fn player_move(
         occupied.iter().any(|t| t.x == tx && t.y == tz)
     }
 
-    fn is_solid(grid: &MapGrid, occupied: &[IVec2], tx: i32, tz: i32) -> bool {
+    fn is_solid(
+        grid: &MapGrid,
+        solid: &crate::decorations::SolidStatics,
+        occupied: &[IVec2],
+        tx: i32,
+        tz: i32,
+    ) -> bool {
         if tx < 0 || tz < 0 || tx >= grid.width as i32 || tz >= grid.height as i32 {
             // Outside Map = Solid
             return true;
@@ -170,10 +177,20 @@ pub fn player_move(
             return true;
         }
 
+        if solid.is_solid(tx, tz) {
+            return true;
+        }
+
         matches!(grid.tile(tx as usize, tz as usize), Tile::Wall | Tile::DoorClosed)
     }
 
-    fn collides(grid: &MapGrid, occupied: &[IVec2], pos_xz: Vec2, radius: f32) -> bool {
+    fn collides(
+        grid: &MapGrid,
+        solid: &crate::decorations::SolidStatics,
+        occupied: &[IVec2],
+        pos_xz: Vec2,
+        radius: f32,
+    ) -> bool {
         let samples = [
             pos_xz + Vec2::new(-radius, -radius),
             pos_xz + Vec2::new(-radius,  radius),
@@ -183,7 +200,7 @@ pub fn player_move(
 
         for s in samples {
             let t = world_to_tile(s);
-            if is_solid(grid, occupied, t.x, t.y) {
+            if is_solid(grid, solid, occupied, t.x, t.y) {
                 return true;
             }
         }
@@ -195,12 +212,12 @@ pub fn player_move(
 
     // Slide: Resolve X, then Z
     let try_x = Vec2::new(pos.x + step.x, pos.y);
-    if !collides(&grid, &occupied, try_x, PLAYER_RADIUS) {
+    if !collides(&grid, &solid, &occupied, try_x, PLAYER_RADIUS) {
         pos.x = try_x.x;
     }
 
     let try_z = Vec2::new(pos.x, pos.y + step.z);
-    if !collides(&grid, &occupied, try_z, PLAYER_RADIUS) {
+    if !collides(&grid, &solid, &occupied, try_z, PLAYER_RADIUS) {
         pos.y = try_z.y;
     }
 

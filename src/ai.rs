@@ -6,6 +6,7 @@ use std::collections::{HashSet, HashMap};
 
 use crate::actors::{Dead, OccupiesTile};
 use crate::audio::{PlaySfx, SfxKind};
+use crate::decorations::SolidStatics;
 use crate::enemies::{Dir8, EnemyKind, Guard};
 use crate::map::{DoorState, DoorTile, MapGrid, Tile};
 use crate::player::Player;
@@ -171,7 +172,7 @@ fn tile_at(grid: &MapGrid, t: IVec2) -> Option<Tile> {
     Some(grid.tile(x, z))
 }
 
-fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
+fn has_line_of_sight(grid: &MapGrid, solid: &SolidStatics, from: IVec2, to: IVec2) -> bool {
     if from == to {
         return true;
     }
@@ -252,6 +253,9 @@ fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
                 if cx == to.x && cz == to.y {
                     continue;
                 }
+                if solid.is_solid(cx, cz) {
+                    return false;
+                }
                 let t = grid.tile(cx as usize, cz as usize);
                 if matches!(t, Tile::Wall | Tile::DoorClosed) {
                     return false;
@@ -277,6 +281,9 @@ fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
             return true;
         }
 
+        if solid.is_solid(ix, iz) {
+            return false;
+        }
         let tile = grid.tile(ix as usize, iz as usize);
         if matches!(tile, Tile::Wall | Tile::DoorClosed) {
             return false;
@@ -418,6 +425,7 @@ pub fn enemy_ai_tick(
     time: Res<Time>,
     mut ticker: ResMut<AiTicker>,
     grid: Res<MapGrid>,
+    solid: Res<SolidStatics>,
     q_player: Query<&GlobalTransform, With<Player>>,
     mut q_doors: Query<(&DoorTile, &mut DoorState, &GlobalTransform)>,
     mut sfx: MessageWriter<PlaySfx>,
@@ -491,7 +499,9 @@ pub fn enemy_ai_tick(
         let idx = |t: IVec2| (t.y * w + t.x) as usize;
 
         let mut dist = vec![-1i32; grid.width * grid.height];
-        if in_bounds(player_tile) && grid.tile(player_tile.x as usize, player_tile.y as usize) != Tile::Wall {
+        if in_bounds(player_tile)
+            && !solid.is_solid(player_tile.x, player_tile.y)
+            && grid.tile(player_tile.x as usize, player_tile.y as usize) != Tile::Wall {
             dist[idx(player_tile)] = 0;
 
             let mut queue: Vec<IVec2> = vec![player_tile];
@@ -521,7 +531,7 @@ pub fn enemy_ai_tick(
                         continue;
                     }
                     // Only walls are hard-blocking for BFS; doors are "traversable" as intent.
-                    if grid.tile(n.x as usize, n.y as usize) == Tile::Wall {
+                    if solid.is_solid(n.x, n.y) || grid.tile(n.x as usize, n.y as usize) == Tile::Wall {
                         continue;
                     }
                     dist[ni] = next;
@@ -540,7 +550,7 @@ pub fn enemy_ai_tick(
             // Acquire -> Chase (activation gated by same area + LOS)
             if ai.state == EnemyAiState::Stand {
                 let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
-                if same_area && has_line_of_sight(&grid, my_tile, player_tile) {
+                if same_area && has_line_of_sight(&grid, &solid, my_tile, player_tile) {
                     ai.state = EnemyAiState::Chase;
 
                     // one-time alert per enemy (without adding fields to EnemyAi)
@@ -575,7 +585,7 @@ pub fn enemy_ai_tick(
             // =========================
             // SHOOT LOGIC
             // =========================
-            let can_see = has_line_of_sight(&grid, my_tile, player_tile);
+            let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
 
             // Wolf-ish distance (Chebyshev)
             let dx = (player_tile.x - my_tile.x).abs();
@@ -639,7 +649,7 @@ pub fn enemy_ai_tick(
                         }
 
                         let tile = grid.tile(dest.x as usize, dest.y as usize);
-                        if tile == Tile::Wall {
+                        if tile == Tile::Wall || solid.is_solid(dest.x, dest.y) {
                             continue;
                         }
 

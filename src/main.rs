@@ -17,6 +17,10 @@ use davelib::audio::{
     start_music,
     PlaySfx,
 };
+use davelib::decorations::{
+    billboard_decorations,
+    spawn_wolf_e1m1_decorations,
+};
 use davelib::enemies::EnemiesPlugin;
 use davelib::player::{
     door_animate,
@@ -75,6 +79,7 @@ fn main() {
                 setup_audio,
                 start_music,
                 setup,
+                spawn_wolf_e1m1_decorations,
                 pickups::spawn_wolf_e1m1_pickups,
             )
                 .chain(),
@@ -85,6 +90,7 @@ fn main() {
                 grab_mouse,
                 mouse_look,
                 pickups::billboard_pickups,
+                billboard_decorations,
                 use_doors,
             )
                 .chain(),

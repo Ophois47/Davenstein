@@ -12,7 +12,8 @@ use davelib::actors::{
     Health,
     OccupiesTile,
 };
-use davelib::audio::{PlaySfx, /*SfxKind*/};
+use davelib::audio::PlaySfx;
+use davelib::decorations::SolidStatics;
 use davelib::enemies::{
     Guard,
     GuardDying,
@@ -60,6 +61,7 @@ impl WeaponSlot {
 
 fn process_fire_shots(
     grid: Res<MapGrid>,
+    solid: Res<SolidStatics>,
     mut shots: MessageReader<FireShot>,
     mut _sfx: MessageWriter<PlaySfx>,
     mut commands: Commands,
@@ -145,7 +147,7 @@ fn process_fire_shots(
             continue;
         }
 
-        let world_hit = raycast_grid(&grid, shot.origin, dir, shot.max_dist);
+        let world_hit = raycast_grid(&grid, &solid, shot.origin, dir, shot.max_dist);
         let world_dist = world_hit.as_ref().map(|h| h.dist).unwrap_or(shot.max_dist);
 
         // Find Nearest Living Guard Hit Before the Wall / Floor Hit
