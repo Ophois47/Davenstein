@@ -177,9 +177,6 @@ pub fn setup(
         Transform::from_translation(room_center),
     ));
 
-    // Reusable Meshes / Constants
-    let wall_face_plain = meshes.add(Plane3d::default().mesh().size(TILE_SIZE, WALL_H));
-
     // --- Wall atlas mapping (WL6 VSWAP walls 0..105 packed 16x7, 64x64 each) ---
     const VSWAP_WALL_CHUNKS: usize = 106;
     const ATLAS_COLS: usize = 16;
@@ -272,11 +269,7 @@ pub fn setup(
     let door_panel_front = build_atlas_panel(&mut meshes, 0.0, 1.0, 1.0, 0.0, false);
     let door_panel_back = build_atlas_panel(&mut meshes, 0.0, 1.0, 1.0, 0.0, true);
     let jamb_panel = build_atlas_panel(&mut meshes, 0.0, 1.0, 1.0, 0.0, false);
-
     let wall_base = Quat::from_rotation_x(-FRAC_PI_2); // Make Plane3d Vertical
-    let half_tile = TILE_SIZE * 0.5;
-
-    let is_door = |t: Tile| matches!(t, Tile::DoorClosed | Tile::DoorOpen);
 
     // Walls + Doors From Grid
     for z in 0..grid.height {
@@ -327,7 +320,7 @@ pub fn setup(
                         };
 
                     // -Z (north)
-                    if z == 0 || (!is_wall(x, z - 1) && !is_door(grid.tile(x, z - 1))) {
+                    if z == 0 || !is_wall(x, z - 1) {
                         let neighbor_is_door = z > 0 && is_door(grid.tile(x, z - 1));
                         spawn_face(
                             if neighbor_is_door { jamb_panel.clone() } else { wall_mesh_light.clone() },
@@ -338,7 +331,7 @@ pub fn setup(
                     }
 
                     // +Z (south)
-                    if z + 1 >= grid.height || (!is_wall(x, z + 1) && !is_door(grid.tile(x, z + 1))) {
+                    if z + 1 >= grid.height || !is_wall(x, z + 1) {
                         let neighbor_is_door = (z + 1) < grid.height && is_door(grid.tile(x, z + 1));
                         spawn_face(
                             if neighbor_is_door { jamb_panel.clone() } else { wall_mesh_light.clone() },
@@ -349,24 +342,24 @@ pub fn setup(
                     }
 
                     // -X (west)
-                    if x == 0 || (!is_wall(x - 1, z) && !is_door(grid.tile(x - 1, z))) {
+                    if x == 0 || !is_wall(x - 1, z) {
                         let neighbor_is_door = x > 0 && is_door(grid.tile(x - 1, z));
                         spawn_face(
                             if neighbor_is_door { jamb_panel.clone() } else { wall_mesh_dark.clone() },
                             Vec3::new(cx - TILE_SIZE * 0.5, y, cz),
                             std::f32::consts::FRAC_PI_2,
-                            if neighbor_is_door { jamb_mat.clone() } else { wall_mat.clone() },
+                            if neighbor_is_door { jamb_mat.clone() } else { wall_mat_dark.clone() },
                         );
                     }
 
                     // +X (east)
-                    if x + 1 >= grid.width || (!is_wall(x + 1, z) && !is_door(grid.tile(x + 1, z))) {
+                    if x + 1 >= grid.width || !is_wall(x + 1, z) {
                         let neighbor_is_door = (x + 1) < grid.width && is_door(grid.tile(x + 1, z));
                         spawn_face(
                             if neighbor_is_door { jamb_panel.clone() } else { wall_mesh_dark.clone() },
                             Vec3::new(cx + TILE_SIZE * 0.5, y, cz),
                             -std::f32::consts::FRAC_PI_2,
-                            if neighbor_is_door { jamb_mat.clone() } else { wall_mat.clone() },
+                            if neighbor_is_door { jamb_mat.clone() } else { wall_mat_dark.clone() },
                         );
                     }
                 }
