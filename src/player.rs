@@ -109,6 +109,7 @@ pub fn player_move(
 ) {
     // Tile Units (Tile = 1.0)
     const PLAYER_RADIUS: f32 = 0.25;
+    const RUN_MULTIPLIER: f32 = 1.6;
 
     let Ok(mut transform) = q_player.single_mut() else {
         return;
@@ -139,7 +140,15 @@ pub fn player_move(
         return;
     }
 
-    let step = wish * settings.speed * time.delta_secs();
+    // Run (Shift) multiplies movement speed
+    let running = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let speed = if running {
+        settings.speed * RUN_MULTIPLIER
+    } else {
+        settings.speed
+    };
+
+    let step = wish * speed * time.delta_secs();
 
     // World POS (X,Z) -> Tile Index (X,Z)
     fn world_to_tile(p: Vec2) -> IVec2 {
