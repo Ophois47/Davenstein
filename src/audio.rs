@@ -197,7 +197,22 @@ pub fn start_music(
 fn is_pickup_kind(k: SfxKind) -> bool {
     matches!(
         k,
-        SfxKind::PickupChaingun | SfxKind::PickupMachineGun | SfxKind::PickupAmmo
+        // Pickups - Weapons
+        SfxKind::PickupChaingun
+            | SfxKind::PickupMachineGun
+            | SfxKind::PickupAmmo
+
+            // Pickups - Health
+            | SfxKind::PickupHealthFirstAid
+            | SfxKind::PickupHealthDinner
+            | SfxKind::PickupHealthDogFood
+            | SfxKind::PickupOneUp
+
+            // Pickups - Treasure
+            | SfxKind::PickupTreasureCross
+            | SfxKind::PickupTreasureChalice
+            | SfxKind::PickupTreasureChest
+            | SfxKind::PickupTreasureCrown
     )
 }
 

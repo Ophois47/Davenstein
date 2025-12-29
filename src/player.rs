@@ -391,7 +391,7 @@ pub fn door_auto_close(
     const FULLY_OPEN_EPS: f32 = 0.999;
 
     // Must match player_move
-    const PLAYER_RADIUS: f32 = 0.25;
+    const PLAYER_RADIUS: f32 = 0.20;
     const BLOCK_PAD: f32 = 0.02;
 
     let Ok(player_tf) = q_player.single() else { return; };
