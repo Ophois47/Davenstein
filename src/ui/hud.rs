@@ -808,13 +808,13 @@ pub(crate) fn setup_hud(
     const AMMO_X: f32 = 208.0;
 
     // Icon sizes
-    const KEY_W: f32 = 8.5;
-    const KEY_H: f32 = 18.0;
+    const KEY_W: f32 = 7.0;
+    const KEY_H: f32 = 17.0;
 
     // Keys: stacked
-    const KEY_X: f32 = 240.7;
-    const KEY_GOLD_Y: f32 = 5.1;
-    const KEY_SILVER_Y: f32 = 22.0;
+    const KEY_X: f32 = 242.0;
+    const KEY_GOLD_Y: f32 = 5.2;
+    const KEY_SILVER_Y: f32 = 23.0;
 
     // Weapon icon (to the right of the keys)
     const WEP_X: f32 = 262.0;
