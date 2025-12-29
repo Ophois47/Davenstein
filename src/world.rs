@@ -463,7 +463,7 @@ pub fn setup(
     // Player Spawn From Grid
     let player_pos = Vec3::new(
         spawn.x as f32 * TILE_SIZE,
-        0.6,
+        0.5,
         spawn.y as f32 * TILE_SIZE,
     );
 

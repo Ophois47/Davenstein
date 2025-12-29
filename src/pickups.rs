@@ -128,13 +128,21 @@ fn oneup_size() -> (f32, f32) {
 }
 
 fn treasure_size(t: TreasureKind) -> (f32, f32) {
+    const CROSS_SCALE: f32 = 1.25;
+
     let aspect = match t {
         TreasureKind::Cross => CROSS_ASPECT,
         TreasureKind::Chalice => CHALICE_ASPECT,
         TreasureKind::Chest => CHEST_ASPECT,
         TreasureKind::Crown => CROWN_ASPECT,
     };
-    (TREASURE_H * aspect, TREASURE_H)
+
+    let s = match t {
+        TreasureKind::Cross => CROSS_SCALE,
+        _ => 1.0,
+    };
+
+    (TREASURE_H * aspect * s, TREASURE_H * s)
 }
 
 fn weapon_pickup_texture(w: WeaponSlot) -> &'static str {

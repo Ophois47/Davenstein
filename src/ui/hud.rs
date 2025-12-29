@@ -2,7 +2,7 @@
 Davenstein - by David Petnick
 */
 use bevy::prelude::*;
-use bevy::window::{CursorGrabMode, CursorOptions};
+use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
 use super::HudState;
 use davelib::audio::{PlaySfx, SfxKind};
@@ -552,224 +552,6 @@ pub(crate) fn weapon_fire_and_viewmodel(
     }
 }
 
-pub(crate) fn setup_hud(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    hud: Res<HudState>,
-) {
-    // Viewmodel sprites (unchanged)
-    let sprites = ViewModelSprites {
-        knife: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/knife_{i}.png"))),
-        pistol: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/pistol_{i}.png"))),
-        machinegun: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/machinegun_{i}.png"))),
-        chaingun: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/chaingun_{i}.png"))),
-    };
-    commands.insert_resource(sprites.clone());
-    let weapon_idle: Handle<Image> = sprites.idle(hud.selected);
-
-    // NEW: HUD digit sprites
-    let hud_digits = HudDigitSprites {
-        digits: std::array::from_fn(|i| asset_server.load(format!("textures/hud/digits/digit_{i}.png"))),
-        blank: asset_server.load("textures/hud/digits/digit_blank.png"),
-    };
-    commands.insert_resource(hud_digits.clone());
-
-    const STATUS_BAR_H: f32 = 64.0;
-
-    const GUN_SCALE: f32 = 9.5;
-    const GUN_SRC_PX: f32 = 64.0;
-    const GUN_PX: f32 = GUN_SRC_PX * GUN_SCALE;
-
-    // Wolfenstein 3d HUD blue (matches the digit cell background: 0,0,164)
-    const BACKGROUND_COLOR: bevy::prelude::Srgba = Srgba::rgb(0.0, 0.0, 164.0 / 255.0);
-
-    // Wolf virtual HUD width (stable pixel space)
-    const HUD_W: f32 = 320.0;
-
-    // Digit sprite size from the strip we sliced
-    const DIGIT_W: f32 = 8.0;
-    const DIGIT_H: f32 = 16.0;
-
-    commands
-        .spawn(Node {
-            width: Val::Percent(100.0),
-            height: Val::Percent(100.0),
-            position_type: PositionType::Absolute,
-            flex_direction: FlexDirection::Column,
-            ..default()
-        })
-        .with_children(|ui| {
-            // View area
-            ui.spawn(Node {
-                width: Val::Percent(100.0),
-                flex_grow: 1.0,
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::FlexEnd,
-                padding: UiRect::bottom(Val::Px(0.05)),
-                ..default()
-            })
-            .with_children(|vm| {
-                vm.spawn((
-                    ViewModelImage,
-                    ImageNode::new(weapon_idle),
-                    Node {
-                        width: Val::Px(GUN_PX),
-                        height: Val::Px(GUN_PX),
-                        ..default()
-                    },
-                ));
-
-                vm.spawn((
-                    DamageFlashOverlay,
-                    Node {
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(0.0),
-                        top: Val::Px(0.0),
-                        ..default()
-                    },
-                    BackgroundColor(Srgba::new(1.0, 0.0, 0.0, 0.0).into()),
-                ));
-            });
-
-            // Status bar container
-            ui.spawn((
-                Node {
-                    width: Val::Percent(100.0),
-                    height: Val::Px(STATUS_BAR_H),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-                BackgroundColor(BACKGROUND_COLOR.into()),
-            ))
-            .with_children(|bar| {
-                // Inner HUD canvas (320x64)
-                bar.spawn(Node {
-                    width: Val::Px(HUD_W),
-                    height: Val::Px(STATUS_BAR_H),
-                    position_type: PositionType::Relative,
-                    ..default()
-                })
-                .with_children(|inner| {
-                    // SCORE (6 digits, leading blanks, always show one digit)
-                    let score_digits = split_score_6_blanks(hud.score);
-                    inner
-                        .spawn(Node {
-                            position_type: PositionType::Absolute,
-                            left: Val::Px(52.0),
-                            top: Val::Px(24.0),
-                            flex_direction: FlexDirection::Row,
-                            ..default()
-                        })
-                        .with_children(|score| {
-                            for (slot, dopt) in score_digits.iter().enumerate() {
-                                let handle = match dopt {
-                                    Some(d) => hud_digits.digits[*d].clone(),
-                                    None => hud_digits.blank.clone(),
-                                };
-
-                                score.spawn((
-                                    HudScoreDigit(slot),
-                                    ImageNode::new(handle),
-                                    Node {
-                                        width: Val::Px(DIGIT_W),
-                                        height: Val::Px(DIGIT_H),
-                                        ..default()
-                                    },
-                                ));
-                            }
-                        });
-
-                    // LIVES (2 digits, right-aligned blanks)
-                    let lives_digits = split_right_aligned_blanks(hud.lives, 2);
-                    inner
-                        .spawn(Node {
-                            position_type: PositionType::Absolute,
-                            left: Val::Px(112.0),
-                            top: Val::Px(24.0),
-                            flex_direction: FlexDirection::Row,
-                            ..default()
-                        })
-                        .with_children(|lives| {
-                            for (slot, dopt) in lives_digits.iter().enumerate() {
-                                let handle = match dopt {
-                                    Some(d) => hud_digits.digits[*d].clone(),
-                                    None => hud_digits.blank.clone(),
-                                };
-                                lives.spawn((
-                                    HudLivesDigit(slot),
-                                    ImageNode::new(handle),
-                                    Node {
-                                        width: Val::Px(DIGIT_W),
-                                        height: Val::Px(DIGIT_H),
-                                        ..default()
-                                    },
-                                ));
-                            }
-                        });
-
-                    // HEALTH
-                    let hp_digits = split_3_right_aligned(hud.hp);
-                    inner.spawn(Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(176.0),
-                        top: Val::Px(24.0),
-                        flex_direction: FlexDirection::Row,
-                        ..default()
-                    })
-                    .with_children(|hp| {
-                        for (slot, dopt) in hp_digits.iter().enumerate() {
-                            let handle = match dopt {
-                                Some(d) => hud_digits.digits[*d].clone(),
-                                None => hud_digits.blank.clone(),
-                            };
-                            hp.spawn((
-                                HudHpDigit(slot),
-                                ImageNode::new(handle),
-                                Node {
-                                    width: Val::Px(DIGIT_W),
-                                    height: Val::Px(DIGIT_H),
-                                    ..default()
-                                },
-                            ));
-                        }
-                    });
-
-                    // AMMO (digit sprites)
-                    let ammo_digits = split_3_right_aligned(hud.ammo);
-                    inner
-                        .spawn(Node {
-                            position_type: PositionType::Absolute,
-                            left: Val::Px(218.0),
-                            top: Val::Px(24.0), // tweak 22/24 depending on your digit height
-                            flex_direction: FlexDirection::Row,
-                            ..default()
-                        })
-                        .with_children(|ammo| {
-                            for (slot, dopt) in ammo_digits.iter().enumerate() {
-                                let handle = match dopt {
-                                    Some(d) => hud_digits.digits[*d].clone(),
-                                    None => hud_digits.blank.clone(),
-                                };
-
-                                ammo.spawn((
-                                    HudAmmoDigit(slot),
-                                    ImageNode::new(handle),
-                                    Node {
-                                        width: Val::Px(DIGIT_W),
-                                        height: Val::Px(DIGIT_H),
-                                        ..default()
-                                    },
-                                ));
-                            }
-                        });
-                });
-            });
-        });
-}
-
 pub(crate) fn sync_hud_hp_digits(
     hud: Res<HudState>,
     digits: Option<Res<HudDigitSprites>>,
@@ -882,4 +664,268 @@ pub(crate) fn tick_damage_flash(
     for mut bg in q.iter_mut() {
         *bg = BackgroundColor(Srgba::new(1.0, 0.0, 0.0, a).into());
     }
+}
+
+pub(crate) fn setup_hud(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    hud: Res<HudState>,
+    q_windows: Query<&Window, With<PrimaryWindow>>,
+) {
+    // Viewmodel sprites
+    let sprites = ViewModelSprites {
+        knife: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/knife_{i}.png"))),
+        pistol: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/pistol_{i}.png"))),
+        machinegun: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/machinegun_{i}.png"))),
+        chaingun: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/chaingun_{i}.png"))),
+    };
+    commands.insert_resource(sprites.clone());
+
+    // Starting viewmodel based on selected weapon
+    let weapon_idle: Handle<Image> = sprites.idle(hud.selected);
+
+    // HUD digit sprites
+    let hud_digits = HudDigitSprites {
+        digits: std::array::from_fn(|i| asset_server.load(format!("textures/hud/digits/digit_{i}.png"))),
+        blank: asset_server.load("textures/hud/digits/digit_blank.png"),
+    };
+    commands.insert_resource(hud_digits.clone());
+
+    // Boxed HUD strip background (320x44)
+    let status_bar: Handle<Image> = asset_server.load("textures/hud/status_bar.png");
+
+    // --- Native Wolf HUD sizing ---
+    const HUD_W: f32 = 320.0;
+
+    // IMPORTANT: for now, the HUD height is ONLY the strip height (44px),
+    // so there is no meaningless blue area below it.
+    const STATUS_H: f32 = 44.0;
+
+    // Digit cell size (native)
+    const DIGIT_W: f32 = 8.0;
+    const DIGIT_H: f32 = 16.0;
+    const DIGIT_TOP: f32 = 18.0;
+
+    // Placement tweaks (native coords)
+    const SCORE_X: f32 = 48.0;
+    const LIVES_X: f32 = 108.0;
+    const HP_X: f32 = 168.0;
+    const AMMO_X: f32 = 208.0;
+
+    // Pixel-perfect integer scale from window width
+    let win = q_windows.iter().next().expect("PrimaryWindow");
+    let win_w = win.resolution.width();
+    let hud_scale_i = (win_w / HUD_W).floor().max(1.0) as i32;
+    let hud_scale = hud_scale_i as f32;
+
+    // Scaled sizes
+    let hud_w_px = HUD_W * hud_scale;
+    let status_h_px = STATUS_H * hud_scale;
+
+    let digit_w_px = DIGIT_W * hud_scale;
+    let digit_h_px = DIGIT_H * hud_scale;
+    let digit_top_px = DIGIT_TOP * hud_scale;
+
+    let score_x_px = SCORE_X * hud_scale;
+    let lives_x_px = LIVES_X * hud_scale;
+    let hp_x_px = HP_X * hud_scale;
+    let ammo_x_px = AMMO_X * hud_scale;
+
+    const GUN_SCALE: f32 = 7.5;
+    const GUN_SRC_PX: f32 = 64.0;
+    const GUN_PX: f32 = GUN_SRC_PX * GUN_SCALE;
+
+    // Wolf HUD blue (0, 0, 164)
+    const BACKGROUND_COLOR: bevy::prelude::Srgba = Srgba::rgb(0.0, 0.0, 164.0 / 255.0);
+
+    commands
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            position_type: PositionType::Absolute,
+            flex_direction: FlexDirection::Column,
+            ..default()
+        })
+        .with_children(|ui| {
+            // View area
+            ui.spawn(Node {
+                width: Val::Percent(100.0),
+                flex_grow: 1.0,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::FlexEnd,
+                padding: UiRect::bottom(Val::Px(0.05)),
+                ..default()
+            })
+            .with_children(|vm| {
+                vm.spawn((
+                    ViewModelImage,
+                    ImageNode::new(weapon_idle),
+                    Node {
+                        width: Val::Px(GUN_PX),
+                        height: Val::Px(GUN_PX),
+                        ..default()
+                    },
+                ));
+
+                vm.spawn((
+                    DamageFlashOverlay,
+                    Node {
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(0.0),
+                        top: Val::Px(0.0),
+                        ..default()
+                    },
+                    BackgroundColor(Srgba::new(1.0, 0.0, 0.0, 0.0).into()),
+                ));
+            });
+
+            // Status bar container (NOW only 44px tall, scaled)
+            ui.spawn((
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Px(status_h_px),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                BackgroundColor(BACKGROUND_COLOR.into()),
+            ))
+            .with_children(|bar| {
+                // Inner HUD canvas (scaled)
+                bar.spawn(Node {
+                    width: Val::Px(hud_w_px),
+                    height: Val::Px(status_h_px),
+                    position_type: PositionType::Relative,
+                    ..default()
+                })
+                .with_children(|inner| {
+                    // Boxed strip (spawn first so it draws behind digits)
+                    inner.spawn((
+                        ImageNode::new(status_bar.clone()),
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(0.0),
+                            top: Val::Px(0.0),
+                            width: Val::Px(hud_w_px),
+                            height: Val::Px(status_h_px),
+                            ..default()
+                        },
+                    ));
+
+                    // SCORE
+                    let score_digits = split_score_6_blanks(hud.score);
+                    inner
+                        .spawn(Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(score_x_px),
+                            top: Val::Px(digit_top_px),
+                            flex_direction: FlexDirection::Row,
+                            ..default()
+                        })
+                        .with_children(|score| {
+                            for (slot, dopt) in score_digits.iter().enumerate() {
+                                let handle = match dopt {
+                                    Some(d) => hud_digits.digits[*d].clone(),
+                                    None => hud_digits.blank.clone(),
+                                };
+                                score.spawn((
+                                    HudScoreDigit(slot),
+                                    ImageNode::new(handle),
+                                    Node {
+                                        width: Val::Px(digit_w_px),
+                                        height: Val::Px(digit_h_px),
+                                        ..default()
+                                    },
+                                ));
+                            }
+                        });
+
+                    // LIVES
+                    let lives_digits = split_right_aligned_blanks(hud.lives, 2);
+                    inner
+                        .spawn(Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(lives_x_px),
+                            top: Val::Px(digit_top_px),
+                            flex_direction: FlexDirection::Row,
+                            ..default()
+                        })
+                        .with_children(|lives| {
+                            for (slot, dopt) in lives_digits.iter().enumerate() {
+                                let handle = match dopt {
+                                    Some(d) => hud_digits.digits[*d].clone(),
+                                    None => hud_digits.blank.clone(),
+                                };
+                                lives.spawn((
+                                    HudLivesDigit(slot),
+                                    ImageNode::new(handle),
+                                    Node {
+                                        width: Val::Px(digit_w_px),
+                                        height: Val::Px(digit_h_px),
+                                        ..default()
+                                    },
+                                ));
+                            }
+                        });
+
+                    // HEALTH
+                    let hp_digits = split_3_right_aligned(hud.hp);
+                    inner
+                        .spawn(Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(hp_x_px),
+                            top: Val::Px(digit_top_px),
+                            flex_direction: FlexDirection::Row,
+                            ..default()
+                        })
+                        .with_children(|hp| {
+                            for (slot, dopt) in hp_digits.iter().enumerate() {
+                                let handle = match dopt {
+                                    Some(d) => hud_digits.digits[*d].clone(),
+                                    None => hud_digits.blank.clone(),
+                                };
+                                hp.spawn((
+                                    HudHpDigit(slot),
+                                    ImageNode::new(handle),
+                                    Node {
+                                        width: Val::Px(digit_w_px),
+                                        height: Val::Px(digit_h_px),
+                                        ..default()
+                                    },
+                                ));
+                            }
+                        });
+
+                    // AMMO
+                    let ammo_digits = split_3_right_aligned(hud.ammo);
+                    inner
+                        .spawn(Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(ammo_x_px),
+                            top: Val::Px(digit_top_px),
+                            flex_direction: FlexDirection::Row,
+                            ..default()
+                        })
+                        .with_children(|ammo| {
+                            for (slot, dopt) in ammo_digits.iter().enumerate() {
+                                let handle = match dopt {
+                                    Some(d) => hud_digits.digits[*d].clone(),
+                                    None => hud_digits.blank.clone(),
+                                };
+                                ammo.spawn((
+                                    HudAmmoDigit(slot),
+                                    ImageNode::new(handle),
+                                    Node {
+                                        width: Val::Px(digit_w_px),
+                                        height: Val::Px(digit_h_px),
+                                        ..default()
+                                    },
+                                ));
+                            }
+                        });
+                });
+            });
+        });
 }

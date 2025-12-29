@@ -251,7 +251,7 @@ pub fn play_sfx_events(
             SfxKind::DoorOpen | SfxKind::DoorClose | SfxKind::NoWay | SfxKind::Pushwall => PlaybackSettings::DESPAWN
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.12))
-                .with_volume(Volume::Linear(0.9)),
+                .with_volume(Volume::Linear(1.0)),
 
             SfxKind::KnifeSwing
             | SfxKind::PistolFire
@@ -259,7 +259,7 @@ pub fn play_sfx_events(
             | SfxKind::ChaingunFire => PlaybackSettings::DESPAWN
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.12))
-                .with_volume(Volume::Linear(1.25)),
+                .with_volume(Volume::Linear(1.3)),
 
             SfxKind::PickupHealthFirstAid
 			| SfxKind::PickupHealthDinner
@@ -267,7 +267,7 @@ pub fn play_sfx_events(
 			| SfxKind::PickupOneUp => PlaybackSettings::DESPAWN
 			    .with_spatial(true)
 			    .with_spatial_scale(SpatialScale::new(0.10))
-			    .with_volume(Volume::Linear(1.2)),
+			    .with_volume(Volume::Linear(1.25)),
 
             SfxKind::PickupTreasureCross
             | SfxKind::PickupTreasureChalice
@@ -275,7 +275,7 @@ pub fn play_sfx_events(
             | SfxKind::PickupTreasureCrown => PlaybackSettings::DESPAWN
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.15))
-                .with_volume(Volume::Linear(1.15)),
+                .with_volume(Volume::Linear(1.25)),
 
             SfxKind::EnemyAlert(_) => PlaybackSettings::DESPAWN
                 .with_spatial(true)
@@ -284,7 +284,7 @@ pub fn play_sfx_events(
             SfxKind::EnemyShoot(_) => PlaybackSettings::DESPAWN
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.25))
-                .with_volume(Volume::Linear(1.25)),
+                .with_volume(Volume::Linear(1.3)),
 
             SfxKind::EnemyDeath(_) => PlaybackSettings::DESPAWN
                 .with_spatial(true)
