@@ -11,6 +11,9 @@ pub struct HudState {
     pub ammo: i32,
     pub score: i32,
     pub lives: i32,
+    // Key Icons
+    pub key_gold: bool,
+    pub key_silver: bool,
 
     // Weapon System (1–4)
     pub selected: WeaponSlot,
@@ -41,6 +44,9 @@ impl Default for HudState {
             lives: 3,
             selected: WeaponSlot::Pistol,
             owned_mask: 0,
+
+            key_gold: false,
+            key_silver: false,
         };
 
         // Start with Knife + Pistol
@@ -57,7 +63,7 @@ pub struct DamageFlash {
 
 impl Default for DamageFlash {
     fn default() -> Self {
-        // Wolf-ish quick flash
+        // Red player damage flash
         let mut t = Timer::from_seconds(0.22, TimerMode::Once);
         // Start "finished" so we don't show anything until triggered
         t.set_elapsed(t.duration());

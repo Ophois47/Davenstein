@@ -32,6 +32,7 @@ impl Plugin for UiPlugin {
                     hud::sync_hud_ammo_digits,
                     hud::sync_hud_score_digits,
                     hud::sync_hud_lives_digits,
+                    hud::sync_hud_icons,
                     hud::flash_on_hp_drop,
                     hud::tick_damage_flash,
                 )

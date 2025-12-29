@@ -433,7 +433,7 @@ pub fn setup(
                         },
                     ));
 
-                    // Back (mirrored)
+                    // Back (Mirrored)
                     parent.spawn((
                         Mesh3d(door_panel_back.clone()),
                         MeshMaterial3d(door_mat.clone()),

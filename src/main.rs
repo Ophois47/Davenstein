@@ -85,13 +85,9 @@ fn main() {
         .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
         .init_resource::<PlayerSettings>()
         .init_resource::<PlayerControlLock>()
-
-        // ---- Pushwalls: required resources (prevents "Resource does not exist" panics)
         .init_resource::<PushwallOcc>()
         .init_resource::<PushwallState>()
         .init_resource::<PushwallClock>()
-
-        // ---- Messages
         .add_message::<PlaySfx>()
         .add_message::<RebuildWalls>()
 
@@ -113,8 +109,6 @@ fn main() {
                 mouse_look,
                 pickups::billboard_pickups,
                 billboard_decorations,
-
-                // Prefer pushwalls before doors (both are Space; pushwalls are "wall use")
                 use_pushwalls,
                 use_doors,
             )
@@ -124,10 +118,8 @@ fn main() {
         .add_systems(
             FixedUpdate,
             (
-                // Pushwalls tick first so collision/grid changes apply before player movement
                 tick_pushwalls,
                 rebuild_wall_faces_on_request,
-
                 door_auto_close,
                 door_animate,
                 player_move,

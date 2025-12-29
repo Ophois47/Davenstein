@@ -248,7 +248,10 @@ pub fn play_sfx_events(
         let clip = list[i].clone();
 
         let settings = match e.kind {
-            SfxKind::DoorOpen | SfxKind::DoorClose | SfxKind::NoWay | SfxKind::Pushwall => PlaybackSettings::DESPAWN
+            SfxKind::DoorOpen 
+            | SfxKind::DoorClose 
+            | SfxKind::NoWay 
+            | SfxKind::Pushwall => PlaybackSettings::DESPAWN
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.12))
                 .with_volume(Volume::Linear(1.0)),

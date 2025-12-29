@@ -22,6 +22,38 @@ pub(crate) struct ViewModelSprites {
     pub chaingun: [Handle<Image>; 5],
 }
 
+#[derive(Resource, Clone)]
+pub(crate) struct HudIconSprites {
+    pub weapon_knife: Handle<Image>,
+    pub weapon_pistol: Handle<Image>,
+    pub weapon_machinegun: Handle<Image>,
+    pub weapon_chaingun: Handle<Image>,
+    pub key_gold: Handle<Image>,
+    pub key_silver: Handle<Image>,
+}
+
+impl HudIconSprites {
+    #[inline]
+    pub fn weapon(&self, slot: crate::combat::WeaponSlot) -> Handle<Image> {
+        use crate::combat::WeaponSlot;
+        match slot {
+            WeaponSlot::Knife => self.weapon_knife.clone(),
+            WeaponSlot::Pistol => self.weapon_pistol.clone(),
+            WeaponSlot::MachineGun => self.weapon_machinegun.clone(),
+            WeaponSlot::Chaingun => self.weapon_chaingun.clone(),
+        }
+    }
+}
+
+#[derive(Component)]
+pub(super) struct HudWeaponIcon;
+
+#[derive(Component)]
+pub(super) struct HudGoldKeyIcon;
+
+#[derive(Component)]
+pub(super) struct HudSilverKeyIcon;
+
 #[derive(Component)]
 pub(super) struct HudHpDigit(pub usize); // 0=hundreds, 1=tens, 2=ones
 
@@ -87,40 +119,6 @@ fn split_right_aligned_blanks(n: i32, width: usize) -> Vec<Option<usize>> {
 pub(crate) struct HudDigitSprites {
     pub digits: [Handle<Image>; 10],
     pub blank: Handle<Image>,
-}
-
-fn split_3_right_aligned(n: i32) -> [Option<usize>; 3] {
-    let n = n.clamp(0, 999) as u32;
-    let h = (n / 100) as usize;
-    let t = ((n / 10) % 10) as usize;
-    let o = (n % 10) as usize;
-
-    // Right-aligned with blanks (Wolf-like)
-    let hundreds = if n >= 100 { Some(h) } else { None };
-    let tens = if n >= 10 { Some(t) } else { None };
-    let ones = Some(o);
-
-    [hundreds, tens, ones]
-}
-
-pub(crate) fn sync_viewmodel_size(
-    q_win: Query<&Window, With<PrimaryWindow>>,
-    mut q_vm: Query<&mut Node, With<ViewModelImage>>,
-) {
-    let Some(win) = q_win.iter().next() else { return; };
-    let Some(mut node) = q_vm.iter_mut().next() else { return; };
-
-    // Must match your HUD layout in setup_hud
-    const STATUS_BAR_H: f32 = 64.0;
-
-    // Tune this. 0.60-ish usually matches a "Wolf big gun" feel.
-    const VIEWMODEL_HEIGHT_FRAC: f32 = 0.62;
-
-    let view_h = (win.resolution.height() - STATUS_BAR_H).max(1.0);
-    let gun_px = view_h * VIEWMODEL_HEIGHT_FRAC;
-
-    node.width = Val::Px(gun_px);
-    node.height = Val::Px(gun_px);
 }
 
 impl ViewModelSprites {
@@ -215,6 +213,40 @@ impl Default for WeaponState {
             fire_cycle: 0,
         }
     }
+}
+
+fn split_3_right_aligned(n: i32) -> [Option<usize>; 3] {
+    let n = n.clamp(0, 999) as u32;
+    let h = (n / 100) as usize;
+    let t = ((n / 10) % 10) as usize;
+    let o = (n % 10) as usize;
+
+    // Right-aligned with blanks (Wolf-like)
+    let hundreds = if n >= 100 { Some(h) } else { None };
+    let tens = if n >= 10 { Some(t) } else { None };
+    let ones = Some(o);
+
+    [hundreds, tens, ones]
+}
+
+pub(crate) fn sync_viewmodel_size(
+    q_win: Query<&Window, With<PrimaryWindow>>,
+    mut q_vm: Query<&mut Node, With<ViewModelImage>>,
+) {
+    let Some(win) = q_win.iter().next() else { return; };
+    let Some(mut node) = q_vm.iter_mut().next() else { return; };
+
+    // Must match your HUD layout in setup_hud
+    const STATUS_BAR_H: f32 = 64.0;
+
+    // Tune this. 0.60-ish usually matches a "Wolf big gun" feel.
+    const VIEWMODEL_HEIGHT_FRAC: f32 = 0.62;
+
+    let view_h = (win.resolution.height() - STATUS_BAR_H).max(1.0);
+    let gun_px = view_h * VIEWMODEL_HEIGHT_FRAC;
+
+    node.width = Val::Px(gun_px);
+    node.height = Val::Px(gun_px);
 }
 
 pub(crate) fn weapon_fire_and_viewmodel(
@@ -656,6 +688,42 @@ pub(crate) fn sync_hud_lives_digits(
     }
 }
 
+pub(crate) fn sync_hud_icons(
+    hud: Res<HudState>,
+    icons: Res<HudIconSprites>,
+    mut q_weapon: Query<&mut ImageNode, With<HudWeaponIcon>>,
+    mut q_keys: Query<
+        (&mut Visibility, Option<&HudGoldKeyIcon>, Option<&HudSilverKeyIcon>),
+        Or<(With<HudGoldKeyIcon>, With<HudSilverKeyIcon>)>,
+    >,
+) {
+    // Keys: ALWAYS apply (cheap, and fixes "never becomes visible" issues)
+    for (mut vis, is_gold, is_silver) in &mut q_keys {
+        if is_gold.is_some() {
+            *vis = if hud.key_gold {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        } else if is_silver.is_some() {
+            *vis = if hud.key_silver {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+    }
+
+    // Weapon icon: only update when HUD changed
+    if !hud.is_changed() {
+        return;
+    }
+
+    if let Some(mut img) = q_weapon.iter_mut().next() {
+        img.image = icons.weapon(hud.selected);
+    }
+}
+
 pub(crate) fn flash_on_hp_drop(
     hud: Res<HudState>,
     mut flash: ResMut<super::DamageFlash>,
@@ -711,14 +779,21 @@ pub(crate) fn setup_hud(
     };
     commands.insert_resource(hud_digits.clone());
 
+    let hud_icons = HudIconSprites {
+        weapon_knife: asset_server.load("textures/hud/icons/weapon_knife.png"),
+        weapon_pistol: asset_server.load("textures/hud/icons/weapon_pistol.png"),
+        weapon_machinegun: asset_server.load("textures/hud/icons/weapon_machinegun.png"),
+        weapon_chaingun: asset_server.load("textures/hud/icons/weapon_chaingun.png"),
+        key_gold: asset_server.load("textures/hud/icons/key_gold.png"),
+        key_silver: asset_server.load("textures/hud/icons/key_silver.png"),
+    };
+    commands.insert_resource(hud_icons.clone());
+
     // Boxed HUD strip background (320x44)
     let status_bar: Handle<Image> = asset_server.load("textures/hud/status_bar.png");
 
-    // --- Native Wolf HUD sizing ---
+    // --- Native Wolf HUD sizing (current strip-only HUD) ---
     const HUD_W: f32 = 320.0;
-
-    // IMPORTANT: for now, the HUD height is ONLY the strip height (44px),
-    // so there is no meaningless blue area below it.
     const STATUS_H: f32 = 44.0;
 
     // Digit cell size (native)
@@ -731,6 +806,21 @@ pub(crate) fn setup_hud(
     const LIVES_X: f32 = 108.0;
     const HP_X: f32 = 168.0;
     const AMMO_X: f32 = 208.0;
+
+    // Icon sizes
+    const KEY_W: f32 = 8.5;
+    const KEY_H: f32 = 18.0;
+
+    // Keys: stacked
+    const KEY_X: f32 = 240.7;
+    const KEY_GOLD_Y: f32 = 5.1;
+    const KEY_SILVER_Y: f32 = 22.0;
+
+    // Weapon icon (to the right of the keys)
+    const WEP_X: f32 = 262.0;
+    const WEP_TOP: f32 = 9.0;
+    const WEP_W: f32 = 48.0;
+    const WEP_H: f32 = 24.0;
 
     // Pixel-perfect integer scale from window width
     let win = q_windows.iter().next().expect("PrimaryWindow");
@@ -751,7 +841,20 @@ pub(crate) fn setup_hud(
     let hp_x_px = HP_X * hud_scale;
     let ammo_x_px = AMMO_X * hud_scale;
 
-    const GUN_SCALE: f32 = 7.5;
+    // Scaled key placement
+    let key_w_px = KEY_W * hud_scale;
+    let key_h_px = KEY_H * hud_scale;
+    let key_x_px = KEY_X * hud_scale;
+    let key_gold_y_px = KEY_GOLD_Y * hud_scale;
+    let key_silver_y_px = KEY_SILVER_Y * hud_scale;
+
+    // Scaled weapon placement
+    let wep_x_px = WEP_X * hud_scale;
+    let wep_top_px = WEP_TOP * hud_scale;
+    let wep_w_px = WEP_W * hud_scale;
+    let wep_h_px = WEP_H * hud_scale;
+
+    const GUN_SCALE: f32 = 6.5;
     const GUN_SRC_PX: f32 = 64.0;
     const GUN_PX: f32 = GUN_SRC_PX * GUN_SCALE;
 
@@ -771,37 +874,51 @@ pub(crate) fn setup_hud(
             ui.spawn(Node {
                 width: Val::Percent(100.0),
                 flex_grow: 1.0,
+                min_height: Val::Px(0.0),
+                position_type: PositionType::Relative,
                 justify_content: JustifyContent::Center,
-                align_items: AlignItems::FlexEnd,
-                padding: UiRect::bottom(Val::Px(0.05)),
+                align_items: AlignItems::Center,
                 ..default()
             })
-            .with_children(|vm| {
-                vm.spawn((
-                    ViewModelImage,
-                    ImageNode::new(weapon_idle),
-                    Node {
-                        width: Val::Px(GUN_PX),
-                        height: Val::Px(GUN_PX),
-                        ..default()
-                    },
-                ));
+            .with_children(|view| {
+                // Absolute overlay layer (does NOT affect layout)
+                view.spawn(Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    top: Val::Px(0.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::FlexEnd,
+                    ..default()
+                })
+                .with_children(|vm| {
+                    vm.spawn((
+                        ViewModelImage,
+                        ImageNode::new(weapon_idle),
+                        Node {
+                            width: Val::Px(GUN_PX),
+                            height: Val::Px(GUN_PX),
+                            ..default()
+                        },
+                    ));
 
-                vm.spawn((
-                    DamageFlashOverlay,
-                    Node {
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(0.0),
-                        top: Val::Px(0.0),
-                        ..default()
-                    },
-                    BackgroundColor(Srgba::new(1.0, 0.0, 0.0, 0.0).into()),
-                ));
+                    vm.spawn((
+                        DamageFlashOverlay,
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Percent(100.0),
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(0.0),
+                            top: Val::Px(0.0),
+                            ..default()
+                        },
+                        BackgroundColor(Srgba::new(1.0, 0.0, 0.0, 0.0).into()),
+                    ));
+                });
             });
 
-            // Status bar container (NOW only 44px tall, scaled)
+            // Status bar container (44px tall, scaled)
             ui.spawn((
                 Node {
                     width: Val::Percent(100.0),
@@ -821,9 +938,10 @@ pub(crate) fn setup_hud(
                     ..default()
                 })
                 .with_children(|inner| {
-                    // Boxed strip (spawn first so it draws behind digits)
+                    // Background strip (spawn first so it draws behind everything)
                     inner.spawn((
                         ImageNode::new(status_bar.clone()),
+                        ZIndex(0),
                         Node {
                             position_type: PositionType::Absolute,
                             left: Val::Px(0.0),
@@ -833,6 +951,57 @@ pub(crate) fn setup_hud(
                             ..default()
                         },
                     ));
+
+                    // --- Icons ---
+
+                    // Weapon icon
+                    inner.spawn((
+                        HudWeaponIcon,
+                        ImageNode::new(hud_icons.weapon(hud.selected)),
+                        ZIndex(1),
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(wep_x_px),
+                            top: Val::Px(wep_top_px),
+                            width: Val::Px(wep_w_px),
+                            height: Val::Px(wep_h_px),
+                            ..default()
+                        },
+                    ));
+
+                    // Gold key
+                    inner.spawn((
+                        HudGoldKeyIcon,
+                        ImageNode::new(hud_icons.key_gold.clone()),
+                        ZIndex(1),
+                        if hud.key_gold { Visibility::Visible } else { Visibility::Hidden },
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(key_x_px),
+                            top: Val::Px(key_gold_y_px),
+                            width: Val::Px(key_w_px),
+                            height: Val::Px(key_h_px),
+                            ..default()
+                        },
+                    ));
+
+                    // Silver key
+                    inner.spawn((
+                        HudSilverKeyIcon,
+                        ImageNode::new(hud_icons.key_silver.clone()),
+                        ZIndex(1),
+                        if hud.key_silver { Visibility::Visible } else { Visibility::Hidden },
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(key_x_px),
+                            top: Val::Px(key_silver_y_px),
+                            width: Val::Px(key_w_px),
+                            height: Val::Px(key_h_px),
+                            ..default()
+                        },
+                    ));
+
+                    // --- Digits ---
 
                     // SCORE
                     let score_digits = split_score_6_blanks(hud.score);
