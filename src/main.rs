@@ -30,7 +30,18 @@ use davelib::player::{
     use_doors,
     PlayerSettings,
 };
-use davelib::world::setup;
+use davelib::pushwalls::{
+    use_pushwalls,
+    tick_pushwalls,
+    PushwallOcc,
+    PushwallState,
+    PushwallClock,
+};
+use davelib::world::{
+    setup,
+    rebuild_wall_faces_on_request,
+    RebuildWalls,
+};
 
 static ASSETS: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets");
 
@@ -72,7 +83,16 @@ fn main() {
         .add_plugins(combat::CombatPlugin)
         .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
         .init_resource::<PlayerSettings>()
+
+        // ---- Pushwalls: required resources (prevents "Resource does not exist" panics)
+        .init_resource::<PushwallOcc>()
+        .init_resource::<PushwallState>()
+        .init_resource::<PushwallClock>()
+
+        // ---- Messages
         .add_message::<PlaySfx>()
+        .add_message::<RebuildWalls>()
+
         .add_systems(
             Startup,
             (
@@ -91,6 +111,9 @@ fn main() {
                 mouse_look,
                 pickups::billboard_pickups,
                 billboard_decorations,
+
+                // Prefer pushwalls before doors (both are Space; pushwalls are "wall use")
+                use_pushwalls,
                 use_doors,
             )
                 .chain(),
@@ -99,6 +122,10 @@ fn main() {
         .add_systems(
             FixedUpdate,
             (
+                // Pushwalls tick first so collision/grid changes apply before player movement
+                tick_pushwalls,
+                rebuild_wall_faces_on_request,
+
                 door_auto_close,
                 door_animate,
                 player_move,

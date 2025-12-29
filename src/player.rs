@@ -107,8 +107,9 @@ pub fn player_move(
     q_enemies: Query<&OccupiesTile, Without<Dead>>,
     mut q_player: Query<&mut Transform, With<Player>>,
     settings: Res<PlayerSettings>,
+    push_occ: Res<crate::pushwalls::PushwallOcc>,
 ) {
-    // Tile Units (Tile = 1.0)
+    // Tile Units (Tile = 1.0). Note: tiles are centered on integer coordinates.
     const PLAYER_RADIUS: f32 = 0.25;
     const RUN_MULTIPLIER: f32 = 1.6;
 
@@ -116,10 +117,10 @@ pub fn player_move(
         return;
     };
 
-    // Snapshot Occupied Tiles (No Allocations Beyond Vec)
+    // Snapshot occupied tiles (enemies/actors).
     let occupied: Vec<IVec2> = q_enemies.iter().map(|t| t.0).collect();
 
-    // Movement Basis (XZ Only)
+    // Movement basis (XZ only)
     let mut forward = transform.rotation * Vec3::NEG_Z;
     forward.y = 0.0;
     forward = forward.normalize_or_zero();
@@ -129,19 +130,24 @@ pub fn player_move(
     right = right.normalize_or_zero();
 
     let mut wish = Vec3::ZERO;
-    if keys.pressed(KeyCode::KeyW) { wish += forward; }
-    if keys.pressed(KeyCode::ArrowUp) { wish += forward; }
-    if keys.pressed(KeyCode::KeyS) { wish -= forward; }
-    if keys.pressed(KeyCode::ArrowDown) { wish -= forward; }
-    if keys.pressed(KeyCode::KeyD) { wish += right; }
-    if keys.pressed(KeyCode::KeyA) { wish -= right; }
+    if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
+        wish += forward;
+    }
+    if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
+        wish -= forward;
+    }
+    if keys.pressed(KeyCode::KeyD) {
+        wish += right;
+    }
+    if keys.pressed(KeyCode::KeyA) {
+        wish -= right;
+    }
 
     let wish = wish.normalize_or_zero();
     if wish == Vec3::ZERO {
         return;
     }
 
-    // Run (Shift) multiplies movement speed
     let running = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
     let speed = if running {
         settings.speed * RUN_MULTIPLIER
@@ -151,7 +157,8 @@ pub fn player_move(
 
     let step = wish * speed * time.delta_secs();
 
-    // World POS (X,Z) -> Tile Index (X,Z)
+    // ---- Collision helpers ----
+    // IMPORTANT: Tiles are centered on integer coords; convert world->tile with +0.5.
     fn world_to_tile(p: Vec2) -> IVec2 {
         IVec2::new((p.x + 0.5).floor() as i32, (p.y + 0.5).floor() as i32)
     }
@@ -163,30 +170,41 @@ pub fn player_move(
     fn is_solid(
         grid: &MapGrid,
         solid: &crate::decorations::SolidStatics,
+        push: &crate::pushwalls::PushwallOcc,
         occupied: &[IVec2],
         tx: i32,
         tz: i32,
     ) -> bool {
-        if tx < 0 || tz < 0 || tx >= grid.width as i32 || tz >= grid.height as i32 {
-            // Outside Map = Solid
+        if tx < 0 || tz < 0 {
+            return true;
+        }
+        let txu = tx as usize;
+        let tzu = tz as usize;
+        if txu >= grid.width || tzu >= grid.height {
             return true;
         }
 
-        // Living Enemies == Solid, Corpses Excluded by Query Later
-        if is_occupied(occupied, tx, tz) {
+        // Moving pushwalls behave like solid walls.
+        if push.blocks_tile(tx, tz) {
             return true;
         }
 
-        if solid.is_solid(tx, tz) {
-            return true;
+        match grid.tile(txu, tzu) {
+            Tile::Wall | Tile::DoorClosed => true,
+            _ => {
+                if solid.is_solid(tx, tz) {
+                    return true;
+                }
+                is_occupied(occupied, tx, tz)
+            }
         }
-
-        matches!(grid.tile(tx as usize, tz as usize), Tile::Wall | Tile::DoorClosed)
     }
 
+    // Keep the original fast/simple approach: sample 4 corners of the player's collision circle.
     fn collides(
         grid: &MapGrid,
         solid: &crate::decorations::SolidStatics,
+        push: &crate::pushwalls::PushwallOcc,
         occupied: &[IVec2],
         pos_xz: Vec2,
         radius: f32,
@@ -200,24 +218,23 @@ pub fn player_move(
 
         for s in samples {
             let t = world_to_tile(s);
-            if is_solid(grid, solid, occupied, t.x, t.y) {
+            if is_solid(grid, solid, push, occupied, t.x, t.y) {
                 return true;
             }
         }
         false
     }
 
-    // Current Position in XZ
+    // ---- Apply movement with sliding (X then Z) ----
     let mut pos = Vec2::new(transform.translation.x, transform.translation.z);
 
-    // Slide: Resolve X, then Z
     let try_x = Vec2::new(pos.x + step.x, pos.y);
-    if !collides(&grid, &solid, &occupied, try_x, PLAYER_RADIUS) {
+    if !collides(&grid, &solid, &push_occ, &occupied, try_x, PLAYER_RADIUS) {
         pos.x = try_x.x;
     }
 
     let try_z = Vec2::new(pos.x, pos.y + step.z);
-    if !collides(&grid, &solid, &occupied, try_z, PLAYER_RADIUS) {
+    if !collides(&grid, &solid, &push_occ, &occupied, try_z, PLAYER_RADIUS) {
         pos.y = try_z.y;
     }
 

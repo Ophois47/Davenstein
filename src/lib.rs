@@ -8,4 +8,5 @@ pub mod decorations;
 pub mod enemies;
 pub mod map;
 pub mod player;
+pub mod pushwalls;
 pub mod world;

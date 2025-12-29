@@ -1,7 +1,7 @@
 /*
 Davenstein - by David Petnick
 */
-// ✅ Wolf3D E1M1 wall textures + door jambs — what actually worked
+// Wolf3D E1M1 wall textures + door jambs — what actually worked
 //
 // Problem:
 // - E1M1 walls showed wrong textures (often door/jamb-looking tiles).
@@ -57,10 +57,31 @@ use crate::map::{
 	Tile,
 };
 use crate::player::{LookAngles, Player};
+use crate::pushwalls::PushwallMarkers;
 
 const TILE_SIZE: f32 = 1.0;
 const WALL_H: f32 = 1.0;
 const DOOR_THICKNESS: f32 = 0.20;
+
+#[derive(Component)]
+pub struct WallFace;
+
+#[derive(Message, Clone, Copy, Debug)]
+pub struct RebuildWalls {
+    /// Optional tile to treat as a wall for adjacency tests, but NOT spawned
+    /// as a static wall face (the moving pushwall will render it).
+    pub skip: Option<IVec2>,
+}
+
+#[derive(Resource, Clone)]
+pub struct WallRenderCache {
+    pub atlas_panels: Vec<Handle<Mesh>>,
+    pub jamb_panel: Handle<Mesh>,
+    pub wall_base: Quat,
+    pub wall_mat: Handle<StandardMaterial>,
+    pub wall_mat_dark: Handle<StandardMaterial>,
+    pub jamb_mat: Handle<StandardMaterial>,
+}
 
 // ---------- Assets ----------
 #[derive(Resource)]
@@ -136,13 +157,17 @@ pub fn setup(
         "################################",
     ];
 
-    let (grid, spawn, guards) = if USE_WOLF_E1M1 {
+    let (grid, spawn, guards, pushwall_markers) = if USE_WOLF_E1M1 {
         let plane0 = MapGrid::parse_u16_grid(E1M1_PLANE0, 64, 64);
         let plane1 = MapGrid::parse_u16_grid(E1M1_PLANE1, 64, 64);
-        MapGrid::from_wolf_planes(64, 64, &plane0, &plane1)
+
+        let markers = PushwallMarkers::from_wolf_plane1(64, 64, &plane1);
+        let (g, spawn, guards) = MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
+        (g, spawn, guards, markers)
     } else {
         let (g, spawn, guards) = MapGrid::from_ascii(&TEST_MAP);
-        (g, spawn.map(|p| (p, 0.0)), guards)
+        let markers = PushwallMarkers::empty(g.width, g.height);
+        (g, spawn.map(|p| (p, 0.0)), guards, markers)
     };
 
     let (spawn, spawn_yaw) = spawn.unwrap_or((IVec2::new(1, 1), 0.0));
@@ -151,6 +176,8 @@ pub fn setup(
     commands.insert_resource(grid.clone());
     // Blocking statics (decorations) occupancy
     commands.insert_resource(crate::decorations::SolidStatics::new(grid.width, grid.height));
+    // Pushwall markers (plane1 == 98)
+    commands.insert_resource(pushwall_markers);
 
     // Load + Store Assets
     let assets = load_assets(&asset_server);
@@ -316,183 +343,112 @@ pub fn setup(
     let jamb_panel = build_atlas_panel(&mut meshes, 0.0, 1.0, 1.0, 0.0, false);
     let wall_base = Quat::from_rotation_x(-FRAC_PI_2); // Make Plane3d Vertical
 
+    // Cache the reusable wall rendering assets so pushwalls can spawn a moving wall,
+    // and so we can rebuild static wall faces when pushwalls cross tile boundaries.
+    let wall_cache = WallRenderCache {
+        atlas_panels: atlas_panels.clone(),
+        jamb_panel: jamb_panel.clone(),
+        wall_base,
+        wall_mat: wall_mat.clone(),
+        wall_mat_dark: wall_mat_dark.clone(),
+        jamb_mat: jamb_mat.clone(),
+    };
+    commands.insert_resource(wall_cache.clone());
+
     // Walls + Doors From Grid
+    // Doors from grid (static wall faces are spawned separately so we can rebuild them)
     for z in 0..grid.height {
         for x in 0..grid.width {
             let tile = grid.tile(x, z);
 
-            match tile {
-                Tile::Wall => {
-                    let cx = x as f32 * TILE_SIZE;
-                    let cz = z as f32 * TILE_SIZE;
-                    let y = WALL_H * 0.5;
-
-                    // Wolf wall IDs in plane0 are 1..=63 (0 means empty).
-                    let wall_id = grid.plane0_code(x, z);
-
-                    // 0-based "wall type" from the map
-                    let wall_type = (wall_id as usize).saturating_sub(1);
-
-                    // Many Wolf-style atlases store light/dark as adjacent chunks:
-                    // type 0 => (0 light, 1 dark), type 1 => (2 light, 3 dark), ...
-                    let pair_base = wall_type.saturating_mul(2);
-
-                    let (light_idx, dark_idx) = if pair_base + 1 < VSWAP_WALL_CHUNKS {
-                        (pair_base, pair_base + 1)
-                    } else {
-                        // fallback (shouldn't happen for E1M1 since wall ids are low)
-                        let idx = wall_type.min(VSWAP_WALL_CHUNKS - 1);
-                        (idx, idx)
-                    };
-
-                    let wall_mesh_light = atlas_panels[light_idx].clone();
-                    let wall_mesh_dark  = atlas_panels[dark_idx].clone();
-
-                    let is_wall = |xx: usize, zz: usize| matches!(grid.tile(xx, zz), Tile::Wall);
-                    let is_door = |t: Tile| matches!(t, Tile::DoorClosed | Tile::DoorOpen);
-
-                    let mut spawn_face =
-                        |mesh: Handle<Mesh>, pos: Vec3, yaw: f32, mat: Handle<StandardMaterial>| {
-                            commands.spawn((
-                                Mesh3d(mesh),
-                                MeshMaterial3d(mat),
-                                Transform {
-                                    translation: pos,
-                                    rotation: Quat::from_rotation_y(yaw) * wall_base,
-                                    ..default()
-                                },
-                            ));
-                        };
-
-                    // -Z (north)
-                    if z == 0 || !is_wall(x, z - 1) {
-                        let neighbor_is_door = z > 0 && is_door(grid.tile(x, z - 1));
-                        spawn_face(
-                            if neighbor_is_door { jamb_panel.clone() } else { wall_mesh_light.clone() },
-                            Vec3::new(cx, y, cz - TILE_SIZE * 0.5),
-                            0.0,
-                            if neighbor_is_door { jamb_mat.clone() } else { wall_mat.clone() },
-                        );
-                    }
-
-                    // +Z (south)
-                    if z + 1 >= grid.height || !is_wall(x, z + 1) {
-                        let neighbor_is_door = (z + 1) < grid.height && is_door(grid.tile(x, z + 1));
-                        spawn_face(
-                            if neighbor_is_door { jamb_panel.clone() } else { wall_mesh_light.clone() },
-                            Vec3::new(cx, y, cz + TILE_SIZE * 0.5),
-                            std::f32::consts::PI,
-                            if neighbor_is_door { jamb_mat.clone() } else { wall_mat.clone() },
-                        );
-                    }
-
-                    // -X (west)
-                    if x == 0 || !is_wall(x - 1, z) {
-                        let neighbor_is_door = x > 0 && is_door(grid.tile(x - 1, z));
-                        spawn_face(
-                            if neighbor_is_door { jamb_panel.clone() } else { wall_mesh_dark.clone() },
-                            Vec3::new(cx - TILE_SIZE * 0.5, y, cz),
-                            std::f32::consts::FRAC_PI_2,
-                            if neighbor_is_door { jamb_mat.clone() } else { wall_mat_dark.clone() },
-                        );
-                    }
-
-                    // +X (east)
-                    if x + 1 >= grid.width || !is_wall(x + 1, z) {
-                        let neighbor_is_door = (x + 1) < grid.width && is_door(grid.tile(x + 1, z));
-                        spawn_face(
-                            if neighbor_is_door { jamb_panel.clone() } else { wall_mesh_dark.clone() },
-                            Vec3::new(cx + TILE_SIZE * 0.5, y, cz),
-                            -std::f32::consts::FRAC_PI_2,
-                            if neighbor_is_door { jamb_mat.clone() } else { wall_mat_dark.clone() },
-                        );
-                    }
-                }
-                Tile::DoorClosed | Tile::DoorOpen => {
-                    let is_open = matches!(tile, Tile::DoorOpen);
-
-                    // Determine Orientation From Adjacent Walls
-                    let left_wall = x > 0 && matches!(grid.tile(x - 1, z), Tile::Wall);
-                    let right_wall = x + 1 < grid.width && matches!(grid.tile(x + 1, z), Tile::Wall);
-                    let up_wall = z > 0 && matches!(grid.tile(x, z - 1), Tile::Wall);
-                    let down_wall = z + 1 < grid.height && matches!(grid.tile(x, z + 1), Tile::Wall);
-
-                    let walls_x = (left_wall as u8) + (right_wall as u8);
-                    let walls_z = (up_wall as u8) + (down_wall as u8);
-
-                    // If walls are more above/below, corridor runs E/W => door plane faces +/-X => yaw 90°
-                    // Otherwise corridor runs N/S => yaw 0°
-                    let yaw = if walls_z > walls_x { FRAC_PI_2 } else { 0.0 };
-
-                    if walls_x == 0 && walls_z == 0 {
-                        bevy::log::warn!("Door at ({},{}) has no adjacent walls?", x, z);
-                        let code = grid.plane0_code(x, z);
-                        warn!("Door at ({},{}) plane0_code={} has no adjacent walls?", x, z, code);
-                    }
-
-                    // Plane3d normal is +Y; rotate vertical then yaw.
-                    let base = Quat::from_rotation_x(-FRAC_PI_2);
-                    let rot = Quat::from_rotation_y(yaw) * base;
-
-                    let normal = rot * Vec3::Y;
-
-                    // Door Thickness Offset for Two Panels
-                    let half_thickness = (DOOR_THICKNESS * TILE_SIZE) * 0.5;
-
-                    let center = Vec3::new(
-                        x as f32 * TILE_SIZE,
-                        WALL_H * 0.5,
-                        z as f32 * TILE_SIZE,
-                    );
-
-                    // Door Slides Along Local +X After Yaw
-                    let slide_axis = Quat::from_rotation_y(yaw) * Vec3::X;
-
-                    let progress = if is_open { 1.0 } else { 0.0 };
-                    let start_pos = center + slide_axis * (progress * TILE_SIZE);
-
-                    let vis = if is_open { Visibility::Hidden } else { Visibility::Visible };
-
-                    commands
-                        .spawn((
-                            DoorTile(IVec2::new(x as i32, z as i32)),
-                            DoorState { open_timer: 0.0, want_open: is_open },
-                            DoorAnim {
-                                progress,
-                                closed_pos: center,
-                                slide_axis,
-                            },
-                            Transform::from_translation(start_pos),
-                            vis,
-                        ))
-                        .with_children(|parent| {
-                            // Front
-                            parent.spawn((
-                                Mesh3d(door_panel_front.clone()),
-                                MeshMaterial3d(door_mat.clone()),
-                                Transform {
-                                    translation: normal * half_thickness,
-                                    rotation: rot,
-                                    ..default()
-                                },
-                            ));
-
-                            // Back (mirrored)
-                            parent.spawn((
-                                Mesh3d(door_panel_back.clone()),
-                                MeshMaterial3d(door_mat.clone()),
-                                Transform {
-                                    translation: -normal * half_thickness,
-                                    rotation: Quat::from_rotation_y(PI) * rot,
-                                    ..default()
-                                },
-                            ));
-                        });
-                }
-                _ => {}
+            if !matches!(tile, Tile::DoorClosed | Tile::DoorOpen) {
+                continue;
             }
+
+            let is_open = matches!(tile, Tile::DoorOpen);
+
+            // Determine Orientation From Adjacent Walls
+            let left_wall = x > 0 && matches!(grid.tile(x - 1, z), Tile::Wall);
+            let right_wall = x + 1 < grid.width && matches!(grid.tile(x + 1, z), Tile::Wall);
+            let up_wall = z > 0 && matches!(grid.tile(x, z - 1), Tile::Wall);
+            let down_wall = z + 1 < grid.height && matches!(grid.tile(x, z + 1), Tile::Wall);
+
+            let walls_x = (left_wall as u8) + (right_wall as u8);
+            let walls_z = (up_wall as u8) + (down_wall as u8);
+
+            // If walls are more above/below, corridor runs E/W => door plane faces +/-X => yaw 90°
+            // Otherwise corridor runs N/S => yaw 0°
+            let yaw = if walls_z > walls_x { FRAC_PI_2 } else { 0.0 };
+
+            if walls_x == 0 && walls_z == 0 {
+                bevy::log::warn!("Door at ({},{}) has no adjacent walls?", x, z);
+                let code = grid.plane0_code(x, z);
+                warn!("Door at ({},{}) plane0_code={} has no adjacent walls?", x, z, code);
+            }
+
+            // Plane3d normal is +Y; rotate vertical then yaw.
+            let base = Quat::from_rotation_x(-FRAC_PI_2);
+            let rot = Quat::from_rotation_y(yaw) * base;
+
+            let normal = rot * Vec3::Y;
+
+            // Door Thickness Offset for Two Panels
+            let half_thickness = (DOOR_THICKNESS * TILE_SIZE) * 0.5;
+
+            let center = Vec3::new(
+                x as f32 * TILE_SIZE,
+                WALL_H * 0.5,
+                z as f32 * TILE_SIZE,
+            );
+
+            // Door Slides Along Local +X After Yaw
+            let slide_axis = Quat::from_rotation_y(yaw) * Vec3::X;
+
+            let progress = if is_open { 1.0 } else { 0.0 };
+            let start_pos = center + slide_axis * (progress * TILE_SIZE);
+
+            let vis = if is_open { Visibility::Hidden } else { Visibility::Visible };
+
+            commands
+                .spawn((
+                    DoorTile(IVec2::new(x as i32, z as i32)),
+                    DoorState { open_timer: 0.0, want_open: is_open },
+                    DoorAnim {
+                        progress,
+                        closed_pos: center,
+                        slide_axis,
+                    },
+                    Transform::from_translation(start_pos),
+                    vis,
+                ))
+                .with_children(|parent| {
+                    // Front
+                    parent.spawn((
+                        Mesh3d(door_panel_front.clone()),
+                        MeshMaterial3d(door_mat.clone()),
+                        Transform {
+                            translation: normal * half_thickness,
+                            rotation: rot,
+                            ..default()
+                        },
+                    ));
+
+                    // Back (mirrored)
+                    parent.spawn((
+                        Mesh3d(door_panel_back.clone()),
+                        MeshMaterial3d(door_mat.clone()),
+                        Transform {
+                            translation: -normal * half_thickness,
+                            rotation: Quat::from_rotation_y(PI) * rot,
+                            ..default()
+                        },
+                    ));
+                });
         }
     }
+
+    // Static wall faces (includes door jamb faces). Spawned separately so we can rebuild later.
+    spawn_wall_faces_for_grid(&mut commands, &grid, &wall_cache, None);
 
     for g in guards {
         crate::enemies::spawn_guard(
@@ -522,3 +478,199 @@ pub fn setup(
     ));
 }
 
+fn spawn_wall_faces_for_grid(
+    commands: &mut Commands,
+    grid: &MapGrid,
+    cache: &WallRenderCache,
+    skip: Option<IVec2>,
+) {
+    // Real wall test from the grid.
+    let is_wall_real = |xx: i32, zz: i32| -> bool {
+        if xx < 0 || zz < 0 {
+            return false;
+        }
+        let (xu, zu) = (xx as usize, zz as usize);
+        if xu >= grid.width || zu >= grid.height {
+            return false;
+        }
+        matches!(grid.tile(xu, zu), Tile::Wall)
+    };
+
+    // Neighbor-wall test for face culling.
+    // IMPORTANT: if the neighbor is the moving pushwall tile (`skip`), treat it as EMPTY
+    // so adjacent walls will still spawn their faces toward the moving pushwall.
+    let is_wall_neighbor = |xx: i32, zz: i32| -> bool {
+        if let Some(st) = skip {
+            if st.x == xx && st.y == zz {
+                return false;
+            }
+        }
+        is_wall_real(xx, zz)
+    };
+
+    let is_door = |xx: i32, zz: i32| -> bool {
+        if xx < 0 || zz < 0 {
+            return false;
+        }
+        let (xu, zu) = (xx as usize, zz as usize);
+        if xu >= grid.width || zu >= grid.height {
+            return false;
+        }
+        matches!(grid.tile(xu, zu), Tile::DoorClosed | Tile::DoorOpen)
+    };
+
+    let mut spawn_face =
+        |mesh: Handle<Mesh>, mat: Handle<StandardMaterial>, pos: Vec3, yaw: f32| {
+            commands.spawn((
+                WallFace,
+                Mesh3d(mesh),
+                MeshMaterial3d(mat),
+                Transform {
+                    translation: pos,
+                    rotation: Quat::from_rotation_y(yaw) * cache.wall_base,
+                    ..default()
+                },
+                Visibility::Visible,
+            ));
+        };
+
+    for z in 0..grid.height {
+        for x in 0..grid.width {
+            // Never spawn static faces for the moving pushwall tile itself.
+            if let Some(st) = skip {
+                if st.x == x as i32 && st.y == z as i32 {
+                    continue;
+                }
+            }
+
+            // Only actual wall tiles spawn wall faces.
+            if !matches!(grid.tile(x, z), Tile::Wall) {
+                continue;
+            }
+
+            let wall_id = grid.plane0_code(x, z);
+            if wall_id == 0 {
+                continue;
+            }
+
+            // Wolf-style paired light/dark chunks in VSWAP order.
+            let wall_type = (wall_id as usize).saturating_sub(1);
+            let pair_base = wall_type.saturating_mul(2);
+            if cache.atlas_panels.is_empty() {
+                continue;
+            }
+            let max_i = cache.atlas_panels.len() - 1;
+            let light_idx = pair_base.min(max_i);
+            let dark_idx = (pair_base + 1).min(max_i);
+
+            let wall_mesh_light = cache.atlas_panels[light_idx].clone();
+            let wall_mesh_dark = cache.atlas_panels[dark_idx].clone();
+
+            let cx = x as f32 * TILE_SIZE;
+            let cz = z as f32 * TILE_SIZE;
+            let y = WALL_H * 0.5;
+
+            // NORTH (-Z)
+            if z == 0 || !is_wall_neighbor(x as i32, z as i32 - 1) {
+                let neighbor_is_door = z > 0 && is_door(x as i32, z as i32 - 1);
+                spawn_face(
+                    if neighbor_is_door {
+                        cache.jamb_panel.clone()
+                    } else {
+                        wall_mesh_light.clone()
+                    },
+                    if neighbor_is_door {
+                        cache.jamb_mat.clone()
+                    } else {
+                        cache.wall_mat.clone()
+                    },
+                    Vec3::new(cx, y, cz - TILE_SIZE * 0.5),
+                    0.0,
+                );
+            }
+
+            // SOUTH (+Z)
+            if z + 1 >= grid.height || !is_wall_neighbor(x as i32, z as i32 + 1) {
+                let neighbor_is_door = (z + 1) < grid.height && is_door(x as i32, z as i32 + 1);
+                spawn_face(
+                    if neighbor_is_door {
+                        cache.jamb_panel.clone()
+                    } else {
+                        wall_mesh_light.clone()
+                    },
+                    if neighbor_is_door {
+                        cache.jamb_mat.clone()
+                    } else {
+                        cache.wall_mat.clone()
+                    },
+                    Vec3::new(cx, y, cz + TILE_SIZE * 0.5),
+                    PI,
+                );
+            }
+
+            // WEST (-X)
+            if x == 0 || !is_wall_neighbor(x as i32 - 1, z as i32) {
+                let neighbor_is_door = x > 0 && is_door(x as i32 - 1, z as i32);
+                spawn_face(
+                    if neighbor_is_door {
+                        cache.jamb_panel.clone()
+                    } else {
+                        wall_mesh_dark.clone()
+                    },
+                    if neighbor_is_door {
+                        cache.jamb_mat.clone()
+                    } else {
+                        cache.wall_mat_dark.clone()
+                    },
+                    Vec3::new(cx - TILE_SIZE * 0.5, y, cz),
+                    FRAC_PI_2,
+                );
+            }
+
+            // EAST (+X)
+            if x + 1 >= grid.width || !is_wall_neighbor(x as i32 + 1, z as i32) {
+                let neighbor_is_door =
+                    (x + 1) < grid.width && is_door(x as i32 + 1, z as i32);
+                spawn_face(
+                    if neighbor_is_door {
+                        cache.jamb_panel.clone()
+                    } else {
+                        wall_mesh_dark.clone()
+                    },
+                    if neighbor_is_door {
+                        cache.jamb_mat.clone()
+                    } else {
+                        cache.wall_mat_dark.clone()
+                    },
+                    Vec3::new(cx + TILE_SIZE * 0.5, y, cz),
+                    -FRAC_PI_2,
+                );
+            }
+        }
+    }
+}
+
+pub fn rebuild_wall_faces_on_request(
+    mut commands: Commands,
+    grid: Res<MapGrid>,
+    cache: Res<WallRenderCache>,
+    mut msgs: MessageReader<RebuildWalls>,
+    q_faces: Query<Entity, With<WallFace>>,
+) {
+    // Coalesce all rebuild requests this frame; last one wins for skip.
+    let mut any = false;
+    let mut skip = None;
+    for m in msgs.read() {
+        any = true;
+        skip = m.skip;
+    }
+    if !any {
+        return;
+    }
+
+    for e in q_faces.iter() {
+        commands.entity(e).despawn();
+    }
+
+    spawn_wall_faces_for_grid(&mut commands, &grid, &cache, skip);
+}

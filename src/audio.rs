@@ -19,6 +19,8 @@ pub enum SfxKind {
     // Sfx - World
     DoorOpen,
     DoorClose,
+    NoWay,
+    Pushwall,
     
     // Sfx - Weapons
     KnifeSwing,
@@ -92,6 +94,8 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Doors
     lib.insert_one(SfxKind::DoorOpen, asset_server.load("sounds/sfx/door_open.ogg"));
     lib.insert_one(SfxKind::DoorClose, asset_server.load("sounds/sfx/door_close.ogg"));
+    lib.insert_one(SfxKind::NoWay, asset_server.load("sounds/sfx/no_way.ogg"));
+    lib.insert_one(SfxKind::Pushwall, asset_server.load("sounds/sfx/pushwall.ogg"));
 
     // Weapon Attack
     lib.insert_one(
@@ -229,7 +233,7 @@ pub fn play_sfx_events(
         let clip = list[i].clone();
 
         let settings = match e.kind {
-            SfxKind::DoorOpen | SfxKind::DoorClose => PlaybackSettings::DESPAWN
+            SfxKind::DoorOpen | SfxKind::DoorClose | SfxKind::NoWay | SfxKind::Pushwall => PlaybackSettings::DESPAWN
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.12))
                 .with_volume(Volume::Linear(0.9)),

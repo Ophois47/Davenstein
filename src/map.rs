@@ -50,15 +50,20 @@ impl MapGrid {
     }
 
     /// Raw Wolf plane0 code at (x,z). For walls, this is the wall texture ID.
+    pub fn set_tile(&mut self, x: usize, z: usize, t: Tile) {
+        let i = self.idx(x, z);
+        self.tiles[i] = t;
+    }
+    
     pub fn plane0_code(&self, x: usize, z: usize) -> u16 {
         self.plane0[self.idx(x, z)]
     }
 
-    pub fn set_tile(&mut self, x: usize, z: usize, t: Tile) {
-    	let i  = self.idx(x, z);
-    	self.tiles[i] = t;
+    pub fn set_plane0_code(&mut self, x: usize, z: usize, code: u16) {
+        let i = self.idx(x, z);
+        self.plane0[i] = code;
     }
-    
+
     pub fn from_ascii(lines: &[&str]) -> (Self, Option<IVec2>, Vec<IVec2>) {
         let height = lines.len();
         let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
