@@ -58,6 +58,11 @@ impl Default for PlayerVitals {
     }
 }
 
+/// When true, player input (move/look/use) are ignored
+/// Used for player death
+#[derive(Resource, Default)]
+pub struct PlayerControlLock(pub bool);
+
 // Left Click to Lock/Hide Cursor, Esc to Release
 pub fn grab_mouse(
     mut cursor_options: Single<&mut CursorOptions>,
@@ -79,18 +84,25 @@ pub fn mouse_look(
     mouse_motion: Res<AccumulatedMouseMotion>,
     mut q: Query<(&mut Transform, &mut LookAngles), With<Player>>,
     settings: Res<PlayerSettings>,
+    lock: Res<PlayerControlLock>,
 ) {
+    if lock.0 {
+        return;
+    }
+
     if cursor_options.grab_mode != CursorGrabMode::Locked {
         return;
     }
+
     let delta = mouse_motion.delta;
     if delta == Vec2::ZERO {
         return;
     }
 
     let Ok((mut transform, mut look)) = q.single_mut() else {
-    return;
-};
+        return;
+    };
+
     look.yaw -= delta.x * settings.sensitivity;
     look.pitch -= delta.y * settings.sensitivity;
     // ~ +/- 88 Degrees
@@ -102,6 +114,7 @@ pub fn mouse_look(
 pub fn player_move(
     time: Res<Time<Fixed>>,
     keys: Res<ButtonInput<KeyCode>>,
+    lock: Res<PlayerControlLock>,
     grid: Res<MapGrid>,
     solid: Res<crate::decorations::SolidStatics>,
     q_enemies: Query<&OccupiesTile, Without<Dead>>,
@@ -109,8 +122,12 @@ pub fn player_move(
     settings: Res<PlayerSettings>,
     push_occ: Res<crate::pushwalls::PushwallOcc>,
 ) {
+    if lock.0 {
+        return;
+    }
+
     // Tile Units (Tile = 1.0). Note: tiles are centered on integer coordinates.
-    const PLAYER_RADIUS: f32 = 0.25;
+    const PLAYER_RADIUS: f32 = 0.20;
     const RUN_MULTIPLIER: f32 = 1.6;
 
     let Ok(mut transform) = q_player.single_mut() else {
@@ -192,9 +209,11 @@ pub fn player_move(
         match grid.tile(txu, tzu) {
             Tile::Wall | Tile::DoorClosed => true,
             _ => {
+                // Blocking statics (decorations)
                 if solid.is_solid(tx, tz) {
                     return true;
                 }
+                // Living enemies/actors block
                 is_occupied(occupied, tx, tz)
             }
         }
@@ -244,11 +263,16 @@ pub fn player_move(
 
 pub fn use_doors(
     keys: Res<ButtonInput<KeyCode>>,
+    lock: Res<PlayerControlLock>,
     mut grid: ResMut<MapGrid>,
     q_player: Query<&Transform, With<Player>>,
     mut q_doors: Query<(&DoorTile, &mut DoorState, &mut Visibility)>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
+    if lock.0 {
+        return;
+    }
+
     const TILE_SIZE: f32 = 1.0;
     const DOOR_OPEN_SECS: f32 = 4.5;
 

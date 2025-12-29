@@ -9,18 +9,6 @@ use davelib::audio::{PlaySfx, SfxKind};
 use davelib::player::Player;
 
 #[derive(Component)]
-pub(super) struct HudHpText;
-
-#[derive(Component)]
-pub(super) struct HudAmmoText;
-
-#[derive(Component)]
-pub(super) struct HudScoreText;
-
-#[derive(Component)]
-pub(super) struct HudLivesText;
-
-#[derive(Component)]
 pub(super) struct DamageFlashOverlay;
 
 #[derive(Component)]
@@ -32,6 +20,87 @@ pub(crate) struct ViewModelSprites {
     pub pistol: [Handle<Image>; 5],
     pub machinegun: [Handle<Image>; 5],
     pub chaingun: [Handle<Image>; 5],
+}
+
+#[derive(Component)]
+pub(super) struct HudHpDigit(pub usize); // 0=hundreds, 1=tens, 2=ones
+
+#[derive(Component)]
+pub(super) struct HudAmmoDigit(pub usize); // 0=hundreds, 1=tens, 2=ones
+
+#[derive(Component)]
+pub(super) struct HudScoreDigit(pub usize); // 0..5 (six digits)
+
+#[derive(Component)]
+pub(super) struct HudLivesDigit(pub usize); // 0..1 (two digits)
+
+fn split_score_6_blanks(n: i32) -> [Option<usize>; 6] {
+    let mut n = n.max(0) as u32;
+    if n > 999_999 {
+        n = 999_999;
+    }
+
+    // First compute fixed-width digits (with zeros)
+    let mut raw = [0usize; 6];
+    for i in 0..6 {
+        let idx = 5 - i;
+        raw[idx] = (n % 10) as usize;
+        n /= 10;
+    }
+
+    // Then convert leading zeros to blanks, but always show at least one digit.
+    let mut out: [Option<usize>; 6] = [None; 6];
+    let mut started = false;
+
+    for i in 0..6 {
+        if raw[i] != 0 || i == 5 {
+            started = true;
+        }
+        if started {
+            out[i] = Some(raw[i]);
+        }
+    }
+
+    out
+}
+
+// Right-aligned with leading blanks (good for lives, ammo/hp style)
+fn split_right_aligned_blanks(n: i32, width: usize) -> Vec<Option<usize>> {
+    let mut n = n.max(0) as u32;
+    let max = 10u32.saturating_pow(width as u32).saturating_sub(1);
+    if n > max {
+        n = max;
+    }
+
+    let mut out = vec![None; width];
+    for idx in (0..width).rev() {
+        out[idx] = Some((n % 10) as usize);
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    out
+}
+
+#[derive(Resource, Clone)]
+pub(crate) struct HudDigitSprites {
+    pub digits: [Handle<Image>; 10],
+    pub blank: Handle<Image>,
+}
+
+fn split_3_right_aligned(n: i32) -> [Option<usize>; 3] {
+    let n = n.clamp(0, 999) as u32;
+    let h = (n / 100) as usize;
+    let t = ((n / 10) % 10) as usize;
+    let o = (n % 10) as usize;
+
+    // Right-aligned with blanks (Wolf-like)
+    let hundreds = if n >= 100 { Some(h) } else { None };
+    let tens = if n >= 10 { Some(t) } else { None };
+    let ones = Some(o);
+
+    [hundreds, tens, ones]
 }
 
 impl ViewModelSprites {
@@ -488,38 +557,38 @@ pub(crate) fn setup_hud(
     asset_server: Res<AssetServer>,
     hud: Res<HudState>,
 ) {
-    let font: Handle<Font> = asset_server.load("fonts/honda_font.ttf");
-
-    // New Wolf sheet naming (assets/weapons/*.png)
+    // Viewmodel sprites (unchanged)
     let sprites = ViewModelSprites {
-        knife: std::array::from_fn(|i| {
-            asset_server.load(format!("textures/weapons/knife_{i}.png"))
-        }),
-        pistol: std::array::from_fn(|i| {
-            asset_server.load(format!("textures/weapons/pistol_{i}.png"))
-        }),
-        machinegun: std::array::from_fn(|i| {
-            asset_server.load(format!("textures/weapons/machinegun_{i}.png"))
-        }),
-        chaingun: std::array::from_fn(|i| {
-            asset_server.load(format!("textures/weapons/chaingun_{i}.png"))
-        }),
+        knife: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/knife_{i}.png"))),
+        pistol: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/pistol_{i}.png"))),
+        machinegun: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/machinegun_{i}.png"))),
+        chaingun: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/chaingun_{i}.png"))),
     };
-
-    // Make sprites available to the firing/viewmodel system
     commands.insert_resource(sprites.clone());
-
-    // Pick the correct starting viewmodel based on currently selected weapon
     let weapon_idle: Handle<Image> = sprites.idle(hud.selected);
 
-    const STATUS_BAR_H: f32 = 64.0;
-    const UI_PAD: f32 = 8.0;
+    // NEW: HUD digit sprites
+    let hud_digits = HudDigitSprites {
+        digits: std::array::from_fn(|i| asset_server.load(format!("textures/hud/digits/digit_{i}.png"))),
+        blank: asset_server.load("textures/hud/digits/digit_blank.png"),
+    };
+    commands.insert_resource(hud_digits.clone());
 
-    const GUN_SCALE: f32 = 6.5;
+    const STATUS_BAR_H: f32 = 64.0;
+
+    const GUN_SCALE: f32 = 9.5;
     const GUN_SRC_PX: f32 = 64.0;
     const GUN_PX: f32 = GUN_SRC_PX * GUN_SCALE;
 
-    const BACKGROUND_COLOR: bevy::prelude::Srgba = Srgba::rgb(0.0, 0.0, 1.0);
+    // Wolfenstein 3d HUD blue (matches the digit cell background: 0,0,164)
+    const BACKGROUND_COLOR: bevy::prelude::Srgba = Srgba::rgb(0.0, 0.0, 164.0 / 255.0);
+
+    // Wolf virtual HUD width (stable pixel space)
+    const HUD_W: f32 = 320.0;
+
+    // Digit sprite size from the strip we sliced
+    const DIGIT_W: f32 = 8.0;
+    const DIGIT_H: f32 = 16.0;
 
     commands
         .spawn(Node {
@@ -540,7 +609,6 @@ pub(crate) fn setup_hud(
                 ..default()
             })
             .with_children(|vm| {
-                // Viewmodel sprite (gun) - spawn first
                 vm.spawn((
                     ViewModelImage,
                     ImageNode::new(weapon_idle),
@@ -551,7 +619,6 @@ pub(crate) fn setup_hud(
                     },
                 ));
 
-                // Red damage overlay - spawn LAST so it draws on top
                 vm.spawn((
                     DamageFlashOverlay,
                     Node {
@@ -566,90 +633,224 @@ pub(crate) fn setup_hud(
                 ));
             });
 
-            // Status bar (still simple for now)
+            // Status bar container
             ui.spawn((
                 Node {
                     width: Val::Percent(100.0),
                     height: Val::Px(STATUS_BAR_H),
-                    padding: UiRect::all(Val::Px(UI_PAD)),
-                    justify_content: JustifyContent::SpaceBetween,
+                    justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
                     ..default()
                 },
                 BackgroundColor(BACKGROUND_COLOR.into()),
             ))
             .with_children(|bar| {
-                bar.spawn((
-                    HudHpText,
-                    Text::new(format!("HP {}", hud.hp)),
-                    TextFont {
-                        font: font.clone(),
-                        font_size: 36.0,
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                ));
+                // Inner HUD canvas (320x64)
+                bar.spawn(Node {
+                    width: Val::Px(HUD_W),
+                    height: Val::Px(STATUS_BAR_H),
+                    position_type: PositionType::Relative,
+                    ..default()
+                })
+                .with_children(|inner| {
+                    // SCORE (6 digits, leading blanks, always show one digit)
+                    let score_digits = split_score_6_blanks(hud.score);
+                    inner
+                        .spawn(Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(52.0),
+                            top: Val::Px(24.0),
+                            flex_direction: FlexDirection::Row,
+                            ..default()
+                        })
+                        .with_children(|score| {
+                            for (slot, dopt) in score_digits.iter().enumerate() {
+                                let handle = match dopt {
+                                    Some(d) => hud_digits.digits[*d].clone(),
+                                    None => hud_digits.blank.clone(),
+                                };
 
-                bar.spawn((
-                    HudAmmoText,
-                    Text::new(format!("AMMO {}", hud.ammo)),
-                    TextFont {
-                        font: font.clone(),
-                        font_size: 36.0,
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                ));
+                                score.spawn((
+                                    HudScoreDigit(slot),
+                                    ImageNode::new(handle),
+                                    Node {
+                                        width: Val::Px(DIGIT_W),
+                                        height: Val::Px(DIGIT_H),
+                                        ..default()
+                                    },
+                                ));
+                            }
+                        });
 
-                bar.spawn((
-                    HudScoreText,
-                    Text::new(format!("SCORE {}", hud.score)),
-                    TextFont {
-                        font: font.clone(),
-                        font_size: 36.0,
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                ));
+                    // LIVES (2 digits, right-aligned blanks)
+                    let lives_digits = split_right_aligned_blanks(hud.lives, 2);
+                    inner
+                        .spawn(Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(112.0),
+                            top: Val::Px(24.0),
+                            flex_direction: FlexDirection::Row,
+                            ..default()
+                        })
+                        .with_children(|lives| {
+                            for (slot, dopt) in lives_digits.iter().enumerate() {
+                                let handle = match dopt {
+                                    Some(d) => hud_digits.digits[*d].clone(),
+                                    None => hud_digits.blank.clone(),
+                                };
+                                lives.spawn((
+                                    HudLivesDigit(slot),
+                                    ImageNode::new(handle),
+                                    Node {
+                                        width: Val::Px(DIGIT_W),
+                                        height: Val::Px(DIGIT_H),
+                                        ..default()
+                                    },
+                                ));
+                            }
+                        });
 
-                bar.spawn((
-                    HudLivesText,
-                    Text::new(format!("LIVES {}", hud.lives)),
-                    TextFont {
-                        font: font.clone(),
-                        font_size: 36.0,
+                    // HEALTH
+                    let hp_digits = split_3_right_aligned(hud.hp);
+                    inner.spawn(Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(176.0),
+                        top: Val::Px(24.0),
+                        flex_direction: FlexDirection::Row,
                         ..default()
-                    },
-                    TextColor(Color::WHITE),
-                ));
+                    })
+                    .with_children(|hp| {
+                        for (slot, dopt) in hp_digits.iter().enumerate() {
+                            let handle = match dopt {
+                                Some(d) => hud_digits.digits[*d].clone(),
+                                None => hud_digits.blank.clone(),
+                            };
+                            hp.spawn((
+                                HudHpDigit(slot),
+                                ImageNode::new(handle),
+                                Node {
+                                    width: Val::Px(DIGIT_W),
+                                    height: Val::Px(DIGIT_H),
+                                    ..default()
+                                },
+                            ));
+                        }
+                    });
+
+                    // AMMO (digit sprites)
+                    let ammo_digits = split_3_right_aligned(hud.ammo);
+                    inner
+                        .spawn(Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(218.0),
+                            top: Val::Px(24.0), // tweak 22/24 depending on your digit height
+                            flex_direction: FlexDirection::Row,
+                            ..default()
+                        })
+                        .with_children(|ammo| {
+                            for (slot, dopt) in ammo_digits.iter().enumerate() {
+                                let handle = match dopt {
+                                    Some(d) => hud_digits.digits[*d].clone(),
+                                    None => hud_digits.blank.clone(),
+                                };
+
+                                ammo.spawn((
+                                    HudAmmoDigit(slot),
+                                    ImageNode::new(handle),
+                                    Node {
+                                        width: Val::Px(DIGIT_W),
+                                        height: Val::Px(DIGIT_H),
+                                        ..default()
+                                    },
+                                ));
+                            }
+                        });
+                });
             });
         });
 }
 
-pub(crate) fn sync_hud_text(
+pub(crate) fn sync_hud_hp_digits(
     hud: Res<HudState>,
-    mut q: Query<(
-        &mut Text,
-        Option<&HudHpText>,
-        Option<&HudAmmoText>,
-        Option<&HudScoreText>,
-        Option<&HudLivesText>,
-    )>,
+    digits: Option<Res<HudDigitSprites>>,
+    mut q: Query<(&HudHpDigit, &mut ImageNode)>,
 ) {
     if !hud.is_changed() {
         return;
     }
+    let Some(digits) = digits else { return; };
 
-    for (mut text, hp_tag, ammo_tag, score_tag, lives_tag) in &mut q {
-        if hp_tag.is_some() {
-            *text = Text::new(format!("HP {}", hud.hp));
-        } else if ammo_tag.is_some() {
-            *text = Text::new(format!("AMMO {}", hud.ammo));
-        } else if score_tag.is_some() {
-            *text = Text::new(format!("SCORE {}", hud.score));
-        } else if lives_tag.is_some() {
-            *text = Text::new(format!("LIVES {}", hud.lives));
-        }
+    let hp_digits = split_3_right_aligned(hud.hp);
+
+    for (slot, mut img) in &mut q {
+        let handle = match hp_digits.get(slot.0).copied().flatten() {
+            Some(d) => digits.digits[d].clone(),
+            None => digits.blank.clone(),
+        };
+        img.image = handle;
+    }
+}
+
+pub(crate) fn sync_hud_ammo_digits(
+    hud: Res<HudState>,
+    digits: Option<Res<HudDigitSprites>>,
+    mut q: Query<(&HudAmmoDigit, &mut ImageNode)>,
+) {
+    if !hud.is_changed() {
+        return;
+    }
+    let Some(digits) = digits else { return; };
+
+    let ammo_digits = split_3_right_aligned(hud.ammo);
+
+    for (slot, mut img) in &mut q {
+        let handle = match ammo_digits.get(slot.0).copied().flatten() {
+            Some(d) => digits.digits[d].clone(),
+            None => digits.blank.clone(),
+        };
+        img.image = handle;
+    }
+}
+
+pub(crate) fn sync_hud_score_digits(
+    hud: Res<HudState>,
+    digits: Option<Res<HudDigitSprites>>,
+    mut q: Query<(&HudScoreDigit, &mut ImageNode)>,
+) {
+    if !hud.is_changed() {
+        return;
+    }
+    let Some(digits) = digits else { return; };
+
+    let score_digits = split_score_6_blanks(hud.score);
+
+    for (slot, mut img) in &mut q {
+        let handle = match score_digits.get(slot.0).copied().flatten() {
+            Some(d) => digits.digits[d].clone(),
+            None => digits.blank.clone(),
+        };
+        img.image = handle;
+    }
+}
+
+pub(crate) fn sync_hud_lives_digits(
+    hud: Res<HudState>,
+    digits: Option<Res<HudDigitSprites>>,
+    mut q: Query<(&HudLivesDigit, &mut ImageNode)>,
+) {
+    if !hud.is_changed() {
+        return;
+    }
+    let Some(digits) = digits else { return; };
+
+    let lives_digits = split_right_aligned_blanks(hud.lives, 2);
+
+    for (slot, mut img) in &mut q {
+        let handle = match lives_digits.get(slot.0).copied().flatten() {
+            Some(d) => digits.digits[d].clone(),
+            None => digits.blank.clone(),
+        };
+        img.image = handle;
     }
 }
 

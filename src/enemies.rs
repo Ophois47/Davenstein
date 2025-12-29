@@ -74,7 +74,8 @@ impl FromWorld for GuardSprites {
             std::array::from_fn(|dir| {
                 asset_server.load(format!(
                     "enemies/guard/guard_walk_r{}_dir{}.png",
-                    row, dir
+                    row,
+                    dir,
                 ))
             })
         });

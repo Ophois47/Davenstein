@@ -29,6 +29,7 @@ use davelib::player::{
     player_move,
     use_doors,
     PlayerSettings,
+    PlayerControlLock,
 };
 use davelib::pushwalls::{
     use_pushwalls,
@@ -83,6 +84,7 @@ fn main() {
         .add_plugins(combat::CombatPlugin)
         .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
         .init_resource::<PlayerSettings>()
+        .init_resource::<PlayerControlLock>()
 
         // ---- Pushwalls: required resources (prevents "Resource does not exist" panics)
         .init_resource::<PushwallOcc>()

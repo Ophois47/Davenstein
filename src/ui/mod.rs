@@ -27,7 +27,10 @@ impl Plugin for UiPlugin {
                     sync::apply_enemy_fire_to_player_vitals,
                     sync::sync_player_hp_with_hud,
                     hud::weapon_fire_and_viewmodel,
-                    hud::sync_hud_text,
+                    hud::sync_hud_hp_digits,
+                    hud::sync_hud_ammo_digits,
+                    hud::sync_hud_score_digits,
+                    hud::sync_hud_lives_digits,
                     hud::flash_on_hp_drop,
                     hud::tick_damage_flash,
                 )
