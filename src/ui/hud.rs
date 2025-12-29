@@ -103,6 +103,26 @@ fn split_3_right_aligned(n: i32) -> [Option<usize>; 3] {
     [hundreds, tens, ones]
 }
 
+pub(crate) fn sync_viewmodel_size(
+    q_win: Query<&Window, With<PrimaryWindow>>,
+    mut q_vm: Query<&mut Node, With<ViewModelImage>>,
+) {
+    let Some(win) = q_win.iter().next() else { return; };
+    let Some(mut node) = q_vm.iter_mut().next() else { return; };
+
+    // Must match your HUD layout in setup_hud
+    const STATUS_BAR_H: f32 = 64.0;
+
+    // Tune this. 0.60-ish usually matches a "Wolf big gun" feel.
+    const VIEWMODEL_HEIGHT_FRAC: f32 = 0.62;
+
+    let view_h = (win.resolution.height() - STATUS_BAR_H).max(1.0);
+    let gun_px = view_h * VIEWMODEL_HEIGHT_FRAC;
+
+    node.width = Val::Px(gun_px);
+    node.height = Val::Px(gun_px);
+}
+
 impl ViewModelSprites {
     pub fn idle(&self, w: crate::combat::WeaponSlot) -> Handle<Image> {
         use crate::combat::WeaponSlot::*;
