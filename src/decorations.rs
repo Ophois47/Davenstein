@@ -5,14 +5,7 @@ use bevy::prelude::*;
 
 use crate::map::MapGrid;
 
-/// Tile-occupancy for Wolf-style blocking "statics" (decorations).
-///
-/// Design goal for the first milestone:
-/// - If a decoration is marked "block", it blocks:
-///   - player movement
-///   - enemy movement
-///   - hitscan / line of sight
-///
+/// Tile-occupancy for Wolf-style blocking "statics"
 /// This matches the original Wolf3D behavior (actorat[tile]=1).
 #[derive(Component)]
 pub struct BillboardUpright;
@@ -21,7 +14,7 @@ pub struct BillboardUpright;
 pub struct BillboardFloor;
 
 #[derive(Component, Copy, Clone)]
-pub struct BillboardTilt(pub f32); // radians around X; 0 = upright, -PI/2 = flat
+pub struct BillboardTilt(pub f32); // Radians around X, 0 = upright, -PI/2 = flat
 
 #[derive(Resource, Debug, Clone)]
 pub struct SolidStatics {
@@ -58,7 +51,7 @@ impl SolidStatics {
 
     pub fn is_solid(&self, x: i32, z: i32) -> bool {
         if x < 0 || z < 0 || x >= self.width as i32 || z >= self.height as i32 {
-            return true; // outside map blocks
+            return true; // Outside map blocks
         }
         self.solid[self.idx(x as usize, z as usize)]
     }
@@ -87,14 +80,12 @@ fn stat_idx_from_plane1(code: u16) -> Option<usize> {
 fn choose_tile_path_from_plane1(code: u16) -> Option<&'static str> {
     let idx = stat_idx_from_plane1(code)?;
 
-    // Wolf (non-Spear) statics: indices 0..47 are the ones you pasted in WL_ACT1.C.
-    // If you later add Spear-only statics, extend this.
+    // Wolfenstein statics: indices 0..47 are the ones in WL_ACT1.C
     if idx > 47 {
         return None;
     }
 
-    // Use a simple numeric scheme so the code never depends on file ordering.
-    // You rename your files to match this scheme.
+    // Use simple numeric scheme so code never depends on file ordering
     const PATHS: [&str; 48] = [
         "textures/decorations/stat_00_puddle.png",
         "textures/decorations/stat_01_green_barrel.png",
@@ -149,10 +140,9 @@ fn choose_tile_path_from_plane1(code: u16) -> Option<&'static str> {
     Some(PATHS[idx])
 }
 
-/// Wolf3D WL_ACT1.C `statinfo[]` distilled to what we need:
+/// Wolf3D WL_ACT1.C statinfo[]
 /// - Block vs Dressing vs Pickup
-///
-/// Index is: `idx = plane1_code - 23`.
+/// Index is: idx = plane1_code - 23
 const STAT_KIND: [StatKind; 49] = [
     StatKind::Dressing, // 0 puddle
     StatKind::Block,    // 1 green barrel
@@ -213,7 +203,7 @@ pub fn billboard_floor_decals(
     let player_pos = player_tf.translation;
 
     for mut tf in q_floor.iter_mut() {
-        // Flat decal: rotate around Y so its "long axis" aims at the player.
+        // Flat decal: rotate around Y so its "long axis" aims at the player
         let mut to_player = player_pos - tf.translation;
         to_player.y = 0.0;
 
@@ -222,7 +212,7 @@ pub fn billboard_floor_decals(
             let dir = to_player / len2.sqrt();
             let yaw = dir.x.atan2(dir.z);
 
-            // Keep it flat: we want rotation = (flat on ground) * (yaw)
+            // Keep it flat, we want rotation = (flat on ground) * (yaw)
             let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
             tf.rotation = Quat::from_rotation_y(yaw) * flat;
         }
@@ -241,9 +231,9 @@ fn choose_static_path_from_plane1(code: u16) -> Option<String> {
     Some(format!("textures/decorations/stat_{:02}.png", idx))
 }
 
-/// Spawn Wolf3D E1M1 "statics" (decorations) from plane1 codes using WL_ACT1.C `statinfo[]`.
-///
-/// This does *not* spawn pickups/treasure/weapons (those are handled by your pickups module).
+// TODO: Handle everything through here, pickups and decorations and as much as we can
+/// Spawn Wolf3D E1M1 "statics" (decorations) from plane1 codes using WL_ACT1.C statinfo[]
+/// This does *not* spawn pickups/treasure/weapons (those are handled by pickups module)
 pub fn spawn_wolf_e1m1_decorations(
     mut commands: Commands,
     grid: Res<MapGrid>,
@@ -267,7 +257,7 @@ pub fn spawn_wolf_e1m1_decorations(
     let plane1 = crate::map::MapGrid::parse_u16_grid(E1M1_PLANE1, 64, 64);
     let idx = |x: usize, z: usize| -> usize { z * 64 + x };
 
-    // Wolf statics: idx = plane1_code - 23
+    // Wolfenstein statics: idx = plane1_code - 23
     // idx 0 = puddle, idx 9 = skeleton flat
     fn is_floor_decal_plane1(code: u16) -> bool {
         matches!(code, 23 | 32)
@@ -278,7 +268,7 @@ pub fn spawn_wolf_e1m1_decorations(
     let h = 0.95_f32;
     let quad_upright = meshes.add(Rectangle::new(w, h));
 
-    // Floor decals: make puddle much "deeper" so it reads from a shallow angle.
+    // Floor decals
     let quad_decal_default = meshes.add(Rectangle::new(0.95, 1.20));
     let quad_decal_puddle = meshes.add(Rectangle::new(0.95, 3.50));
     let quad_decal_skel = meshes.add(Rectangle::new(0.95, 2.00));
@@ -290,7 +280,7 @@ pub fn spawn_wolf_e1m1_decorations(
         for x in 0..64 {
             let code = plane1[idx(x, z)];
             if code < 23 {
-                continue; // actors / player start etc.
+                continue; // Actors / player start etc.
             }
 
             let si = (code - 23) as usize;
@@ -300,7 +290,7 @@ pub fn spawn_wolf_e1m1_decorations(
 
             let kind = STAT_KIND[si];
             if kind == StatKind::Pickup {
-                continue; // pickups module handles these
+                continue; // Pickups module handles these
             }
 
             let blocks = kind == StatKind::Block;
@@ -325,15 +315,15 @@ pub fn spawn_wolf_e1m1_decorations(
 
             if floor_decal {
                 let decal_mesh = match code {
-                    23 => quad_decal_puddle.clone(), // puddle
-                    32 => quad_decal_skel.clone(),   // skeleton flat
+                    23 => quad_decal_puddle.clone(),
+                    32 => quad_decal_skel.clone(),
                     _ => quad_decal_default.clone(),
                 };
 
                 commands.spawn((
                     Name::new("Decoration_FloorDecal"),
                     Decoration { plane1_code: code, blocks },
-                    // Flat decal: billboard system will set yaw + this tilt each frame.
+                    // Flat decal: billboard system will set yaw + this tilt each frame
                     BillboardTilt(-std::f32::consts::FRAC_PI_2),
                     Mesh3d(decal_mesh),
                     MeshMaterial3d(mat),
@@ -374,7 +364,7 @@ pub fn billboard_decorations(
             let dir = to_player / len2.sqrt();
             let yaw = dir.x.atan2(dir.z);
 
-            // Same billboard yaw as everything else + fixed tilt.
+            // Same billboard yaw as everything else + fixed tilt
             tf.rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(tilt.0);
         }
     }
