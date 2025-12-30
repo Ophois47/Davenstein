@@ -3,6 +3,7 @@ Davenstein - by David Petnick
 */
 mod combat;
 mod pickups;
+mod restart;
 mod ui;
 
 use bevy::prelude::*;
@@ -87,6 +88,8 @@ fn main() {
         .init_resource::<PlayerSettings>()
         .init_resource::<PlayerControlLock>()
         .init_resource::<PlayerDeathLatch>()
+        .init_resource::<ui::sync::DeathDelay>()
+        .init_resource::<ui::sync::RestartRequested>()
         .init_resource::<PushwallOcc>()
         .init_resource::<PushwallState>()
         .init_resource::<PushwallClock>()
@@ -116,6 +119,18 @@ fn main() {
                 .chain(),
         )
         .add_systems(PostUpdate, play_sfx_events)
+        .add_systems(
+            PostUpdate,
+            (
+                restart::restart_despawn_level,
+                setup,
+                spawn_wolf_e1m1_decorations,
+                pickups::spawn_wolf_e1m1_pickups,
+                restart::restart_finish,
+            )
+                .chain()
+                .run_if(|r: Res<ui::sync::RestartRequested>| r.0),
+        )
         .add_systems(
             FixedUpdate,
             (

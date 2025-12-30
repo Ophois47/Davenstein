@@ -6,7 +6,7 @@ use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
 use super::HudState;
 use davelib::audio::{PlaySfx, SfxKind};
-use davelib::player::Player;
+use davelib::player::{Player, PlayerControlLock};
 
 #[derive(Component)]
 pub(super) struct DamageFlashOverlay;
@@ -254,6 +254,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     cursor: Single<&CursorOptions>,
+    lock: Res<PlayerControlLock>,
     sprites: Option<Res<ViewModelSprites>>,
     mut weapon: ResMut<WeaponState>,
     mut hud: ResMut<HudState>,
@@ -283,6 +284,22 @@ pub(crate) fn weapon_fire_and_viewmodel(
         // Hard Snap Viewmodel to Idle if Unlocked
         weapon.fire_cycle = 0;
         weapon.showing_fire = false;
+        if let Ok(mut img) = vm_q.single_mut() {
+            img.image = sprites.idle(hud.selected);
+        }
+        return;
+    }
+
+    // NEW: Block selection/firing while dead (input lock)
+    if lock.0 {
+        *fire_anim_accum = 0.0;
+        *last_weapon = Some(hud.selected);
+        *auto_linger = 0.0;
+
+        weapon.fire_cycle = 0;
+        weapon.showing_fire = false;
+        weapon.flash.reset();
+
         if let Ok(mut img) = vm_q.single_mut() {
             img.image = sprites.idle(hud.selected);
         }
@@ -422,7 +439,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
         }
     }
 
-    // CHAINGUN: Cycling Only 
+    // CHAINGUN: Cycling Only
     let firing_anim_tic_secs = 12.0 * TIC;
 
     if is_chaingun && trigger_down && has_ammo {
@@ -534,7 +551,6 @@ pub(crate) fn weapon_fire_and_viewmodel(
             *auto_linger = 0.10;
         }
 
-
         // --- Chaingun: keep your existing behavior (cycle advance on shot is OK for you) ---
         if is_chaingun {
             weapon.showing_fire = true;
@@ -548,26 +564,21 @@ pub(crate) fn weapon_fire_and_viewmodel(
             }
         }
 
-        // For non-full-auto, show the simple fire sprite immediately
         // For non-full-auto, start the attack animation immediately
         if !is_full_auto {
             weapon.showing_fire = true;
             weapon.flash.reset();
 
             if hud.selected == WeaponSlot::Pistol {
-                // Start pistol anim on "raise" frame, not flash
                 if let Ok(mut img) = vm_q.single_mut() {
                     img.image = sprites.pistol_frame(1);
                 }
             } else if hud.selected == WeaponSlot::Knife {
-                // Start knife on wind-up (3-step swing)
                 if let Ok(mut img) = vm_q.single_mut() {
-                    img.image = sprites.knife[1].clone(); // wind-up
+                    img.image = sprites.knife[1].clone();
                 }
-            } else {
-                if let Ok(mut img) = vm_q.single_mut() {
-                    img.image = sprites.fire_simple(hud.selected);
-                }
+            } else if let Ok(mut img) = vm_q.single_mut() {
+                img.image = sprites.fire_simple(hud.selected);
             }
         }
 

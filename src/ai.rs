@@ -7,9 +7,22 @@ use std::collections::{HashSet, HashMap};
 use crate::actors::{Dead, OccupiesTile};
 use crate::audio::{PlaySfx, SfxKind};
 use crate::decorations::SolidStatics;
-use crate::enemies::{Dir8, EnemyKind, Guard};
-use crate::map::{DoorState, DoorTile, MapGrid, Tile};
-use crate::player::Player;
+use crate::enemies::{
+    Dir8,
+    EnemyKind,
+    Guard,
+};
+use crate::map::{
+    DoorState,
+    DoorTile,
+    MapGrid,
+    Tile,
+};
+use crate::player::{
+    Player,
+    PlayerControlLock,
+    PlayerDeathLatch,
+};
 
 const AI_TIC_SECS: f32 = 1.0 / 70.0;
 const DOOR_OPEN_SECS: f32 = 4.5;
@@ -780,11 +793,23 @@ fn enemy_ai_move(
 
 pub struct EnemyAiPlugin;
 
+fn player_can_be_targeted(
+    lock: Res<PlayerControlLock>,
+    latch: Res<PlayerDeathLatch>,
+) -> bool {
+    !lock.0 && !latch.0
+}
+
 impl Plugin for EnemyAiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AiTicker>()
             .add_message::<EnemyFire>()
             .add_systems(Update, attach_guard_ai)
-            .add_systems(FixedUpdate, (enemy_ai_tick, enemy_ai_move).chain());
+            .add_systems(
+                FixedUpdate,
+                (enemy_ai_tick, enemy_ai_move)
+                    .chain()
+                    .run_if(player_can_be_targeted),
+            );
     }
 }

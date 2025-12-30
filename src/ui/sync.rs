@@ -12,6 +12,24 @@ use davelib::player::{
 };
 use super::HudState;
 
+#[derive(Resource, Debug, Clone)]
+pub struct DeathDelay {
+    pub active: bool,
+    pub timer: Timer,
+}
+
+impl Default for DeathDelay {
+    fn default() -> Self {
+        let mut t = Timer::from_seconds(1.25, TimerMode::Once);
+        // Start finished so it does nothing until activated
+        t.set_elapsed(t.duration());
+        Self { active: false, timer: t }
+    }
+}
+
+#[derive(Resource, Debug, Clone, Default)]
+pub struct RestartRequested(pub bool);
+
 pub fn sync_player_hp_with_hud(
     mut hud: ResMut<HudState>,
     q_player: Query<&davelib::player::PlayerVitals, With<davelib::player::Player>>,
@@ -72,4 +90,55 @@ pub fn handle_player_death_once(
 
     // Freeze player input as the immediate “death” effect.
     lock.0 = true;
+}
+
+pub fn tick_death_delay_and_request_restart(
+    time: Res<Time>,
+    q_vitals: Query<&davelib::player::PlayerVitals, With<davelib::player::Player>>,
+    hud: Res<super::HudState>,
+    lock: Res<davelib::player::PlayerControlLock>,
+    latch: Res<davelib::player::PlayerDeathLatch>,
+    mut death: ResMut<DeathDelay>,
+    mut restart: ResMut<RestartRequested>,
+) {
+    // If we ever become alive again (Step 5 will do this), clear timer/flags.
+    let Some(v) = q_vitals.iter().next() else { return; };
+    if v.hp > 0 {
+        death.active = false;
+        let dur = death.timer.duration();
+        death.timer.set_elapsed(dur);
+        restart.0 = false;
+        return;
+    }
+
+    // Only run the delay when death has been latched and input is locked.
+    if !latch.0 || !lock.0 {
+        return;
+    }
+
+    // If we already requested a restart (or game over), nothing to do.
+    if restart.0 {
+        return;
+    }
+
+    // Start the timer once.
+    if !death.active {
+        death.active = true;
+        death.timer.reset();
+    }
+
+    death.timer.tick(time.delta());
+    if !death.timer.is_finished() {
+        return;
+    }
+
+    death.active = false;
+
+    if hud.lives > 0 {
+        restart.0 = true;
+        info!("Death delay finished -> restart requested (lives remaining: {})", hud.lives);
+    } else {
+        info!("Death delay finished -> GAME OVER (no lives remaining)");
+        // stay locked; Step 5+ will add a proper game over UI
+    }
 }
