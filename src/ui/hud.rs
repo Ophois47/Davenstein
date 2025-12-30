@@ -2,11 +2,20 @@
 Davenstein - by David Petnick
 */
 use bevy::prelude::*;
-use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
+use bevy::window::{
+    CursorGrabMode,
+    CursorOptions,
+    PrimaryWindow,
+};
 
-use super::{HudState, DeathOverlay, GameOver};
+use super::{
+    HudState,
+    DeathOverlay,
+    GameOver,
+};
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::player::{Player, PlayerControlLock};
+use crate::level_complete::MissionSuccessOverlay;
 
 #[derive(Component)]
 pub(super) struct DamageFlashOverlay;
@@ -1214,6 +1223,49 @@ pub(crate) fn setup_hud(
                 ));
 
                 go.spawn((
+                    Text::new("Press Enter to restart"),
+                    TextFont {
+                        font: ui_font.clone(),
+                        font_size: 24.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    TextLayout::new_with_justify(Justify::Center),
+                ));
+            });
+
+            // Full-screen overlay (sits above view + status bar)
+            ui.spawn((
+                MissionSuccessOverlay,
+                ZIndex(101),
+                Visibility::Hidden,
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    top: Val::Px(0.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(12.0),
+                    ..default()
+                },
+                BackgroundColor(Srgba::new(0.0, 0.0, 0.0, 0.80).into()),
+            ))
+            .with_children(|ms| {
+                ms.spawn((
+                    Text::new("MISSION SUCCESS"),
+                    TextFont {
+                        font: ui_font.clone(),
+                        font_size: 64.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    TextLayout::new_with_justify(Justify::Center),
+                ));
+
+                ms.spawn((
                     Text::new("Press Enter to restart"),
                     TextFont {
                         font: ui_font.clone(),

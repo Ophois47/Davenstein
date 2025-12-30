@@ -21,6 +21,7 @@ pub enum SfxKind {
     DoorClose,
     NoWay,
     Pushwall,
+    ElevatorSwitch,
     
     // Sfx - Weapons
     KnifeSwing,
@@ -96,6 +97,7 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     lib.insert_one(SfxKind::DoorClose, asset_server.load("sounds/sfx/door_close.ogg"));
     lib.insert_one(SfxKind::NoWay, asset_server.load("sounds/sfx/no_way.ogg"));
     lib.insert_one(SfxKind::Pushwall, asset_server.load("sounds/sfx/pushwall.ogg"));
+    lib.insert_one(SfxKind::ElevatorSwitch, asset_server.load("sounds/sfx/elevator_switch.ogg"));
 
     // Weapon Attack
     lib.insert_one(
@@ -251,7 +253,8 @@ pub fn play_sfx_events(
             SfxKind::DoorOpen 
             | SfxKind::DoorClose 
             | SfxKind::NoWay 
-            | SfxKind::Pushwall => PlaybackSettings::DESPAWN
+            | SfxKind::Pushwall
+            | SfxKind::ElevatorSwitch => PlaybackSettings::DESPAWN
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.12))
                 .with_volume(Volume::Linear(1.0)),
@@ -278,7 +281,7 @@ pub fn play_sfx_events(
             | SfxKind::PickupTreasureCrown => PlaybackSettings::DESPAWN
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.15))
-                .with_volume(Volume::Linear(1.25)),
+                .with_volume(Volume::Linear(1.5)),
 
             SfxKind::EnemyAlert(_) => PlaybackSettings::DESPAWN
                 .with_spatial(true)
@@ -287,7 +290,7 @@ pub fn play_sfx_events(
             SfxKind::EnemyShoot(_) => PlaybackSettings::DESPAWN
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.25))
-                .with_volume(Volume::Linear(1.3)),
+                .with_volume(Volume::Linear(1.4)),
 
             SfxKind::EnemyDeath(_) => PlaybackSettings::DESPAWN
                 .with_spatial(true)

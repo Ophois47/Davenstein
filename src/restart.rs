@@ -10,7 +10,7 @@ use davelib::{
     },
     pushwalls::PushwallVisual,
 };
-
+use crate::level_complete::LevelComplete;
 use crate::{
     ui::{
         sync::{
@@ -47,13 +47,13 @@ pub fn restart_despawn_level(
     }
 }
 
-// Runs after the respawn chain finishes: unlock + reset “stuff”.
 pub fn restart_finish(
     mut restart: ResMut<RestartRequested>,
     mut lock: ResMut<PlayerControlLock>,
     mut latch: ResMut<PlayerDeathLatch>,
     mut death: ResMut<DeathDelay>,
     mut hud: ResMut<HudState>,
+    mut win: ResMut<LevelComplete>,
 ) {
     // Keep lives + score; reset everything else to “fresh life”.
     let lives = hud.lives;
@@ -63,10 +63,11 @@ pub fn restart_finish(
     hud.lives = lives;
     hud.score = score;
 
-    // Clear death/restart bookkeeping.
+    // Clear death/restart bookkeeping + win state.
     *death = Default::default();
     latch.0 = false;
     lock.0 = false;
+    win.0 = false;
 
     // Consume the request so it runs once.
     restart.0 = false;
@@ -74,8 +75,6 @@ pub fn restart_finish(
     bevy::log::info!("Restart: finished (controls unlocked, HUD reset)");
 }
 
-/// Runs after the respawn chain finishes for a brand new run.
-/// Resets everything that should not persist across runs (score/lives/keys/weapons).
 pub fn new_game_finish(
     mut new_game: ResMut<NewGameRequested>,
     mut lock: ResMut<PlayerControlLock>,
@@ -84,6 +83,7 @@ pub fn new_game_finish(
     mut hud: ResMut<HudState>,
     mut game_over: ResMut<GameOver>,
     mut death_overlay: ResMut<DeathOverlay>,
+    mut win: ResMut<LevelComplete>,
 ) {
     if !new_game.0 {
         return;
@@ -91,12 +91,13 @@ pub fn new_game_finish(
 
     *hud = HudState::default();
 
-    // Clear death/restart bookkeeping.
+    // Clear death/restart bookkeeping + win state.
     *death = Default::default();
     latch.0 = false;
     lock.0 = false;
     game_over.0 = false;
-    death_overlay.clear();
+    win.0 = false;
+    *death_overlay = DeathOverlay::default();
 
     // Consume the request so it runs once.
     new_game.0 = false;

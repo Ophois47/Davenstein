@@ -2,6 +2,7 @@
 Davenstein - by David Petnick
 */
 mod combat;
+mod level_complete;
 mod pickups;
 mod restart;
 mod ui;
@@ -93,6 +94,7 @@ fn main() {
         .init_resource::<PushwallOcc>()
         .init_resource::<PushwallState>()
         .init_resource::<PushwallClock>()
+        .init_resource::<level_complete::LevelComplete>()
         .add_message::<PlaySfx>()
         .add_message::<RebuildWalls>()
         .add_systems(
@@ -115,6 +117,9 @@ fn main() {
                 billboard_decorations,
                 use_pushwalls,
                 use_doors,
+                level_complete::use_elevator_exit,
+                level_complete::mission_success_input,
+                level_complete::sync_mission_success_overlay_visibility,
             )
                 .chain(),
         )

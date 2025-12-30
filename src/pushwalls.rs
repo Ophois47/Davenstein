@@ -21,7 +21,7 @@ use crate::audio::{PlaySfx, SfxKind};
 use crate::decorations::SolidStatics;
 use crate::enemies::EnemyKind;
 use crate::map::{MapGrid, Tile};
-use crate::player::Player;
+use crate::player::{Player, PlayerControlLock};
 use crate::world::{RebuildWalls, WallRenderCache};
 
 const WOLF_TIC_HZ: f32 = 70.0;
@@ -119,6 +119,12 @@ pub struct PushwallVisual;
 #[derive(Resource, Default)]
 pub struct PushwallClock {
     accum: f32,
+}
+
+impl PushwallClock {
+    pub fn reset(&mut self) {
+        self.accum = 0.0;
+    }
 }
 
 #[derive(Debug)]
@@ -287,6 +293,7 @@ fn spawn_pushwall_visual(
 /// Player "use" handler: attempts to start a pushwall. Plays "no way" when blocked.
 pub fn use_pushwalls(
     keys: Res<ButtonInput<KeyCode>>,
+    lock: Res<PlayerControlLock>,
     grid: Res<MapGrid>,
     solid: Res<SolidStatics>,
     mut markers: ResMut<PushwallMarkers>,
@@ -299,6 +306,9 @@ pub fn use_pushwalls(
     mut rebuild: MessageWriter<RebuildWalls>,
     mut commands: Commands,
 ) {
+    if lock.0 {
+        return; // <- prevents using pushwalls while dead / game over
+    }
     if !keys.just_pressed(KeyCode::Space) {
         return;
     }

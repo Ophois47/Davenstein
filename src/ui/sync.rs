@@ -10,7 +10,11 @@ use davelib::player::{
     PlayerDeathLatch,
     PlayerVitals,
 };
-use super::{HudState, DeathOverlay, GameOver};
+use crate::ui::DeathOverlay;
+use super::{
+    HudState,
+    GameOver,
+};
 
 #[derive(Resource, Debug, Clone)]
 pub struct DeathDelay {
@@ -82,89 +86,71 @@ pub fn handle_player_death_once(
     mut death_overlay: ResMut<DeathOverlay>,
     mut game_over: ResMut<GameOver>,
 ) {
-    let Some(v) = q_vitals.iter().next() else {
-        return;
-    };
+    let Some(v) = q_vitals.iter().next() else { return; };
 
-    // If we're alive, clear the latch + unlock (for later respawn/restart flow).
     if v.hp > 0 {
         latch.0 = false;
-        // Do NOT auto-unlock here yet; restart system will control lock state.
         return;
     }
 
-    // HP <= 0: process death exactly once.
-    if latch.0 {
-        return;
-    }
+    if latch.0 { return; }
     latch.0 = true;
 
-    // Clear any prior game-over state (if we were resurrected mid-flow).
     game_over.0 = false;
-    // Start the death overlay immediately.
-    death_overlay.trigger();
 
-    if hud.lives > 0 {
-        hud.lives -= 1;
-    }
+    // was: death_overlay.trigger();
+    death_overlay.active = true;
+    death_overlay.timer.reset();
 
-    // Freeze player input as the immediate “death” effect.
+    if hud.lives > 0 { hud.lives -= 1; }
     lock.0 = true;
 }
 
 pub fn tick_death_delay_and_request_restart(
     time: Res<Time>,
-    q_vitals: Query<&davelib::player::PlayerVitals, With<davelib::player::Player>>,
-    hud: Res<super::HudState>,
-    lock: Res<davelib::player::PlayerControlLock>,
-    latch: Res<davelib::player::PlayerDeathLatch>,
+    q_vitals: Query<&PlayerVitals, With<Player>>,
+    hud: Res<HudState>,
+    lock: Res<PlayerControlLock>,
+    latch: Res<PlayerDeathLatch>,
     mut death: ResMut<DeathDelay>,
     mut restart: ResMut<RestartRequested>,
     mut game_over: ResMut<GameOver>,
     mut death_overlay: ResMut<DeathOverlay>,
 ) {
-    // If we ever become alive again (Step 5 will do this), clear timer/flags.
     let Some(v) = q_vitals.iter().next() else { return; };
+
     if v.hp > 0 {
         death.active = false;
         let dur = death.timer.duration();
         death.timer.set_elapsed(dur);
         restart.0 = false;
         game_over.0 = false;
-        death_overlay.clear();
+
+        // was: death_overlay.clear();
+        death_overlay.active = false;
+        let dur = death_overlay.timer.duration();
+        death_overlay.timer.set_elapsed(dur);
+
         return;
     }
 
-    // Only run the delay when death has been latched and input is locked.
-    if !latch.0 || !lock.0 {
-        return;
-    }
+    if !latch.0 || !lock.0 { return; }
+    if restart.0 || game_over.0 { return; }
 
-    // If we already requested a restart (or game over), nothing to do.
-    if restart.0 || game_over.0 {
-        return;
-    }
-
-    // Start the timer once.
     if !death.active {
         death.active = true;
         death.timer.reset();
     }
 
     death.timer.tick(time.delta());
-    if !death.timer.is_finished() {
-        return;
-    }
+    if !death.timer.is_finished() { return; }
 
     death.active = false;
 
     if hud.lives > 0 {
         restart.0 = true;
-        info!("Death delay finished -> restart requested (lives remaining: {})", hud.lives);
     } else {
         game_over.0 = true;
-        info!("Death delay finished -> GAME OVER (no lives remaining)");
-        // stay locked; game_over_input handles Enter->NewGameRequested
     }
 }
 
