@@ -30,6 +30,7 @@ use davelib::player::{
     use_doors,
     PlayerSettings,
     PlayerControlLock,
+    PlayerDeathLatch,
 };
 use davelib::pushwalls::{
     use_pushwalls,
@@ -85,12 +86,12 @@ fn main() {
         .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
         .init_resource::<PlayerSettings>()
         .init_resource::<PlayerControlLock>()
+        .init_resource::<PlayerDeathLatch>()
         .init_resource::<PushwallOcc>()
         .init_resource::<PushwallState>()
         .init_resource::<PushwallClock>()
         .add_message::<PlaySfx>()
         .add_message::<RebuildWalls>()
-
         .add_systems(
             Startup,
             (

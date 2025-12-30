@@ -63,6 +63,11 @@ impl Default for PlayerVitals {
 #[derive(Resource, Default)]
 pub struct PlayerControlLock(pub bool);
 
+/// Prevents decrementing lives every frame while hp == 0.
+/// false = alive (or not yet processed), true = death already handled.
+#[derive(Resource, Default)]
+pub struct PlayerDeathLatch(pub bool);
+
 // Left Click to Lock/Hide Cursor, Esc to Release
 pub fn grab_mouse(
     mut cursor_options: Single<&mut CursorOptions>,

@@ -4,6 +4,12 @@ Davenstein - by David Petnick
 use bevy::prelude::*;
 
 use davelib::ai::EnemyFire;
+use davelib::player::{
+    Player,
+    PlayerControlLock,
+    PlayerDeathLatch,
+    PlayerVitals,
+};
 use super::HudState;
 
 pub fn sync_player_hp_with_hud(
@@ -35,4 +41,35 @@ pub fn apply_enemy_fire_to_player_vitals(
             ev.damage, before, vitals.hp
         );
     }
+}
+
+pub fn handle_player_death_once(
+    q_vitals: Query<&PlayerVitals, With<Player>>,
+    mut hud: ResMut<HudState>,
+    mut lock: ResMut<PlayerControlLock>,
+    mut latch: ResMut<PlayerDeathLatch>,
+) {
+    let Some(v) = q_vitals.iter().next() else {
+        return;
+    };
+
+    // If we're alive, clear the latch + unlock (for later respawn/restart flow).
+    if v.hp > 0 {
+        latch.0 = false;
+        // Do NOT auto-unlock here yet; restart system will control lock state.
+        return;
+    }
+
+    // HP <= 0: process death exactly once.
+    if latch.0 {
+        return;
+    }
+    latch.0 = true;
+
+    if hud.lives > 0 {
+        hud.lives -= 1;
+    }
+
+    // Freeze player input as the immediate “death” effect.
+    lock.0 = true;
 }
