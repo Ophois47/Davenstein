@@ -4,12 +4,18 @@ Davenstein - by David Petnick
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
-use super::HudState;
+use super::{HudState, DeathOverlay, GameOver};
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::player::{Player, PlayerControlLock};
 
 #[derive(Component)]
 pub(super) struct DamageFlashOverlay;
+
+#[derive(Component)]
+pub(super) struct DeathOverlayOverlay;
+
+#[derive(Component)]
+pub(super) struct GameOverOverlay;
 
 #[derive(Component)]
 pub(super) struct ViewModelImage;
@@ -765,6 +771,35 @@ pub(crate) fn tick_damage_flash(
     }
 }
 
+pub(crate) fn tick_death_overlay(
+    time: Res<Time>,
+    mut death: ResMut<DeathOverlay>,
+    mut q: Query<&mut BackgroundColor, With<DeathOverlayOverlay>>,
+) {
+    if death.active && !death.timer.is_finished() {
+        death.timer.tick(time.delta());
+    }
+
+    let a = death.alpha();
+    for mut bg in q.iter_mut() {
+        *bg = BackgroundColor(Srgba::new(1.0, 0.0, 0.0, a).into());
+    }
+}
+
+pub(crate) fn sync_game_over_overlay_visibility(
+    game_over: Res<GameOver>,
+    mut q: Query<&mut Visibility, With<GameOverOverlay>>,
+) {
+    // Always apply (cheap), avoids "never becomes visible" edge cases.
+    for mut vis in q.iter_mut() {
+        *vis = if game_over.0 {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+}
+
 pub(crate) fn setup_hud(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -802,6 +837,9 @@ pub(crate) fn setup_hud(
 
     // Boxed HUD strip background (320x44)
     let status_bar: Handle<Image> = asset_server.load("textures/hud/status_bar.png");
+
+    // Simple UI text font (used for Game Over overlay)
+    let ui_font: Handle<Font> = asset_server.load("fonts/font.ttf");
 
     // --- Native Wolf HUD sizing (current strip-only HUD) ---
     const HUD_W: f32 = 320.0;
@@ -916,6 +954,22 @@ pub(crate) fn setup_hud(
 
                     vm.spawn((
                         DamageFlashOverlay,
+                        ZIndex(1),
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Percent(100.0),
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(0.0),
+                            top: Val::Px(0.0),
+                            ..default()
+                        },
+                        BackgroundColor(Srgba::new(1.0, 0.0, 0.0, 0.0).into()),
+                    ));
+
+                    // Stronger red overlay for death (fades in, then holds)
+                    vm.spawn((
+                        DeathOverlayOverlay,
+                        ZIndex(2),
                         Node {
                             width: Val::Percent(100.0),
                             height: Val::Percent(100.0),
@@ -1126,6 +1180,49 @@ pub(crate) fn setup_hud(
                             }
                         });
                 });
+            });
+
+            // Full-screen overlay (sits above view + status bar)
+            ui.spawn((
+                GameOverOverlay,
+                ZIndex(100),
+                Visibility::Hidden,
+                Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    top: Val::Px(0.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(12.0),
+                    ..default()
+                },
+                BackgroundColor(Srgba::new(0.0, 0.0, 0.0, 0.80).into()),
+            ))
+            .with_children(|go| {
+                go.spawn((
+                    Text::new("GAME OVER"),
+                    TextFont {
+                        font: ui_font.clone(),
+                        font_size: 64.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    TextLayout::new_with_justify(Justify::Center),
+                ));
+
+                go.spawn((
+                    Text::new("Press Enter to restart"),
+                    TextFont {
+                        font: ui_font.clone(),
+                        font_size: 24.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    TextLayout::new_with_justify(Justify::Center),
+                ));
             });
         });
 }

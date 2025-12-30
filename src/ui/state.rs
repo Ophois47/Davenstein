@@ -87,3 +87,58 @@ impl DamageFlash {
         (a * 0.65).clamp(0.0, 0.65)
     }
 }
+
+/// A stronger, longer-lived red overlay used for player death.
+///
+/// Behavior:
+/// - `trigger()` starts a quick fade-in.
+/// - Once fully faded in, it holds at `MAX_ALPHA` until `clear()`.
+#[derive(Resource, Debug, Clone)]
+pub struct DeathOverlay {
+    pub active: bool,
+    pub timer: Timer,
+}
+
+impl Default for DeathOverlay {
+    fn default() -> Self {
+        let mut t = Timer::from_seconds(0.28, TimerMode::Once);
+        // Start "finished" so we don't show anything until triggered.
+        t.set_elapsed(t.duration());
+        Self { active: false, timer: t }
+    }
+}
+
+impl DeathOverlay {
+    const MAX_ALPHA: f32 = 0.80;
+
+    pub fn trigger(&mut self) {
+        self.active = true;
+        self.timer.reset();
+    }
+
+    pub fn clear(&mut self) {
+        self.active = false;
+        let dur = self.timer.duration();
+        self.timer.set_elapsed(dur);
+    }
+
+    pub fn alpha(&self) -> f32 {
+        if !self.active {
+            return 0.0;
+        }
+
+        if self.timer.is_finished() {
+            return Self::MAX_ALPHA;
+        }
+
+        let dur = self.timer.duration().as_secs_f32().max(0.0001);
+        let t = (self.timer.elapsed_secs() / dur).clamp(0.0, 1.0);
+        // Ease-in
+        let a = t.powf(2.2);
+        (a * Self::MAX_ALPHA).clamp(0.0, Self::MAX_ALPHA)
+    }
+}
+
+/// True when the player has no lives remaining and is in the "Game Over" flow.
+#[derive(Resource, Debug, Clone, Default)]
+pub struct GameOver(pub bool);

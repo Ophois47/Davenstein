@@ -132,6 +132,18 @@ fn main() {
                 .run_if(|r: Res<ui::sync::RestartRequested>| r.0),
         )
         .add_systems(
+            PostUpdate,
+            (
+                restart::restart_despawn_level,
+                setup,
+                spawn_wolf_e1m1_decorations,
+                pickups::spawn_wolf_e1m1_pickups,
+                restart::new_game_finish,
+            )
+                .chain()
+                .run_if(|r: Res<ui::sync::NewGameRequested>| r.0),
+        )
+        .add_systems(
             FixedUpdate,
             (
                 tick_pushwalls,

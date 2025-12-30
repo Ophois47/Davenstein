@@ -15,9 +15,13 @@ use crate::{
     ui::{
         sync::{
             DeathDelay,
-            RestartRequested
+            RestartRequested,
+            NewGameRequested
         }, 
-    HudState},
+        DeathOverlay,
+        GameOver,
+        HudState,
+    },
 };
 
 // Despawn what should NOT persist across a life restart.
@@ -68,4 +72,34 @@ pub fn restart_finish(
     restart.0 = false;
 
     bevy::log::info!("Restart: finished (controls unlocked, HUD reset)");
+}
+
+/// Runs after the respawn chain finishes for a brand new run.
+/// Resets everything that should not persist across runs (score/lives/keys/weapons).
+pub fn new_game_finish(
+    mut new_game: ResMut<NewGameRequested>,
+    mut lock: ResMut<PlayerControlLock>,
+    mut latch: ResMut<PlayerDeathLatch>,
+    mut death: ResMut<DeathDelay>,
+    mut hud: ResMut<HudState>,
+    mut game_over: ResMut<GameOver>,
+    mut death_overlay: ResMut<DeathOverlay>,
+) {
+    if !new_game.0 {
+        return;
+    }
+
+    *hud = HudState::default();
+
+    // Clear death/restart bookkeeping.
+    *death = Default::default();
+    latch.0 = false;
+    lock.0 = false;
+    game_over.0 = false;
+    death_overlay.clear();
+
+    // Consume the request so it runs once.
+    new_game.0 = false;
+
+    bevy::log::info!("New Game: finished (fresh HUD, controls unlocked)");
 }

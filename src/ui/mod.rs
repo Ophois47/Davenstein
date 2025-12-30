@@ -9,6 +9,8 @@ use bevy::prelude::*;
 
 pub use state::HudState;
 pub use state::DamageFlash;
+pub use state::DeathOverlay;
+pub use state::GameOver;
 
 pub struct UiPlugin;
 
@@ -16,6 +18,9 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<HudState>()
             .init_resource::<DamageFlash>()
+            .init_resource::<DeathOverlay>()
+            .init_resource::<GameOver>()
+            .init_resource::<sync::NewGameRequested>()
             .init_resource::<hud::WeaponState>()
             .add_systems(Startup, hud::setup_hud)
             // 1) Resolve enemy shots into PlayerVitals (gameplay truth)
@@ -28,6 +33,7 @@ impl Plugin for UiPlugin {
                     sync::sync_player_hp_with_hud,
                     sync::handle_player_death_once,
                     sync::tick_death_delay_and_request_restart,
+                    sync::game_over_input,
                     hud::sync_viewmodel_size,
                     hud::weapon_fire_and_viewmodel,
                     hud::sync_hud_hp_digits,
@@ -37,6 +43,8 @@ impl Plugin for UiPlugin {
                     hud::sync_hud_icons,
                     hud::flash_on_hp_drop,
                     hud::tick_damage_flash,
+                    hud::tick_death_overlay,
+                    hud::sync_game_over_overlay_visibility,
                 )
                     .chain(),
             );

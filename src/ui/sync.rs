@@ -10,7 +10,7 @@ use davelib::player::{
     PlayerDeathLatch,
     PlayerVitals,
 };
-use super::HudState;
+use super::{HudState, DeathOverlay, GameOver};
 
 #[derive(Resource, Debug, Clone)]
 pub struct DeathDelay {
@@ -30,6 +30,10 @@ impl Default for DeathDelay {
 #[derive(Resource, Debug, Clone, Default)]
 pub struct RestartRequested(pub bool);
 
+/// A request to start a fresh run (reset score/lives/etc.).
+#[derive(Resource, Debug, Clone, Default)]
+pub struct NewGameRequested(pub bool);
+
 pub fn sync_player_hp_with_hud(
     mut hud: ResMut<HudState>,
     q_player: Query<&davelib::player::PlayerVitals, With<davelib::player::Player>>,
@@ -40,8 +44,17 @@ pub fn sync_player_hp_with_hud(
 
 pub fn apply_enemy_fire_to_player_vitals(
     mut q_player: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
+    lock: Res<PlayerControlLock>,
+    latch: Res<PlayerDeathLatch>,
     mut enemy_fire: MessageReader<EnemyFire>,
 ) {
+    // If we're dead (latched) or frozen, ignore further damage.
+    if lock.0 || latch.0 {
+        // Drain pending shots so they don't apply after we unlock.
+        for _ in enemy_fire.read() {}
+        return;
+    }
+
     let Some(mut vitals) = q_player.iter_mut().next() else { return; };
 
     for ev in enemy_fire.read() {
@@ -66,6 +79,8 @@ pub fn handle_player_death_once(
     mut hud: ResMut<HudState>,
     mut lock: ResMut<PlayerControlLock>,
     mut latch: ResMut<PlayerDeathLatch>,
+    mut death_overlay: ResMut<DeathOverlay>,
+    mut game_over: ResMut<GameOver>,
 ) {
     let Some(v) = q_vitals.iter().next() else {
         return;
@@ -84,6 +99,11 @@ pub fn handle_player_death_once(
     }
     latch.0 = true;
 
+    // Clear any prior game-over state (if we were resurrected mid-flow).
+    game_over.0 = false;
+    // Start the death overlay immediately.
+    death_overlay.trigger();
+
     if hud.lives > 0 {
         hud.lives -= 1;
     }
@@ -100,6 +120,8 @@ pub fn tick_death_delay_and_request_restart(
     latch: Res<davelib::player::PlayerDeathLatch>,
     mut death: ResMut<DeathDelay>,
     mut restart: ResMut<RestartRequested>,
+    mut game_over: ResMut<GameOver>,
+    mut death_overlay: ResMut<DeathOverlay>,
 ) {
     // If we ever become alive again (Step 5 will do this), clear timer/flags.
     let Some(v) = q_vitals.iter().next() else { return; };
@@ -108,6 +130,8 @@ pub fn tick_death_delay_and_request_restart(
         let dur = death.timer.duration();
         death.timer.set_elapsed(dur);
         restart.0 = false;
+        game_over.0 = false;
+        death_overlay.clear();
         return;
     }
 
@@ -117,7 +141,7 @@ pub fn tick_death_delay_and_request_restart(
     }
 
     // If we already requested a restart (or game over), nothing to do.
-    if restart.0 {
+    if restart.0 || game_over.0 {
         return;
     }
 
@@ -138,7 +162,24 @@ pub fn tick_death_delay_and_request_restart(
         restart.0 = true;
         info!("Death delay finished -> restart requested (lives remaining: {})", hud.lives);
     } else {
+        game_over.0 = true;
         info!("Death delay finished -> GAME OVER (no lives remaining)");
-        // stay locked; Step 5+ will add a proper game over UI
+        // stay locked; game_over_input handles Enter->NewGameRequested
+    }
+}
+
+/// While in Game Over, wait for player input to start a new run.
+pub fn game_over_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    game_over: Res<GameOver>,
+    mut new_game: ResMut<NewGameRequested>,
+) {
+    if !game_over.0 || new_game.0 {
+        return;
+    }
+
+    if keys.just_pressed(KeyCode::Enter) {
+        new_game.0 = true;
+        info!("Game Over: Enter pressed -> new game requested");
     }
 }
