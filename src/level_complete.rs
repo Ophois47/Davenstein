@@ -1,6 +1,5 @@
 /*
 Davenstein - by David Petnick
-Level Complete (Elevator Exit)
 */
 use bevy::prelude::*;
 
@@ -8,7 +7,6 @@ use davelib::audio::{PlaySfx, SfxKind};
 use davelib::map::{MapGrid, Tile};
 use davelib::player::{Player, PlayerControlLock};
 use davelib::world::RebuildWalls;
-use crate::ui::sync::NewGameRequested;
 
 /// Latched "win" state (like GameOver), driven by using the elevator switch.
 #[derive(Resource, Debug, Clone, Default)]
@@ -113,14 +111,24 @@ pub fn sync_mission_success_overlay_visibility(
 pub fn mission_success_input(
     keys: Res<ButtonInput<KeyCode>>,
     win: Res<LevelComplete>,
-    mut new_game: ResMut<NewGameRequested>,
+    mut new_game: ResMut<crate::ui::sync::NewGameRequested>,
+    mut current_level: ResMut<davelib::level::CurrentLevel>,
 ) {
+    // Only while mission success is active, and only once.
     if !win.0 || new_game.0 {
         return;
     }
 
     if keys.just_pressed(KeyCode::Enter) {
+        use davelib::level::LevelId;
+
+        // Temporary progression table until more maps exist.
+        current_level.0 = match current_level.0 {
+            LevelId::E1M1 => LevelId::E1M2,
+            LevelId::E1M2 => LevelId::E1M1,
+        };
+
         new_game.0 = true;
-        info!("Mission Success: Enter pressed -> new game requested");
+        info!("Mission Success: advancing to {:?} -> new game requested", current_level.0);
     }
 }

@@ -86,6 +86,7 @@ fn main() {
         .add_plugins(EnemyAiPlugin)
         .add_plugins(combat::CombatPlugin)
         .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
+        .init_resource::<davelib::level::CurrentLevel>()
         .init_resource::<PlayerSettings>()
         .init_resource::<PlayerControlLock>()
         .init_resource::<PlayerDeathLatch>()

@@ -6,6 +6,7 @@ pub mod ai;
 pub mod audio;
 pub mod decorations;
 pub mod enemies;
+pub mod level;
 pub mod map;
 pub mod player;
 pub mod pushwalls;

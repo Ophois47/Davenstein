@@ -8,6 +8,7 @@ use crate::combat::WeaponSlot;
 use crate::ui::HudState;
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::enemies::GuardCorpse;
+use davelib::level::WolfPlane1;
 use davelib::map::{MapGrid, Tile};
 use davelib::player::Player;
 
@@ -202,23 +203,32 @@ fn pickup_base_rot() -> Quat {
 pub fn spawn_wolf_e1m1_pickups(
     mut commands: Commands,
     grid: Res<MapGrid>,
+    plane1_res: Res<WolfPlane1>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Embedded WL6 plane dump produced from MAPHEAD.WL6 + GAMEMAPS.WL6.
-    // 64x64 u16 values, left-to-right, top-to-bottom.
-    const E1M1_PLANE1: &str = include_str!("../assets/maps/e1m1_plane1_u16.txt");
-
     if grid.width != 64 || grid.height != 64 {
         warn!(
-            "spawn_wolf_e1m1_pickups: expected 64x64 grid for E1M1, got {}x{}",
+            "spawn_wolf_e1m1_pickups: expected 64x64 grid, got {}x{}",
             grid.width, grid.height
         );
         return;
     }
 
-    let plane1 = MapGrid::parse_u16_grid(E1M1_PLANE1, 64, 64);
+    let expected = grid.width * grid.height;
+    if plane1_res.0.len() != expected {
+        warn!(
+            "spawn_wolf_e1m1_pickups: WolfPlane1 len {} != expected {} ({}x{})",
+            plane1_res.0.len(),
+            expected,
+            grid.width,
+            grid.height
+        );
+        return;
+    }
+
+    let plane1: &[u16] = &plane1_res.0;
 
     // Depth tuning: match the existing drop/treasure approach.
     const DEPTH_BIAS: f32 = -250.0;
@@ -298,10 +308,10 @@ pub fn spawn_wolf_e1m1_pickups(
         ));
     };
 
-    let idx = |x: usize, z: usize| -> usize { z * 64 + x };
+    let idx = |x: usize, z: usize| -> usize { z * grid.width + x };
 
-    for z in 0..64 {
-        for x in 0..64 {
+    for z in 0..grid.height {
+        for x in 0..grid.width {
             let v = plane1[idx(x, z)];
             let Some(kind) = to_pickup_kind(v) else {
                 continue;

@@ -319,15 +319,28 @@ pub fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     guard_sprites: Res<crate::enemies::GuardSprites>,
+    current_level: Res<crate::level::CurrentLevel>,
 ) {
+    // --- Map load (Wolf planes) ---
     const E1M1_PLANE0: &str = include_str!("../assets/maps/e1m1_plane0_u16.txt");
     const E1M1_PLANE1: &str = include_str!("../assets/maps/e1m1_plane1_u16.txt");
+    const E1M2_PLANE0: &str = include_str!("../assets/maps/e1m2_plane0_u16.txt");
+    const E1M2_PLANE1: &str = include_str!("../assets/maps/e1m2_plane1_u16.txt");
 
-    let plane0 = MapGrid::parse_u16_grid(E1M1_PLANE0, 64, 64);
-    let plane1 = MapGrid::parse_u16_grid(E1M1_PLANE1, 64, 64);
+    let (plane0_text, plane1_text) = match current_level.0 {
+        crate::level::LevelId::E1M1 => (E1M1_PLANE0, E1M1_PLANE1),
+        crate::level::LevelId::E1M2 => (E1M2_PLANE0, E1M2_PLANE1),
+    };
+
+    let plane0 = MapGrid::parse_u16_grid(plane0_text, 64, 64);
+    let plane1 = MapGrid::parse_u16_grid(plane1_text, 64, 64);
+
+    // Make plane1 available as the single source of truth for decorations/pickups later.
+    commands.insert_resource(crate::level::WolfPlane1(plane1.clone()));
 
     let pushwall_markers = PushwallMarkers::from_wolf_plane1(64, 64, &plane1);
     let (grid, spawn, guards) = MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
+
     let (spawn, spawn_yaw) = spawn.unwrap_or((IVec2::new(1, 1), 0.0));
 
     // Make Map Available for Collision / Doors / Raycasts
@@ -337,7 +350,7 @@ pub fn setup(
     // Pushwall markers (plane1 == 98)
     commands.insert_resource(pushwall_markers);
 
-    // Load + Store Assets
+    // --- Assets / materials ---
     let assets = load_assets(&asset_server);
     let wall_tex = assets.wall_tex.clone();
     let floor_tex = assets.floor_tex.clone();
@@ -358,8 +371,7 @@ pub fn setup(
         ..default()
     });
 
-    // Doors now use the SAME atlas texture as walls (wolf_walls.png).
-    // We still keep a separate material handle so door panels remain independently configurable.
+    // Doors use the SAME atlas texture as walls (wolf_walls.png).
     let door_mat = materials.add(StandardMaterial {
         base_color_texture: Some(wall_tex.clone()),
         unlit: true,
@@ -480,14 +492,14 @@ pub fn setup(
         meshes.add(m)
     }
 
-    // Build wall panels from the atlas (front-facing only)
+    // Build wall panels from the atlas (front-facing only).
     let mut atlas_panels: Vec<Handle<Mesh>> = Vec::with_capacity(VSWAP_WALL_CHUNKS);
     for i in 0..VSWAP_WALL_CHUNKS {
         let (u0, u1, v0, v1) = atlas_uv(i);
         atlas_panels.push(build_atlas_panel(&mut meshes, u0, u1, v0, v1, false));
     }
 
-    // Door panels need a mirrored-U back face. We create only the back meshes we need.
+    // Door panels need mirrored-U back faces; create only the back meshes we need.
     let door98_front = atlas_panels[DOOR_NORMAL_LIGHT].clone();
     let door98_back = {
         let (u0, u1, v0, v1) = atlas_uv(DOOR_NORMAL_LIGHT);
@@ -524,15 +536,14 @@ pub fn setup(
         build_atlas_panel(&mut meshes, u0, u1, v0, v1, true)
     };
 
-    // (Unchanged for now; used by wall-face rebuild)
-    // Jamb fallback now comes from the atlas too (tile 100).
-    let jamb_mat = wall_mat.clone();
-    let jamb_panel = atlas_panels[DOOR_JAMB_LIGHT].clone();
-
     let wall_base = Quat::from_rotation_x(-FRAC_PI_2); // Make Plane3d Vertical
 
     // Cache the reusable wall rendering assets so pushwalls can spawn a moving wall,
     // and so we can rebuild static wall faces when pushwalls cross tile boundaries.
+    // (jamb_* are now atlas-backed; kept as safe fallbacks.)
+    let jamb_mat = wall_mat.clone();
+    let jamb_panel = atlas_panels[DOOR_JAMB_LIGHT].clone();
+
     let wall_cache = WallRenderCache {
         atlas_panels: atlas_panels.clone(),
         jamb_panel,
@@ -543,19 +554,17 @@ pub fn setup(
     };
     commands.insert_resource(wall_cache.clone());
 
-    // Walls + Doors From Grid
-    // Doors from grid (static wall faces are spawned separately so we can rebuild them)
+    // --- Doors from grid ---
     for z in 0..grid.height {
         for x in 0..grid.width {
             let tile = grid.tile(x, z);
-
             if !matches!(tile, Tile::DoorClosed | Tile::DoorOpen) {
                 continue;
             }
 
             let is_open = matches!(tile, Tile::DoorOpen);
 
-            // Determine Orientation From Adjacent Walls
+            // Determine orientation from adjacent walls.
             let left_wall = x > 0 && matches!(grid.tile(x - 1, z), Tile::Wall);
             let right_wall = x + 1 < grid.width && matches!(grid.tile(x + 1, z), Tile::Wall);
             let up_wall = z > 0 && matches!(grid.tile(x, z - 1), Tile::Wall);
@@ -577,10 +586,9 @@ pub fn setup(
             // Plane3d normal is +Y; rotate vertical then yaw.
             let base = Quat::from_rotation_x(-FRAC_PI_2);
             let rot = Quat::from_rotation_y(yaw) * base;
-
             let normal = rot * Vec3::Y;
 
-            // Door Thickness Offset for Two Panels
+            // Door thickness offset for two panels
             let half_thickness = (DOOR_THICKNESS * TILE_SIZE) * 0.5;
 
             let center = Vec3::new(
@@ -589,7 +597,7 @@ pub fn setup(
                 z as f32 * TILE_SIZE,
             );
 
-            // Door Slides Along Local +X After Yaw
+            // Door slides along local +X after yaw
             let slide_axis = Quat::from_rotation_y(yaw) * Vec3::X;
 
             let progress = if is_open { 1.0 } else { 0.0 };
@@ -597,7 +605,7 @@ pub fn setup(
 
             let vis = if is_open { Visibility::Hidden } else { Visibility::Visible };
 
-            // Pick door atlas tile based on Wolf plane0 door code + yaw axis.
+            // Choose door atlas tile by Wolf plane0 door code + axis.
             // Codes:
             //   90/91 normal door
             //   92/93 gold key
@@ -641,7 +649,7 @@ pub fn setup(
                         },
                     ));
 
-                    // Back (Mirrored)
+                    // Back (mirrored)
                     parent.spawn((
                         Mesh3d(back_panel.clone()),
                         MeshMaterial3d(door_mat.clone()),
@@ -658,6 +666,7 @@ pub fn setup(
     // Static wall faces (includes door jamb faces). Spawned separately so we can rebuild later.
     spawn_wall_faces_for_grid(&mut commands, &grid, &wall_cache, None);
 
+    // Enemies
     for g in guards {
         crate::enemies::spawn_guard(
             &mut commands,
@@ -668,7 +677,7 @@ pub fn setup(
         );
     }
 
-    // Player Spawn From Grid
+    // Player spawn from grid
     let player_pos = Vec3::new(
         spawn.x as f32 * TILE_SIZE,
         0.5,
