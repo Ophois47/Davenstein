@@ -63,6 +63,15 @@ const TILE_SIZE: f32 = 1.0;
 const WALL_H: f32 = 1.0;
 const DOOR_THICKNESS: f32 = 0.20;
 
+const DOOR_NORMAL_LIGHT: usize = 98;
+const DOOR_NORMAL_DARK: usize = 99;
+const DOOR_JAMB_LIGHT: usize = 100;
+const DOOR_JAMB_DARK: usize = 101;
+const DOOR_ELEV_LIGHT: usize = 102;
+const DOOR_ELEV_DARK: usize = 103;
+const DOOR_SILVER: usize = 104;
+const DOOR_GOLD: usize = 105;
+
 #[derive(Component)]
 pub struct WallFace;
 
@@ -88,8 +97,6 @@ pub struct WallRenderCache {
 pub struct GameAssets {
     pub wall_tex: Handle<Image>,
     pub floor_tex: Handle<Image>,
-    pub door_tex: Handle<Image>,
-    pub jamb_tex: Handle<Image>,
 }
 
 fn load_assets(asset_server: &AssetServer) -> GameAssets {
@@ -98,9 +105,212 @@ fn load_assets(asset_server: &AssetServer) -> GameAssets {
         // We remap UVs per wall ID, so this is shared by all wall materials.
         wall_tex: asset_server.load("textures/walls/wolf_walls.png"),
         floor_tex: asset_server.load("textures/floors/floor.png"),
-        door_tex: asset_server.load("textures/doors/door.png"),
-        jamb_tex: asset_server.load("textures/walls/jamb.png"),
     }
+}
+
+fn spawn_wall_faces_for_grid(
+    commands: &mut Commands,
+    grid: &MapGrid,
+    cache: &WallRenderCache,
+    skip: Option<IVec2>,
+) {
+    // Real wall test from the grid.
+    let is_wall_real = |xx: i32, zz: i32| -> bool {
+        if xx < 0 || zz < 0 {
+            return false;
+        }
+        let (xu, zu) = (xx as usize, zz as usize);
+        if xu >= grid.width || zu >= grid.height {
+            return false;
+        }
+        matches!(grid.tile(xu, zu), Tile::Wall)
+    };
+
+    // Neighbor-wall test for face culling.
+    // IMPORTANT: if the neighbor is the moving pushwall tile (`skip`), treat it as EMPTY
+    // so adjacent walls will still spawn their faces toward the moving pushwall.
+    let is_wall_neighbor = |xx: i32, zz: i32| -> bool {
+        if let Some(st) = skip {
+            if st.x == xx && st.y == zz {
+                return false;
+            }
+        }
+        is_wall_real(xx, zz)
+    };
+
+    let is_door = |xx: i32, zz: i32| -> bool {
+        if xx < 0 || zz < 0 {
+            return false;
+        }
+        let (xu, zu) = (xx as usize, zz as usize);
+        if xu >= grid.width || zu >= grid.height {
+            return false;
+        }
+        matches!(grid.tile(xu, zu), Tile::DoorClosed | Tile::DoorOpen)
+    };
+
+    let mut spawn_face =
+        |mesh: Handle<Mesh>, mat: Handle<StandardMaterial>, pos: Vec3, yaw: f32| {
+            commands.spawn((
+                WallFace,
+                Mesh3d(mesh),
+                MeshMaterial3d(mat),
+                Transform {
+                    translation: pos,
+                    rotation: Quat::from_rotation_y(yaw) * cache.wall_base,
+                    ..default()
+                },
+                Visibility::Visible,
+            ));
+        };
+
+    // Helper: fetch a jamb mesh from the atlas, with a safe fallback.
+    let jamb_mesh = |idx: usize| -> Handle<Mesh> {
+        cache
+            .atlas_panels
+            .get(idx)
+            .cloned()
+            .unwrap_or_else(|| cache.jamb_panel.clone())
+    };
+
+    for z in 0..grid.height {
+        for x in 0..grid.width {
+            // Never spawn static faces for the moving pushwall tile itself.
+            if let Some(st) = skip {
+                if st.x == x as i32 && st.y == z as i32 {
+                    continue;
+                }
+            }
+
+            // Only actual wall tiles spawn wall faces.
+            if !matches!(grid.tile(x, z), Tile::Wall) {
+                continue;
+            }
+
+            let wall_id = grid.plane0_code(x, z);
+            if wall_id == 0 {
+                continue;
+            }
+
+            // Wolf-style paired light/dark chunks in VSWAP order.
+            let wall_type = (wall_id as usize).saturating_sub(1);
+            let pair_base = wall_type.saturating_mul(2);
+            if cache.atlas_panels.is_empty() {
+                continue;
+            }
+            let max_i = cache.atlas_panels.len() - 1;
+            let light_idx = pair_base.min(max_i);
+            let dark_idx = (pair_base + 1).min(max_i);
+
+            let wall_mesh_light = cache.atlas_panels[light_idx].clone();
+            let wall_mesh_dark = cache.atlas_panels[dark_idx].clone();
+
+            let cx = x as f32 * TILE_SIZE;
+            let cz = z as f32 * TILE_SIZE;
+            let y = WALL_H * 0.5;
+
+            // NORTH (-Z)
+            if z == 0 || !is_wall_neighbor(x as i32, z as i32 - 1) {
+                let neighbor_is_door = z > 0 && is_door(x as i32, z as i32 - 1);
+                spawn_face(
+                    if neighbor_is_door {
+                        jamb_mesh(DOOR_JAMB_LIGHT)
+                    } else {
+                        wall_mesh_light.clone()
+                    },
+                    if neighbor_is_door {
+                        cache.wall_mat.clone()
+                    } else {
+                        cache.wall_mat.clone()
+                    },
+                    Vec3::new(cx, y, cz - TILE_SIZE * 0.5),
+                    0.0,
+                );
+            }
+
+            // SOUTH (+Z)
+            if z + 1 >= grid.height || !is_wall_neighbor(x as i32, z as i32 + 1) {
+                let neighbor_is_door = (z + 1) < grid.height && is_door(x as i32, z as i32 + 1);
+                spawn_face(
+                    if neighbor_is_door {
+                        jamb_mesh(DOOR_JAMB_LIGHT)
+                    } else {
+                        wall_mesh_light.clone()
+                    },
+                    if neighbor_is_door {
+                        cache.wall_mat.clone()
+                    } else {
+                        cache.wall_mat.clone()
+                    },
+                    Vec3::new(cx, y, cz + TILE_SIZE * 0.5),
+                    PI,
+                );
+            }
+
+            // WEST (-X)
+            if x == 0 || !is_wall_neighbor(x as i32 - 1, z as i32) {
+                let neighbor_is_door = x > 0 && is_door(x as i32 - 1, z as i32);
+                spawn_face(
+                    if neighbor_is_door {
+                        jamb_mesh(DOOR_JAMB_DARK)
+                    } else {
+                        wall_mesh_dark.clone()
+                    },
+                    if neighbor_is_door {
+                        cache.wall_mat.clone()
+                    } else {
+                        cache.wall_mat_dark.clone()
+                    },
+                    Vec3::new(cx - TILE_SIZE * 0.5, y, cz),
+                    FRAC_PI_2,
+                );
+            }
+
+            // EAST (+X)
+            if x + 1 >= grid.width || !is_wall_neighbor(x as i32 + 1, z as i32) {
+                let neighbor_is_door = (x + 1) < grid.width && is_door(x as i32 + 1, z as i32);
+                spawn_face(
+                    if neighbor_is_door {
+                        jamb_mesh(DOOR_JAMB_DARK)
+                    } else {
+                        wall_mesh_dark.clone()
+                    },
+                    if neighbor_is_door {
+                        cache.wall_mat.clone()
+                    } else {
+                        cache.wall_mat_dark.clone()
+                    },
+                    Vec3::new(cx + TILE_SIZE * 0.5, y, cz),
+                    -FRAC_PI_2,
+                );
+            }
+        }
+    }
+}
+
+pub fn rebuild_wall_faces_on_request(
+    mut commands: Commands,
+    grid: Res<MapGrid>,
+    cache: Res<WallRenderCache>,
+    mut msgs: MessageReader<RebuildWalls>,
+    q_faces: Query<Entity, With<WallFace>>,
+) {
+    // Coalesce all rebuild requests this frame; last one wins for skip.
+    let mut any = false;
+    let mut skip = None;
+    for m in msgs.read() {
+        any = true;
+        skip = m.skip;
+    }
+    if !any {
+        return;
+    }
+
+    for e in q_faces.iter() {
+        commands.entity(e).despawn();
+    }
+
+    spawn_wall_faces_for_grid(&mut commands, &grid, &cache, skip);
 }
 
 pub fn setup(
@@ -110,66 +320,14 @@ pub fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     guard_sprites: Res<crate::enemies::GuardSprites>,
 ) {
-    // Legend:
-    // '#' = Wall
-    // 'D' = Closed Door
-    // 'O' = Open Door
-    // '.' or ' ' = Empty
-    // 'P' = Player Spawn
-    // 'G' = Enemy Guard
-    const USE_WOLF_E1M1: bool = true;
-
     const E1M1_PLANE0: &str = include_str!("../assets/maps/e1m1_plane0_u16.txt");
     const E1M1_PLANE1: &str = include_str!("../assets/maps/e1m1_plane1_u16.txt");
 
-    const TEST_MAP: [&str; 32] = [
-        "################################",
-        "#..G...G..G...G.......#........#",
-        "#....G....G...G.......#........#",
-        "#..G...G...G....G.....#........#",
-        "#.######D######.......#........#",
-        "#.#...........#.......#........#",
-        "#.#...G.......#.......#........#",
-        "#.#...........#.......#........#",
-        "#.#...........#.......#........#",
-        "#.#############.......#........#",
-        "#.....................D........#",
-        "#######D#################D######",
-        "#.....................#........#",
-        "#.................G...#.G......#",
-        "#.G...................#........#",
-        "#.....................#........#",
-        "#.....................#........#",
-        "#.....................#G.......#",
-        "#.........G...........#........#",
-        "#.....................#........#",
-        "#.....................#........#",
-        "######.#.################.#.####",
-        "#.....................#G.......#",
-        "#...............G.....#........#",
-        "#....G................#........#",
-        "#.....................#........#",
-        "#.....................#........#",
-        "#.....................#........#",
-        "#.....................#........#",
-        "#..............G......D........#",
-        "#.P...................#........#",
-        "################################",
-    ];
+    let plane0 = MapGrid::parse_u16_grid(E1M1_PLANE0, 64, 64);
+    let plane1 = MapGrid::parse_u16_grid(E1M1_PLANE1, 64, 64);
 
-    let (grid, spawn, guards, pushwall_markers) = if USE_WOLF_E1M1 {
-        let plane0 = MapGrid::parse_u16_grid(E1M1_PLANE0, 64, 64);
-        let plane1 = MapGrid::parse_u16_grid(E1M1_PLANE1, 64, 64);
-
-        let markers = PushwallMarkers::from_wolf_plane1(64, 64, &plane1);
-        let (g, spawn, guards) = MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
-        (g, spawn, guards, markers)
-    } else {
-        let (g, spawn, guards) = MapGrid::from_ascii(&TEST_MAP);
-        let markers = PushwallMarkers::empty(g.width, g.height);
-        (g, spawn.map(|p| (p, 0.0)), guards, markers)
-    };
-
+    let pushwall_markers = PushwallMarkers::from_wolf_plane1(64, 64, &plane1);
+    let (grid, spawn, guards) = MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
     let (spawn, spawn_yaw) = spawn.unwrap_or((IVec2::new(1, 1), 0.0));
 
     // Make Map Available for Collision / Doors / Raycasts
@@ -183,8 +341,6 @@ pub fn setup(
     let assets = load_assets(&asset_server);
     let wall_tex = assets.wall_tex.clone();
     let floor_tex = assets.floor_tex.clone();
-    let door_tex = assets.door_tex.clone();
-    let jamb_tex = assets.jamb_tex.clone();
     commands.insert_resource(assets);
 
     let wall_mat = materials.add(StandardMaterial {
@@ -202,16 +358,11 @@ pub fn setup(
         ..default()
     });
 
+    // Doors now use the SAME atlas texture as walls (wolf_walls.png).
+    // We still keep a separate material handle so door panels remain independently configurable.
     let door_mat = materials.add(StandardMaterial {
-        base_color_texture: Some(door_tex),
+        base_color_texture: Some(wall_tex.clone()),
         unlit: true,
-        ..default()
-    });
-
-    let jamb_mat = materials.add(StandardMaterial {
-        base_color_texture: Some(jamb_tex),
-        unlit: true,
-        cull_mode: None,
         ..default()
     });
 
@@ -329,29 +480,66 @@ pub fn setup(
         meshes.add(m)
     }
 
-    // Build wall panels from the atlas
+    // Build wall panels from the atlas (front-facing only)
     let mut atlas_panels: Vec<Handle<Mesh>> = Vec::with_capacity(VSWAP_WALL_CHUNKS);
     for i in 0..VSWAP_WALL_CHUNKS {
         let (u0, u1, v0, v1) = atlas_uv(i);
         atlas_panels.push(build_atlas_panel(&mut meshes, u0, u1, v0, v1, false));
     }
 
-    // Doors use door.png, so they must NOT use atlas-cell UVs.
-    // Keep the “old” orientation by flipping V here.
-    let door_panel_front = build_atlas_panel(&mut meshes, 0.0, 1.0, 1.0, 0.0, false);
-    let door_panel_back = build_atlas_panel(&mut meshes, 0.0, 1.0, 1.0, 0.0, true);
-    let jamb_panel = build_atlas_panel(&mut meshes, 0.0, 1.0, 1.0, 0.0, false);
+    // Door panels need a mirrored-U back face. We create only the back meshes we need.
+    let door98_front = atlas_panels[DOOR_NORMAL_LIGHT].clone();
+    let door98_back = {
+        let (u0, u1, v0, v1) = atlas_uv(DOOR_NORMAL_LIGHT);
+        build_atlas_panel(&mut meshes, u0, u1, v0, v1, true)
+    };
+
+    let door99_front = atlas_panels[DOOR_NORMAL_DARK].clone();
+    let door99_back = {
+        let (u0, u1, v0, v1) = atlas_uv(DOOR_NORMAL_DARK);
+        build_atlas_panel(&mut meshes, u0, u1, v0, v1, true)
+    };
+
+    let elev102_front = atlas_panels[DOOR_ELEV_LIGHT].clone();
+    let elev102_back = {
+        let (u0, u1, v0, v1) = atlas_uv(DOOR_ELEV_LIGHT);
+        build_atlas_panel(&mut meshes, u0, u1, v0, v1, true)
+    };
+
+    let elev103_front = atlas_panels[DOOR_ELEV_DARK].clone();
+    let elev103_back = {
+        let (u0, u1, v0, v1) = atlas_uv(DOOR_ELEV_DARK);
+        build_atlas_panel(&mut meshes, u0, u1, v0, v1, true)
+    };
+
+    let silver_front = atlas_panels[DOOR_SILVER].clone();
+    let silver_back = {
+        let (u0, u1, v0, v1) = atlas_uv(DOOR_SILVER);
+        build_atlas_panel(&mut meshes, u0, u1, v0, v1, true)
+    };
+
+    let gold_front = atlas_panels[DOOR_GOLD].clone();
+    let gold_back = {
+        let (u0, u1, v0, v1) = atlas_uv(DOOR_GOLD);
+        build_atlas_panel(&mut meshes, u0, u1, v0, v1, true)
+    };
+
+    // (Unchanged for now; used by wall-face rebuild)
+    // Jamb fallback now comes from the atlas too (tile 100).
+    let jamb_mat = wall_mat.clone();
+    let jamb_panel = atlas_panels[DOOR_JAMB_LIGHT].clone();
+
     let wall_base = Quat::from_rotation_x(-FRAC_PI_2); // Make Plane3d Vertical
 
     // Cache the reusable wall rendering assets so pushwalls can spawn a moving wall,
     // and so we can rebuild static wall faces when pushwalls cross tile boundaries.
     let wall_cache = WallRenderCache {
         atlas_panels: atlas_panels.clone(),
-        jamb_panel: jamb_panel.clone(),
+        jamb_panel,
         wall_base,
         wall_mat: wall_mat.clone(),
         wall_mat_dark: wall_mat_dark.clone(),
-        jamb_mat: jamb_mat.clone(),
+        jamb_mat,
     };
     commands.insert_resource(wall_cache.clone());
 
@@ -409,6 +597,26 @@ pub fn setup(
 
             let vis = if is_open { Visibility::Hidden } else { Visibility::Visible };
 
+            // Pick door atlas tile based on Wolf plane0 door code + yaw axis.
+            // Codes:
+            //   90/91 normal door
+            //   92/93 gold key
+            //   94/95 silver key
+            //   100/101 elevator door
+            let code = grid.plane0_code(x, z);
+            let is_z_axis = yaw.abs() < 0.001;
+
+            let (front_panel, back_panel) = match code {
+                100 | 101 => {
+                    if is_z_axis { (&elev102_front, &elev102_back) } else { (&elev103_front, &elev103_back) }
+                }
+                92 | 93 => (&gold_front, &gold_back),
+                94 | 95 => (&silver_front, &silver_back),
+                _ => {
+                    if is_z_axis { (&door98_front, &door98_back) } else { (&door99_front, &door99_back) }
+                }
+            };
+
             commands
                 .spawn((
                     DoorTile(IVec2::new(x as i32, z as i32)),
@@ -424,7 +632,7 @@ pub fn setup(
                 .with_children(|parent| {
                     // Front
                     parent.spawn((
-                        Mesh3d(door_panel_front.clone()),
+                        Mesh3d(front_panel.clone()),
                         MeshMaterial3d(door_mat.clone()),
                         Transform {
                             translation: normal * half_thickness,
@@ -435,7 +643,7 @@ pub fn setup(
 
                     // Back (Mirrored)
                     parent.spawn((
-                        Mesh3d(door_panel_back.clone()),
+                        Mesh3d(back_panel.clone()),
                         MeshMaterial3d(door_mat.clone()),
                         Transform {
                             translation: -normal * half_thickness,
@@ -476,201 +684,4 @@ pub fn setup(
         SpatialListener::new(0.2),
         Transform::from_translation(player_pos).with_rotation(Quat::from_rotation_y(spawn_yaw + PI)),
     ));
-}
-
-fn spawn_wall_faces_for_grid(
-    commands: &mut Commands,
-    grid: &MapGrid,
-    cache: &WallRenderCache,
-    skip: Option<IVec2>,
-) {
-    // Real wall test from the grid.
-    let is_wall_real = |xx: i32, zz: i32| -> bool {
-        if xx < 0 || zz < 0 {
-            return false;
-        }
-        let (xu, zu) = (xx as usize, zz as usize);
-        if xu >= grid.width || zu >= grid.height {
-            return false;
-        }
-        matches!(grid.tile(xu, zu), Tile::Wall)
-    };
-
-    // Neighbor-wall test for face culling.
-    // IMPORTANT: if the neighbor is the moving pushwall tile (`skip`), treat it as EMPTY
-    // so adjacent walls will still spawn their faces toward the moving pushwall.
-    let is_wall_neighbor = |xx: i32, zz: i32| -> bool {
-        if let Some(st) = skip {
-            if st.x == xx && st.y == zz {
-                return false;
-            }
-        }
-        is_wall_real(xx, zz)
-    };
-
-    let is_door = |xx: i32, zz: i32| -> bool {
-        if xx < 0 || zz < 0 {
-            return false;
-        }
-        let (xu, zu) = (xx as usize, zz as usize);
-        if xu >= grid.width || zu >= grid.height {
-            return false;
-        }
-        matches!(grid.tile(xu, zu), Tile::DoorClosed | Tile::DoorOpen)
-    };
-
-    let mut spawn_face =
-        |mesh: Handle<Mesh>, mat: Handle<StandardMaterial>, pos: Vec3, yaw: f32| {
-            commands.spawn((
-                WallFace,
-                Mesh3d(mesh),
-                MeshMaterial3d(mat),
-                Transform {
-                    translation: pos,
-                    rotation: Quat::from_rotation_y(yaw) * cache.wall_base,
-                    ..default()
-                },
-                Visibility::Visible,
-            ));
-        };
-
-    for z in 0..grid.height {
-        for x in 0..grid.width {
-            // Never spawn static faces for the moving pushwall tile itself.
-            if let Some(st) = skip {
-                if st.x == x as i32 && st.y == z as i32 {
-                    continue;
-                }
-            }
-
-            // Only actual wall tiles spawn wall faces.
-            if !matches!(grid.tile(x, z), Tile::Wall) {
-                continue;
-            }
-
-            let wall_id = grid.plane0_code(x, z);
-            if wall_id == 0 {
-                continue;
-            }
-
-            // Wolf-style paired light/dark chunks in VSWAP order.
-            let wall_type = (wall_id as usize).saturating_sub(1);
-            let pair_base = wall_type.saturating_mul(2);
-            if cache.atlas_panels.is_empty() {
-                continue;
-            }
-            let max_i = cache.atlas_panels.len() - 1;
-            let light_idx = pair_base.min(max_i);
-            let dark_idx = (pair_base + 1).min(max_i);
-
-            let wall_mesh_light = cache.atlas_panels[light_idx].clone();
-            let wall_mesh_dark = cache.atlas_panels[dark_idx].clone();
-
-            let cx = x as f32 * TILE_SIZE;
-            let cz = z as f32 * TILE_SIZE;
-            let y = WALL_H * 0.5;
-
-            // NORTH (-Z)
-            if z == 0 || !is_wall_neighbor(x as i32, z as i32 - 1) {
-                let neighbor_is_door = z > 0 && is_door(x as i32, z as i32 - 1);
-                spawn_face(
-                    if neighbor_is_door {
-                        cache.jamb_panel.clone()
-                    } else {
-                        wall_mesh_light.clone()
-                    },
-                    if neighbor_is_door {
-                        cache.jamb_mat.clone()
-                    } else {
-                        cache.wall_mat.clone()
-                    },
-                    Vec3::new(cx, y, cz - TILE_SIZE * 0.5),
-                    0.0,
-                );
-            }
-
-            // SOUTH (+Z)
-            if z + 1 >= grid.height || !is_wall_neighbor(x as i32, z as i32 + 1) {
-                let neighbor_is_door = (z + 1) < grid.height && is_door(x as i32, z as i32 + 1);
-                spawn_face(
-                    if neighbor_is_door {
-                        cache.jamb_panel.clone()
-                    } else {
-                        wall_mesh_light.clone()
-                    },
-                    if neighbor_is_door {
-                        cache.jamb_mat.clone()
-                    } else {
-                        cache.wall_mat.clone()
-                    },
-                    Vec3::new(cx, y, cz + TILE_SIZE * 0.5),
-                    PI,
-                );
-            }
-
-            // WEST (-X)
-            if x == 0 || !is_wall_neighbor(x as i32 - 1, z as i32) {
-                let neighbor_is_door = x > 0 && is_door(x as i32 - 1, z as i32);
-                spawn_face(
-                    if neighbor_is_door {
-                        cache.jamb_panel.clone()
-                    } else {
-                        wall_mesh_dark.clone()
-                    },
-                    if neighbor_is_door {
-                        cache.jamb_mat.clone()
-                    } else {
-                        cache.wall_mat_dark.clone()
-                    },
-                    Vec3::new(cx - TILE_SIZE * 0.5, y, cz),
-                    FRAC_PI_2,
-                );
-            }
-
-            // EAST (+X)
-            if x + 1 >= grid.width || !is_wall_neighbor(x as i32 + 1, z as i32) {
-                let neighbor_is_door =
-                    (x + 1) < grid.width && is_door(x as i32 + 1, z as i32);
-                spawn_face(
-                    if neighbor_is_door {
-                        cache.jamb_panel.clone()
-                    } else {
-                        wall_mesh_dark.clone()
-                    },
-                    if neighbor_is_door {
-                        cache.jamb_mat.clone()
-                    } else {
-                        cache.wall_mat_dark.clone()
-                    },
-                    Vec3::new(cx + TILE_SIZE * 0.5, y, cz),
-                    -FRAC_PI_2,
-                );
-            }
-        }
-    }
-}
-
-pub fn rebuild_wall_faces_on_request(
-    mut commands: Commands,
-    grid: Res<MapGrid>,
-    cache: Res<WallRenderCache>,
-    mut msgs: MessageReader<RebuildWalls>,
-    q_faces: Query<Entity, With<WallFace>>,
-) {
-    // Coalesce all rebuild requests this frame; last one wins for skip.
-    let mut any = false;
-    let mut skip = None;
-    for m in msgs.read() {
-        any = true;
-        skip = m.skip;
-    }
-    if !any {
-        return;
-    }
-
-    for e in q_faces.iter() {
-        commands.entity(e).despawn();
-    }
-
-    spawn_wall_faces_for_grid(&mut commands, &grid, &cache, skip);
 }
