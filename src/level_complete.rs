@@ -8,15 +8,16 @@ use davelib::map::{MapGrid, Tile};
 use davelib::player::{Player, PlayerControlLock};
 use davelib::world::RebuildWalls;
 
-/// Latched "win" state (like GameOver), driven by using the elevator switch.
+/// Latched "win" state, driven by using elevator switch
 #[derive(Resource, Debug, Clone, Default)]
 pub struct LevelComplete(pub bool);
 
-/// Marker for the full-screen "MISSION SUCCESS" UI overlay.
+/// Marker for full screen "MISSION SUCCESS" UI overlay
 #[derive(Component)]
 pub struct MissionSuccessOverlay;
 
-/// Wall IDs for the elevator switch textures (Wolf wall IDs, not atlas chunk indices).
+/// Wall IDs for the elevator switch textures 
+// (Wolf wall IDs, not atlas chunk indices)
 const ELEV_SWITCH_DOWN_WALL_ID: u16 = 21;
 const ELEV_SWITCH_UP_WALL_ID: u16 = 22;
 
@@ -44,7 +45,7 @@ pub fn use_elevator_exit(
 
     let player_tile = world_to_tile(Vec2::new(player_tf.translation.x, player_tf.translation.z));
 
-    // 4-way facing (same rule as doors).
+    // 4-way facing (same rule as doors)
     let mut fwd = player_tf.rotation * Vec3::NEG_Z;
     fwd.y = 0.0;
     if fwd.length_squared() < 1e-6 {
@@ -72,25 +73,25 @@ pub fn use_elevator_exit(
         return;
     }
 
-    // Only the "down" switch can be activated.
+    // Only the down switch can be activated
     let wall_id = grid.plane0_code(tx, tz);
     if wall_id != ELEV_SWITCH_DOWN_WALL_ID {
         return;
     }
 
-    // Flip switch texture.
+    // Flip switch texture
     grid.set_plane0_code(tx, tz, ELEV_SWITCH_UP_WALL_ID);
 
-    // Rebuild wall faces so the flipped wall ID is visible immediately.
+    // Rebuild wall faces so the flipped wall ID is visible immediately
     rebuild.write(RebuildWalls { skip: None });
 
-    // Play elevator switch sound (add the asset + mapping in audio.rs).
+    // Play elevator switch sound
     sfx.write(PlaySfx {
         kind: SfxKind::ElevatorSwitch,
         pos: Vec3::new(target.x as f32, 0.6, target.y as f32),
     });
 
-    // Latch win state and freeze gameplay.
+    // Latch win state and freeze gameplay
     win.0 = true;
     lock.0 = true;
 }

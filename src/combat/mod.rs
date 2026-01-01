@@ -12,9 +12,10 @@ use davelib::actors::{
     Health,
     OccupiesTile,
 };
-use davelib::audio::PlaySfx;
+use davelib::audio::{PlaySfx, SfxKind};
 use davelib::decorations::SolidStatics;
 use davelib::enemies::{
+    EnemyKind,
     Guard,
     GuardDying,
     GuardPain,
@@ -63,7 +64,7 @@ fn process_fire_shots(
     grid: Option<Res<MapGrid>>,
     solid: Option<Res<SolidStatics>>,
     mut shots: MessageReader<FireShot>,
-    mut _sfx: MessageWriter<PlaySfx>,
+    mut sfx: MessageWriter<PlaySfx>, // CHANGED: was _sfx
     mut commands: Commands,
     q_alive: Query<(Entity, &OccupiesTile, &GlobalTransform), (With<Guard>, Without<Dead>)>,
     mut q_hp: Query<&mut Health, (With<Guard>, Without<Dead>)>,
@@ -195,6 +196,15 @@ fn process_fire_shots(
                 hp.cur -= dmg;
                 if hp.cur <= 0 {
                     hp.cur = 0;
+
+                    // Emit Death SFX at Source of Truth
+                    if let Ok((_, _, gt)) = q_alive.get(e) {
+                        let p = gt.translation();
+                        sfx.write(PlaySfx {
+                            kind: SfxKind::EnemyDeath(EnemyKind::Guard),
+                            pos: Vec3::new(p.x, 0.6, p.z),
+                        });
+                    }
 
                     commands.entity(e).insert(Dead);
                     commands.entity(e).insert(GuardDying { frame: 0, tics: 0 });

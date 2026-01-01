@@ -68,8 +68,13 @@ fn extract_embedded_assets_to_temp() -> String {
     out_dir.to_string_lossy().to_string()
 }
 
-// Gate gameplay systems until the world resources exist.
-// (Types must be in scope here; if they aren’t, add the appropriate `use` lines.)
+/// Gate gameplay systems until the world resources exist
+// Introduced new transition path for level advance (AdvanceLevelRequested) and 
+// rebuilding level during runtime Bevy validates system parameters before running
+//  system code. So even Option<Res<MapGrid>> inside a system caused other Res<...>
+//  params to panic. More generally, during transitions there can be frames where
+//  world resources aren't present yet (because Commands apply deferred), and any
+//  system using strict Res / ResMut will panic
 fn world_ready(
     grid: Option<Res<davelib::map::MapGrid>>,
     solid: Option<Res<davelib::decorations::SolidStatics>>,
@@ -132,20 +137,19 @@ fn main() {
                 start_music,
                 setup,
                 spawn_wolf_e1m1_decorations,
-                pickups::spawn_wolf_e1m1_pickups,
+                pickups::spawn_pickups,
             )
                 .chain(),
         )
         // -----------------------------
         // Update:
-        // Input/UI (always) + World gameplay (only when ready)
+        // Input/UI + World Gameplay
         // -----------------------------
         .add_systems(
             Update,
             (
                 grab_mouse,
                 mouse_look,
-                // These two do NOT require MapGrid; safe to run always:
                 level_complete::mission_success_input,
                 level_complete::sync_mission_success_overlay_visibility,
             )
@@ -176,7 +180,7 @@ fn main() {
                 restart::restart_despawn_level,
                 setup,
                 spawn_wolf_e1m1_decorations,
-                pickups::spawn_wolf_e1m1_pickups,
+                pickups::spawn_pickups,
                 restart::restart_finish,
             )
                 .chain()
@@ -188,7 +192,7 @@ fn main() {
                 restart::restart_despawn_level,
                 setup,
                 spawn_wolf_e1m1_decorations,
-                pickups::spawn_wolf_e1m1_pickups,
+                pickups::spawn_pickups,
                 restart::new_game_finish,
             )
                 .chain()
@@ -200,14 +204,14 @@ fn main() {
                 restart::restart_despawn_level,
                 setup,
                 spawn_wolf_e1m1_decorations,
-                pickups::spawn_wolf_e1m1_pickups,
+                pickups::spawn_pickups,
                 restart::advance_level_finish,
             )
                 .chain()
                 .run_if(|r: Res<ui::sync::AdvanceLevelRequested>| r.0),
         )
         // -----------------------------
-        // FixedUpdate: Simulation (only when world ready)
+        // FixedUpdate: Simulation
         // -----------------------------
         .add_systems(
             FixedUpdate,

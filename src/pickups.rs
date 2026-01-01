@@ -22,22 +22,23 @@ const GUARD_DROP_AMMO_ROUNDS: i32 = 4;
 const PICKUP_H: f32 = 0.28;
 const AMMO_H: f32 = 0.22;
 const HEALTH_FIRST_AID_H: f32 = 0.18;
-const HEALTH_DINNER_H: f32    = 0.18;
-const HEALTH_DOGFOOD_H: f32   = AMMO_H;
-const ONEUP_H: f32            = 0.50;
+const HEALTH_DINNER_H: f32 = 0.18;
+const HEALTH_DOGFOOD_H: f32 = AMMO_H;
+const ONEUP_H: f32 = 0.50;
 const TREASURE_H: f32 = 0.24;
+const KEY_H: f32 = 0.42;
 
 const HEALTH_FIRST_AID_W_SCALE: f32 = 3.6;
-const HEALTH_DINNER_W_SCALE: f32    = 4.0;
+const HEALTH_DINNER_W_SCALE: f32 = 4.0;
 
 // Aspect Ratios
 const CHAINGUN_ASPECT: f32 = 60.0 / 21.0;
 const MACHINEGUN_ASPECT: f32 = 47.0 / 18.0;
 const AMMO_ASPECT: f32 = 16.0 / 12.0;
-const CROSS_ASPECT: f32   = 20.0 / 19.0;
+const CROSS_ASPECT: f32 = 20.0 / 19.0;
 const CHALICE_ASPECT: f32 = 18.0 / 15.0;
-const CHEST_ASPECT: f32   = 25.0 / 13.0;
-const CROWN_ASPECT: f32   = 24.0 / 17.0;
+const CHEST_ASPECT: f32 = 25.0 / 13.0;
+const CROWN_ASPECT: f32 = 24.0 / 17.0;
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Pickup {
@@ -54,6 +55,13 @@ pub enum PickupKind {
     Treasure(TreasureKind),
     Health(HealthKind),
     ExtraLife,
+    Key(KeyKind),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum KeyKind {
+    Gold,
+    Silver,
 }
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -146,6 +154,10 @@ fn treasure_size(t: TreasureKind) -> (f32, f32) {
     (TREASURE_H * aspect * s, TREASURE_H * s)
 }
 
+fn key_size() -> (f32, f32) {
+    (KEY_H, KEY_H)
+}
+
 fn weapon_pickup_texture(w: WeaponSlot) -> &'static str {
     match w {
         WeaponSlot::Chaingun => "textures/pickups/chaingun.png",
@@ -166,7 +178,6 @@ fn health_texture(h: HealthKind) -> &'static str {
     }
 }
 
-
 fn treasure_texture(t: TreasureKind) -> &'static str {
     match t {
         TreasureKind::Cross => "textures/pickups/treasure_cross.png",
@@ -176,10 +187,16 @@ fn treasure_texture(t: TreasureKind) -> &'static str {
     }
 }
 
+fn key_texture(k: KeyKind) -> &'static str {
+    match k {
+        KeyKind::Gold => "textures/pickups/key_gold.png",
+        KeyKind::Silver => "textures/pickups/key_silver.png",
+    }
+}
+
 fn oneup_texture() -> &'static str {
     "textures/pickups/oneup.png"
 }
-
 
 fn world_to_tile_xz(pos_xz: Vec2) -> IVec2 {
     IVec2::new((pos_xz.x + 0.5).floor() as i32, (pos_xz.y + 0.5).floor() as i32)
@@ -189,10 +206,9 @@ fn pickup_base_rot() -> Quat {
     Quat::from_rotation_x(FRAC_PI_2)
 }
 
-/// Spawn Wolf3D E1M1 pickups (health/ammo/treasure + weapons/1UP) from the original plane1 data.
-///
-/// Plane1 value reference (WL6):
 /// - 29: Dog food
+/// - 43: Key 1 (gold)
+/// - 44: Key 2 (silver)
 /// - 47: Food (dinner)
 /// - 48: Medkit (first aid)
 /// - 49: Ammo clip (+8)
@@ -200,7 +216,7 @@ fn pickup_base_rot() -> Quat {
 /// - 51: Chaingun
 /// - 52-55: Treasure (cross, chalice, chest, crown)
 /// - 56: 1UP
-pub fn spawn_wolf_e1m1_pickups(
+pub fn spawn_pickups(
     mut commands: Commands,
     grid: Res<MapGrid>,
     plane1_res: Res<WolfPlane1>,
@@ -210,7 +226,7 @@ pub fn spawn_wolf_e1m1_pickups(
 ) {
     if grid.width != 64 || grid.height != 64 {
         warn!(
-            "spawn_wolf_e1m1_pickups: expected 64x64 grid, got {}x{}",
+            "spawn_pickups: expected 64x64 grid, got {}x{}",
             grid.width, grid.height
         );
         return;
@@ -219,7 +235,7 @@ pub fn spawn_wolf_e1m1_pickups(
     let expected = grid.width * grid.height;
     if plane1_res.0.len() != expected {
         warn!(
-            "spawn_wolf_e1m1_pickups: WolfPlane1 len {} != expected {} ({}x{})",
+            "spawn_pickups: WolfPlane1 len {} != expected {} ({}x{})",
             plane1_res.0.len(),
             expected,
             grid.width,
@@ -236,6 +252,10 @@ pub fn spawn_wolf_e1m1_pickups(
     let to_pickup_kind = |v: u16| -> Option<PickupKind> {
         match v {
             29 => Some(PickupKind::Health(HealthKind::DogFood)),
+
+            43 => Some(PickupKind::Key(KeyKind::Gold)),
+            44 => Some(PickupKind::Key(KeyKind::Silver)),
+
             47 => Some(PickupKind::Health(HealthKind::Dinner)),
             48 => Some(PickupKind::Health(HealthKind::FirstAid)),
             49 => Some(PickupKind::Ammo {
@@ -281,6 +301,10 @@ pub fn spawn_wolf_e1m1_pickups(
                 let (w, h) = oneup_size();
                 (w, h, oneup_texture(), AlphaMode::Mask(0.5))
             }
+            PickupKind::Key(k) => {
+                let (w, h) = key_size();
+                (w, h, key_texture(k), AlphaMode::Mask(0.5))
+            }
         };
 
         let quad = meshes.add(Plane3d::default().mesh().size(w, h));
@@ -317,7 +341,7 @@ pub fn spawn_wolf_e1m1_pickups(
                 continue;
             };
 
-            // Only place pickups on walkable tiles.
+            // Only place pickups on walkable tiles
             if !matches!(grid.tile(x, z), Tile::Empty) {
                 continue;
             }
@@ -512,9 +536,9 @@ pub fn collect_pickups(
             }
 
             PickupKind::Health(hk) => {
-                // Canonical HP is gameplay vitals now.
+                // Canonical HP is Gameplay Vitals
                 if vitals.hp >= vitals.hp_max {
-                    // Full health: leave on ground, no sfx.
+                    // Full Health: Leave on Ground, No Sfx
                     consumed = false;
                 } else {
                     let gain = hk.heal().min(vitals.hp_max - vitals.hp);
@@ -531,12 +555,21 @@ pub fn collect_pickups(
             }
 
             PickupKind::ExtraLife => {
-                // Wolf 3D: +1 life, full health, +25 ammo
+                // Wolf 3D: +1 Life, Full Health, +25 Ammo
                 hud.lives += 1;
                 vitals.hp = vitals.hp_max;
                 hud.ammo += 25;
 
                 sfx.write(PlaySfx { kind: SfxKind::PickupOneUp, pos: player_tf.translation });
+            }
+
+            PickupKind::Key(k) => {
+                match k {
+                    KeyKind::Gold => hud.key_gold = true,
+                    KeyKind::Silver => hud.key_silver = true,
+                }
+
+                sfx.write(PlaySfx { kind: SfxKind::PickupKey, pos: player_tf.translation });
             }
         }
 

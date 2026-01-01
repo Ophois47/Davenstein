@@ -27,8 +27,8 @@ use crate::{
     },
 };
 
-// Despawn what should NOT persist across a life restart.
-// Goal: leave UI/resources alone, rebuild the entire 3D world + actors.
+// Despawn what should NOT persist across a life restart
+// Leave UI / resources alone, rebuild entire 3D world + actors
 pub fn restart_despawn_level(
     mut commands: Commands,
     q_mesh_roots: Query<Entity, (With<Mesh3d>, Without<ChildOf>)>,
@@ -58,7 +58,7 @@ pub fn restart_finish(
     mut hud: ResMut<HudState>,
     mut win: ResMut<LevelComplete>,
 ) {
-    // Keep lives + score; reset everything else to “fresh life”.
+    // Keep lives + score, reset everything else
     let lives = hud.lives;
     let score = hud.score;
 
@@ -66,13 +66,13 @@ pub fn restart_finish(
     hud.lives = lives;
     hud.score = score;
 
-    // Clear death/restart bookkeeping + win state.
+    // Clear death / restart bookkeeping + win state
     *death = Default::default();
     latch.0 = false;
     lock.0 = false;
     win.0 = false;
 
-    // Consume the request so it runs once.
+    // Consume request so it runs once
     restart.0 = false;
 
     bevy::log::info!("Restart: finished (controls unlocked, HUD reset)");
@@ -94,7 +94,7 @@ pub fn new_game_finish(
 
     *hud = HudState::default();
 
-    // Clear death/restart bookkeeping + win state.
+    // Clear death / restart bookkeeping + win state
     *death = Default::default();
     latch.0 = false;
     lock.0 = false;
@@ -102,7 +102,7 @@ pub fn new_game_finish(
     win.0 = false;
     *death_overlay = DeathOverlay::default();
 
-    // Consume the request so it runs once.
+    // Consume request so it runs once
     new_game.0 = false;
 
     bevy::log::info!("New Game: finished (fresh HUD, controls unlocked)");
@@ -117,25 +117,25 @@ pub fn advance_level_finish(
     mut win: ResMut<crate::level_complete::LevelComplete>,
     mut q_vitals: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
 ) {
-    // Preserve run stats (ammo/score/lives/weapons) by NOT resetting HudState.
-    // Wolf behavior: keys do not carry across levels.
+    // Preserve run stats (ammo / score / lives / weapons) by NOT resetting 
+    // HudState but keys do not carry across levels
     hud.key_gold = false;
     hud.key_silver = false;
 
-    // setup() spawns PlayerVitals::default(); restore HP from HUD so it carries over.
+    // Restore HP from HUD so it carries over, setup() spawns PlayerVitals::default()
     if let Some(mut vitals) = q_vitals.iter_mut().next() {
         vitals.hp = hud.hp.clamp(0, vitals.hp_max);
     }
 
-    // Clear mission-success state and unlock gameplay.
+    // Clear mission-success state and unlock gameplay
     win.0 = false;
     lock.0 = false;
 
-    // Clear death flow bookkeeping (safe, even if we weren't dying).
+    // Clear death flow bookkeeping (safe, even if not dying)
     *death = Default::default();
     latch.0 = false;
 
-    // Consume the request.
+    // Consume request
     advance.0 = false;
 
     bevy::log::info!("Advance Level: finished (HUD preserved, controls unlocked)");
