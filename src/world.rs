@@ -56,7 +56,7 @@ use crate::map::{
 	MapGrid,
 	Tile,
 };
-use crate::player::{LookAngles, Player};
+use crate::player::{LookAngles, Player, PlayerKeys};
 use crate::pushwalls::PushwallMarkers;
 
 const TILE_SIZE: f32 = 1.0;
@@ -688,6 +688,7 @@ pub fn setup(
         Camera3d::default(),
         IsDefaultUiCamera,
         Player,
+        PlayerKeys::default(),
         crate::player::PlayerVitals::default(),
         LookAngles::new(spawn_yaw, 0.0),
         SpatialListener::new(0.2),

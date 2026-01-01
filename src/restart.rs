@@ -116,11 +116,17 @@ pub fn advance_level_finish(
     mut hud: ResMut<crate::ui::HudState>,
     mut win: ResMut<crate::level_complete::LevelComplete>,
     mut q_vitals: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
+    mut q_keys: Query<&mut davelib::player::PlayerKeys, With<davelib::player::Player>>,
 ) {
     // Preserve run stats (ammo / score / lives / weapons) by NOT resetting 
     // HudState but keys do not carry across levels
     hud.key_gold = false;
     hud.key_silver = false;
+
+    if let Some(mut pkeys) = q_keys.iter_mut().next() {
+        pkeys.gold = false;
+        pkeys.silver = false;
+    }
 
     // Restore HP from HUD so it carries over, setup() spawns PlayerVitals::default()
     if let Some(mut vitals) = q_vitals.iter_mut().next() {

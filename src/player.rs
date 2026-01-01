@@ -19,6 +19,12 @@ use crate::map::{
 #[derive(Component)]
 pub struct Player;
 
+#[derive(Component, Default, Clone, Copy)]
+pub struct PlayerKeys {
+    pub gold: bool,
+    pub silver: bool,
+}
+
 #[derive(Component, Default)]
 pub struct LookAngles {
 	yaw: f32,
@@ -271,6 +277,7 @@ pub fn use_doors(
     lock: Res<PlayerControlLock>,
     mut grid: ResMut<MapGrid>,
     q_player: Query<&Transform, With<Player>>,
+    q_keys: Query<&PlayerKeys, With<Player>>,
     mut q_doors: Query<(&DoorTile, &mut DoorState, &mut Visibility)>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
@@ -322,6 +329,16 @@ pub fn use_doors(
     let (tx, tz) = (target.x as usize, target.y as usize);
     let cur = grid.tile(tx, tz);
 
+    // Locked doors are encoded in plane0 codes (Wolf3D style), but share the same Tile state.
+    let plane0 = grid.plane0_code(tx, tz);
+    let needs_gold = matches!(plane0, 92 | 93);
+    let needs_silver = matches!(plane0, 94 | 95);
+    let locked = needs_gold || needs_silver;
+
+    let pk = q_keys.iter().next().copied().unwrap_or_default();
+    let has_gold = pk.gold;
+    let has_silver = pk.silver;
+
     if !matches!(cur, Tile::DoorClosed | Tile::DoorOpen) {
         return;
     }
@@ -343,6 +360,12 @@ pub fn use_doors(
                 sfx_kind = Some(SfxKind::DoorClose);
             }
             Tile::DoorClosed => {
+                // Player cannot open locked doors without the correct key.
+                if locked && ((needs_gold && !has_gold) || (needs_silver && !has_silver)) {
+                    sfx_kind = Some(SfxKind::NoWay);
+                    break;
+                }
+
                 state.want_open = true;
                 state.open_timer = DOOR_OPEN_SECS;
                 sfx_kind = Some(SfxKind::DoorOpen);

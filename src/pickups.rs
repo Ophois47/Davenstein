@@ -10,7 +10,7 @@ use davelib::audio::{PlaySfx, SfxKind};
 use davelib::enemies::GuardCorpse;
 use davelib::level::WolfPlane1;
 use davelib::map::{MapGrid, Tile};
-use davelib::player::Player;
+use davelib::player::{Player, PlayerKeys};
 
 // Ammo Pickup Amounts
 #[allow(dead_code)]
@@ -475,6 +475,7 @@ pub fn collect_pickups(
     mut commands: Commands,
     q_player: Query<&Transform, With<Player>>,
     mut q_vitals: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
+    mut q_keys: Query<&mut PlayerKeys, With<Player>>,
     mut hud: ResMut<HudState>,
     q_pickups: Query<(Entity, &Pickup)>,
     mut sfx: MessageWriter<PlaySfx>,
@@ -490,6 +491,10 @@ pub fn collect_pickups(
     ));
 
     let Some(mut vitals) = q_vitals.iter_mut().next() else {
+        return;
+    };
+
+    let Some(mut pkeys) = q_keys.iter_mut().next() else {
         return;
     };
 
@@ -565,8 +570,14 @@ pub fn collect_pickups(
 
             PickupKind::Key(k) => {
                 match k {
-                    KeyKind::Gold => hud.key_gold = true,
-                    KeyKind::Silver => hud.key_silver = true,
+                    KeyKind::Gold => {
+                        pkeys.gold = true;
+                        hud.key_gold = true;
+                    }
+                    KeyKind::Silver => {
+                        pkeys.silver = true;
+                        hud.key_silver = true;
+                    }
                 }
 
                 sfx.write(PlaySfx { kind: SfxKind::PickupKey, pos: player_tf.translation });
