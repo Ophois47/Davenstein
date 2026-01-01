@@ -294,8 +294,8 @@ fn spawn_pushwall_visual(
 pub fn use_pushwalls(
     keys: Res<ButtonInput<KeyCode>>,
     lock: Res<PlayerControlLock>,
-    grid: Res<MapGrid>,
-    solid: Res<SolidStatics>,
+    grid: Option<Res<MapGrid>>,
+    solid: Option<Res<SolidStatics>>,
     mut markers: ResMut<PushwallMarkers>,
     cache: Res<WallRenderCache>,
     q_player: Query<&Transform, With<Player>>,
@@ -306,9 +306,15 @@ pub fn use_pushwalls(
     mut rebuild: MessageWriter<RebuildWalls>,
     mut commands: Commands,
 ) {
+    let (Some(grid), Some(solid)) = (grid, solid) else {
+        return;
+    };
+
+     // Prevents Use of Pushwalls While Dead / Game Over
     if lock.0 {
-        return; // <- prevents using pushwalls while dead / game over
+        return;
     }
+
     if !keys.just_pressed(KeyCode::Space) {
         return;
     }

@@ -35,7 +35,7 @@ pub struct CombatPlugin;
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<FireShot>()
-            .add_systems(Update, process_fire_shots);
+            .add_systems(Update, process_fire_shots.run_if(crate::world_ready));
     }
 }
 
@@ -60,8 +60,8 @@ impl WeaponSlot {
 }
 
 fn process_fire_shots(
-    grid: Res<MapGrid>,
-    solid: Res<SolidStatics>,
+    grid: Option<Res<MapGrid>>,
+    solid: Option<Res<SolidStatics>>,
     mut shots: MessageReader<FireShot>,
     mut _sfx: MessageWriter<PlaySfx>,
     mut commands: Commands,
@@ -69,6 +69,10 @@ fn process_fire_shots(
     mut q_hp: Query<&mut Health, (With<Guard>, Without<Dead>)>,
     mut rng: Local<u32>,
 ) {
+    let (Some(grid), Some(solid)) = (grid, solid) else {
+        return;
+    };
+
     const ENEMY_RADIUS: f32 = 0.35;   // Tile Units (slightly forgiving, Wolf-ish auto-aim feel)
     const ENEMY_HALF_H: f32 = 0.55;   // Slightly forgiving vertical hitbox
     const ENEMY_CENTER_Y: f32 = 0.50; // Center at Y=0.5

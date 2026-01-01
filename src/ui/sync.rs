@@ -34,9 +34,14 @@ impl Default for DeathDelay {
 #[derive(Resource, Debug, Clone, Default)]
 pub struct RestartRequested(pub bool);
 
-/// A request to start a fresh run (reset score/lives/etc.).
+/// A request to start a fresh run (reset score/lives/etc)
 #[derive(Resource, Debug, Clone, Default)]
 pub struct NewGameRequested(pub bool);
+
+/// A request to advance to the next level 
+/// while preserving run stats (ammo/weapons/score/lives/hp)
+#[derive(Resource, Debug, Clone, Default)]
+pub struct AdvanceLevelRequested(pub bool);
 
 pub fn sync_player_hp_with_hud(
     mut hud: ResMut<HudState>,

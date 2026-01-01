@@ -111,11 +111,11 @@ pub fn sync_mission_success_overlay_visibility(
 pub fn mission_success_input(
     keys: Res<ButtonInput<KeyCode>>,
     win: Res<LevelComplete>,
-    mut new_game: ResMut<crate::ui::sync::NewGameRequested>,
+    mut advance: ResMut<crate::ui::sync::AdvanceLevelRequested>,
     mut current_level: ResMut<davelib::level::CurrentLevel>,
 ) {
     // Only while mission success is active, and only once.
-    if !win.0 || new_game.0 {
+    if !win.0 || advance.0 {
         return;
     }
 
@@ -128,7 +128,10 @@ pub fn mission_success_input(
             LevelId::E1M2 => LevelId::E1M1,
         };
 
-        new_game.0 = true;
-        info!("Mission Success: advancing to {:?} -> new game requested", current_level.0);
+        advance.0 = true;
+        info!(
+            "Mission Success: advancing to {:?} -> advance level requested",
+            current_level.0
+        );
     }
 }

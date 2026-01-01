@@ -107,3 +107,36 @@ pub fn new_game_finish(
 
     bevy::log::info!("New Game: finished (fresh HUD, controls unlocked)");
 }
+
+pub fn advance_level_finish(
+    mut advance: ResMut<crate::ui::sync::AdvanceLevelRequested>,
+    mut lock: ResMut<davelib::player::PlayerControlLock>,
+    mut latch: ResMut<davelib::player::PlayerDeathLatch>,
+    mut death: ResMut<crate::ui::sync::DeathDelay>,
+    mut hud: ResMut<crate::ui::HudState>,
+    mut win: ResMut<crate::level_complete::LevelComplete>,
+    mut q_vitals: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
+) {
+    // Preserve run stats (ammo/score/lives/weapons) by NOT resetting HudState.
+    // Wolf behavior: keys do not carry across levels.
+    hud.key_gold = false;
+    hud.key_silver = false;
+
+    // setup() spawns PlayerVitals::default(); restore HP from HUD so it carries over.
+    if let Some(mut vitals) = q_vitals.iter_mut().next() {
+        vitals.hp = hud.hp.clamp(0, vitals.hp_max);
+    }
+
+    // Clear mission-success state and unlock gameplay.
+    win.0 = false;
+    lock.0 = false;
+
+    // Clear death flow bookkeeping (safe, even if we weren't dying).
+    *death = Default::default();
+    latch.0 = false;
+
+    // Consume the request.
+    advance.0 = false;
+
+    bevy::log::info!("Advance Level: finished (HUD preserved, controls unlocked)");
+}

@@ -68,6 +68,16 @@ fn extract_embedded_assets_to_temp() -> String {
     out_dir.to_string_lossy().to_string()
 }
 
+// Gate gameplay systems until the world resources exist.
+// (Types must be in scope here; if they aren’t, add the appropriate `use` lines.)
+fn world_ready(
+    grid: Option<Res<davelib::map::MapGrid>>,
+    solid: Option<Res<davelib::decorations::SolidStatics>>,
+    markers: Option<Res<davelib::pushwalls::PushwallMarkers>>,
+) -> bool {
+    grid.is_some() && solid.is_some() && markers.is_some()
+}
+
 fn main() {
     let assets_path = extract_embedded_assets_to_temp();
     info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
@@ -97,6 +107,8 @@ fn main() {
         .init_resource::<PlayerDeathLatch>()
         .init_resource::<ui::sync::DeathDelay>()
         .init_resource::<ui::sync::RestartRequested>()
+        .init_resource::<ui::sync::NewGameRequested>() // make explicit (even if UiPlugin also does it)
+        .init_resource::<ui::sync::AdvanceLevelRequested>()
         .init_resource::<PushwallOcc>()
         .init_resource::<PushwallState>()
         .init_resource::<PushwallClock>()
@@ -110,7 +122,7 @@ fn main() {
         // -----------------------------
         // Startup:
         // Load Audio,
-        // Build Level,
+        // Build Initial Level,
         // Spawn Content
         // -----------------------------
         .add_systems(
@@ -125,28 +137,35 @@ fn main() {
                 .chain(),
         )
         // -----------------------------
-        // Update: 
-        // Input / UI + Billboarding
+        // Update:
+        // Input/UI (always) + World gameplay (only when ready)
         // -----------------------------
         .add_systems(
             Update,
             (
                 grab_mouse,
                 mouse_look,
-                pickups::billboard_pickups,
-                billboard_decorations,
-                use_pushwalls,
-                use_doors,
-                level_complete::use_elevator_exit,
+                // These two do NOT require MapGrid; safe to run always:
                 level_complete::mission_success_input,
                 level_complete::sync_mission_success_overlay_visibility,
             )
                 .chain(),
         )
+        .add_systems(
+            Update,
+            (
+                pickups::billboard_pickups,
+                billboard_decorations,
+                use_pushwalls,
+                use_doors,
+                level_complete::use_elevator_exit,
+            )
+                .chain()
+                .run_if(world_ready),
+        )
         // -----------------------------
-        // PostUpdate: 
+        // PostUpdate:
         // Audio,
-        // Overlays,
         // Level Transitions
         // -----------------------------
         .add_systems(PostUpdate, play_sfx_events)
@@ -175,8 +194,20 @@ fn main() {
                 .chain()
                 .run_if(|r: Res<ui::sync::NewGameRequested>| r.0),
         )
+        .add_systems(
+            PostUpdate,
+            (
+                restart::restart_despawn_level,
+                setup,
+                spawn_wolf_e1m1_decorations,
+                pickups::spawn_wolf_e1m1_pickups,
+                restart::advance_level_finish,
+            )
+                .chain()
+                .run_if(|r: Res<ui::sync::AdvanceLevelRequested>| r.0),
+        )
         // -----------------------------
-        // FixedUpdate: Simulation
+        // FixedUpdate: Simulation (only when world ready)
         // -----------------------------
         .add_systems(
             FixedUpdate,
@@ -189,7 +220,8 @@ fn main() {
                 pickups::drop_guard_ammo,
                 pickups::collect_pickups,
             )
-                .chain(),
+                .chain()
+                .run_if(world_ready),
         )
         .run();
 }

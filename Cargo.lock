@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Davenstein"
-version = "0.8.9"
+version = "0.9.0"
 dependencies = [
  "bevy",
  "include_dir",
