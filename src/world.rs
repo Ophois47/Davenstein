@@ -689,8 +689,9 @@ pub fn setup(
         IsDefaultUiCamera,
         Player,
         crate::player::PlayerVitals::default(),
-        LookAngles::new(spawn_yaw + PI, 0.0),
+        LookAngles::new(spawn_yaw, 0.0),
         SpatialListener::new(0.2),
-        Transform::from_translation(player_pos).with_rotation(Quat::from_rotation_y(spawn_yaw + PI)),
+        Transform::from_translation(player_pos)
+            .with_rotation(Quat::from_rotation_y(spawn_yaw)),
     ));
 }

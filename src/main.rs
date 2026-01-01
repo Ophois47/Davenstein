@@ -73,6 +73,9 @@ fn main() {
     info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
 
     App::new()
+        // -----------------------------
+        // Plugins (Engine + Game)
+        // -----------------------------
         .add_plugins(
             DefaultPlugins
                 .set(AssetPlugin {
@@ -85,8 +88,10 @@ fn main() {
         .add_plugins(EnemiesPlugin)
         .add_plugins(EnemyAiPlugin)
         .add_plugins(combat::CombatPlugin)
+        // -----------------------------
+        // Core Resources / State
+        // -----------------------------
         .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
-        .init_resource::<davelib::level::CurrentLevel>()
         .init_resource::<PlayerSettings>()
         .init_resource::<PlayerControlLock>()
         .init_resource::<PlayerDeathLatch>()
@@ -96,8 +101,18 @@ fn main() {
         .init_resource::<PushwallState>()
         .init_resource::<PushwallClock>()
         .init_resource::<level_complete::LevelComplete>()
+        .init_resource::<davelib::level::CurrentLevel>()
+        // -----------------------------
+        // Messages / Events
+        // -----------------------------
         .add_message::<PlaySfx>()
         .add_message::<RebuildWalls>()
+        // -----------------------------
+        // Startup:
+        // Load Audio,
+        // Build Level,
+        // Spawn Content
+        // -----------------------------
         .add_systems(
             Startup,
             (
@@ -109,6 +124,10 @@ fn main() {
             )
                 .chain(),
         )
+        // -----------------------------
+        // Update: 
+        // Input / UI + Billboarding
+        // -----------------------------
         .add_systems(
             Update,
             (
@@ -124,7 +143,14 @@ fn main() {
             )
                 .chain(),
         )
+        // -----------------------------
+        // PostUpdate: 
+        // Audio,
+        // Overlays,
+        // Level Transitions
+        // -----------------------------
         .add_systems(PostUpdate, play_sfx_events)
+        .add_systems(PostUpdate, davelib::audio::sync_level_music)
         .add_systems(
             PostUpdate,
             (
@@ -149,6 +175,9 @@ fn main() {
                 .chain()
                 .run_if(|r: Res<ui::sync::NewGameRequested>| r.0),
         )
+        // -----------------------------
+        // FixedUpdate: Simulation
+        // -----------------------------
         .add_systems(
             FixedUpdate,
             (

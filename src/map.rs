@@ -197,14 +197,15 @@ impl MapGrid {
 
                 // Plane1 player start: 19..=22 (N/E/S/W)
                 if (19..=22).contains(&v1) && player_spawn.is_none() {
-                    // Bevy yaw=0 faces -Z; +PI/2 faces +X.
+                    // Bevy yaw=0 faces -Z. yaw=-PI/2 faces +X. yaw=+PI/2 faces -X.
                     let yaw = match v1 {
                         19 => 0.0,
-                        20 => std::f32::consts::FRAC_PI_2,
-                        21 => std::f32::consts::PI,
-                        22 => -std::f32::consts::FRAC_PI_2,
+                        20 => -std::f32::consts::FRAC_PI_2, // East  (+X)
+                        21 => std::f32::consts::PI,         // South (+Z)
+                        22 =>  std::f32::consts::FRAC_PI_2, // West  (-X)
                         _ => 0.0,
                     };
+
                     player_spawn = Some((IVec2::new(x as i32, z as i32), yaw));
                 }
 

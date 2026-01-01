@@ -77,6 +77,7 @@ pub struct GameAudio {
     pub door_open: Handle<AudioSource>,
     pub door_close: Handle<AudioSource>,
     pub music_level: Handle<AudioSource>,
+     pub music_level2: Handle<AudioSource>,
 }
 
 #[derive(Component)]
@@ -87,6 +88,7 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         door_open: asset_server.load("sounds/sfx/door_open.ogg"),
         door_close: asset_server.load("sounds/sfx/door_close.ogg"),
         music_level: asset_server.load("sounds/music/level1.ogg"),
+        music_level2: asset_server.load("sounds/music/level2.ogg"),
     });
 
     // Library That Supports 1 or Many Clips per SfxKind
@@ -216,6 +218,44 @@ fn is_pickup_kind(k: SfxKind) -> bool {
             | SfxKind::PickupTreasureChest
             | SfxKind::PickupTreasureCrown
     )
+}
+
+use crate::level::{CurrentLevel, LevelId};
+
+pub fn sync_level_music(
+    mut commands: Commands,
+    audio: Res<GameAudio>,
+    level: Res<CurrentLevel>,
+    q_music: Query<Entity, With<Music>>,
+    mut last: Local<Option<LevelId>>,
+) {
+    // If music already exists and we haven't tracked it yet, assume it's correct for current level.
+    if last.is_none() && q_music.iter().next().is_some() {
+        *last = Some(level.0);
+        return;
+    }
+
+    if *last == Some(level.0) {
+        return;
+    }
+
+    // Remove any currently-playing music entity
+    for e in q_music.iter() {
+        commands.entity(e).despawn();
+    }
+
+    let clip = match level.0 {
+        LevelId::E1M1 => audio.music_level.clone(),
+        LevelId::E1M2 => audio.music_level2.clone(),
+    };
+
+    commands.spawn((
+        Music,
+        AudioPlayer::new(clip),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(0.45)),
+    ));
+
+    *last = Some(level.0);
 }
 
 pub fn play_sfx_events(
