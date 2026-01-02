@@ -5,16 +5,17 @@ use bevy::prelude::*;
 
 use crate::map::MapGrid;
 
-/// Tile-occupancy for Wolf-style blocking "statics"
-/// This matches the original Wolf3D behavior (actorat[tile]=1).
+/// Tile-occupancy for Blocking "Statics"
+/// Matches Original Wolfenstein 3D Behavior (actorat[tile]=1)
 #[derive(Component)]
 pub struct BillboardUpright;
 
 #[derive(Component)]
 pub struct BillboardFloor;
 
+// Radians Around X, 0 = Upright, -PI/2 = Flat
 #[derive(Component, Copy, Clone)]
-pub struct BillboardTilt(pub f32); // Radians around X, 0 = upright, -PI/2 = flat
+pub struct BillboardTilt(pub f32);
 
 #[derive(Resource, Debug, Clone)]
 pub struct SolidStatics {
@@ -51,7 +52,8 @@ impl SolidStatics {
 
     pub fn is_solid(&self, x: i32, z: i32) -> bool {
         if x < 0 || z < 0 || x >= self.width as i32 || z >= self.height as i32 {
-            return true; // Outside map blocks
+            // Outside Map Blocks
+            return true;
         }
         self.solid[self.idx(x as usize, z as usize)]
     }
@@ -342,7 +344,7 @@ pub fn spawn_wolf_e1m1_decorations(
                     GlobalTransform::default(),
                 ));
             } else {
-                // Upright sprite: bottom at y=0
+                // Upright Sprite: Bottom at y=0
                 let y = h * 0.5;
 
                 commands.spawn((

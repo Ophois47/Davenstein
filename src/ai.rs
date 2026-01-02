@@ -85,13 +85,13 @@ fn pick_chase_step(
     let dx = player_tile.x - my_tile.x;
     let dz = player_tile.y - my_tile.y;
 
-    // Desired directions toward player (4-way)
+    // Desired Directions Toward Player (4-Way)
     let xdir = if dx > 0 { 1 } else if dx < 0 { -1 } else { 0 };
     let zdir = if dz > 0 { 1 } else if dz < 0 { -1 } else { 0 };
 
     let primary_x = dx.abs() >= dz.abs();
 
-    // Candidate steps in Wolf-ish priority order
+    // Candidate Steps in Classic Priority Order
     let mut candidates: [IVec2; 6] = [
         IVec2::ZERO,
         IVec2::ZERO,
@@ -104,7 +104,7 @@ fn pick_chase_step(
     let toward_x = IVec2::new(xdir, 0);
     let toward_z = IVec2::new(0, zdir);
 
-    // Two “toward player” axes first
+    // Two Toward Player Axes First
     if primary_x {
         candidates[0] = toward_x;
         candidates[1] = toward_z;
@@ -113,7 +113,7 @@ fn pick_chase_step(
         candidates[1] = toward_x;
     }
 
-    // Then perpendicular fallbacks (try to go around)
+    // Then Perpendicular Fallbacks (Try to Go Around)
     candidates[2] = IVec2::new(0, 1);
     candidates[3] = IVec2::new(0, -1);
     candidates[4] = IVec2::new(1, 0);
@@ -146,7 +146,7 @@ fn pick_chase_step(
         }
     }
 
-    // If nothing worked, allow reverse as last resort
+    // Nothing Worked, Allow Reverse as Last Resort
     if last_step != IVec2::ZERO {
         let dest = my_tile + reverse;
         if dest != player_tile && !occupied.contains(&dest) {
@@ -190,7 +190,8 @@ fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVe
         return true;
     }
 
-    // Ray from tile center to tile center, using the same N+0.5 boundary scheme as hitscan/collision.
+    // Ray from tile center to tile center, using
+    // same N+0.5 boundary scheme as hitscan/collision
     let origin = Vec2::new(from.x as f32, from.y as f32);
     let target = Vec2::new(to.x as f32, to.y as f32);
 
@@ -236,9 +237,7 @@ fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVe
         (pz - iz as f32) / (-dz)
     };
 
-    let max_steps = (grid.width.max(grid.height) as i32) * 4;
-
-    for _ in 0..max_steps {
+    loop {
         let dist = if t_max_x + EPS_T < t_max_z {
             ix += step_x;
             let d = t_max_x;
@@ -250,7 +249,7 @@ fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVe
             t_max_z += t_delta_z;
             d
         } else {
-            // Corner: step both, block if either adjacent tile is a wall/closed door
+            // Corner crossing: treat either adjacent blocking tile as blocking LOS
             let next_ix = ix + step_x;
             let next_iz = iz + step_z;
 
@@ -265,9 +264,6 @@ fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVe
                 if cx == to.x && cz == to.y {
                     continue;
                 }
-
-                // NOTE: LOS intentionally ignores SolidStatics (Wolf behavior).
-
                 let t = grid.tile(cx as usize, cz as usize);
                 if matches!(t, Tile::Wall | Tile::DoorClosed) {
                     return false;
@@ -287,20 +283,15 @@ fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVe
             return false;
         }
 
-        // If we’ve entered the target tile, LOS is clear
         if ix == to.x && iz == to.y {
             return true;
         }
-
-        // Intentionally ignore SolidStatics
 
         let tile = grid.tile(ix as usize, iz as usize);
         if matches!(tile, Tile::Wall | Tile::DoorClosed) {
             return false;
         }
     }
-
-    false
 }
 
 fn dir8_from_step(step: IVec2) -> Dir8 {

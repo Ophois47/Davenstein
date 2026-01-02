@@ -319,11 +319,11 @@ pub fn update_guard_views(
     for (_dead, corpse, dying, pain, walk, shoot, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
         let enemy_pos = gt.translation();
 
-        // Compute view index (0..7) relative to enemy's facing + player position
+        // Compute View Index (0..7) Relative to Enemy's Facing + Player Position
         let v = quantize_view8(dir8.0, enemy_pos, player_pos);
         view.0 = v;
 
-        // Billboard: rotate quad to face player (don’t touch translation)
+        // Rotate Quad to Face Player
         let to_player = player_pos - enemy_pos;
         let flat_len2 = to_player.x * to_player.x + to_player.z * to_player.z;
         if flat_len2 > 1e-6 {
@@ -333,8 +333,8 @@ pub fn update_guard_views(
 
         let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
 
-        // Choose texture in priority order:
-        // corpse > dying > pain > shooting > moving(walk) > idle
+        // Choose Texture in Priority Order:
+        // Corpse > Dying > Pain > Shooting > Moving (Walk) > Idle
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse.clone()
         } else if let Some(d) = dying {
@@ -345,7 +345,7 @@ pub fn update_guard_views(
         } else if let Some(s) = shoot {
             let frontish = matches!(v, 0 | 1 | 7);
 
-            // GuardShoot has only `timer`, so pick aim vs fire based on timer progress.
+            // GuardShoot Has Only Timer', Pick Aim vs Fire Based on Timer Progress
             let dur = s.timer.duration().as_secs_f32().max(1e-6);
             let t = s.timer.elapsed().as_secs_f32();
             let fire_phase = t >= (dur * 0.5);
@@ -360,7 +360,7 @@ pub fn update_guard_views(
                 sprites.shoot_side_fire.clone()
             }
         } else if mv.is_some() {
-            // Walk frame index from GuardWalk.phase (4 frames per tile)
+            // Walk Frame Index From GuardWalk.phase (4 Frames Per Tile)
             let w = walk.map(|w| w.phase).unwrap_or(0.0);
             let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
             sprites.walk[frame_i][v as usize].clone()
