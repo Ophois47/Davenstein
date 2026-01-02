@@ -15,6 +15,7 @@ use super::{
 };
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::player::{Player, PlayerControlLock};
+use davelib::level::{CurrentLevel, LevelId};
 use crate::level_complete::MissionSuccessOverlay;
 
 #[derive(Component)]
@@ -159,6 +160,9 @@ pub(super) struct HudScoreDigit(pub usize); // 0..5 (six digits)
 
 #[derive(Component)]
 pub(super) struct HudLivesDigit(pub usize); // 0..1 (two digits)
+
+#[derive(Component)]
+pub(super) struct HudFloorDigit(pub usize); // 0..1 (two digits)
 
 fn split_score_6_blanks(n: i32) -> [Option<usize>; 6] {
     let mut n = n.max(0) as u32;
@@ -321,6 +325,32 @@ fn split_3_right_aligned(n: i32) -> [Option<usize>; 3] {
     let ones = Some(o);
 
     [hundreds, tens, ones]
+}
+
+pub(crate) fn sync_hud_floor_digits(
+    level: Res<CurrentLevel>,
+    digits: Option<Res<HudDigitSprites>>,
+    mut q: Query<(&HudFloorDigit, &mut ImageNode)>,
+) {
+    if !level.is_changed() {
+        return;
+    }
+    let Some(digits) = digits else { return; };
+
+    let floor_num: i32 = match level.0 {
+        LevelId::E1M1 => 1,
+        LevelId::E1M2 => 2,
+    };
+
+    let floor_digits = split_right_aligned_blanks(floor_num, 2);
+
+    for (slot, mut img) in &mut q {
+        let handle = match floor_digits.get(slot.0).copied().flatten() {
+            Some(d) => digits.digits[d].clone(),
+            None => digits.blank.clone(),
+        };
+        img.image = handle;
+    }
 }
 
 pub(crate) fn sync_viewmodel_size(
@@ -991,6 +1021,7 @@ pub(crate) fn setup_hud(
     asset_server: Res<AssetServer>,
     hud: Res<HudState>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
+    current_level: Res<CurrentLevel>,
 ) {
     // Viewmodel sprites
     let sprites = ViewModelSprites {
@@ -1024,7 +1055,7 @@ pub(crate) fn setup_hud(
     // --- NEW: HUD face sprites (your naming convention) ---
     let f = |r: u8, c: u8| asset_server.load(format!("textures/hud/faces/face_r{r}_c{c}.png"));
 
-        let hud_faces = HudFaceSprites {
+    let hud_faces = HudFaceSprites {
         bands: [
             [f(0, 0), f(0, 1), f(0, 2)],
             [f(0, 3), f(0, 4), f(0, 5)],
@@ -1077,11 +1108,14 @@ pub(crate) fn setup_hud(
     const WEP_W: f32 = 48.0;
     const WEP_H: f32 = 24.0;
 
-    // --- NEW: Face placement (native coords, 24x32 inside mugshot window) ---
+    // Face Placement (Native Coords, 24x32 Inside Face Window)
     const FACE_X: f32 = 138.0;
     const FACE_TOP: f32 = 7.0;
     const FACE_W: f32 = 24.0;
     const FACE_H: f32 = 32.0;
+
+    // Current Player Level
+    const FLOOR_X: f32 = 14.0;
 
     // Pixel-perfect integer scale from window width
     let win = q_windows.iter().next().expect("PrimaryWindow");
@@ -1101,6 +1135,7 @@ pub(crate) fn setup_hud(
     let lives_x_px = LIVES_X * hud_scale;
     let hp_x_px = HP_X * hud_scale;
     let ammo_x_px = AMMO_X * hud_scale;
+    let floor_x_px = FLOOR_X * hud_scale;
 
     // Scaled key placement
     let key_w_px = KEY_W * hud_scale;
@@ -1221,7 +1256,7 @@ pub(crate) fn setup_hud(
                     ..default()
                 })
                 .with_children(|inner| {
-                    // Background strip (spawn first so it draws behind everything)
+                    // Background Strip (spawn first so it draws behind everything)
                     inner.spawn((
                         ImageNode::new(status_bar.clone()),
                         ZIndex(0),
@@ -1235,7 +1270,7 @@ pub(crate) fn setup_hud(
                         },
                     ));
 
-                    // --- NEW: BJ face overlay (so we can animate it) ---
+                    // BJ Face Overlay
                     inner.spawn((
                         HudFaceImage,
                         ImageNode::new(hud_faces.bands[0][0].clone()),
@@ -1252,7 +1287,7 @@ pub(crate) fn setup_hud(
 
                     // --- Icons ---
 
-                    // Weapon icon
+                    // Weapon Icon
                     inner.spawn((
                         HudWeaponIcon,
                         ImageNode::new(hud_icons.weapon(hud.selected)),
@@ -1267,7 +1302,7 @@ pub(crate) fn setup_hud(
                         },
                     ));
 
-                    // Gold key
+                    // Gold Key
                     inner.spawn((
                         HudGoldKeyIcon,
                         ImageNode::new(hud_icons.key_gold.clone()),
@@ -1283,7 +1318,7 @@ pub(crate) fn setup_hud(
                         },
                     ));
 
-                    // Silver key
+                    // Silver Key
                     inner.spawn((
                         HudSilverKeyIcon,
                         ImageNode::new(hud_icons.key_silver.clone()),
@@ -1300,6 +1335,38 @@ pub(crate) fn setup_hud(
                     ));
 
                     // --- Digits ---
+                    // FLOOR (derived from CurrentLevel)
+                    let floor_num: i32 = match current_level.0 {
+                        LevelId::E1M1 => 1,
+                        LevelId::E1M2 => 2,
+                    };
+                    let floor_digits = split_right_aligned_blanks(floor_num, 2);
+
+                    inner
+                        .spawn(Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(floor_x_px),
+                            top: Val::Px(digit_top_px),
+                            flex_direction: FlexDirection::Row,
+                            ..default()
+                        })
+                        .with_children(|floor| {
+                            for (slot, dopt) in floor_digits.iter().enumerate() {
+                                let handle = match dopt {
+                                    Some(d) => hud_digits.digits[*d].clone(),
+                                    None => hud_digits.blank.clone(),
+                                };
+                                floor.spawn((
+                                    HudFloorDigit(slot),
+                                    ImageNode::new(handle),
+                                    Node {
+                                        width: Val::Px(digit_w_px),
+                                        height: Val::Px(digit_h_px),
+                                        ..default()
+                                    },
+                                ));
+                            }
+                        });
 
                     // SCORE
                     let score_digits = split_score_6_blanks(hud.score);
