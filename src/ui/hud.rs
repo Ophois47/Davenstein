@@ -100,25 +100,12 @@ pub(crate) struct HudFaceOverride {
 
 impl Default for HudFaceOverride {
     fn default() -> Self {
-        let mut t = Timer::from_seconds(0.75, TimerMode::Once);
-        t.set_elapsed(t.duration()); // start "finished"
-        Self { active: false, timer: t }
-    }
-}
+        // How long the grin stays up
+        const GRIN_SECS: f32 = 1.80;
 
-fn face_band_from_hp(hp: i32) -> usize {
-    // 7 bands. Tune later if you want different thresholds.
-    // (This is intentionally simple + stable for Step 1.)
-    let hp = hp.clamp(0, 100);
-    match hp {
-        86..=100 => 0,
-        71..=85  => 1,
-        56..=70  => 2,
-        41..=55  => 3,
-        26..=40  => 4,
-        11..=25  => 5,
-        1..=10   => 6,
-        _        => 6,
+        let mut t = Timer::from_seconds(GRIN_SECS, TimerMode::Once);
+        t.set_elapsed(t.duration());
+        Self { active: false, timer: t }
     }
 }
 
@@ -132,7 +119,6 @@ pub(crate) struct HudFaceImage;
 pub(crate) struct HudFaceSprites {
     pub bands: [[Handle<Image>; 3]; 7],
     pub grin: Handle<Image>,
-    pub pain: Handle<Image>,
     pub dead: Handle<Image>,
 }
 
@@ -600,12 +586,13 @@ pub(crate) fn weapon_fire_and_viewmodel(
     // MACHINEGUN: While Holding (and Not Flashing), Keep Forward Pose
     if is_machinegun && trigger_down && has_ammo && !weapon.showing_fire {
         if let Ok(mut img) = vm_q.single_mut() {
-            img.image = sprites.fire_frame(WeaponSlot::MachineGun, 1); // Forward
+            // Forward
+            img.image = sprites.fire_frame(WeaponSlot::MachineGun, 1);
         }
     }
 
     // MACHINEGUN: ALWAYS Snap Back to Idle When Trigger Not Held
-    // Prevents rare "stuck forward" posture after releasing the mouse
+    // Prevents "Stuck Forward" Posture After Releasing Button
     if is_machinegun && !trigger_down {
         weapon.showing_fire = false;
         weapon.fire_cycle = 0;
@@ -619,12 +606,14 @@ pub(crate) fn weapon_fire_and_viewmodel(
 
     // Fire Intent
     let wants_fire = if is_full_auto {
-        trigger_down // HOLD to fire
+        // Hold to Fire
+        trigger_down
     } else {
-        trigger_pressed // Knife + Pistol click-to-fire
+        // Knife + Pistol Click to Fire
+        trigger_pressed
     };
 
-    // Prevent ROF wobble: allow small catch-up under frame jitter
+    // Prevent ROF Wobble: Allow Small Catch up Under Frame Jitter
     let max_shots_per_frame = match hud.selected {
         WeaponSlot::Chaingun => 1,
         _ => 3,
@@ -638,7 +627,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     {
         shots_fired_this_frame += 1;
 
-        // Spend ammo (knife is 0 cost)
+        // Spend ammo (Knife is 0)
         if ammo_cost > 0 {
             hud.ammo = hud.ammo.saturating_sub(ammo_cost);
         }
@@ -646,20 +635,20 @@ pub(crate) fn weapon_fire_and_viewmodel(
         weapon.cooldown.reset();
         weapon.flash.reset();
 
-        // --- MachineGun: show muzzle flash EXACTLY on the shot moment (syncs with sound) ---
+        // --- MachineGun: Show Muzzle Flash EXACTLY on the Shot Moment (Syncs With Sound) ---
         if is_machinegun {
             weapon.showing_fire = true;
-            weapon.flash.reset(); // flash timer starts NOW
+            weapon.flash.reset(); // Flash Timer Starts Here
 
             if let Ok(mut img) = vm_q.single_mut() {
-                img.image = sprites.fire_frame(WeaponSlot::MachineGun, 2); // muzzle flash
+                // Muzzle Flash
+                img.image = sprites.fire_frame(WeaponSlot::MachineGun, 2);
             }
 
-            // optional: tiny linger makes taps readable (doesn't affect holding)
             *auto_linger = 0.10;
         }
 
-        // --- Chaingun: keep your existing behavior (cycle advance on shot is OK for you) ---
+        // --- Chaingun ---
         if is_chaingun {
             weapon.showing_fire = true;
 
@@ -672,7 +661,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
             }
         }
 
-        // For non-full-auto, start the attack animation immediately
+        // For Semi Auto, Start Attack Animation Immediately
         if !is_full_auto {
             weapon.showing_fire = true;
             weapon.flash.reset();
@@ -690,7 +679,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
             }
         }
 
-        // Emit SFX + FireShot (synced to each bullet)
+        // Emit SFX + FireShot (Synced to Each Bullet)
         if let Ok(tf) = q_player.single() {
             let origin = tf.translation;
             let dir = (tf.rotation * Vec3::NEG_Z).normalize();
@@ -816,7 +805,7 @@ pub(crate) fn sync_hud_icons(
         Or<(With<HudGoldKeyIcon>, With<HudSilverKeyIcon>)>,
     >,
 ) {
-    // Keys: ALWAYS apply (cheap, and fixes "never becomes visible" issues)
+    // Keys
     for (mut vis, is_gold, is_silver) in &mut q_keys {
         if is_gold.is_some() {
             *vis = if hud.key_gold {
@@ -833,7 +822,7 @@ pub(crate) fn sync_hud_icons(
         }
     }
 
-    // Weapon icon: only update when HUD changed
+    // Weapon Icon: Update Only When HUD Changed
     if !hud.is_changed() {
         return;
     }
@@ -892,7 +881,6 @@ pub(crate) fn sync_game_over_overlay_visibility(
     game_over: Res<GameOver>,
     mut q: Query<&mut Visibility, With<GameOverOverlay>>,
 ) {
-    // Always apply (cheap), avoids "never becomes visible" edge cases.
     for mut vis in q.iter_mut() {
         *vis = if game_over.0 {
             Visibility::Visible
@@ -902,16 +890,16 @@ pub(crate) fn sync_game_over_overlay_visibility(
     }
 }
 
-/// Maps HP (1..100) to stage 0..6. HP<=0 is handled separately as dead.
-/// This gives 7 “injury stages” + dead = 8 total states.
+/// Maps HP (1..100) to stage 0..6. HP<=0 is handled separately as dead
+/// This gives 7 injury stages + dead = 8 total states
 fn stage_from_hp(hp: i32) -> usize {
     let hp = hp.clamp(1, 100);
     let dmg = 100 - hp;              // 0..99
     ((dmg * 7) / 100) as usize       // 0..6
 }
 
-/// Returns (row, col) for the base face given hp + dir.
-/// Column order within a group matches your sheet: forward, right, left.
+/// Returns (row, col) for the base face given hp + dir
+/// Column order within a group matches your sheet: forward, right, left
 fn coords_for(hp: i32, dir: FaceDir) -> (usize, usize) {
     if hp <= 0 {
         return (1, 10); // dead (r1_c10)
@@ -926,10 +914,10 @@ fn coords_for(hp: i32, dir: FaceDir) -> (usize, usize) {
     };
 
     if stage < 4 {
-        // row 0 has stages 0..3
+        // Row 0 has Stages 0..3
         (0, stage * 3 + dir_off)
     } else {
-        // row 1 has stages 4..6 (so 0..2 in that row)
+        // Row 1 has Stages 4..6 (0..2 in that row)
         let s = stage - 4;
         (1, s * 3 + dir_off)
     }
@@ -946,7 +934,7 @@ pub(crate) fn sync_hud_face(
 ) {
     let Some(mut img) = q_face.iter_mut().next() else { return; };
 
-    // Dead face always wins.
+    // Dead Face Always Wins
     if hud.hp <= 0 {
         *img = ImageNode::new(faces.dead());
         ov.active = false;
@@ -954,14 +942,11 @@ pub(crate) fn sync_hud_face(
         return;
     }
 
-    // Initialize prev hp on first tick after spawn/level.
     if prev_hp.0 == 0 {
-        prev_hp.0 = hud.hp;
-    } else {
         prev_hp.0 = hud.hp;
     }
 
-    // Idle glance direction (simple, stable cycle: F -> R -> F -> L ...)
+    // Idle Glance Direction
     look.timer.tick(time.delta());
     if look.timer.just_finished() {
         look.tick = look.tick.wrapping_add(1);
@@ -973,15 +958,18 @@ pub(crate) fn sync_hud_face(
         };
     }
 
-    // Grin override
+    // Grin Timer
     if ov.active {
         ov.timer.tick(time.delta());
         if ov.timer.is_finished() {
             ov.active = false;
-        } else {
-            *img = ImageNode::new(faces.grin());
-            return;
         }
+    }
+
+    // Grin Override
+    if ov.active {
+        *img = ImageNode::new(faces.grin());
+        return;
     }
 
     // Base face: compute (row, col) then map to your 7x3 "bands" table.
@@ -1047,13 +1035,12 @@ pub(crate) fn setup_hud(
             [f(1, 6), f(1, 7), f(1, 8)],
         ],
         grin: f(1, 9),   // r1_c9  = grin
-        pain: f(1, 11),  // r1_c11 = (remaining special; use as pain unless you say otherwise)
         dead: f(1, 10),  // r1_c10 = dead (non-negotiable per your convention)
     };
 
     commands.insert_resource(hud_faces.clone());
     commands.insert_resource(HudFaceOverride::default());
-
+    
     // Boxed HUD strip background (320x44)
     let status_bar: Handle<Image> = asset_server.load("textures/hud/status_bar.png");
 

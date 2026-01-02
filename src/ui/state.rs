@@ -63,9 +63,9 @@ pub struct DamageFlash {
 
 impl Default for DamageFlash {
     fn default() -> Self {
-        // Red player damage flash
+        // Red Player Damage Flash
         let mut t = Timer::from_seconds(0.22, TimerMode::Once);
-        // Start "finished" so we don't show anything until triggered
+        // Start "Finished", Don't Show Anything Until Triggered
         t.set_elapsed(t.duration());
         Self { timer: t }
     }
@@ -82,7 +82,7 @@ impl DamageFlash {
         }
         let dur = self.timer.duration().as_secs_f32().max(0.0001);
         let t = (self.timer.elapsed_secs() / dur).clamp(0.0, 1.0);
-        // Ease-out
+        // Ease Out
         let a = (1.0 - t).powf(2.2);
         (a * 0.65).clamp(0.0, 0.65)
     }
@@ -118,6 +118,5 @@ impl DeathOverlay {
     }
 }
 
-/// True when the player has no lives remaining and is in the "Game Over" flow.
 #[derive(Resource, Debug, Clone, Default)]
 pub struct GameOver(pub bool);

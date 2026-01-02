@@ -458,7 +458,7 @@ pub fn billboard_pickups(
 
         tf.translation = pos;
 
-        // Yaw-Only Face the Player
+        // Yaw Only Face the Player
         let mut to_player = player_pos - tf.translation;
         to_player.y = 0.0;
 
@@ -515,7 +515,7 @@ pub fn collect_pickups(
                     sfx.write(PlaySfx { kind, pos: player_tf.translation });
                 }
 
-                // Grin only when the chaingun is acquired for the first time.
+                // Grin When Chaingun Acquired for First Time Only
                 let was_owned = hud.owns(w);
 
                 if !was_owned {
@@ -556,7 +556,7 @@ pub fn collect_pickups(
             PickupKind::Health(hk) => {
                 // Canonical HP is Gameplay Vitals
                 if vitals.hp >= vitals.hp_max {
-                    // Full Health: Leave on Ground, No Sfx
+                    // Full Health: Leave on Ground, No SFX
                     consumed = false;
                 } else {
                     let gain = hk.heal().min(vitals.hp_max - vitals.hp);
