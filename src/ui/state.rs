@@ -88,6 +88,66 @@ impl DamageFlash {
     }
 }
 
+
+#[derive(Resource, Debug, Clone)]
+pub struct PickupFlash {
+    pub timer: Timer,
+    pub color: Srgba,
+}
+
+impl Default for PickupFlash {
+    fn default() -> Self {
+        // Slightly faster than Wolf: 3 steps × 5 tics (instead of 6) at 70Hz.
+        const TIC_HZ: f32 = 70.0;
+        const NUM_STEPS: f32 = 3.0;
+        const STEP_TICS: f32 = 3.0;
+
+        let mut t = Timer::from_seconds((NUM_STEPS * STEP_TICS) / TIC_HZ, TimerMode::Once);
+        t.set_elapsed(t.duration()); // start invisible until triggered
+
+        // Straw-yellow target (64,62,0) mapped to 0..1.
+        let color = Srgba::new(1.0, 62.0 / 64.0, 0.0, 1.0);
+
+        Self { timer: t, color }
+    }
+}
+
+impl PickupFlash {
+    pub fn trigger(&mut self, _color: Srgba) {
+        // Universal bonus flash (same for all pickups), only when consumed.
+        self.color = Srgba::new(1.0, 62.0 / 64.0, 0.0, 1.0);
+        self.timer.reset();
+    }
+
+    pub fn alpha(&self) -> f32 {
+        // 3 stepped levels, no fade-in. Only steps down then off.
+        const TIC_HZ: f32 = 70.0;
+        const STEP_TICS: f32 = 3.0; // must match Default() above
+        const STEP_SECS: f32 = STEP_TICS / TIC_HZ;
+
+        // Strengths: 3/20, 2/20, 1/20 (subtle by design; palette-shift equivalent)
+        const WHITESTEPS: f32 = 20.0;
+        const A3: f32 = 3.0 / WHITESTEPS; // 0.15
+        const A2: f32 = 2.0 / WHITESTEPS; // 0.10
+        const A1: f32 = 1.0 / WHITESTEPS; // 0.05
+
+        if self.timer.is_finished() {
+            return 0.0;
+        }
+
+        let e = self.timer.elapsed_secs();
+        if e < STEP_SECS {
+            A3
+        } else if e < STEP_SECS * 2.0 {
+            A2
+        } else if e < STEP_SECS * 3.0 {
+            A1
+        } else {
+            0.0
+        }
+    }
+}
+
 #[derive(Resource, Debug, Clone)]
 pub struct DeathOverlay {
     pub active: bool,

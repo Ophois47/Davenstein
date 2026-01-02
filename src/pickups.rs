@@ -479,11 +479,11 @@ pub fn collect_pickups(
     mut q_vitals: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
     mut hud: ResMut<HudState>,
     mut face_ov: ResMut<crate::ui::HudFaceOverride>,
+    mut pickup_flash: ResMut<crate::ui::PickupFlash>,
     q_pickups: Query<(Entity, &Pickup)>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
-    let mut it = q_player.iter();
-    let Some(player_tf) = it.next() else {
+    let Some(player_tf) = q_player.iter().next() else {
         return;
     };
 
@@ -505,23 +505,27 @@ pub fn collect_pickups(
 
         match p.kind {
             PickupKind::Weapon(w) => {
-                let kind = match w {
-                    WeaponSlot::Chaingun => Some(SfxKind::PickupChaingun),
-                    WeaponSlot::MachineGun => Some(SfxKind::PickupMachineGun),
-                    _ => None,
-                };
+                // If already owned, don't consume (and don't flash).
+                if hud.owns(w) {
+                    consumed = false;
+                } else {
+                    let kind = match w {
+                        WeaponSlot::Chaingun => Some(SfxKind::PickupChaingun),
+                        WeaponSlot::MachineGun => Some(SfxKind::PickupMachineGun),
+                        _ => None,
+                    };
 
-                if let Some(kind) = kind {
-                    sfx.write(PlaySfx { kind, pos: player_tf.translation });
-                }
+                    if let Some(kind) = kind {
+                        sfx.write(PlaySfx {
+                            kind,
+                            pos: player_tf.translation,
+                        });
+                    }
 
-                // Grin When Chaingun Acquired for First Time Only
-                let was_owned = hud.owns(w);
-
-                if !was_owned {
                     hud.grant(w);
                     hud.selected = w;
 
+                    // Grin when chaingun acquired for first time only.
                     if w == WeaponSlot::Chaingun {
                         face_ov.active = true;
                         face_ov.timer.reset();
@@ -530,14 +534,17 @@ pub fn collect_pickups(
             }
 
             PickupKind::Ammo { rounds } => {
-                // Ammo Already Maxed, Don't Pick Up
-                // (No SFX, Leave on Ground)
+                // Ammo already maxed: leave on ground, no SFX, no flash.
                 if hud.ammo >= AMMO_MAX {
                     consumed = false;
                 } else {
                     let gain = rounds.min(AMMO_MAX - hud.ammo);
                     hud.ammo += gain;
-                    sfx.write(PlaySfx { kind: SfxKind::PickupAmmo, pos: player_tf.translation });
+
+                    sfx.write(PlaySfx {
+                        kind: SfxKind::PickupAmmo,
+                        pos: player_tf.translation,
+                    });
                 }
             }
 
@@ -549,14 +556,18 @@ pub fn collect_pickups(
                     TreasureKind::Crown => SfxKind::PickupTreasureCrown,
                 };
 
-                sfx.write(PlaySfx { kind, pos: player_tf.translation });
+                sfx.write(PlaySfx {
+                    kind,
+                    pos: player_tf.translation,
+                });
+
                 hud.score += t.points();
             }
 
             PickupKind::Health(hk) => {
-                // Canonical HP is Gameplay Vitals
+                // Canonical HP is gameplay vitals.
                 if vitals.hp >= vitals.hp_max {
-                    // Full Health: Leave on Ground, No SFX
+                    // Full health: leave on ground, no SFX, no flash.
                     consumed = false;
                 } else {
                     let gain = hk.heal().min(vitals.hp_max - vitals.hp);
@@ -568,30 +579,50 @@ pub fn collect_pickups(
                         HealthKind::DogFood => SfxKind::PickupHealthDogFood,
                     };
 
-                    sfx.write(PlaySfx { kind, pos: player_tf.translation });
+                    sfx.write(PlaySfx {
+                        kind,
+                        pos: player_tf.translation,
+                    });
                 }
             }
 
             PickupKind::ExtraLife => {
-                // Wolf 3D: +1 Life, Full Health, +25 Ammo
+                // Wolf 3D: +1 life, full health, +25 ammo.
                 hud.lives += 1;
                 vitals.hp = vitals.hp_max;
                 hud.ammo = (hud.ammo + 25).min(AMMO_MAX);
 
-                sfx.write(PlaySfx { kind: SfxKind::PickupOneUp, pos: player_tf.translation });
+                sfx.write(PlaySfx {
+                    kind: SfxKind::PickupOneUp,
+                    pos: player_tf.translation,
+                });
             }
 
             PickupKind::Key(k) => {
-                match k {
-                    KeyKind::Gold => hud.key_gold = true,
-                    KeyKind::Silver => hud.key_silver = true,
-                }
+                let already = match k {
+                    KeyKind::Gold => hud.key_gold,
+                    KeyKind::Silver => hud.key_silver,
+                };
 
-                sfx.write(PlaySfx { kind: SfxKind::PickupKey, pos: player_tf.translation });
+                if already {
+                    consumed = false;
+                } else {
+                    match k {
+                        KeyKind::Gold => hud.key_gold = true,
+                        KeyKind::Silver => hud.key_silver = true,
+                    }
+
+                    sfx.write(PlaySfx {
+                        kind: SfxKind::PickupKey,
+                        pos: player_tf.translation,
+                    });
+                }
             }
         }
 
         if consumed {
+            // Wolf3D bonus flash is always the same straw-yellow tint.
+            pickup_flash.trigger(Srgba::new(1.0, 62.0 / 64.0, 0.0, 1.0));
             commands.entity(e).despawn();
         }
     }

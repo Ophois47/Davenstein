@@ -9,6 +9,7 @@ use bevy::prelude::*;
 
 pub use state::HudState;
 pub use state::DamageFlash;
+pub use state::PickupFlash;
 pub use state::DeathOverlay;
 pub use state::GameOver;
 
@@ -25,6 +26,7 @@ impl Plugin for UiPlugin {
         app.init_resource::<GameOver>();
         app.init_resource::<DeathOverlay>();
         app.init_resource::<DamageFlash>();
+        app.init_resource::<PickupFlash>();
         app.init_resource::<hud::WeaponState>();
         // -----------------------------
         // Face System State
@@ -38,7 +40,7 @@ impl Plugin for UiPlugin {
         // -----------------------------
         // HUD Spawn
         // -----------------------------
-        app.add_systems(Startup, hud::setup_hud);
+                app.add_systems(Startup, (hud::setup_hud, hud::ensure_pickup_flash_overlay).chain());
         // IMPORTANT: chain() Makes Ordering Deterministic
         app.add_systems(
             Update,
@@ -76,6 +78,7 @@ impl Plugin for UiPlugin {
                 // Overlays
                 // -----------------------------
                 hud::flash_on_hp_drop,
+                hud::tick_pickup_flash,
                 hud::tick_damage_flash,
                 hud::tick_death_overlay,
                 hud::sync_game_over_overlay_visibility,

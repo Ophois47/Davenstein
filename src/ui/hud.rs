@@ -22,6 +22,9 @@ use crate::level_complete::MissionSuccessOverlay;
 pub(super) struct DamageFlashOverlay;
 
 #[derive(Component)]
+pub(super) struct PickupFlashOverlay;
+
+#[derive(Component)]
 pub(super) struct DeathOverlayOverlay;
 
 #[derive(Component)]
@@ -862,6 +865,44 @@ pub(crate) fn sync_hud_icons(
     }
 }
 
+pub(crate) fn ensure_pickup_flash_overlay(
+    mut commands: Commands,
+    q_existing: Query<Entity, With<PickupFlashOverlay>>,
+    q_damage: Query<Entity, With<DamageFlashOverlay>>,
+    q_parent: Query<&ChildOf>,
+) {
+    if !q_existing.is_empty() {
+        return;
+    }
+
+    let Some(damage_overlay) = q_damage.iter().next() else {
+        // HUD not built yet (or damage overlay missing); nothing to attach to
+        return;
+    };
+
+    // Walk up to the top-most HUD node (the root spawned by setup_hud)
+    let mut root = damage_overlay;
+    while let Ok(child_of) = q_parent.get(root) {
+        root = child_of.0;
+    }
+
+    // Spawn as the LAST child so it draws on top of view + status bar
+    commands.entity(root).with_children(|p| {
+        p.spawn((
+            PickupFlashOverlay,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+        ));
+    });
+}
+
 pub(crate) fn flash_on_hp_drop(
     hud: Res<HudState>,
     mut flash: ResMut<super::DamageFlash>,
@@ -877,6 +918,30 @@ pub(crate) fn flash_on_hp_drop(
     }
 
     *last_hp = Some(hud.hp);
+}
+
+pub(crate) fn tick_pickup_flash(
+    time: Res<Time>,
+    mut flash: ResMut<super::PickupFlash>,
+    damage: Res<super::DamageFlash>,
+    death: Res<super::DeathOverlay>,
+    mut q: Query<&mut BackgroundColor, With<PickupFlashOverlay>>,
+) {
+    if !flash.timer.is_finished() {
+        flash.timer.tick(time.delta());
+    }
+
+    let mut a = flash.alpha();
+
+    // Match original feel: red shift (damage/death) takes precedence over white shift
+    if damage.alpha() > 0.0 || death.alpha() > 0.0 {
+        a = 0.0;
+    }
+
+    let c = flash.color;
+    for mut bg in q.iter_mut() {
+        *bg = BackgroundColor(Srgba::new(c.red, c.green, c.blue, a).into());
+    }
 }
 
 pub(crate) fn tick_damage_flash(
