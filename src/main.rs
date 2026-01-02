@@ -112,7 +112,7 @@ fn main() {
         .init_resource::<PlayerDeathLatch>()
         .init_resource::<ui::sync::DeathDelay>()
         .init_resource::<ui::sync::RestartRequested>()
-        .init_resource::<ui::sync::NewGameRequested>() // make explicit (even if UiPlugin also does it)
+        .init_resource::<ui::sync::NewGameRequested>()
         .init_resource::<ui::sync::AdvanceLevelRequested>()
         .init_resource::<PushwallOcc>()
         .init_resource::<PushwallState>()

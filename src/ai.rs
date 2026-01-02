@@ -185,7 +185,7 @@ fn tile_at(grid: &MapGrid, t: IVec2) -> Option<Tile> {
     Some(grid.tile(x, z))
 }
 
-fn has_line_of_sight(grid: &MapGrid, solid: &SolidStatics, from: IVec2, to: IVec2) -> bool {
+fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVec2) -> bool {
     if from == to {
         return true;
     }
@@ -236,7 +236,9 @@ fn has_line_of_sight(grid: &MapGrid, solid: &SolidStatics, from: IVec2, to: IVec
         (pz - iz as f32) / (-dz)
     };
 
-    loop {
+    let max_steps = (grid.width.max(grid.height) as i32) * 4;
+
+    for _ in 0..max_steps {
         let dist = if t_max_x + EPS_T < t_max_z {
             ix += step_x;
             let d = t_max_x;
@@ -248,8 +250,7 @@ fn has_line_of_sight(grid: &MapGrid, solid: &SolidStatics, from: IVec2, to: IVec
             t_max_z += t_delta_z;
             d
         } else {
-            // Crossing a grid corner exactly: step BOTH axes and treat either adjacent blocking
-            // tile as blocking LOS, otherwise you can "see/shoot through" 1x1 walls at corners.
+            // Corner: step both, block if either adjacent tile is a wall/closed door
             let next_ix = ix + step_x;
             let next_iz = iz + step_z;
 
@@ -257,8 +258,6 @@ fn has_line_of_sight(grid: &MapGrid, solid: &SolidStatics, from: IVec2, to: IVec
             t_max_x += t_delta_x;
             t_max_z += t_delta_z;
 
-            // Side tiles we "graze" at the corner:
-            // (next_ix, iz) and (ix, next_iz)
             for (cx, cz) in [(next_ix, iz), (ix, next_iz)] {
                 if cx < 0 || cz < 0 || cx >= grid.width as i32 || cz >= grid.height as i32 {
                     return false;
@@ -266,9 +265,9 @@ fn has_line_of_sight(grid: &MapGrid, solid: &SolidStatics, from: IVec2, to: IVec
                 if cx == to.x && cz == to.y {
                     continue;
                 }
-                if solid.is_solid(cx, cz) {
-                    return false;
-                }
+
+                // NOTE: LOS intentionally ignores SolidStatics (Wolf behavior).
+
                 let t = grid.tile(cx as usize, cz as usize);
                 if matches!(t, Tile::Wall | Tile::DoorClosed) {
                     return false;
@@ -284,24 +283,24 @@ fn has_line_of_sight(grid: &MapGrid, solid: &SolidStatics, from: IVec2, to: IVec
             return true;
         }
 
-        // Bounds -> treat as blocked LOS
         if ix < 0 || iz < 0 || ix >= grid.width as i32 || iz >= grid.height as i32 {
             return false;
         }
 
-        // If we’ve entered the target tile, LOS is clear.
+        // If we’ve entered the target tile, LOS is clear
         if ix == to.x && iz == to.y {
             return true;
         }
 
-        if solid.is_solid(ix, iz) {
-            return false;
-        }
+        // Intentionally ignore SolidStatics
+
         let tile = grid.tile(ix as usize, iz as usize);
         if matches!(tile, Tile::Wall | Tile::DoorClosed) {
             return false;
         }
     }
+
+    false
 }
 
 fn dir8_from_step(step: IVec2) -> Dir8 {

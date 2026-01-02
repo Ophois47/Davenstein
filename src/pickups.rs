@@ -10,12 +10,14 @@ use davelib::audio::{PlaySfx, SfxKind};
 use davelib::enemies::GuardCorpse;
 use davelib::level::WolfPlane1;
 use davelib::map::{MapGrid, Tile};
-use davelib::player::{Player, PlayerKeys};
+use davelib::player::Player;
 
 // Ammo Pickup Amounts
 #[allow(dead_code)]
 const MAP_AMMO_ROUNDS: i32 = 8;
 const GUARD_DROP_AMMO_ROUNDS: i32 = 4;
+// Wolfenstein 3d 1992 MAX_AMMO = 99
+const AMMO_MAX: i32 = 99;
 
 // Visual Size, Height in World Units
 // Width Derived From Sprite Aspect
@@ -475,8 +477,8 @@ pub fn collect_pickups(
     mut commands: Commands,
     q_player: Query<&Transform, With<Player>>,
     mut q_vitals: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
-    mut q_keys: Query<&mut PlayerKeys, With<Player>>,
     mut hud: ResMut<HudState>,
+    mut face_ov: ResMut<crate::ui::HudFaceOverride>,
     q_pickups: Query<(Entity, &Pickup)>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
@@ -491,10 +493,6 @@ pub fn collect_pickups(
     ));
 
     let Some(mut vitals) = q_vitals.iter_mut().next() else {
-        return;
-    };
-
-    let Some(mut pkeys) = q_keys.iter_mut().next() else {
         return;
     };
 
@@ -517,15 +515,30 @@ pub fn collect_pickups(
                     sfx.write(PlaySfx { kind, pos: player_tf.translation });
                 }
 
-                if !hud.owns(w) {
+                // Grin only when the chaingun is acquired for the first time.
+                let was_owned = hud.owns(w);
+
+                if !was_owned {
                     hud.grant(w);
                     hud.selected = w;
+
+                    if w == WeaponSlot::Chaingun {
+                        face_ov.active = true;
+                        face_ov.timer.reset();
+                    }
                 }
             }
 
             PickupKind::Ammo { rounds } => {
-                sfx.write(PlaySfx { kind: SfxKind::PickupAmmo, pos: player_tf.translation });
-                hud.ammo += rounds;
+                // Ammo Already Maxed, Don't Pick Up
+                // (No SFX, Leave on Ground)
+                if hud.ammo >= AMMO_MAX {
+                    consumed = false;
+                } else {
+                    let gain = rounds.min(AMMO_MAX - hud.ammo);
+                    hud.ammo += gain;
+                    sfx.write(PlaySfx { kind: SfxKind::PickupAmmo, pos: player_tf.translation });
+                }
             }
 
             PickupKind::Treasure(t) => {
@@ -563,21 +576,15 @@ pub fn collect_pickups(
                 // Wolf 3D: +1 Life, Full Health, +25 Ammo
                 hud.lives += 1;
                 vitals.hp = vitals.hp_max;
-                hud.ammo += 25;
+                hud.ammo = (hud.ammo + 25).min(AMMO_MAX);
 
                 sfx.write(PlaySfx { kind: SfxKind::PickupOneUp, pos: player_tf.translation });
             }
 
             PickupKind::Key(k) => {
                 match k {
-                    KeyKind::Gold => {
-                        pkeys.gold = true;
-                        hud.key_gold = true;
-                    }
-                    KeyKind::Silver => {
-                        pkeys.silver = true;
-                        hud.key_silver = true;
-                    }
+                    KeyKind::Gold => hud.key_gold = true,
+                    KeyKind::Silver => hud.key_silver = true,
                 }
 
                 sfx.write(PlaySfx { kind: SfxKind::PickupKey, pos: player_tf.translation });

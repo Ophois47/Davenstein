@@ -60,6 +60,99 @@ impl HudIconSprites {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FaceDir {
+    Forward,
+    Right,
+    Left,
+}
+
+#[derive(Resource, Debug, Clone)]
+pub(crate) struct HudFaceLook {
+    pub dir: FaceDir,
+    pub timer: Timer,
+    pub tick: u32,
+}
+
+impl Default for HudFaceLook {
+    fn default() -> Self {
+        const FACE_LOOK_PERIOD_SECS: f32 = 1.20;
+
+        Self {
+            dir: FaceDir::Forward,
+            timer: Timer::from_seconds(
+                FACE_LOOK_PERIOD_SECS,
+                TimerMode::Repeating,
+            ),
+            tick: 0,
+        }
+    }
+}
+
+#[derive(Resource, Debug, Clone, Default)]
+pub(crate) struct HudFacePrevHp(pub i32);
+
+#[derive(Resource, Debug, Clone)]
+pub(crate) struct HudFaceOverride {
+    pub active: bool,
+    pub timer: Timer,
+}
+
+impl Default for HudFaceOverride {
+    fn default() -> Self {
+        let mut t = Timer::from_seconds(0.75, TimerMode::Once);
+        t.set_elapsed(t.duration()); // start "finished"
+        Self { active: false, timer: t }
+    }
+}
+
+fn face_band_from_hp(hp: i32) -> usize {
+    // 7 bands. Tune later if you want different thresholds.
+    // (This is intentionally simple + stable for Step 1.)
+    let hp = hp.clamp(0, 100);
+    match hp {
+        86..=100 => 0,
+        71..=85  => 1,
+        56..=70  => 2,
+        41..=55  => 3,
+        26..=40  => 4,
+        11..=25  => 5,
+        1..=10   => 6,
+        _        => 6,
+    }
+}
+
+/// Marker on the ImageNode that is BJ's face in the HUD.
+#[derive(Component)]
+pub(crate) struct HudFaceImage;
+
+/// Your face sprite resource should be able to return a handle by (row, col).
+/// If you already have this, adapt the `at()` method signature to match yours.
+#[derive(Resource, Clone)]
+pub(crate) struct HudFaceSprites {
+    pub bands: [[Handle<Image>; 3]; 7],
+    pub grin: Handle<Image>,
+    pub pain: Handle<Image>,
+    pub dead: Handle<Image>,
+}
+
+impl HudFaceSprites {
+    #[inline]
+    pub fn at(&self, band: usize, dir: usize) -> Handle<Image> {
+        self.bands[band][dir].clone()
+    }
+
+    #[inline]
+    pub fn grin(&self) -> Handle<Image> {
+        self.grin.clone()
+    }
+
+    #[inline]
+    pub fn dead(&self) -> Handle<Image> {
+        self.dead.clone()
+    }
+}
+
 #[derive(Component)]
 pub(super) struct HudWeaponIcon;
 
@@ -809,6 +902,102 @@ pub(crate) fn sync_game_over_overlay_visibility(
     }
 }
 
+/// Maps HP (1..100) to stage 0..6. HP<=0 is handled separately as dead.
+/// This gives 7 “injury stages” + dead = 8 total states.
+fn stage_from_hp(hp: i32) -> usize {
+    let hp = hp.clamp(1, 100);
+    let dmg = 100 - hp;              // 0..99
+    ((dmg * 7) / 100) as usize       // 0..6
+}
+
+/// Returns (row, col) for the base face given hp + dir.
+/// Column order within a group matches your sheet: forward, right, left.
+fn coords_for(hp: i32, dir: FaceDir) -> (usize, usize) {
+    if hp <= 0 {
+        return (1, 10); // dead (r1_c10)
+    }
+
+    let stage = stage_from_hp(hp); // 0..6
+
+    let dir_off = match dir {
+        FaceDir::Forward => 0,
+        FaceDir::Right => 1,
+        FaceDir::Left => 2,
+    };
+
+    if stage < 4 {
+        // row 0 has stages 0..3
+        (0, stage * 3 + dir_off)
+    } else {
+        // row 1 has stages 4..6 (so 0..2 in that row)
+        let s = stage - 4;
+        (1, s * 3 + dir_off)
+    }
+}
+
+pub(crate) fn sync_hud_face(
+    time: Res<Time>,
+    hud: Res<HudState>,
+    faces: Res<HudFaceSprites>,
+    mut ov: ResMut<HudFaceOverride>,
+    mut look: ResMut<HudFaceLook>,
+    mut prev_hp: ResMut<HudFacePrevHp>,
+    mut q_face: Query<&mut ImageNode, With<HudFaceImage>>,
+) {
+    let Some(mut img) = q_face.iter_mut().next() else { return; };
+
+    // Dead face always wins.
+    if hud.hp <= 0 {
+        *img = ImageNode::new(faces.dead());
+        ov.active = false;
+        prev_hp.0 = 0;
+        return;
+    }
+
+    // Initialize prev hp on first tick after spawn/level.
+    if prev_hp.0 == 0 {
+        prev_hp.0 = hud.hp;
+    } else {
+        prev_hp.0 = hud.hp;
+    }
+
+    // Idle glance direction (simple, stable cycle: F -> R -> F -> L ...)
+    look.timer.tick(time.delta());
+    if look.timer.just_finished() {
+        look.tick = look.tick.wrapping_add(1);
+        look.dir = match look.tick % 4 {
+            0 => FaceDir::Forward,
+            1 => FaceDir::Right,
+            2 => FaceDir::Forward,
+            _ => FaceDir::Left,
+        };
+    }
+
+    // Grin override
+    if ov.active {
+        ov.timer.tick(time.delta());
+        if ov.timer.is_finished() {
+            ov.active = false;
+        } else {
+            *img = ImageNode::new(faces.grin());
+            return;
+        }
+    }
+
+    // Base face: compute (row, col) then map to your 7x3 "bands" table.
+    let (row, col) = coords_for(hud.hp, look.dir);
+
+    // Convert (row,col) -> stage 0..6 and dir 0..2 (forward/right/left)
+    let (stage, dir_idx) = if row == 0 {
+        (col / 3, col % 3)
+    } else {
+        (4 + (col / 3), col % 3)
+    };
+
+    let stage = stage.min(6);
+    *img = ImageNode::new(faces.at(stage, dir_idx));
+}
+
 pub(crate) fn setup_hud(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -843,6 +1032,27 @@ pub(crate) fn setup_hud(
         key_silver: asset_server.load("textures/hud/icons/key_silver.png"),
     };
     commands.insert_resource(hud_icons.clone());
+
+    // --- NEW: HUD face sprites (your naming convention) ---
+    let f = |r: u8, c: u8| asset_server.load(format!("textures/hud/faces/face_r{r}_c{c}.png"));
+
+        let hud_faces = HudFaceSprites {
+        bands: [
+            [f(0, 0), f(0, 1), f(0, 2)],
+            [f(0, 3), f(0, 4), f(0, 5)],
+            [f(0, 6), f(0, 7), f(0, 8)],
+            [f(0, 9), f(0, 10), f(0, 11)],
+            [f(1, 0), f(1, 1), f(1, 2)],
+            [f(1, 3), f(1, 4), f(1, 5)],
+            [f(1, 6), f(1, 7), f(1, 8)],
+        ],
+        grin: f(1, 9),   // r1_c9  = grin
+        pain: f(1, 11),  // r1_c11 = (remaining special; use as pain unless you say otherwise)
+        dead: f(1, 10),  // r1_c10 = dead (non-negotiable per your convention)
+    };
+
+    commands.insert_resource(hud_faces.clone());
+    commands.insert_resource(HudFaceOverride::default());
 
     // Boxed HUD strip background (320x44)
     let status_bar: Handle<Image> = asset_server.load("textures/hud/status_bar.png");
@@ -880,6 +1090,12 @@ pub(crate) fn setup_hud(
     const WEP_W: f32 = 48.0;
     const WEP_H: f32 = 24.0;
 
+    // --- NEW: Face placement (native coords, 24x32 inside mugshot window) ---
+    const FACE_X: f32 = 138.0;
+    const FACE_TOP: f32 = 7.0;
+    const FACE_W: f32 = 24.0;
+    const FACE_H: f32 = 32.0;
+
     // Pixel-perfect integer scale from window width
     let win = q_windows.iter().next().expect("PrimaryWindow");
     let win_w = win.resolution.width();
@@ -911,6 +1127,12 @@ pub(crate) fn setup_hud(
     let wep_top_px = WEP_TOP * hud_scale;
     let wep_w_px = WEP_W * hud_scale;
     let wep_h_px = WEP_H * hud_scale;
+
+    // Scaled face placement
+    let face_x_px = FACE_X * hud_scale;
+    let face_top_px = FACE_TOP * hud_scale;
+    let face_w_px = FACE_W * hud_scale;
+    let face_h_px = FACE_H * hud_scale;
 
     const GUN_SCALE: f32 = 6.5;
     const GUN_SRC_PX: f32 = 64.0;
@@ -1022,6 +1244,21 @@ pub(crate) fn setup_hud(
                             top: Val::Px(0.0),
                             width: Val::Px(hud_w_px),
                             height: Val::Px(status_h_px),
+                            ..default()
+                        },
+                    ));
+
+                    // --- NEW: BJ face overlay (so we can animate it) ---
+                    inner.spawn((
+                        HudFaceImage,
+                        ImageNode::new(hud_faces.bands[0][0].clone()),
+                        ZIndex(1),
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(face_x_px),
+                            top: Val::Px(face_top_px),
+                            width: Val::Px(face_w_px),
+                            height: Val::Px(face_h_px),
                             ..default()
                         },
                     ));

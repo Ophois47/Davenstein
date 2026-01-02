@@ -19,7 +19,7 @@ pub struct RayHit {
     pub dist: f32,
 }
 
-pub fn raycast_grid(grid: &MapGrid, solid: &SolidStatics, origin: Vec3, dir3: Vec3, max_dist: f32) -> Option<RayHit> {
+pub fn raycast_grid(grid: &MapGrid, _solid: &SolidStatics, origin: Vec3, dir3: Vec3, max_dist: f32) -> Option<RayHit> {
     const FLOOR_Y: f32 = 0.0;
     const WALL_H: f32 = 1.0;
 
@@ -36,6 +36,7 @@ pub fn raycast_grid(grid: &MapGrid, solid: &SolidStatics, origin: Vec3, dir3: Ve
     let dy = dir3.y;
     let dz = dir3.z;
 
+    // Helper Hit Constructors
     let floor_hit = |t: f32| RayHit {
         tile: Tile::Empty,
         tile_coord: IVec2::new(-1, -1),
@@ -51,16 +52,6 @@ pub fn raycast_grid(grid: &MapGrid, solid: &SolidStatics, origin: Vec3, dir3: Ve
     } else {
         None
     };
-
-    // If Basically Vertical (No XZ Movement), Only Floor Can be Hit
-    if dx.abs() < EPS_DIR && dz.abs() < EPS_DIR {
-        if let Some(t) = t_floor {
-            if t <= max_dist {
-                return Some(floor_hit(t));
-            }
-        }
-        return None;
-    }
 
     // DDA in XZ (Tile Boundaries at N+0.5, Matches Collision Scheme)
     let px = origin.x + 0.5;
@@ -111,42 +102,31 @@ pub fn raycast_grid(grid: &MapGrid, solid: &SolidStatics, origin: Vec3, dir3: Ve
             step_normal = Vec3::new(0.0, 0.0, -(step_z as f32));
             dist
         } else {
-            // Corner crossing: check both adjacent tiles, otherwise thin (1x1) walls can be skipped.
-            let dist = t_max_x; // ~= t_max_z
-            let y_at = origin.y + dy * dist;
-
+            // Corner Cross: test both adjacent cells (prevents corner-peeking through walls)
             let cand_x = (ix + step_x, iz);
             let cand_z = (ix, iz + step_z);
+            let dist = t_max_x; // ~= t_max_z
 
-            // Only consider wall collisions if we're within wall vertical span.
-            if y_at >= FLOOR_Y - EPS_Y && y_at <= WALL_H + EPS_Y {
-                // Prefer X hit then Z hit for determinism.
-                for (cx, cz, normal) in [
-                    (cand_x.0, cand_x.1, Vec3::new(-(step_x as f32), 0.0, 0.0)),
-                    (cand_z.0, cand_z.1, Vec3::new(0.0, 0.0, -(step_z as f32))),
-                ] {
-                    if cx < 0 || cz < 0 || cx >= grid.width as i32 || cz >= grid.height as i32 {
-                        return None;
-                    }
-                    if solid.is_solid(cx, cz) {
-                        return Some(RayHit {
-                            tile: Tile::Wall,
-                            tile_coord: IVec2::new(cx, cz),
-                            pos: origin + dir3 * dist,
-                            normal,
-                            dist,
-                        });
-                    }
-                    let tile = grid.tile(cx as usize, cz as usize);
-                    if matches!(tile, Tile::Wall | Tile::DoorClosed) {
-                        return Some(RayHit {
-                            tile,
-                            tile_coord: IVec2::new(cx, cz),
-                            pos: origin + dir3 * dist,
-                            normal,
-                            dist,
-                        });
-                    }
+            for (cx, cz, normal) in [
+                (cand_x.0, cand_x.1, Vec3::new(-(step_x as f32), 0.0, 0.0)),
+                (cand_z.0, cand_z.1, Vec3::new(0.0, 0.0, -(step_z as f32))),
+            ] {
+                if cx < 0 || cz < 0 || cx >= grid.width as i32 || cz >= grid.height as i32 {
+                    return None;
+                }
+
+                // NOTE: We intentionally do NOT stop on SolidStatics here.
+                // Statics block movement, but hitscan should pass through decorations (Wolf behavior).
+
+                let tile = grid.tile(cx as usize, cz as usize);
+                if matches!(tile, Tile::Wall | Tile::DoorClosed) {
+                    return Some(RayHit {
+                        tile,
+                        tile_coord: IVec2::new(cx, cz),
+                        pos: origin + dir3 * dist,
+                        normal,
+                        dist,
+                    });
                 }
             }
 
@@ -175,18 +155,9 @@ pub fn raycast_grid(grid: &MapGrid, solid: &SolidStatics, origin: Vec3, dir3: Ve
             return None;
         }
 
-        if solid.is_solid(ix, iz) {
-            let y_at = origin.y + dy * dist;
-            if y_at >= FLOOR_Y - EPS_Y && y_at <= WALL_H + EPS_Y {
-                return Some(RayHit {
-                    tile: Tile::Wall,
-                    tile_coord: IVec2::new(ix, iz),
-                    pos: origin + dir3 * dist,
-                    normal: step_normal,
-                    dist,
-                });
-            }
-        }
+        // Intentionally do NOT stop on SolidStatics here either
+        // Movement collision still uses SolidStatics
+        // Hitscan should pass through decorations
 
         let tile = grid.tile(ix as usize, iz as usize);
 
