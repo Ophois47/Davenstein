@@ -466,13 +466,35 @@ pub fn tick_guard_pain(
     time: Res<Time>,
     mut commands: Commands,
     mut q: Query<(Entity, &mut GuardPain), With<Guard>>,
+    mut started: Local<std::collections::HashMap<Entity, f32>>,
 ) {
+    // Tune this. Wolf3D pain reads like a quick flash.
+    const PAIN_FLASH_SECS: f32 = 0.08;
+
+    let now = time.elapsed_secs();
+
+    // Track which entities are *currently* in pain so we can prune stale map entries.
+    let mut live: Vec<Entity> = Vec::new();
+
     for (e, mut pain) in q.iter_mut() {
+        live.push(e);
+
+        // Record the start time of this pain burst the first time we see it.
+        // IMPORTANT: we do NOT reset this on subsequent hits, so sustained fire can't "pin" pain.
+        let start = started.entry(e).or_insert(now);
+
+        // Tick the timer in case anything else relies on it,
+        // but we clamp the visual pain duration based on `started`.
         pain.timer.tick(time.delta());
-        if pain.timer.is_finished() {
+
+        if now - *start >= PAIN_FLASH_SECS {
             commands.entity(e).remove::<GuardPain>();
+            started.remove(&e);
         }
     }
+
+    // Prevent the Local<HashMap> from growing if entities despawn while in pain.
+    started.retain(|e, _| live.iter().any(|x| x == e));
 }
 
 fn tick_guard_shoot(
