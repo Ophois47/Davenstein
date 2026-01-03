@@ -7,7 +7,7 @@ use std::f32::consts::FRAC_PI_2;
 use crate::combat::WeaponSlot;
 use crate::ui::HudState;
 use davelib::audio::{PlaySfx, SfxKind};
-use davelib::enemies::GuardCorpse;
+use davelib::enemies::{GuardCorpse, SsCorpse};
 use davelib::level::WolfPlane1;
 use davelib::map::{MapGrid, Tile};
 use davelib::player::Player;
@@ -208,15 +208,15 @@ fn pickup_base_rot() -> Quat {
     Quat::from_rotation_x(FRAC_PI_2)
 }
 
-/// - 29: Dog food
-/// - 43: Key 1 (gold)
-/// - 44: Key 2 (silver)
-/// - 47: Food (dinner)
-/// - 48: Medkit (first aid)
-/// - 49: Ammo clip (+8)
-/// - 50: Machine gun
+/// - 29: Dog Food
+/// - 43: Key 1 (Gold)
+/// - 44: Key 2 (Silver)
+/// - 47: Food (Dinner)
+/// - 48: Medkit (First Aid)
+/// - 49: Ammo (+8)
+/// - 50: Machine Gun
 /// - 51: Chaingun
-/// - 52-55: Treasure (cross, chalice, chest, crown)
+/// - 52-55: Treasure (Cross, Chalice, Chest, Crown)
 /// - 56: 1UP
 pub fn spawn_pickups(
     mut commands: Commands,
@@ -248,7 +248,7 @@ pub fn spawn_pickups(
 
     let plane1: &[u16] = &plane1_res.0;
 
-    // Depth tuning: match the existing drop/treasure approach.
+    // Depth Tuning: Match Existing Drop / Treasure Approach
     const DEPTH_BIAS: f32 = -250.0;
 
     let to_pickup_kind = |v: u16| -> Option<PickupKind> {
@@ -343,7 +343,7 @@ pub fn spawn_pickups(
                 continue;
             };
 
-            // Only place pickups on walkable tiles
+            // Only Place Pickups on Walkable Tiles
             if !matches!(grid.tile(x, z), Tile::Empty) {
                 continue;
             }
@@ -421,6 +421,74 @@ pub fn drop_guard_ammo(
     }
 }
 
+pub fn drop_ss_loot(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    hud: Res<HudState>,
+    q_corpses: Query<(Entity, &GlobalTransform), (With<SsCorpse>, Without<DroppedLoot>)>,
+) {
+    // Depth Tweak: with AlphaMode::Mask this will actually affect depth testing
+    const DROP_DEPTH_BIAS: f32 = -250.0;
+
+    // Tiny Lift to Avoid Z-Fighting With Floor
+    const DROP_Y_LIFT: f32 = 0.01;
+
+    let has_machinegun = hud.owns(WeaponSlot::MachineGun) || hud.owns(WeaponSlot::Chaingun);
+    let kind = if has_machinegun {
+        PickupKind::Ammo { rounds: MAP_AMMO_ROUNDS }
+    } else {
+        PickupKind::Weapon(WeaponSlot::MachineGun)
+    };
+
+    let (w, h, tex_path) = match kind {
+        PickupKind::Ammo { .. } => {
+            let (w, h) = ammo_size();
+            (w, h, ammo_texture())
+        }
+        PickupKind::Weapon(slot) => {
+            let (w, h) = weapon_pickup_size(slot);
+            (w, h, weapon_pickup_texture(slot))
+        }
+        // Should Never Happen
+        _ => return,
+    };
+
+    for (e, gt) in q_corpses.iter() {
+        // Drop Once per Corpse
+        commands.entity(e).insert(DroppedLoot);
+
+        // Drop at the Corpse Tile
+        let p = gt.translation();
+        let tile = world_to_tile_xz(Vec2::new(p.x, p.z));
+
+        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
+        let tex: Handle<Image> = asset_server.load(tex_path);
+
+        let mat = materials.add(StandardMaterial {
+            base_color_texture: Some(tex),
+            alpha_mode: AlphaMode::Mask(0.5),
+            unlit: true,
+            cull_mode: None,
+            depth_bias: DROP_DEPTH_BIAS,
+            ..default()
+        });
+
+        let y = (h * 0.5) + DROP_Y_LIFT;
+
+        commands.spawn((
+            Name::new("Pickup_Drop_SS"),
+            Pickup { tile, kind },
+            Mesh3d(quad),
+            MeshMaterial3d(mat),
+            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
+                .with_rotation(pickup_base_rot()),
+            GlobalTransform::default(),
+        ));
+    }
+}
+
 pub fn billboard_pickups(
     q_player: Query<&Transform, (With<Player>, Without<Pickup>)>,
     mut q_pickups: Query<(&Pickup, &mut Transform), (With<Pickup>, Without<Player>)>,
@@ -475,15 +543,16 @@ pub fn billboard_pickups(
 
 pub fn collect_pickups(
     mut commands: Commands,
-    q_player: Query<&Transform, With<Player>>,
+    q_player: Query<(Entity, &Transform), With<Player>>,
     mut q_vitals: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
+    mut q_pkeys: Query<&mut davelib::player::PlayerKeys, With<davelib::player::Player>>,
     mut hud: ResMut<HudState>,
     mut face_ov: ResMut<crate::ui::HudFaceOverride>,
     mut pickup_flash: ResMut<crate::ui::PickupFlash>,
     q_pickups: Query<(Entity, &Pickup)>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
-    let Some(player_tf) = q_player.iter().next() else {
+    let Some((player_e, player_tf)) = q_player.iter().next() else {
         return;
     };
 
@@ -505,7 +574,6 @@ pub fn collect_pickups(
 
         match p.kind {
             PickupKind::Weapon(w) => {
-                // If already owned, don't consume (and don't flash).
                 if hud.owns(w) {
                     consumed = false;
                 } else {
@@ -525,7 +593,6 @@ pub fn collect_pickups(
                     hud.grant(w);
                     hud.selected = w;
 
-                    // Grin when chaingun acquired for first time only.
                     if w == WeaponSlot::Chaingun {
                         face_ov.active = true;
                         face_ov.timer.reset();
@@ -534,7 +601,6 @@ pub fn collect_pickups(
             }
 
             PickupKind::Ammo { rounds } => {
-                // Ammo already maxed: leave on ground, no SFX, no flash.
                 if hud.ammo >= AMMO_MAX {
                     consumed = false;
                 } else {
@@ -565,9 +631,7 @@ pub fn collect_pickups(
             }
 
             PickupKind::Health(hk) => {
-                // Canonical HP is gameplay vitals.
                 if vitals.hp >= vitals.hp_max {
-                    // Full health: leave on ground, no SFX, no flash.
                     consumed = false;
                 } else {
                     let gain = hk.heal().min(vitals.hp_max - vitals.hp);
@@ -587,7 +651,6 @@ pub fn collect_pickups(
             }
 
             PickupKind::ExtraLife => {
-                // Wolf 3D: +1 life, full health, +25 ammo.
                 hud.lives += 1;
                 vitals.hp = vitals.hp_max;
                 hud.ammo = (hud.ammo + 25).min(AMMO_MAX);
@@ -599,29 +662,71 @@ pub fn collect_pickups(
             }
 
             PickupKind::Key(k) => {
-                let already = match k {
-                    KeyKind::Gold => hud.key_gold,
-                    KeyKind::Silver => hud.key_silver,
-                };
+                // Use PlayerKeys as gameplay truth; keep HUD mirrored.
+                match q_pkeys.get_mut(player_e) {
+                    Ok(mut pk) => {
+                        let already = match k {
+                            KeyKind::Gold => pk.gold,
+                            KeyKind::Silver => pk.silver,
+                        };
 
-                if already {
-                    consumed = false;
-                } else {
-                    match k {
-                        KeyKind::Gold => hud.key_gold = true,
-                        KeyKind::Silver => hud.key_silver = true,
+                        if already {
+                            consumed = false;
+                        } else {
+                            match k {
+                                KeyKind::Gold => {
+                                    pk.gold = true;
+                                    hud.key_gold = true;
+                                }
+                                KeyKind::Silver => {
+                                    pk.silver = true;
+                                    hud.key_silver = true;
+                                }
+                            }
+
+                            sfx.write(PlaySfx {
+                                kind: SfxKind::PickupKey,
+                                pos: player_tf.translation,
+                            });
+                        }
                     }
+                    Err(_) => {
+                        // If player somehow spawned without PlayerKeys, attach it immediately.
+                        let already = match k {
+                            KeyKind::Gold => hud.key_gold,
+                            KeyKind::Silver => hud.key_silver,
+                        };
 
-                    sfx.write(PlaySfx {
-                        kind: SfxKind::PickupKey,
-                        pos: player_tf.translation,
-                    });
+                        if already {
+                            consumed = false;
+                        } else {
+                            match k {
+                                KeyKind::Gold => hud.key_gold = true,
+                                KeyKind::Silver => hud.key_silver = true,
+                            }
+
+                            commands.entity(player_e).insert(match k {
+                                KeyKind::Gold => davelib::player::PlayerKeys { 
+                                    gold: true, 
+                                    silver: false,
+                                },
+                                KeyKind::Silver => davelib::player::PlayerKeys {
+                                    gold: false,
+                                    silver: true,
+                                },
+                            });
+
+                            sfx.write(PlaySfx {
+                                kind: SfxKind::PickupKey,
+                                pos: player_tf.translation,
+                            });
+                        }
+                    }
                 }
             }
         }
 
         if consumed {
-            // Wolf3D bonus flash is always the same straw-yellow tint.
             pickup_flash.trigger(Srgba::new(1.0, 62.0 / 64.0, 0.0, 1.0));
             commands.entity(e).despawn();
         }

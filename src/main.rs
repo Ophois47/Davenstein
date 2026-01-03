@@ -222,6 +222,7 @@ fn main() {
                 door_animate,
                 player_move,
                 pickups::drop_guard_ammo,
+                pickups::drop_ss_loot,
                 pickups::collect_pickups,
             )
                 .chain()

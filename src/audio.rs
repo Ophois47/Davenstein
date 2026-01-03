@@ -175,11 +175,31 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::EnemyAlert(EnemyKind::Guard),
         asset_server.load("sounds/sfx/enemies/guard/guard_alert.ogg"),
     );
+    // SS Alert
+    lib.insert_one(
+        SfxKind::EnemyAlert(EnemyKind::Ss),
+        asset_server.load("sounds/sfx/enemies/ss/ss_alert.ogg"),
+    );
+    // Dog Alert
+    lib.insert_one(
+        SfxKind::EnemyAlert(EnemyKind::Dog),
+        asset_server.load("sounds/sfx/enemies/dog/dog_alert.ogg"),
+    );
 
     // Guard Shoot
     lib.insert_one(
         SfxKind::EnemyShoot(EnemyKind::Guard),
         asset_server.load("sounds/sfx/enemies/guard/guard_shoot.ogg"),
+    );
+    // SS Shoot
+    lib.insert_one(
+        SfxKind::EnemyShoot(EnemyKind::Ss),
+        asset_server.load("sounds/sfx/enemies/ss/ss_shoot.ogg"),
+    );
+    // Dog Bite
+    lib.insert_one(
+        SfxKind::EnemyShoot(EnemyKind::Dog),
+        asset_server.load("sounds/sfx/enemies/dog/dog_bite.ogg"),
     );
 
     // Guard Death Set (Random Pick in play_sfx_events)
@@ -210,6 +230,16 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     lib.insert_one(
         SfxKind::EnemyDeath(EnemyKind::Guard),
         asset_server.load("sounds/sfx/enemies/guard/guard_death_6.ogg"),
+    );
+    // SS Death
+    lib.insert_one(
+        SfxKind::EnemyDeath(EnemyKind::Ss),
+        asset_server.load("sounds/sfx/enemies/ss/ss_death_0.ogg"),
+    );
+    // Dog Death
+    lib.insert_one(
+        SfxKind::EnemyDeath(EnemyKind::Dog),
+        asset_server.load("sounds/sfx/enemies/dog/dog_death_0.ogg"),
     );
 
     commands.insert_resource(lib);

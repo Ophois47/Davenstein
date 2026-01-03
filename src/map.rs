@@ -164,12 +164,14 @@ impl MapGrid {
         height: usize,
         plane0: &[u16],
         plane1: &[u16],
-    ) -> (Self, Option<(IVec2, f32)>, Vec<IVec2>) {
+    ) -> (Self, Option<(IVec2, f32)>, Vec<IVec2>, Vec<IVec2>, Vec<IVec2>) {
         let mut raw_plane0: Vec<u16> = Vec::with_capacity(width * height);
         let mut tiles: Vec<Tile> = Vec::with_capacity(width * height);
 
         let mut player_spawn: Option<(IVec2, f32)> = None;
         let mut guards: Vec<IVec2> = Vec::new();
+        let mut ss: Vec<IVec2> = Vec::new();
+        let mut dogs: Vec<IVec2> = Vec::new();
 
         let idx = |x: usize, z: usize| -> usize { z * width + x };
 
@@ -178,26 +180,22 @@ impl MapGrid {
                 let v0 = plane0[idx(x, z)];
                 let v1 = plane1[idx(x, z)];
 
-                // Preserve plane0 codes for texture lookups.
                 raw_plane0.push(v0);
 
-                // Plane0:
+                // Plane0 collision:
                 //   1..=63    => walls
-                //   90..=101  => doors (includes elevator doors for now)
-                //   106..=143 => areas (walkable)
+                //   90..=101  => doors (normal/locked/elevator)
+                //   otherwise => walkable
                 if (1..=63).contains(&v0) {
                     tiles.push(Tile::Wall);
                 } else if (90..=101).contains(&v0) {
-                    // 90..=101 covers normal doors + locked doors + elevator doors in WL6.
                     tiles.push(Tile::DoorClosed);
                 } else {
-                    // includes 0 and 106..=143 (areas) which are walkable
                     tiles.push(Tile::Empty);
                 }
 
-                // Plane1 player start: 19..=22 (N/E/S/W)
+                // Player start: 19..=22 (N/E/S/W)
                 if (19..=22).contains(&v1) && player_spawn.is_none() {
-                    // Bevy yaw=0 faces -Z. yaw=-PI/2 faces +X. yaw=+PI/2 faces -X.
                     let yaw = match v1 {
                         19 => 0.0,
                         20 => -std::f32::consts::FRAC_PI_2, // East  (+X)
@@ -205,13 +203,20 @@ impl MapGrid {
                         22 =>  std::f32::consts::FRAC_PI_2, // West  (-X)
                         _ => 0.0,
                     };
-
                     player_spawn = Some((IVec2::new(x as i32, z as i32), yaw));
                 }
 
-                // Guards (keep whatever your project’s final actor-id range is)
-                if (108..=115).contains(&v1) {
-                    guards.push(IVec2::new(x as i32, z as i32));
+                let t = IVec2::new(x as i32, z as i32);
+
+                // Enemies: include the any difficulty codes, plus the medium/hard ranges,
+                // because E1M2 plane1 clearly contains values outside the 108..=115 set
+                // (NOT implementing difficulty selection yet — we're just ensuring they spawn)
+                if (108..=115).contains(&v1) || (144..=151).contains(&v1) || (180..=187).contains(&v1) {
+                    guards.push(t);
+                } else if (126..=133).contains(&v1) || (162..=169).contains(&v1) || (198..=205).contains(&v1) {
+                    ss.push(t);
+                } else if (134..=141).contains(&v1) || (170..=177).contains(&v1) || (206..=213).contains(&v1) {
+                    dogs.push(t);
                 }
             }
         }
@@ -225,6 +230,8 @@ impl MapGrid {
             },
             player_spawn,
             guards,
+            ss,
+            dogs,
         )
     }
 }

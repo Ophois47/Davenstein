@@ -319,6 +319,8 @@ pub fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     guard_sprites: Res<crate::enemies::GuardSprites>,
+    ss_sprites: Res<crate::enemies::SsSprites>,
+    dog_sprites: Res<crate::enemies::DogSprites>,
     current_level: Res<crate::level::CurrentLevel>,
 ) {
     // --- Map load (Wolf planes) ---
@@ -339,7 +341,40 @@ pub fn setup(
     commands.insert_resource(crate::level::WolfPlane1(plane1.clone()));
 
     let pushwall_markers = PushwallMarkers::from_wolf_plane1(64, 64, &plane1);
-    let (grid, spawn, guards) = MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
+    let (grid, spawn, guards, ss, dogs) = MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
+
+    // --- Enemy difficulty selection (TEMP: default to base set; menus later) ---
+    // Wolf thing codes repeat in 3 bands spaced by +36
+    // base = 0, mid = 36, hard = 72
+    const SKILL_OFF: u16 = 0;
+
+    let idx = |t: IVec2| -> usize { (t.y as usize) * 64 + (t.x as usize) };
+
+    let guards: Vec<IVec2> = guards
+        .into_iter()
+        .filter(|&t| {
+            let code = plane1[idx(t)];
+            (108 + SKILL_OFF) <= code && code <= (115 + SKILL_OFF)
+        })
+        .collect();
+
+    let ss: Vec<IVec2> = ss
+        .into_iter()
+        .filter(|&t| {
+            let code = plane1[idx(t)];
+            (126 + SKILL_OFF) <= code && code <= (133 + SKILL_OFF)
+        })
+        .collect();
+
+    let dogs: Vec<IVec2> = dogs
+        .into_iter()
+        .filter(|&t| {
+            let code = plane1[idx(t)];
+            (134 + SKILL_OFF) <= code && code <= (141 + SKILL_OFF)
+        })
+        .collect();
+
+    info!("enemy spawns (filtered): guards={}, ss={}, dogs={}", guards.len(), ss.len(), dogs.len());
 
     let (spawn, spawn_yaw) = spawn.unwrap_or((IVec2::new(1, 1), 0.0));
 
@@ -668,13 +703,15 @@ pub fn setup(
 
     // Enemies
     for g in guards {
-        crate::enemies::spawn_guard(
-            &mut commands,
-            &mut meshes,
-            &mut materials,
-            &guard_sprites,
-            g,
-        );
+        crate::enemies::spawn_guard(&mut commands, &mut meshes, &mut materials, &guard_sprites, g);
+    }
+
+    for s in ss {
+        crate::enemies::spawn_ss(&mut commands, &mut meshes, &mut materials, &ss_sprites, s);
+    }
+
+    for d in dogs {
+        crate::enemies::spawn_dog(&mut commands, &mut meshes, &mut materials, &dog_sprites, d);
     }
 
     // Player spawn from grid

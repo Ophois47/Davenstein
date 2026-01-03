@@ -9,8 +9,8 @@ use crate::audio::{PlaySfx, SfxKind};
 use crate::decorations::SolidStatics;
 use crate::enemies::{
     Dir8,
+    EnemyTunings,
     EnemyKind,
-    Guard,
 };
 use crate::map::{
     DoorState,
@@ -163,7 +163,10 @@ fn pick_chase_step(
     ChasePick::None
 }
 
-fn attach_guard_ai(mut commands: Commands, q_new: Query<Entity, (Added<Guard>, Without<EnemyAi>)>) {
+fn attach_enemy_ai(
+    mut commands: Commands,
+    q_new: Query<Entity, (Added<EnemyKind>, Without<EnemyAi>)>,
+) {
     for e in q_new.iter() {
         commands.entity(e).insert(EnemyAi::default());
     }
@@ -435,6 +438,7 @@ pub fn enemy_ai_tick(
     mut enemy_fire: MessageWriter<EnemyFire>,
     mut shoot_cd: Local<HashMap<Entity, f32>>,
     mut alerted: Local<HashSet<Entity>>,
+    tunings: Res<EnemyTunings>,
     mut q: ParamSet<(
         Query<&OccupiesTile, (With<EnemyKind>, Without<Dead>)>,
         Query<
@@ -446,6 +450,9 @@ pub fn enemy_ai_tick(
                 &mut Dir8,
                 &Transform,
                 Option<&EnemyMove>,
+                Option<&crate::enemies::GuardPain>,
+                Option<&crate::enemies::SsPain>,
+                Option<&crate::enemies::DogPain>,
             ),
             (With<EnemyKind>, Without<Player>, Without<Dead>),
         >,
@@ -504,7 +511,8 @@ pub fn enemy_ai_tick(
         let mut dist = vec![-1i32; grid.width * grid.height];
         if in_bounds(player_tile)
             && !solid.is_solid(player_tile.x, player_tile.y)
-            && grid.tile(player_tile.x as usize, player_tile.y as usize) != Tile::Wall {
+            && grid.tile(player_tile.x as usize, player_tile.y as usize) != Tile::Wall
+        {
             dist[idx(player_tile)] = 0;
 
             let mut queue: Vec<IVec2> = vec![player_tile];
@@ -543,11 +551,11 @@ pub fn enemy_ai_tick(
             }
         }
 
-        for (e, kind, mut ai, mut occ, mut dir8, tf, moving) in q.p1().iter_mut() {
-            let speed = match kind {
-                EnemyKind::Guard => GUARD_CHASE_SPEED_TPS,
-            };
-
+        for (e, kind, mut ai, mut occ, mut dir8, tf, moving, guard_pain, ss_pain, dog_pain) in
+            q.p1().iter_mut()
+        {
+            let t = tunings.for_kind(*kind);
+            let speed = t.chase_speed_tps;
             let my_tile = occ.0;
 
             // Acquire -> Chase (activation gated by same area + LOS)
@@ -570,11 +578,21 @@ pub fn enemy_ai_tick(
                 continue;
             }
 
+            // ============
+            // PAIN GATING
+            // ============
+            let in_pain = guard_pain.is_some() || ss_pain.is_some() || dog_pain.is_some();
+            if in_pain {
+                // face the player, but do NOT move/shoot/open doors while flinching
+                *dir8 = dir8_towards(my_tile, player_tile);
+                continue;
+            }
+
             // Current shooting cooldown remaining (0 => ready)
             let cd_now = shoot_cd.get(&e).copied().unwrap_or(0.0);
 
             // Wolf-like "stop to shoot": during the initial pause window after firing,
-            // do not pick movement. (We use cd as a proxy so it works even if multiple AI tics run in one frame.)
+            // do not pick movement.
             if cd_now > GUARD_SHOOT_COOLDOWN_SECS {
                 *dir8 = dir8_towards(my_tile, player_tile);
                 continue;
@@ -586,45 +604,56 @@ pub fn enemy_ai_tick(
             }
 
             // =========================
-            // SHOOT LOGIC
+            // SHOOT LOGIC (NOT DOGS)
             // =========================
-            let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
+            if !matches!(*kind, EnemyKind::Dog) {
+                let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
 
-            // Wolf-ish distance (Chebyshev)
-            let dx = (player_tile.x - my_tile.x).abs();
-            let dy = (player_tile.y - my_tile.y).abs();
-            let shoot_dist = dx.max(dy);
+                // Wolf-ish distance (Chebyshev)
+                let dx = (player_tile.x - my_tile.x).abs();
+                let dy = (player_tile.y - my_tile.y).abs();
+                let shoot_dist = dx.max(dy);
 
-            let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
+                let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
 
-            if can_see && in_range {
-                *dir8 = dir8_towards(my_tile, player_tile);
+                if can_see && in_range {
+                    *dir8 = dir8_towards(my_tile, player_tile);
 
-                if cd_now <= 0.0 {
-                    shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
+                    if cd_now <= 0.0 {
+                        shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
-                    let distf = shoot_dist as f32;
-                    let maxf = GUARD_SHOOT_MAX_DIST_TILES as f32;
-                    let hit_chance = (1.0 - (distf / maxf)).clamp(GUARD_HIT_CHANCE_MIN, GUARD_HIT_CHANCE_MAX);
+                        let distf = shoot_dist as f32;
+                        let maxf = GUARD_SHOOT_MAX_DIST_TILES as f32;
+                        let hit_chance =
+                            (1.0 - (distf / maxf)).clamp(GUARD_HIT_CHANCE_MIN, GUARD_HIT_CHANCE_MAX);
 
-                    let damage = if rand::random::<f32>() < hit_chance { 10 } else { 0 };
+                        let damage = if rand::random::<f32>() < hit_chance { 10 } else { 0 };
 
-                    enemy_fire.write(EnemyFire {
-                        kind: *kind,
-                        damage,
-                    });
+                        enemy_fire.write(EnemyFire { kind: *kind, damage });
 
-                    commands.entity(e).insert(crate::enemies::GuardShoot {
-                        timer: Timer::from_seconds(GUARD_SHOOT_PAUSE_SECS, TimerMode::Once),
-                    });
+                        // Start the correct attack animation for this enemy kind
+                        match kind {
+                            EnemyKind::Guard => {
+                                commands.entity(e).insert(crate::enemies::GuardShoot {
+                                    timer: Timer::from_seconds(GUARD_SHOOT_PAUSE_SECS, TimerMode::Once),
+                                });
+                            }
+                            EnemyKind::Ss => {
+                                commands.entity(e).insert(crate::enemies::SsShoot {
+                                    t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
+                                });
+                            }
+                            EnemyKind::Dog => {}
+                        }
 
-                    sfx.write(PlaySfx {
-                        kind: SfxKind::EnemyShoot(*kind),
-                        pos: tf.translation,
-                    });
+                        sfx.write(PlaySfx {
+                            kind: SfxKind::EnemyShoot(*kind),
+                            pos: tf.translation,
+                        });
 
-                    // Don’t also schedule a move on the same tic we start a shot.
-                    continue;
+                        // Don’t also schedule a move on the same tic we start a shot
+                        continue;
+                    }
                 }
             }
 
@@ -712,7 +741,7 @@ pub fn enemy_ai_tick(
                 }
             }
 
-            // Fallback: keep your old helper alive (and avoids dead-code warnings)
+            // Fallback
             if !moved_or_acted {
                 match pick_chase_step(&grid, &occupied, my_tile, player_tile, ai.last_step) {
                     ChasePick::MoveTo(dest) => {
@@ -753,11 +782,25 @@ pub fn enemy_ai_tick(
 fn enemy_ai_move(
     mut commands: Commands,
     time: Res<Time>,
-    mut q: Query<(Entity, &EnemyMove, &mut Transform), Without<Dead>>,
+    mut q: Query<
+        (
+            Entity,
+            &EnemyMove,
+            &mut Transform,
+            Option<&crate::enemies::GuardPain>,
+            Option<&crate::enemies::SsPain>,
+            Option<&crate::enemies::DogPain>,
+        ),
+        Without<Dead>,
+    >,
 ) {
     let dt = time.delta_secs();
 
-    for (e, mv, mut tf) in q.iter_mut() {
+    for (e, mv, mut tf, guard_pain, ss_pain, dog_pain) in q.iter_mut() {
+        if guard_pain.is_some() || ss_pain.is_some() || dog_pain.is_some() {
+            continue;
+        }
+
         let mut to = mv.target - tf.translation;
         to.y = 0.0;
 
@@ -781,8 +824,6 @@ fn enemy_ai_move(
     }
 }
 
-pub struct EnemyAiPlugin;
-
 fn player_can_be_targeted(
     lock: Res<PlayerControlLock>,
     latch: Res<PlayerDeathLatch>,
@@ -790,11 +831,14 @@ fn player_can_be_targeted(
     !lock.0 && !latch.0
 }
 
+pub struct EnemyAiPlugin;
+
 impl Plugin for EnemyAiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AiTicker>()
+            .insert_resource(EnemyTunings::baseline())
             .add_message::<EnemyFire>()
-            .add_systems(Update, attach_guard_ai)
+            .add_systems(Update, attach_enemy_ai)
             .add_systems(
                 FixedUpdate,
                 (enemy_ai_tick, enemy_ai_move)

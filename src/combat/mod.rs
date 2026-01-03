@@ -16,9 +16,12 @@ use davelib::audio::{PlaySfx, SfxKind};
 use davelib::decorations::SolidStatics;
 use davelib::enemies::{
     EnemyKind,
-    Guard,
     GuardDying,
     GuardPain,
+    SsDying,
+    SsPain,
+    DogDying,
+    DogPain,
 };
 use davelib::map::MapGrid;
 
@@ -64,19 +67,23 @@ fn process_fire_shots(
     grid: Option<Res<MapGrid>>,
     solid: Option<Res<SolidStatics>>,
     mut shots: MessageReader<FireShot>,
-    mut sfx: MessageWriter<PlaySfx>, // CHANGED: was _sfx
+    mut sfx: MessageWriter<PlaySfx>,
     mut commands: Commands,
-    q_alive: Query<(Entity, &OccupiesTile, &GlobalTransform), (With<Guard>, Without<Dead>)>,
-    mut q_hp: Query<&mut Health, (With<Guard>, Without<Dead>)>,
+    q_alive: Query<(Entity, &EnemyKind, &OccupiesTile, &GlobalTransform), (With<EnemyKind>, Without<Dead>)>,
+    mut q_hp: Query<&mut Health, (With<EnemyKind>, Without<Dead>)>,
     mut rng: Local<u32>,
 ) {
     let (Some(grid), Some(solid)) = (grid, solid) else {
         return;
     };
 
-    const ENEMY_RADIUS: f32 = 0.35;   // Tile Units (slightly forgiving, Wolf-ish auto-aim feel)
-    const ENEMY_HALF_H: f32 = 0.55;   // Slightly forgiving vertical hitbox
-    const ENEMY_CENTER_Y: f32 = 0.50; // Center at Y=0.5
+    fn hitbox(kind: EnemyKind) -> (f32, f32, f32) {
+        // (radius, half_h, center_y)
+        match kind {
+            EnemyKind::Dog => (0.30, 0.40, 0.40),
+            _ => (0.35, 0.55, 0.50),
+        }
+    }
 
     fn xorshift32(s: &mut u32) -> u32 {
         let mut x = *s;
@@ -155,23 +162,18 @@ fn process_fire_shots(
         let world_hit = raycast_grid(&grid, &solid, shot.origin, dir, shot.max_dist);
         let world_dist = world_hit.as_ref().map(|h| h.dist).unwrap_or(shot.max_dist);
 
-        // Find Nearest Living Guard Hit Before the Wall / Floor Hit
-        let mut best: Option<(Entity, f32, i32)> = None;
+        // Find Nearest Living Enemy Hit Before the Wall / Floor Hit
+        let mut best: Option<(Entity, EnemyKind, f32, i32)> = None;
 
         let ptx = (shot.origin.x + 0.5).floor() as i32;
         let ptz = (shot.origin.z + 0.5).floor() as i32;
 
-        for (e, _occ, gt) in q_alive.iter() {
+        for (e, kind, _occ, gt) in q_alive.iter() {
             let p = gt.translation();
-            let center = Vec3::new(p.x, ENEMY_CENTER_Y, p.z);
+            let (radius, half_h, center_y) = hitbox(*kind);
+            let center = Vec3::new(p.x, center_y, p.z);
 
-            let Some(t) = ray_hit_vertical_cylinder(
-                shot.origin,
-                dir,
-                center,
-                ENEMY_RADIUS,
-                ENEMY_HALF_H,
-            ) else {
+            let Some(t) = ray_hit_vertical_cylinder(shot.origin, dir, center, radius, half_h) else {
                 continue;
             };
 
@@ -181,15 +183,15 @@ fn process_fire_shots(
                 let dist_tiles = (ptx - etx).abs().max((ptz - etz).abs());
 
                 match best {
-                    None => best = Some((e, t, dist_tiles)),
-                    Some((_, best_t, _)) if t < best_t => best = Some((e, t, dist_tiles)),
+                    None => best = Some((e, *kind, t, dist_tiles)),
+                    Some((_, _, best_t, _)) if t < best_t => best = Some((e, *kind, t, dist_tiles)),
                     _ => {}
                 }
             }
         }
 
         // Enemy Hit Consumes Shot
-        if let Some((e, _t, dist_tiles)) = best {
+        if let Some((e, kind, _t, dist_tiles)) = best {
             let dmg = roll_pistol_damage(dist_tiles, &mut *rng);
 
             if let Ok(mut hp) = q_hp.get_mut(e) {
@@ -197,22 +199,42 @@ fn process_fire_shots(
                 if hp.cur <= 0 {
                     hp.cur = 0;
 
-                    // Emit Death SFX at Source of Truth
-                    if let Ok((_, _, gt)) = q_alive.get(e) {
+                    // Death SFX at source of truth
+                    if let Ok((_, _, _, gt)) = q_alive.get(e) {
                         let p = gt.translation();
                         sfx.write(PlaySfx {
-                            kind: SfxKind::EnemyDeath(EnemyKind::Guard),
+                            kind: SfxKind::EnemyDeath(kind),
                             pos: Vec3::new(p.x, 0.6, p.z),
                         });
                     }
 
                     commands.entity(e).insert(Dead);
-                    commands.entity(e).insert(GuardDying { frame: 0, tics: 0 });
+
+                    match kind {
+                        EnemyKind::Guard => {
+                            commands.entity(e).insert(GuardDying { frame: 0, tics: 0 });
+                        }
+                        EnemyKind::Ss => {
+                            commands.entity(e).insert(SsDying { frame: 0, tics: 0 });
+                        }
+                        EnemyKind::Dog => {
+                            commands.entity(e).insert(DogDying { frame: 0, tics: 0 });
+                        }
+                    }
                 } else {
-                    // 80ms Wince Animation
-                    commands.entity(e).insert(GuardPain {
-                        timer: Timer::from_seconds(0.20, TimerMode::Once),
-                    });
+                    // Wince animation
+                    let timer = Timer::from_seconds(0.20, TimerMode::Once);
+                    match kind {
+                        EnemyKind::Guard => {
+                            commands.entity(e).insert(GuardPain { timer });
+                        }
+                        EnemyKind::Ss => {
+                            commands.entity(e).insert(SsPain { timer });
+                        }
+                        EnemyKind::Dog => {
+                            commands.entity(e).insert(DogPain { timer });
+                        }
+                    }
                 }
             }
 
