@@ -470,7 +470,7 @@ pub fn tick_guard_pain(
     for (e, mut pain) in q.iter_mut() {
         pain.timer.tick(time.delta());
         if pain.timer.is_finished() {
-            commands.entity(e).remove::<SsPain>();
+            commands.entity(e).remove::<GuardPain>();
         }
     }
 }

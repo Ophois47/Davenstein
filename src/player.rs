@@ -137,7 +137,7 @@ pub fn player_move(
         return;
     }
 
-    // Tile Units (Tile = 1.0). Note: tiles are centered on integer coordinates.
+    // Tile Units (Tile = 1.0)
     const PLAYER_RADIUS: f32 = 0.20;
     const RUN_MULTIPLIER: f32 = 1.6;
 
@@ -145,10 +145,10 @@ pub fn player_move(
         return;
     };
 
-    // Snapshot occupied tiles (enemies/actors).
+    // Snapshot Occupied Tiles (Enemies / Actors)
     let occupied: Vec<IVec2> = q_enemies.iter().map(|t| t.0).collect();
 
-    // Movement basis (XZ only)
+    // Movement Basis (XZ Only)
     let mut forward = transform.rotation * Vec3::NEG_Z;
     forward.y = 0.0;
     forward = forward.normalize_or_zero();
@@ -185,8 +185,9 @@ pub fn player_move(
 
     let step = wish * speed * time.delta_secs();
 
-    // ---- Collision helpers ----
-    // IMPORTANT: Tiles are centered on integer coords; convert world->tile with +0.5.
+    // Collision Helpers
+    // IMPORTANT: Tiles Centered on Integer Coords
+    // Convert World->Tile With +0.5
     fn world_to_tile(p: Vec2) -> IVec2 {
         IVec2::new((p.x + 0.5).floor() as i32, (p.y + 0.5).floor() as i32)
     }
@@ -212,7 +213,7 @@ pub fn player_move(
             return true;
         }
 
-        // Moving pushwalls behave like solid walls.
+        // Moving Pushwalls Behave Like Solid Walls
         if push.blocks_tile(tx, tz) {
             return true;
         }
@@ -220,17 +221,18 @@ pub fn player_move(
         match grid.tile(txu, tzu) {
             Tile::Wall | Tile::DoorClosed => true,
             _ => {
-                // Blocking statics (decorations)
+                // Blocking Statics (Decorations)
                 if solid.is_solid(tx, tz) {
                     return true;
                 }
-                // Living enemies/actors block
+                // Living Enemies / Actors Block
                 is_occupied(occupied, tx, tz)
             }
         }
     }
 
-    // Keep the original fast/simple approach: sample 4 corners of the player's collision circle.
+    // Keep Original Fast / Simple Approach
+    // Sample 4 Corners of Player's Collision Circle
     fn collides(
         grid: &MapGrid,
         solid: &crate::decorations::SolidStatics,
@@ -255,7 +257,7 @@ pub fn player_move(
         false
     }
 
-    // ---- Apply movement with sliding (X then Z) ----
+    // Apply Movement With Sliding (X then Z)
     let mut pos = Vec2::new(transform.translation.x, transform.translation.z);
 
     let try_x = Vec2::new(pos.x + step.x, pos.y);
@@ -442,7 +444,7 @@ pub fn door_auto_close(
     const RETRY_SECS_IF_BLOCKED: f32 = 0.2;
     const FULLY_OPEN_EPS: f32 = 0.999;
 
-    // Must match player_move
+    // Must Match player_move()
     const PLAYER_RADIUS: f32 = 0.20;
     const BLOCK_PAD: f32 = 0.02;
 
@@ -456,11 +458,12 @@ pub fn door_auto_close(
         let cx = tile.x as f32;
         let cz = tile.y as f32;
 
-        // Tile square bounds (tile centers at integer coords; edges at +/- 0.5)
+        // Tile Square Bounds
+        // (Tile Centers at Integer Coords, Edges at +/- 0.5)
         let min = Vec2::new(cx - 0.5, cz - 0.5);
         let max = Vec2::new(cx + 0.5, cz + 0.5);
 
-        // Closest point on AABB to circle center
+        // Closest Point on AABB to Circle Center
         let closest = Vec2::new(circle.x.clamp(min.x, max.x), circle.y.clamp(min.y, max.y));
         (circle - closest).length_squared() <= r * r
     }
@@ -475,7 +478,7 @@ pub fn door_auto_close(
         }
         let (tx, tz) = (dt.x as usize, dt.y as usize);
 
-        // Only once door is actually passable
+        // Only Once Door is Actually Passable
         if grid.tile(tx, tz) != Tile::DoorOpen {
             continue;
         }
@@ -489,7 +492,7 @@ pub fn door_auto_close(
             continue;
         }
 
-        // Block closing if player is still overlapping the doorway in world space
+        // Block Closing if Player Still Overlapping Doorway in World Space
         if circle_overlaps_tile(player_xz, PLAYER_RADIUS + BLOCK_PAD, dt) {
             state.open_timer = RETRY_SECS_IF_BLOCKED;
             continue;
