@@ -477,11 +477,13 @@ pub(crate) fn weapon_fire_and_viewmodel(
 
     // Per-Weapon Paramaters
     const TIC: f32 = 1.0 / 70.0;
+    const BULLET_MAX_DIST: f32 = 10_000.0;
+
     let (cooldown_secs, flash_secs, ammo_cost, max_dist) = match hud.selected {
         WeaponSlot::Knife => (10.0 * TIC, 12.0 * TIC, 0, 1.5),
-        WeaponSlot::Pistol => (25.0 * TIC, 16.0 * TIC, 1, 64.0),
-        WeaponSlot::MachineGun => (12.0 * TIC, 8.0 * TIC, 1, 64.0),
-        WeaponSlot::Chaingun => (6.0 * TIC, 8.0 * TIC, 1, 64.0),
+        WeaponSlot::Pistol => (25.0 * TIC, 16.0 * TIC, 1, BULLET_MAX_DIST),
+        WeaponSlot::MachineGun => (12.0 * TIC, 8.0 * TIC, 1, BULLET_MAX_DIST),
+        WeaponSlot::Chaingun => (6.0 * TIC, 8.0 * TIC, 1, BULLET_MAX_DIST),
     };
 
     // Ensure Timers Match Current Weapon
