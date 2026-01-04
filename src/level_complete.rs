@@ -115,19 +115,13 @@ pub fn mission_success_input(
     mut advance: ResMut<crate::ui::sync::AdvanceLevelRequested>,
     mut current_level: ResMut<davelib::level::CurrentLevel>,
 ) {
-    // Only While Mission Success Active, Only Once
+    // Only while mission success active, only once
     if !win.0 || advance.0 {
         return;
     }
 
     if keys.just_pressed(KeyCode::Enter) {
-        use davelib::level::LevelId;
-
-        // Temporary Progression Table Until More Maps Exist
-        current_level.0 = match current_level.0 {
-            LevelId::E1M1 => LevelId::E1M2,
-            LevelId::E1M2 => LevelId::E1M1,
-        };
+        current_level.0 = current_level.0.next_e1_normal();
 
         advance.0 = true;
         info!(

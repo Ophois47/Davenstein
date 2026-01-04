@@ -83,19 +83,22 @@ impl SfxLibrary {
 pub struct GameAudio {
     pub door_open: Handle<AudioSource>,
     pub door_close: Handle<AudioSource>,
-    pub music_level: Handle<AudioSource>,
-     pub music_level2: Handle<AudioSource>,
+    pub music_levels: Vec<Handle<AudioSource>>,
 }
 
 #[derive(Component)]
 pub struct Music;
 
 pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let mut music_levels: Vec<Handle<AudioSource>> = Vec::new();
+    for n in 1..=9 {
+        music_levels.push(asset_server.load(format!("sounds/music/level{}.ogg", n)));
+    }
+
     commands.insert_resource(GameAudio {
         door_open: asset_server.load("sounds/sfx/door_open.ogg"),
         door_close: asset_server.load("sounds/sfx/door_close.ogg"),
-        music_level: asset_server.load("sounds/music/level1.ogg"),
-        music_level2: asset_server.load("sounds/music/level2.ogg"),
+        music_levels,
     });
 
     // Library That Supports 1 or Many Clips per SfxKind
@@ -250,14 +253,20 @@ pub fn start_music(
     audio: Res<GameAudio>,
     q_music: Query<(), With<Music>>,
 ) {
-    // Prevent Duplicates if Startup Runs Again
+    // Prevent duplicates if Startup runs again
     if q_music.iter().next().is_some() {
         return;
     }
 
+    let clip = audio
+        .music_levels
+        .get(0)
+        .cloned()
+        .unwrap_or_else(|| Handle::default());
+
     commands.spawn((
         Music,
-        AudioPlayer::new(audio.music_level.clone()),
+        AudioPlayer::new(clip),
         PlaybackSettings::LOOP.with_volume(Volume::Linear(0.45)),
     ));
 }
@@ -269,7 +278,7 @@ pub fn sync_level_music(
     q_music: Query<Entity, With<Music>>,
     mut last: Local<Option<LevelId>>,
 ) {
-    // If music already exists and we haven't tracked it yet, assume it's correct for current level.
+    // If music already exists and we haven't tracked it yet, assume it's correct for current level
     if last.is_none() && q_music.iter().next().is_some() {
         *last = Some(level.0);
         return;
@@ -279,15 +288,19 @@ pub fn sync_level_music(
         return;
     }
 
-    // Remove any currently-playing music entity
     for e in q_music.iter() {
         commands.entity(e).despawn();
     }
 
-    let clip = match level.0 {
-        LevelId::E1M1 => audio.music_level.clone(),
-        LevelId::E1M2 => audio.music_level2.clone(),
-    };
+    let floor = level.0.floor_number();
+    let clamped = floor.clamp(1, 9);
+    let idx = (clamped - 1) as usize;
+
+    let clip = audio
+        .music_levels
+        .get(idx)
+        .cloned()
+        .unwrap_or_else(|| audio.music_levels.get(0).cloned().unwrap_or_default());
 
     commands.spawn((
         Music,

@@ -1032,7 +1032,8 @@ impl Plugin for EnemiesPlugin {
                     update_guard_views,
                     update_ss_views,
                     update_dog_views,
-                ),
+                )
+                    .chain(),
             )
             .add_systems(
                 FixedUpdate,
@@ -1050,7 +1051,8 @@ impl Plugin for EnemiesPlugin {
                     tick_dog_bite_cooldown,
                     tick_dog_bite,
                     tick_dog_dying,
-                ),
+                )
+                    .chain(),
             );
     }
 }

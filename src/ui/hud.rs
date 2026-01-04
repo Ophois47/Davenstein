@@ -15,7 +15,7 @@ use super::{
 };
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::player::{Player, PlayerControlLock};
-use davelib::level::{CurrentLevel, LevelId};
+use davelib::level::CurrentLevel;
 use crate::level_complete::MissionSuccessOverlay;
 
 #[derive(Component)]
@@ -340,10 +340,7 @@ pub(crate) fn sync_hud_floor_digits(
     }
     let Some(digits) = digits else { return; };
 
-    let floor_num: i32 = match level.0 {
-        LevelId::E1M1 => 1,
-        LevelId::E1M2 => 2,
-    };
+    let floor_num: i32 = level.0.floor_number();
 
     let floor_digits = split_right_aligned_blanks(floor_num, 2);
 
@@ -1403,10 +1400,7 @@ pub(crate) fn setup_hud(
 
                     // --- Digits ---
                     // FLOOR (derived from CurrentLevel)
-                    let floor_num: i32 = match current_level.0 {
-                        LevelId::E1M1 => 1,
-                        LevelId::E1M2 => 2,
-                    };
+                    let floor_num: i32 = current_level.0.floor_number();
                     let floor_digits = split_right_aligned_blanks(floor_num, 2);
 
                     inner

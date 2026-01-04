@@ -328,10 +328,34 @@ pub fn setup(
     const E1M1_PLANE1: &str = include_str!("../assets/maps/e1m1_plane1_u16.txt");
     const E1M2_PLANE0: &str = include_str!("../assets/maps/e1m2_plane0_u16.txt");
     const E1M2_PLANE1: &str = include_str!("../assets/maps/e1m2_plane1_u16.txt");
+    const E1M3_PLANE0: &str = include_str!("../assets/maps/e1m3_plane0_u16.txt");
+    const E1M3_PLANE1: &str = include_str!("../assets/maps/e1m3_plane1_u16.txt");
+    const E1M4_PLANE0: &str = include_str!("../assets/maps/e1m4_plane0_u16.txt");
+    const E1M4_PLANE1: &str = include_str!("../assets/maps/e1m4_plane1_u16.txt");
+    const E1M5_PLANE0: &str = include_str!("../assets/maps/e1m5_plane0_u16.txt");
+    const E1M5_PLANE1: &str = include_str!("../assets/maps/e1m5_plane1_u16.txt");
+    const E1M6_PLANE0: &str = include_str!("../assets/maps/e1m6_plane0_u16.txt");
+    const E1M6_PLANE1: &str = include_str!("../assets/maps/e1m6_plane1_u16.txt");
+    const E1M7_PLANE0: &str = include_str!("../assets/maps/e1m7_plane0_u16.txt");
+    const E1M7_PLANE1: &str = include_str!("../assets/maps/e1m7_plane1_u16.txt");
+    const E1M8_PLANE0: &str = include_str!("../assets/maps/e1m8_plane0_u16.txt");
+    const E1M8_PLANE1: &str = include_str!("../assets/maps/e1m8_plane1_u16.txt");
+    const E1M9_PLANE0: &str = include_str!("../assets/maps/e1m9_plane0_u16.txt");
+    const E1M9_PLANE1: &str = include_str!("../assets/maps/e1m9_plane1_u16.txt");
+    const E1M10_PLANE0: &str = include_str!("../assets/maps/e1m10_plane0_u16.txt");
+    const E1M10_PLANE1: &str = include_str!("../assets/maps/e1m10_plane1_u16.txt");
 
     let (plane0_text, plane1_text) = match current_level.0 {
         crate::level::LevelId::E1M1 => (E1M1_PLANE0, E1M1_PLANE1),
         crate::level::LevelId::E1M2 => (E1M2_PLANE0, E1M2_PLANE1),
+        crate::level::LevelId::E1M3 => (E1M3_PLANE0, E1M3_PLANE1),
+        crate::level::LevelId::E1M4 => (E1M4_PLANE0, E1M4_PLANE1),
+        crate::level::LevelId::E1M5 => (E1M5_PLANE0, E1M5_PLANE1),
+        crate::level::LevelId::E1M6 => (E1M6_PLANE0, E1M6_PLANE1),
+        crate::level::LevelId::E1M7 => (E1M7_PLANE0, E1M7_PLANE1),
+        crate::level::LevelId::E1M8 => (E1M8_PLANE0, E1M8_PLANE1),
+        crate::level::LevelId::E1M9 => (E1M9_PLANE0, E1M9_PLANE1),
+        crate::level::LevelId::E1M10 => (E1M10_PLANE0, E1M10_PLANE1),
     };
 
     let plane0 = MapGrid::parse_u16_grid(plane0_text, 64, 64);
