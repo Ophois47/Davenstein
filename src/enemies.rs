@@ -47,7 +47,7 @@ pub struct EnemyTunings {
 }
 
 impl EnemyTunings {
-    /// Single source of truth for “defaults” without relying on Default/derive(Default).
+    /// Single source of truth for defaults without relying on Default/derive(Default)
     pub fn baseline() -> Self {
         Self {
             guard: EnemyTuning {
@@ -61,7 +61,7 @@ impl EnemyTunings {
                 reaction_time_secs: 0.35,
             },
             ss: EnemyTuning {
-                max_hp: 35,
+                max_hp: 100,
                 wander_speed_tps: 1.0,
                 chase_speed_tps: 1.8,
                 can_shoot: true,
@@ -71,7 +71,7 @@ impl EnemyTunings {
                 reaction_time_secs: 0.30,
             },
             dog: EnemyTuning {
-                max_hp: 20,
+                max_hp: 1,
                 wander_speed_tps: 1.2,
                 chase_speed_tps: 2.2,
                 can_shoot: false,
@@ -233,6 +233,27 @@ pub struct DogBite {
     pub t: Timer,
 }
 
+impl DogBite {
+    pub fn new() -> Self {
+        Self {
+            t: Timer::from_seconds(DOG_BITE_SECS, TimerMode::Once),
+        }
+    }
+}
+
+#[derive(Component, Debug)]
+pub struct DogBiteCooldown {
+    pub t: Timer,
+}
+
+impl DogBiteCooldown {
+    pub fn new(secs: f32) -> Self {
+        Self {
+            t: Timer::from_seconds(secs.max(0.0), TimerMode::Once),
+        }
+    }
+}
+
 const SS_WALK_FPS: f32 = 6.0;
 const DOG_WALK_FPS: f32 = 8.0;
 pub(crate) const SS_SHOOT_SECS: f32 = 0.35;
@@ -287,11 +308,65 @@ fn tick_ss_shoot(time: Res<Time>, mut commands: Commands, mut q: Query<(Entity, 
     }
 }
 
-fn tick_dog_bite(time: Res<Time>, mut commands: Commands, mut q: Query<(Entity, &mut DogBite)>) {
-    for (e, mut b) in q.iter_mut() {
-        b.t.tick(time.delta());
-        if b.t.is_finished() {
+fn tick_dog_bite(
+    time: Res<Time>,
+    mut commands: Commands,
+    tunings: Res<EnemyTunings>,
+    q_player: Query<&GlobalTransform, With<Player>>,
+    mut enemy_fire: MessageWriter<crate::ai::EnemyFire>,
+    mut q: Query<(Entity, &GlobalTransform, &mut DogBite, Option<&DogPain>), With<Dog>>,
+) {
+    let Some(player_gt) = q_player.iter().next() else { return; };
+    let player_pos = player_gt.translation();
+    let player_tile = IVec2::new(player_pos.x.round() as i32, player_pos.z.round() as i32);
+
+    // Wolf3D (1992): dog bite hits ~70% of the time and does (US_RndT() >> 4) damage (0..15)
+    // NOTE: This can yield 0 damage; if you decide you never want 0 from a *landed* bite
+    // we can clamp it to at least 1
+    const BITE_HIT_CHANCE: f32 = 0.70;
+
+    for (e, gt, mut bite, pain) in q.iter_mut() {
+        // Pain interrupts the bite immediately (no damage, no cooldown)
+        if pain.is_some() {
             commands.entity(e).remove::<DogBite>();
+            continue;
+        }
+
+        bite.t.tick(time.delta());
+        if !bite.t.is_finished() {
+            continue;
+        }
+
+        let dog_pos = gt.translation();
+        let dog_tile = IVec2::new(dog_pos.x.round() as i32, dog_pos.z.round() as i32);
+
+        let dx = (player_tile.x - dog_tile.x).abs();
+        let dy = (player_tile.y - dog_tile.y).abs();
+        let dist_tiles = dx.max(dy) as f32;
+
+        if dist_tiles <= tunings.dog.attack_range_tiles && rand::random::<f32>() < BITE_HIT_CHANCE {
+            let dmg = (rand::random::<u8>() >> 4) as i32;
+            enemy_fire.write(crate::ai::EnemyFire {
+                kind: EnemyKind::Dog,
+                damage: dmg,
+            });
+        }
+
+        let mut ec = commands.entity(e);
+        ec.remove::<DogBite>();
+        ec.insert(DogBiteCooldown::new(tunings.dog.attack_cooldown_secs));
+    }
+}
+
+fn tick_dog_bite_cooldown(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut DogBiteCooldown), With<Dog>>,
+) {
+    for (e, mut cd) in q.iter_mut() {
+        cd.t.tick(time.delta());
+        if cd.t.is_finished() {
+            commands.entity(e).remove::<DogBiteCooldown>();
         }
     }
 }
@@ -305,8 +380,17 @@ fn tick_ss_pain(time: Res<Time>, mut commands: Commands, mut q: Query<(Entity, &
     }
 }
 
-fn tick_dog_pain(time: Res<Time>, mut commands: Commands, mut q: Query<(Entity, &mut DogPain)>) {
-    for (e, mut p) in q.iter_mut() {
+fn tick_dog_pain(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut DogPain, Option<&DogBite>), With<Dog>>,
+) {
+    for (e, mut p, bite) in q.iter_mut() {
+        // Pain Interrupts In-Progress Bite
+        if bite.is_some() {
+            commands.entity(e).remove::<DogBite>();
+        }
+
         p.timer.tick(time.delta());
         if p.timer.is_finished() {
             commands.entity(e).remove::<DogPain>();
@@ -377,7 +461,7 @@ pub struct SsSprites {
 pub struct DogSprites {
     pub idle: [Handle<Image>; 8],
     pub walk: [[Handle<Image>; 8]; 4],
-    pub bite: [Handle<Image>; 8],
+    pub bite: [Handle<Image>; 3],
     pub dying: [[Handle<Image>; 8]; 4],
     pub corpse: [Handle<Image>; 8],
 }
@@ -425,7 +509,9 @@ impl FromWorld for DogSprites {
             })
         });
 
-        let bite = std::array::from_fn(|dir| server.load(format!("enemies/dog/dog_bite_a{dir}.png")));
+        // bite is a 3 frame animation, not 8-dir views
+        let bite: [Handle<Image>; 3] =
+            std::array::from_fn(|f| server.load(format!("enemies/dog/dog_bite_{f}.png")));
 
         // files on disk: dog_death_0.png..dog_death_3.png (no per-dir variants) -> duplicate across dirs
         let dying = std::array::from_fn(|f| {
@@ -468,23 +554,22 @@ pub fn tick_guard_pain(
     mut q: Query<(Entity, &mut GuardPain), With<Guard>>,
     mut started: Local<std::collections::HashMap<Entity, f32>>,
 ) {
-    // Tune this. Wolf3D pain reads like a quick flash.
     const PAIN_FLASH_SECS: f32 = 0.08;
 
     let now = time.elapsed_secs();
 
-    // Track which entities are *currently* in pain so we can prune stale map entries.
+    // Track Entities Currently in Pain, Prune Stale Map Entries
     let mut live: Vec<Entity> = Vec::new();
 
     for (e, mut pain) in q.iter_mut() {
         live.push(e);
 
-        // Record the start time of this pain burst the first time we see it.
-        // IMPORTANT: we do NOT reset this on subsequent hits, so sustained fire can't "pin" pain.
+        // IMPORTANT: Do NOT Reset on Subsequent Hits
+        // Stops Sustained Fire From Freezing Pain Sprite
         let start = started.entry(e).or_insert(now);
 
-        // Tick the timer in case anything else relies on it,
-        // but we clamp the visual pain duration based on `started`.
+        // Tick Timer in Case Anything Relies on it
+        // Clamp Visual Pain Duration Based on 'started'
         pain.timer.tick(time.delta());
 
         if now - *start >= PAIN_FLASH_SECS {
@@ -493,7 +578,7 @@ pub fn tick_guard_pain(
         }
     }
 
-    // Prevent the Local<HashMap> from growing if entities despawn while in pain.
+    // Prevent Local<HashMap> from Growing if Entities Despawn While in Pain
     started.retain(|e, _| live.iter().any(|x| x == e));
 }
 
@@ -751,8 +836,13 @@ pub fn update_dog_views(
         } else if pain.is_some() {
             // dog sheet has no dedicated pain frames in your zip; keep them “flinch-less” for now
             sprites.idle[v as usize].clone()
-        } else if bite.is_some() {
-            sprites.bite[v as usize].clone()
+        } else if let Some(b) = bite {
+            let dur = b.t.duration().as_secs_f32().max(1e-6);
+            let t = b.t.elapsed().as_secs_f32();
+            let frac = (t / dur).clamp(0.0, 0.999_9);
+
+            let frame = (frac * 3.0).floor() as usize;
+            sprites.bite[frame.min(2)].clone()
         } else if mv.is_some() {
             let w = walk.map(|w| w.phase).unwrap_or(0.0);
             let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
@@ -957,6 +1047,7 @@ impl Plugin for EnemiesPlugin {
                     tick_ss_dying,
                     tick_dog_walk,
                     tick_dog_pain,
+                    tick_dog_bite_cooldown,
                     tick_dog_bite,
                     tick_dog_dying,
                 ),
