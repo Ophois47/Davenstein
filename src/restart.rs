@@ -118,8 +118,8 @@ pub fn advance_level_finish(
     mut q_vitals: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
     mut q_keys: Query<&mut davelib::player::PlayerKeys, With<davelib::player::Player>>,
 ) {
-    // Preserve run stats (ammo / score / lives / weapons) by NOT resetting 
-    // HudState but keys do not carry across levels
+    // Preserve Run Stats (Ammo / Score / Lives / Weapons) by NOT Resetting 
+    // HudState but Keys Do Not Carry Across Levels
     hud.key_gold = false;
     hud.key_silver = false;
 
@@ -128,20 +128,20 @@ pub fn advance_level_finish(
         pkeys.silver = false;
     }
 
-    // Restore HP from HUD so it carries over, setup() spawns PlayerVitals::default()
+    // Restore HP From HUD so it Carries Over, setup() Spawns PlayerVitals::default()
     if let Some(mut vitals) = q_vitals.iter_mut().next() {
         vitals.hp = hud.hp.clamp(0, vitals.hp_max);
     }
 
-    // Clear mission-success state and unlock gameplay
+    // Clear Mission-Success State and Unlock Gameplay
     win.0 = false;
     lock.0 = false;
 
-    // Clear death flow bookkeeping (safe, even if not dying)
+    // Clear Death Flow Bookkeeping (Safe, Even if Not Dying)
     *death = Default::default();
     latch.0 = false;
 
-    // Consume request
+    // Consume Request
     advance.0 = false;
 
     bevy::log::info!("Advance Level: finished (HUD preserved, controls unlocked)");

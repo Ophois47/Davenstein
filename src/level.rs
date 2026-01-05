@@ -61,7 +61,7 @@ impl Default for CurrentLevel {
     }
 }
 
-/// Wolf plane1 for the currently loaded level
-/// This becomes the single source of truth for decorations / pickups later
+/// Wolf plane1 for Currently Loaded Level
+/// Single Source of Truth for Decorations / Pickups Later
 #[derive(Resource, Debug, Clone, Default)]
 pub struct WolfPlane1(pub Vec<u16>);

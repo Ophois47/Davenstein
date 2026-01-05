@@ -34,8 +34,6 @@ pub enum Tile {
 pub struct MapGrid {
     pub width: usize,
     pub height: usize,
-    /// Raw plane0 tile codes (Wolf-style). For now this is mainly used to preserve
-    /// wall/door IDs so texture work can be added later without changing the map format.
     pub plane0: Vec<u16>,
     pub tiles: Vec<Tile>,
 }
@@ -49,7 +47,7 @@ impl MapGrid {
         self.tiles[self.idx(x, z)]
     }
 
-    /// Raw Wolf plane0 code at (x,z). For walls, this is the wall texture ID.
+    /// Raw Wolfenstein 3D plane0 Code at (X,Z). For Walls, this Wall Texture ID
     pub fn set_tile(&mut self, x: usize, z: usize, t: Tile) {
         let i = self.idx(x, z);
         self.tiles[i] = t;
@@ -87,7 +85,6 @@ impl MapGrid {
                         tiles.push(Tile::Wall);
                     }
                     'D' => {
-                        // Wolf-style door code placeholder (real WL6 uses 90-95/100-101).
                         plane0.push(90);
                         tiles.push(Tile::DoorClosed);
                     }
@@ -182,10 +179,10 @@ impl MapGrid {
 
                 raw_plane0.push(v0);
 
-                // Plane0 collision:
-                //   1..=63    => walls
-                //   90..=101  => doors (normal/locked/elevator)
-                //   otherwise => walkable
+                // Plane0 Collision:
+                //   1..=63    => Walls
+                //   90..=101  => Doors (Normal / Locked / Elevator)
+                //   Otherwise => Walkable
                 if (1..=63).contains(&v0) {
                     tiles.push(Tile::Wall);
                 } else if (90..=101).contains(&v0) {
@@ -194,7 +191,7 @@ impl MapGrid {
                     tiles.push(Tile::Empty);
                 }
 
-                // Player start: 19..=22 (N/E/S/W)
+                // Player Start: 19..=22 (N/E/S/W)
                 if (19..=22).contains(&v1) && player_spawn.is_none() {
                     let yaw = match v1 {
                         19 => 0.0,
@@ -208,7 +205,7 @@ impl MapGrid {
 
                 let t = IVec2::new(x as i32, z as i32);
 
-                // Enemies: include the any difficulty codes, plus the medium/hard ranges,
+                // Enemies: Include the any difficulty codes, plus the medium/hard ranges,
                 // because E1M2 plane1 clearly contains values outside the 108..=115 set
                 // (NOT implementing difficulty selection yet — we're just ensuring they spawn)
                 if (108..=115).contains(&v1) || (144..=151).contains(&v1) || (180..=187).contains(&v1) {

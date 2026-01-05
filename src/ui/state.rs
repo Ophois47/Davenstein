@@ -114,13 +114,13 @@ impl Default for PickupFlash {
 
 impl PickupFlash {
     pub fn trigger(&mut self, _color: Srgba) {
-        // Universal bonus flash (same for all pickups), only when consumed.
+        // Universal bonus flash (same for all pickups), only when consumed
         self.color = Srgba::new(1.0, 62.0 / 64.0, 0.0, 1.0);
         self.timer.reset();
     }
 
     pub fn alpha(&self) -> f32 {
-        // 3 stepped levels, no fade-in. Only steps down then off.
+        // 3 stepped levels, no fade-in. Only steps down then off
         const TIC_HZ: f32 = 70.0;
         const STEP_TICS: f32 = 3.0; // must match Default() above
         const STEP_SECS: f32 = STEP_TICS / TIC_HZ;

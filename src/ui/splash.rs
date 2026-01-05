@@ -2,15 +2,20 @@
 Davenstein - by David Petnick
 */
 use bevy::prelude::*;
-use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowResized};
+use bevy::window::{
+    CursorGrabMode,
+    CursorOptions,
+    PrimaryWindow,
+    WindowResized,
+};
 
 use davelib::player::PlayerControlLock;
 
-// Both should be authored for a 320x200 base resolution
+// Both Should be Authored for 320x200 Base Resolution
 pub const SPLASH_0_PATH: &str = "textures/ui/splash0.png";
 pub const SPLASH_1_PATH: &str = "textures/ui/title_screen.png";
 
-// Used to compute a clean integer UI scale
+// Used to Compute Clean Integer UI Scale
 const BASE_W: f32 = 320.0;
 const BASE_H: f32 = 200.0;
 
@@ -66,14 +71,14 @@ pub fn setup_splash(
     mut cursor: Single<&mut CursorOptions>,
     q_win: Single<&Window, With<PrimaryWindow>>,
 ) {
-    // Freeze gameplay input while splash is up
+    // Freeze Gameplay Input While Splash is Up
     lock.0 = true;
 
-    // Ensure mouse is released and visible
+    // Ensure Mouse is Released and Visible
     cursor.visible = true;
     cursor.grab_mode = CursorGrabMode::None;
 
-    // Load images
+    // Load Images
     let first = asset_server.load(SPLASH_0_PATH);
     let second = asset_server.load(SPLASH_1_PATH);
 

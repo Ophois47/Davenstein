@@ -115,7 +115,7 @@ pub fn mission_success_input(
     mut advance: ResMut<crate::ui::sync::AdvanceLevelRequested>,
     mut current_level: ResMut<davelib::level::CurrentLevel>,
 ) {
-    // Only while mission success active, only once
+    // Only While Mission Success Active, Only Once
     if !win.0 || advance.0 {
         return;
     }

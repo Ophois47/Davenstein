@@ -104,7 +104,7 @@ pub(crate) struct HudFaceOverride {
 
 impl Default for HudFaceOverride {
     fn default() -> Self {
-        // How long the grin stays up
+        // How Long Grin Stays Up
         const GRIN_SECS: f32 = 1.80;
 
         let mut t = Timer::from_seconds(GRIN_SECS, TimerMode::Once);
@@ -113,12 +113,10 @@ impl Default for HudFaceOverride {
     }
 }
 
-/// Marker on the ImageNode that is BJ's face in the HUD.
+/// Marker on ImageNode that is BJ's Face in HUD
 #[derive(Component)]
 pub(crate) struct HudFaceImage;
 
-/// Your face sprite resource should be able to return a handle by (row, col).
-/// If you already have this, adapt the `at()` method signature to match yours.
 #[derive(Resource, Clone)]
 pub(crate) struct HudFaceSprites {
     pub bands: [[Handle<Image>; 3]; 7],
@@ -153,19 +151,19 @@ pub(super) struct HudGoldKeyIcon;
 pub(super) struct HudSilverKeyIcon;
 
 #[derive(Component)]
-pub(super) struct HudHpDigit(pub usize); // 0=hundreds, 1=tens, 2=ones
+pub(super) struct HudHpDigit(pub usize); // 0 = Hundreds, 1 = Tens, 2 = Ones
 
 #[derive(Component)]
-pub(super) struct HudAmmoDigit(pub usize); // 0=hundreds, 1=tens, 2=ones
+pub(super) struct HudAmmoDigit(pub usize); // 0 = Hundreds, 1 = Tens, 2 = Ones
 
 #[derive(Component)]
-pub(super) struct HudScoreDigit(pub usize); // 0..5 (six digits)
+pub(super) struct HudScoreDigit(pub usize); // 0..5 (Six Digits)
 
 #[derive(Component)]
-pub(super) struct HudLivesDigit(pub usize); // 0..1 (two digits)
+pub(super) struct HudLivesDigit(pub usize); // 0..1 (Two Digits)
 
 #[derive(Component)]
-pub(super) struct HudFloorDigit(pub usize); // 0..1 (two digits)
+pub(super) struct HudFloorDigit(pub usize); // 0..1 (Two Digits)
 
 fn split_score_6_blanks(n: i32) -> [Option<usize>; 6] {
     let mut n = n.max(0) as u32;
@@ -173,7 +171,7 @@ fn split_score_6_blanks(n: i32) -> [Option<usize>; 6] {
         n = 999_999;
     }
 
-    // First compute fixed-width digits (with zeros)
+    // First Compute Fixed-Width Digits (With Zeros)
     let mut raw = [0usize; 6];
     for i in 0..6 {
         let idx = 5 - i;
@@ -181,7 +179,8 @@ fn split_score_6_blanks(n: i32) -> [Option<usize>; 6] {
         n /= 10;
     }
 
-    // Then convert leading zeros to blanks, but always show at least one digit.
+    // Then Convert Leading Zeros to Blanks,
+    // Always Show at Least One Digit
     let mut out: [Option<usize>; 6] = [None; 6];
     let mut started = false;
 
@@ -197,7 +196,7 @@ fn split_score_6_blanks(n: i32) -> [Option<usize>; 6] {
     out
 }
 
-// Right-aligned with leading blanks (good for lives, ammo/hp style)
+// Right-Aligned with Leading Blanks (Good for Lives, Ammo / HP Style)
 fn split_right_aligned_blanks(n: i32, width: usize) -> Vec<Option<usize>> {
     let mut n = n.max(0) as u32;
     let max = 10u32.saturating_pow(width as u32).saturating_sub(1);
@@ -322,7 +321,6 @@ fn split_3_right_aligned(n: i32) -> [Option<usize>; 3] {
     let t = ((n / 10) % 10) as usize;
     let o = (n % 10) as usize;
 
-    // Right-aligned with blanks (Wolf-like)
     let hundreds = if n >= 100 { Some(h) } else { None };
     let tens = if n >= 10 { Some(t) } else { None };
     let ones = Some(o);
@@ -341,7 +339,6 @@ pub(crate) fn sync_hud_floor_digits(
     let Some(digits) = digits else { return; };
 
     let floor_num: i32 = level.0.floor_number();
-
     let floor_digits = split_right_aligned_blanks(floor_num, 2);
 
     for (slot, mut img) in &mut q {
@@ -360,10 +357,7 @@ pub(crate) fn sync_viewmodel_size(
     let Some(win) = q_win.iter().next() else { return; };
     let Some(mut node) = q_vm.iter_mut().next() else { return; };
 
-    // Must match your HUD layout in setup_hud
     const STATUS_BAR_H: f32 = 64.0;
-
-    // Tune this. 0.60-ish usually matches a "Wolf big gun" feel.
     const VIEWMODEL_HEIGHT_FRAC: f32 = 0.62;
 
     let view_h = (win.resolution.height() - STATUS_BAR_H).max(1.0);
@@ -414,7 +408,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
         return;
     }
 
-    // NEW: Block selection/firing while dead (input lock)
+    // Block Selection / Firing While Dead (Input Lock)
     if lock.0 {
         *fire_anim_accum = 0.0;
         *last_weapon = Some(hud.selected);
@@ -875,11 +869,12 @@ pub(crate) fn ensure_pickup_flash_overlay(
     }
 
     let Some(damage_overlay) = q_damage.iter().next() else {
-        // HUD not built yet (or damage overlay missing); nothing to attach to
+        // HUD Not Built Yet (or Damage Overlay Missing)
+        // Nothing to Attach to
         return;
     };
 
-    // Walk up to the top-most HUD node (the root spawned by setup_hud)
+    // Walk Up to Top-Most HUD Node (Root Spawned by setup_hud())
     let mut root = damage_overlay;
     while let Ok(child_of) = q_parent.get(root) {
         root = child_of.0;
@@ -929,10 +924,8 @@ pub(crate) fn tick_pickup_flash(
     if !flash.timer.is_finished() {
         flash.timer.tick(time.delta());
     }
-
     let mut a = flash.alpha();
 
-    // Match original feel: red shift (damage/death) takes precedence over white shift
     if damage.alpha() > 0.0 || death.alpha() > 0.0 {
         a = 0.0;
     }
@@ -984,16 +977,16 @@ pub(crate) fn sync_game_over_overlay_visibility(
     }
 }
 
-/// Maps HP (1..100) to stage 0..6. HP<=0 is handled separately as dead
-/// This gives 7 injury stages + dead = 8 total states
+/// Maps HP (1..100) to Stage 0..6. HP<=0 Handled Separately as Dead
+/// 7 Injury Stages + Dead = 8 Total States
 fn stage_from_hp(hp: i32) -> usize {
     let hp = hp.clamp(1, 100);
     let dmg = 100 - hp;              // 0..99
     ((dmg * 7) / 100) as usize       // 0..6
 }
 
-/// Returns (row, col) for the base face given hp + dir
-/// Column order within a group matches your sheet: forward, right, left
+/// Returns (Row, Col) for Base Face Given HP + Dir
+/// Column Order Within a Group Matches Sprite Sheet: Forward, Right, Left
 fn coords_for(hp: i32, dir: FaceDir) -> (usize, usize) {
     if hp <= 0 {
         return (1, 10); // dead (r1_c10)
@@ -1011,7 +1004,7 @@ fn coords_for(hp: i32, dir: FaceDir) -> (usize, usize) {
         // Row 0 has Stages 0..3
         (0, stage * 3 + dir_off)
     } else {
-        // Row 1 has Stages 4..6 (0..2 in that row)
+        // Row 1 has Stages 4..6 (0..2 in That Row)
         let s = stage - 4;
         (1, s * 3 + dir_off)
     }
@@ -1066,10 +1059,10 @@ pub(crate) fn sync_hud_face(
         return;
     }
 
-    // Base face: compute (row, col) then map to your 7x3 "bands" table.
+    // Base Face: Compute (Row, Col) Then Map to 7x3 "Bands" Table
     let (row, col) = coords_for(hud.hp, look.dir);
 
-    // Convert (row,col) -> stage 0..6 and dir 0..2 (forward/right/left)
+    // Convert (Row, Col) -> Stage 0..6 and Dir 0..2 (Forward / Right / Left)
     let (stage, dir_idx) = if row == 0 {
         (col / 3, col % 3)
     } else {
@@ -1087,7 +1080,7 @@ pub(crate) fn setup_hud(
     q_windows: Query<&Window, With<PrimaryWindow>>,
     current_level: Res<CurrentLevel>,
 ) {
-    // Viewmodel sprites
+    // Viewmodel Sprites
     let sprites = ViewModelSprites {
         knife: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/knife_{i}.png"))),
         pistol: std::array::from_fn(|i| asset_server.load(format!("textures/weapons/pistol_{i}.png"))),
@@ -1096,10 +1089,10 @@ pub(crate) fn setup_hud(
     };
     commands.insert_resource(sprites.clone());
 
-    // Starting viewmodel based on selected weapon
+    // Starting Viewmodel Based on Selected Weapon
     let weapon_idle: Handle<Image> = sprites.idle(hud.selected);
 
-    // HUD digit sprites
+    // HUD Digit Sprites
     let hud_digits = HudDigitSprites {
         digits: std::array::from_fn(|i| asset_server.load(format!("textures/hud/digits/digit_{i}.png"))),
         blank: asset_server.load("textures/hud/digits/digit_blank.png"),
@@ -1116,7 +1109,7 @@ pub(crate) fn setup_hud(
     };
     commands.insert_resource(hud_icons.clone());
 
-    // --- NEW: HUD face sprites (your naming convention) ---
+    // --- NEW: HUD Face Sprites ---
     let f = |r: u8, c: u8| asset_server.load(format!("textures/hud/faces/face_r{r}_c{c}.png"));
 
     let hud_faces = HudFaceSprites {
@@ -1130,38 +1123,38 @@ pub(crate) fn setup_hud(
             [f(1, 6), f(1, 7), f(1, 8)],
         ],
         grin: f(1, 9),   // r1_c9  = grin
-        dead: f(1, 10),  // r1_c10 = dead (non-negotiable per your convention)
+        dead: f(1, 10),  // r1_c10 = dead
     };
 
     commands.insert_resource(hud_faces.clone());
     commands.insert_resource(HudFaceOverride::default());
     
-    // Boxed HUD strip background (320x44)
+    // Boxed HUD Strip Background (320x44)
     let status_bar: Handle<Image> = asset_server.load("textures/hud/status_bar.png");
 
-    // Simple UI text font (used for Game Over overlay)
+    // Simple UI Text Font (Used for Game Over Overlay)
     let ui_font: Handle<Font> = asset_server.load("fonts/font.ttf");
 
-    // --- Native Wolf HUD sizing (current strip-only HUD) ---
+    // --- Native Wolf HUD Sizing (Current Strip-Only HUD) ---
     const HUD_W: f32 = 320.0;
     const STATUS_H: f32 = 44.0;
 
-    // Digit cell size (native)
+    // Digit Cell Size (Native)
     const DIGIT_W: f32 = 8.0;
     const DIGIT_H: f32 = 16.0;
     const DIGIT_TOP: f32 = 18.0;
 
-    // Placement tweaks (native coords)
+    // Placement Tweaks (Native Coords)
     const SCORE_X: f32 = 48.0;
     const LIVES_X: f32 = 108.0;
     const HP_X: f32 = 168.0;
     const AMMO_X: f32 = 208.0;
 
-    // Icon sizes
+    // Icon Sizes
     const KEY_W: f32 = 7.0;
     const KEY_H: f32 = 17.0;
 
-    // Keys: stacked
+    // Keys: Stacked
     const KEY_X: f32 = 242.0;
     const KEY_GOLD_Y: f32 = 5.2;
     const KEY_SILVER_Y: f32 = 23.0;
@@ -1181,13 +1174,13 @@ pub(crate) fn setup_hud(
     // Current Player Level
     const FLOOR_X: f32 = 14.0;
 
-    // Pixel-perfect integer scale from window width
+    // Pixel-Perfect Integer Scale From Window Width
     let win = q_windows.iter().next().expect("PrimaryWindow");
     let win_w = win.resolution.width();
     let hud_scale_i = (win_w / HUD_W).floor().max(1.0) as i32;
     let hud_scale = hud_scale_i as f32;
 
-    // Scaled sizes
+    // Scaled Sizes
     let hud_w_px = HUD_W * hud_scale;
     let status_h_px = STATUS_H * hud_scale;
 
@@ -1201,20 +1194,20 @@ pub(crate) fn setup_hud(
     let ammo_x_px = AMMO_X * hud_scale;
     let floor_x_px = FLOOR_X * hud_scale;
 
-    // Scaled key placement
+    // Scaled Key Placement
     let key_w_px = KEY_W * hud_scale;
     let key_h_px = KEY_H * hud_scale;
     let key_x_px = KEY_X * hud_scale;
     let key_gold_y_px = KEY_GOLD_Y * hud_scale;
     let key_silver_y_px = KEY_SILVER_Y * hud_scale;
 
-    // Scaled weapon placement
+    // Scaled Weapon Placement
     let wep_x_px = WEP_X * hud_scale;
     let wep_top_px = WEP_TOP * hud_scale;
     let wep_w_px = WEP_W * hud_scale;
     let wep_h_px = WEP_H * hud_scale;
 
-    // Scaled face placement
+    // Scaled Face Placement
     let face_x_px = FACE_X * hud_scale;
     let face_top_px = FACE_TOP * hud_scale;
     let face_w_px = FACE_W * hud_scale;
@@ -1224,7 +1217,7 @@ pub(crate) fn setup_hud(
     const GUN_SRC_PX: f32 = 64.0;
     const GUN_PX: f32 = GUN_SRC_PX * GUN_SCALE;
 
-    // Wolf HUD blue (0, 0, 164)
+    // Wolf HUD Blue (0, 0, 164)
     const BACKGROUND_COLOR: bevy::prelude::Srgba = Srgba::rgb(0.0, 0.0, 164.0 / 255.0);
 
     commands
@@ -1236,7 +1229,7 @@ pub(crate) fn setup_hud(
             ..default()
         })
         .with_children(|ui| {
-            // View area
+            // View Area
             ui.spawn(Node {
                 width: Val::Percent(100.0),
                 flex_grow: 1.0,
@@ -1247,7 +1240,7 @@ pub(crate) fn setup_hud(
                 ..default()
             })
             .with_children(|view| {
-                // Absolute overlay layer (does NOT affect layout)
+                // Absolute Overlay Layer (Does NOT Affect Layout)
                 view.spawn(Node {
                     width: Val::Percent(100.0),
                     height: Val::Percent(100.0),
@@ -1283,7 +1276,7 @@ pub(crate) fn setup_hud(
                         BackgroundColor(Srgba::new(1.0, 0.0, 0.0, 0.0).into()),
                     ));
 
-                    // Stronger red overlay for death (fades in, then holds)
+                    // Stronger Red Overlay for Death (Fades in, Then Holds)
                     vm.spawn((
                         DeathOverlayOverlay,
                         ZIndex(2),
@@ -1300,7 +1293,7 @@ pub(crate) fn setup_hud(
                 });
             });
 
-            // Status bar container (44px tall, scaled)
+            // Status Bar Container (44px Tall, Scaled)
             ui.spawn((
                 Node {
                     width: Val::Percent(100.0),
@@ -1312,7 +1305,7 @@ pub(crate) fn setup_hud(
                 BackgroundColor(BACKGROUND_COLOR.into()),
             ))
             .with_children(|bar| {
-                // Inner HUD canvas (scaled)
+                // Inner HUD Canvas (Scaled)
                 bar.spawn(Node {
                     width: Val::Px(hud_w_px),
                     height: Val::Px(status_h_px),
@@ -1320,7 +1313,7 @@ pub(crate) fn setup_hud(
                     ..default()
                 })
                 .with_children(|inner| {
-                    // Background Strip (spawn first so it draws behind everything)
+                    // Background Strip (Spawn First so Draws Behind Everything)
                     inner.spawn((
                         ImageNode::new(status_bar.clone()),
                         ZIndex(0),
@@ -1350,7 +1343,6 @@ pub(crate) fn setup_hud(
                     ));
 
                     // --- Icons ---
-
                     // Weapon Icon
                     inner.spawn((
                         HudWeaponIcon,
@@ -1399,7 +1391,7 @@ pub(crate) fn setup_hud(
                     ));
 
                     // --- Digits ---
-                    // FLOOR (derived from CurrentLevel)
+                    // FLOOR (Derived From CurrentLevel)
                     let floor_num: i32 = current_level.0.floor_number();
                     let floor_digits = split_right_aligned_blanks(floor_num, 2);
 
@@ -1543,7 +1535,7 @@ pub(crate) fn setup_hud(
                 });
             });
 
-            // Full-screen overlay (sits above view + status bar)
+            // Full-Screen Overlay (Sits Above View + Status Bar)
             ui.spawn((
                 GameOverOverlay,
                 ZIndex(100),
@@ -1575,7 +1567,7 @@ pub(crate) fn setup_hud(
                 ));
 
                 go.spawn((
-                    Text::new("Press Enter to restart"),
+                    Text::new("Press ENTER to Continue ..."),
                     TextFont {
                         font: ui_font.clone(),
                         font_size: 24.0,
@@ -1586,7 +1578,7 @@ pub(crate) fn setup_hud(
                 ));
             });
 
-            // Full-screen overlay (sits above view + status bar)
+            // Full-Screen Overlay (Sits Above View + Status Bar)
             ui.spawn((
                 MissionSuccessOverlay,
                 ZIndex(101),

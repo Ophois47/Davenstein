@@ -156,8 +156,7 @@ fn process_fire_shots(
     }
 
     fn roll_gun_damage(dist_tiles: i32, rng: &mut u32) -> Option<i32> {
-        // Wolf3D GunAttack buckets + far miss logic
-        // Treat 0 damage as miss so hits never deal 0
+        // Treat 0 Damage as Miss so Hits Never Deal 0
         let damage = if dist_tiles < 2 {
             rnd_byte(rng) / 4
         } else if dist_tiles < 4 {
@@ -173,7 +172,6 @@ fn process_fire_shots(
     }
 
     fn roll_knife_damage(rng: &mut u32) -> i32 {
-        // Keep simple and never 0
         (rnd_byte(rng) / 4).max(1)
     }
 
@@ -184,7 +182,7 @@ fn process_fire_shots(
         radius: f32,
         half_h: f32,
     ) -> Option<f32> {
-        // 2D Ray-Circle in XZ, then clamp by Y at T
+        // 2D Ray-Circle in XZ, Then Clamp by Y at T
         let o = Vec2::new(origin.x, origin.z);
         let d = Vec2::new(dir.x, dir.z);
         let c = Vec2::new(center.x, center.z);
@@ -243,11 +241,11 @@ fn process_fire_shots(
         let world_hit = raycast_grid(&grid, &solid, shot.origin, dir, max_dist);
         let world_dist = world_hit.as_ref().map(|h| h.dist).unwrap_or(max_dist);
 
-        // Shooter tile (Chebyshev tile distance like Wolf GunAttack)
+        // Shooter Tile (Chebyshev Tile Distance like Wolf GunAttack)
         let ptx = (shot.origin.x + 0.5).floor() as i32;
         let ptz = (shot.origin.z + 0.5).floor() as i32;
 
-        // Find nearest living enemy hit before the wall
+        // Find Nearest Living Enemy Hit Before Wall
         let mut best: Option<(Entity, EnemyKind, f32, i32)> = None;
 
         for (e, kind, occ, gt) in q_alive.iter() {
@@ -272,7 +270,7 @@ fn process_fire_shots(
             }
         }
 
-        // Enemy hit consumes shot
+        // Enemy Hit Consumes Shot
         if let Some((e, kind, _t, dist_tiles)) = best {
             let mut dmg_opt = match shot.weapon {
                 WeaponSlot::Knife => Some(roll_knife_damage(&mut *rng)),
@@ -281,7 +279,7 @@ fn process_fire_shots(
                 }
             };
 
-            // Surprise double damage if not in attack mode yet
+            // Surprise Double Damage if Not in Attack Mode Yet
             if let Ok(mut ai) = q_ai.get_mut(e) {
                 if ai.state == davelib::ai::EnemyAiState::Stand {
                     if let Some(d) = dmg_opt.as_mut() {

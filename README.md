@@ -9,3 +9,16 @@ To Cross Compile for Armv7: $ cross build --release --target armv7-unknown-linux
 Then Run: $ cargo run --bin Davenstein
 
 Alternatively: $ ./target/release/Davenstein
+
+*********************************************
+CURRENT TODO LIST:
+**********************************************
+- Boss Hans for E1M9
+- Doors should not close when corpses are in the way
+- Guns we already have, we should still pick up and simply get ammo for
+- Get enemy damage to player in line with original 1992 Wolfenstein
+- Enemies shouldnt be able to fire when getting shot
+- Enemies should sentry and patrol
+- Pause game mechanic
+- God mode mechanic (debug)
+

@@ -662,7 +662,7 @@ pub fn collect_pickups(
             }
 
             PickupKind::Key(k) => {
-                // Use PlayerKeys as gameplay truth; keep HUD mirrored.
+                // Use PlayerKeys as Gameplay Truth, Keep HUD Mirrored
                 match q_pkeys.get_mut(player_e) {
                     Ok(mut pk) => {
                         let already = match k {
@@ -691,7 +691,7 @@ pub fn collect_pickups(
                         }
                     }
                     Err(_) => {
-                        // If player somehow spawned without PlayerKeys, attach it immediately.
+                        // If Player Somehow Spawned Without PlayerKeys, Attach Immediately
                         let already = match k {
                             KeyKind::Gold => hud.key_gold,
                             KeyKind::Silver => hud.key_silver,

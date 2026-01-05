@@ -42,9 +42,8 @@ impl Plugin for UiPlugin {
         // HUD Spawn
         // -----------------------------
         app.add_plugins(splash::SplashPlugin);
-
         // IMPORTANT: chain() Makes Ordering Deterministic
-        // Splash should spawn after HUD so it visually covers everything
+        // Splash Should Spawn After HUD so it Visually Covers Everything
         app.add_systems(
             Startup,
             (
@@ -54,8 +53,6 @@ impl Plugin for UiPlugin {
             )
                 .chain(),
         );
-
-        // IMPORTANT: chain() Makes Ordering Deterministic
         app.add_systems(
             Update,
             (

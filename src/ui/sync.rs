@@ -25,7 +25,7 @@ pub struct DeathDelay {
 impl Default for DeathDelay {
     fn default() -> Self {
         let mut t = Timer::from_seconds(1.25, TimerMode::Once);
-        // Start finished so it does nothing until activated
+        // Start Finished so it Does Nothing Until Activated
         t.set_elapsed(t.duration());
         Self { active: false, timer: t }
     }
@@ -34,12 +34,12 @@ impl Default for DeathDelay {
 #[derive(Resource, Debug, Clone, Default)]
 pub struct RestartRequested(pub bool);
 
-/// A request to start a fresh run (reset score/lives/etc)
+/// A Request to Start Fresh Run (Reset Score / Lives / etc)
 #[derive(Resource, Debug, Clone, Default)]
 pub struct NewGameRequested(pub bool);
 
-/// A request to advance to the next level 
-/// while preserving run stats (ammo/weapons/score/lives/hp)
+/// Request to Advance to Next Level 
+/// Preserving Run Stats (Ammo / Weapons / Score / Lives / HP)
 #[derive(Resource, Debug, Clone, Default)]
 pub struct AdvanceLevelRequested(pub bool);
 
@@ -57,9 +57,9 @@ pub fn apply_enemy_fire_to_player_vitals(
     latch: Res<PlayerDeathLatch>,
     mut enemy_fire: MessageReader<EnemyFire>,
 ) {
-    // If we're dead (latched) or frozen, ignore further damage.
+    // If Dead (Latched) or Frozen, Ignore Further Damage
     if lock.0 || latch.0 {
-        // Drain pending shots so they don't apply after we unlock.
+        // Drain Pending Shots so They Don't Apply After Unlock
         for _ in enemy_fire.read() {}
         return;
     }
@@ -67,7 +67,7 @@ pub fn apply_enemy_fire_to_player_vitals(
     let Some(mut vitals) = q_player.iter_mut().next() else { return; };
 
     for ev in enemy_fire.read() {
-        // damage == 0 means miss
+        // Damage == 0 Means Miss
         if ev.damage <= 0 {
             info!("Enemy missed (damage=0)");
             continue;
@@ -103,7 +103,6 @@ pub fn handle_player_death_once(
 
     game_over.0 = false;
 
-    // was: death_overlay.trigger();
     death_overlay.active = true;
     death_overlay.timer.reset();
 
@@ -131,7 +130,6 @@ pub fn tick_death_delay_and_request_restart(
         restart.0 = false;
         game_over.0 = false;
 
-        // was: death_overlay.clear();
         death_overlay.active = false;
         let dur = death_overlay.timer.duration();
         death_overlay.timer.set_elapsed(dur);
@@ -159,7 +157,8 @@ pub fn tick_death_delay_and_request_restart(
     }
 }
 
-/// While in Game Over, wait for player input to start a new run.
+// In Game Over, Wait for Player
+// Input to Start New Run
 pub fn game_over_input(
     keys: Res<ButtonInput<KeyCode>>,
     game_over: Res<GameOver>,

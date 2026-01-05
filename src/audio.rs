@@ -253,7 +253,7 @@ pub fn start_music(
     audio: Res<GameAudio>,
     q_music: Query<(), With<Music>>,
 ) {
-    // Prevent duplicates if Startup runs again
+    // Prevent Duplicates if Startup Runs Again
     if q_music.iter().next().is_some() {
         return;
     }
@@ -278,7 +278,8 @@ pub fn sync_level_music(
     q_music: Query<Entity, With<Music>>,
     mut last: Local<Option<LevelId>>,
 ) {
-    // If music already exists and we haven't tracked it yet, assume it's correct for current level
+    // If Music Already Exists and we Haven't Tracked it Yet,
+    // Assume it's Correct for Current Level
     if last.is_none() && q_music.iter().next().is_some() {
         *last = Some(level.0);
         return;
@@ -355,7 +356,8 @@ pub fn play_sfx_events(
         }
     }
 
-    // Play all non-pickups (can overlap), EXCEPT enemy voice which is single-channel.
+    // Play All Non-Pickups (Can Overlap),
+    // EXCEPT Enemy Voice Which is Single-Channel
     for e in non_pickups {
         let Some(list) = lib.map.get(&e.kind) else {
             warn!("Missing SFX for {:?}", e.kind);
@@ -371,7 +373,7 @@ pub fn play_sfx_events(
         let is_enemy_voice = matches!(e.kind, SfxKind::EnemyAlert(_) | SfxKind::EnemyDeath(_));
 
         if is_enemy_voice {
-            // Cut off any currently playing enemy voice (alert/death)
+            // Cut Off Any Currently Playing Enemy Voice (Alert / Death)
             for ent in q_active_enemy_voice.iter() {
                 commands.entity(ent).despawn();
             }
@@ -425,7 +427,6 @@ pub fn play_sfx_events(
                 .with_spatial_scale(SpatialScale::new(0.15))
                 .with_volume(Volume::Linear(1.3)),
 
-            // These should have been classified as pickups and never end up here.
             SfxKind::PickupChaingun
             | SfxKind::PickupMachineGun
             | SfxKind::PickupAmmo
@@ -451,7 +452,7 @@ pub fn play_sfx_events(
         }
     }
 
-    // Play ONLY the last pickup (stop previous pickup sound)
+    // Play ONLY Last Pickup (Stop Previous Pickup Sound)
     let Some(e) = last_pickup else {
         return;
     };

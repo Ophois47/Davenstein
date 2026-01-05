@@ -323,12 +323,13 @@ pub fn use_pushwalls(
         return;
     };
 
-    // IMPORTANT: tiles are centered on integers; boundaries are at n ± 0.5
+    // IMPORTANT: Tiles Centered on Integers
+    // Boundaries are at n ± 0.5
     let world_to_tile = |p: Vec3| -> IVec2 {
         IVec2::new((p.x + 0.5).floor() as i32, (p.z + 0.5).floor() as i32)
     };
 
-    // If a pushwall is already active, Wolf won't start another.
+    // If Pushwall Already Active Don't Start Another
     if pw_state.active.is_some() {
         let player_tile = world_to_tile(player_tf.translation);
 
@@ -359,12 +360,12 @@ pub fn use_pushwalls(
         return;
     }
 
-    // Only attempt if the tile in front is a wall.
+    // Only Attempt if Tile in Front is Wall
     if !matches!(grid.tile(front.x as usize, front.y as usize), Tile::Wall) {
         return;
     }
 
-    // Must be marked as pushwall in plane1 markers.
+    // Must be Marked as Pushwall in plane1 Markers
     if !markers.is_marked(front.x, front.y) {
         sfx.write(PlaySfx {
             kind: SfxKind::NoWay,
@@ -382,7 +383,7 @@ pub fn use_pushwalls(
         return;
     }
 
-    // Wolf precondition: 2 tiles ahead must be clear.
+    // 2 Tiles Ahead Must be Clear
     let t1 = front + dir;
     let t2 = front + dir * 2;
 
@@ -396,14 +397,14 @@ pub fn use_pushwalls(
         return;
     }
 
-    // Consume marker so it can't be pushed again.
+    // Consume Marker so Can't be Pushed Again
     markers.consume(front.x, front.y);
 
-    // Spawn visual wall centered on the pushwall tile (y is half wall height = 0.5).
+    // Spawn Visual Wall Centered on Pushwall Tile (Y is Half Wall Height = 0.5)
     let start_center = Vec3::new(front.x as f32, 0.5, front.y as f32);
     let ent = spawn_pushwall_visual(&mut commands, &cache, wall_id, start_center);
 
-    // Initialize state. Wolf base starts at the wall tile itself.
+    // Initialize State. Wolfenstein 3D Base Starts at Wall Tile Itself
     let active = ActivePushwall {
         wall_id,
         base: front,
@@ -414,21 +415,21 @@ pub fn use_pushwalls(
 
     pw_state.active = Some(active);
 
-    // Block base + ahead tile.
+    // Block Base + Ahead Tile
     pw_occ.set(front, front + dir);
 
-    // Rebuild wall faces, skipping the pushwall base tile (the moving wall renders it).
+    // Rebuild Wall Faces, Skipping Pushwall Base Tile (Moving Wall Renders It)
     rebuild.write(RebuildWalls { skip: Some(front) });
 
-    // Play pushwall sound.
+    // Play Pushwall Sound
     sfx.write(PlaySfx {
         kind: SfxKind::Pushwall,
         pos: player_tf.translation,
     });
 }
 
-/// Fixed-tick pushwall movement at Wolf's 70 Hz tic rate.
-/// Run this in FixedUpdate (60Hz) but internally step at 70Hz using an accumulator.
+/// Fixed-Tick Pushwall Movement at Wolf's 70 Hz Tic Rate
+/// Run in FixedUpdate (60Hz) but Internally Step at 70Hz Using an Accumulator
 pub fn tick_pushwalls(
     time: Res<Time>,
     mut clock: ResMut<PushwallClock>,
@@ -446,7 +447,7 @@ pub fn tick_pushwalls(
 
     clock.accum += time.delta_secs();
 
-    // Process multiple 70Hz tics if FixedUpdate is slow.
+    // Process Multiple 70Hz Tics if FixedUpdate is Slow
     while clock.accum >= WOLF_TIC_SECS {
         clock.accum -= WOLF_TIC_SECS;
 
@@ -454,15 +455,15 @@ pub fn tick_pushwalls(
         active.state += 1;
         let new_block = active.state / PUSHWALL_TICS_PER_TILE;
 
-        // Boundary crossing (every 128 tics).
+        // Boundary Crossing (Every 128 Tics)
         if new_block != old_block {
-            // Tile behind becomes empty.
+            // Tile Behind Becomes Empty
             if in_bounds(&grid, active.base) {
                 grid.set_tile(active.base.x as usize, active.base.y as usize, Tile::Empty);
                 grid.set_plane0_code(active.base.x as usize, active.base.y as usize, 0);
             }
 
-            // Stop after exactly 2 tiles.
+            // Stop After Exactly 2 Tiles
             if active.state >= PUSHWALL_TOTAL_TICS {
                 let dest = active.base + active.dir;
                 if in_bounds(&grid, dest) {
@@ -470,32 +471,32 @@ pub fn tick_pushwalls(
                     grid.set_plane0_code(dest.x as usize, dest.y as usize, active.wall_id);
                 }
 
-                // Remove visual entity + children.
+                // Remove Visual Entity + Children
                 despawn_tree(&mut commands, &q_children, active.entity);
 
-                // Clear state and occupancy.
+                // Clear State + Occupancy
                 pws.active = None;
                 occ.clear();
 
-                // Rebuild walls normally (no skip).
+                // Rebuild Walls Normally (No Skip)
                 rebuild.write(RebuildWalls { skip: None });
                 return;
             }
 
-            // Continue: advance base by 1 tile.
+            // Continue: Advance Base by 1 Tile
             active.base += active.dir;
 
-            // Block base + ahead tile.
+            // Block Base + Ahead Tile
             occ.set(active.base, active.base + active.dir);
 
-            // Rebuild walls skipping the new base tile (moving wall renders it).
+            // Rebuild Walls Skipping New Base Tile (Moving Wall Renders It)
             rebuild.write(RebuildWalls {
                 skip: Some(active.base),
             });
         }
     }
 
-    // Visual interpolation inside current tile segment.
+    // Visual Interpolation Inside Current Tile Segment
     let pwallpos = ((active.state / 2) & 63) as f32 / 64.0;
     let base_center = Vec3::new(active.base.x as f32, 0.5, active.base.y as f32);
     let offset = Vec3::new(active.dir.x as f32, 0.0, active.dir.y as f32) * pwallpos;

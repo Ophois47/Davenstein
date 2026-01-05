@@ -68,7 +68,7 @@ fn extract_embedded_assets_to_temp() -> String {
     out_dir.to_string_lossy().to_string()
 }
 
-/// Gate gameplay systems until the world resources exist
+/// Gate Gameplay Systems Until World Resources Exist
 // Introduced new transition path for level advance (AdvanceLevelRequested) and 
 // rebuilding level during runtime Bevy validates system parameters before running
 //  system code. So even Option<Res<MapGrid>> inside a system caused other Res<...>
