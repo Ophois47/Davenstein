@@ -20,4 +20,5 @@ CURRENT TODO LIST:
 - Enemies shouldnt be able to fire when getting shot
 - Enemies should sentry and patrol
 - Pause game mechanic
+- Proper main menu
 - God mode mechanic (debug)

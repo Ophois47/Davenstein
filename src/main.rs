@@ -29,6 +29,7 @@ use davelib::player::{
     door_auto_close,
     grab_mouse, mouse_look,
     player_move,
+    toggle_god_mode,
     use_doors,
     PlayerSettings,
     PlayerControlLock,
@@ -110,6 +111,7 @@ fn main() {
         .init_resource::<PlayerSettings>()
         .init_resource::<PlayerControlLock>()
         .init_resource::<PlayerDeathLatch>()
+        .init_resource::<davelib::player::GodMode>()
         .init_resource::<ui::sync::DeathDelay>()
         .init_resource::<ui::sync::RestartRequested>()
         .init_resource::<ui::sync::NewGameRequested>()
@@ -151,6 +153,7 @@ fn main() {
         .add_systems(
             Update,
             (
+                toggle_god_mode,
                 grab_mouse,
                 mouse_look,
             )

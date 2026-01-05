@@ -55,8 +55,15 @@ pub fn apply_enemy_fire_to_player_vitals(
     mut q_player: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
     lock: Res<PlayerControlLock>,
     latch: Res<PlayerDeathLatch>,
+    god: Res<davelib::player::GodMode>,
     mut enemy_fire: MessageReader<EnemyFire>,
 ) {
+    // God Mode: ignore damage (but drain events)
+    if god.0 {
+        for _ in enemy_fire.read() {}
+        return;
+    }
+
     // If Dead (Latched) or Frozen, Ignore Further Damage
     if lock.0 || latch.0 {
         // Drain Pending Shots so They Don't Apply After Unlock

@@ -74,6 +74,22 @@ pub struct PlayerControlLock(pub bool);
 #[derive(Resource, Default)]
 pub struct PlayerDeathLatch(pub bool);
 
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct GodMode(pub bool);
+
+impl Default for GodMode {
+    fn default() -> Self {
+        Self(false)
+    }
+}
+
+pub fn toggle_god_mode(keys: Res<ButtonInput<KeyCode>>, mut god: ResMut<GodMode>) {
+    if keys.just_pressed(KeyCode::F9) {
+        god.0 = !god.0;
+        info!("God Mode: {}", if god.0 { "ON" } else { "OFF" });
+    }
+}
+
 // Left Click to Lock/Hide Cursor, Esc to Release
 pub fn grab_mouse(
     mut cursor_options: Single<&mut CursorOptions>,
@@ -442,6 +458,7 @@ pub fn door_auto_close(
     time: Res<Time<Fixed>>,
     mut grid: ResMut<MapGrid>,
     q_player: Query<&Transform, With<Player>>,
+    q_occupied: Query<&crate::actors::OccupiesTile>,
     mut q_doors: Query<(&DoorTile, &mut DoorState, &DoorAnim, &mut Visibility)>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
@@ -476,6 +493,10 @@ pub fn door_auto_close(
     let player_xz = Vec2::new(player_tf.translation.x, player_tf.translation.z);
     let _player_tile = world_to_tile(player_xz);
 
+    // Enemy That Still has OccupiesTile Considered "Blocking Door From Closing"
+    // Corpses Should NOT Have OccupiesTile (Removed When Finalizing Corpse), so They Won't Block
+    let occupied_tiles: Vec<IVec2> = q_occupied.iter().map(|o| o.0).collect();
+
     for (door, mut state, anim, mut vis) in q_doors.iter_mut() {
         let dt = door.0;
         if dt.x < 0 || dt.y < 0 || dt.x >= grid.width as i32 || dt.y >= grid.height as i32 {
@@ -497,8 +518,15 @@ pub fn door_auto_close(
             continue;
         }
 
-        // Block Closing if Player Still Overlapping Doorway in World Space
+        // Block Closing if Player Overlapping Doorway in World Space
         if circle_overlaps_tile(player_xz, PLAYER_RADIUS + BLOCK_PAD, dt) {
+            state.open_timer = RETRY_SECS_IF_BLOCKED;
+            continue;
+        }
+
+        // Block Closing if Enemy Still Occupying Doorway Tile (Alive or Dying)
+        // Corpses Should Have had OccupiesTile Removed, so They Won't Block This
+        if occupied_tiles.iter().any(|t| *t == dt) {
             state.open_timer = RETRY_SECS_IF_BLOCKED;
             continue;
         }
@@ -515,16 +543,22 @@ pub fn door_auto_close(
 }
 
 pub fn apply_enemy_fire_to_player(
-    mut q_player: Query<&mut PlayerVitals, With<crate::player::Player>>,
-    mut ev: MessageReader<EnemyFire>,
+    mut enemy_fire: MessageReader<EnemyFire>,
+    mut q_player: Query<&mut PlayerVitals, With<Player>>,
+    god: Option<Res<GodMode>>,
 ) {
-    let Some(mut vitals) = q_player.iter_mut().next() else { return; };
+    let Some(mut vitals) = q_player.iter_mut().next() else {
+        return;
+    };
 
-    for fire in ev.read() {
-        if fire.damage <= 0 {
-            continue;
-        }
+    let god_on = god.as_ref().map_or(false, |g| g.0);
+    if god_on {
+        // Still Consume Events (Read Them), Ignore Damage
+        for _ in enemy_fire.read() {}
+        return;
+    }
 
-        vitals.hp = (vitals.hp - fire.damage).clamp(0, vitals.hp_max);
+    for e in enemy_fire.read() {
+        vitals.hp = (vitals.hp - e.damage).max(0);
     }
 }

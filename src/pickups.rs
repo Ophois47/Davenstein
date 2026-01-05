@@ -552,6 +552,8 @@ pub fn collect_pickups(
     q_pickups: Query<(Entity, &Pickup)>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
+    const WEAPON_PICKUP_BULLETS: i32 = 6; // Wolf-like: MG/Chaingun give 6 bullets. :contentReference[oaicite:2]{index=2}
+
     let Some((player_e, player_tf)) = q_player.iter().next() else {
         return;
     };
@@ -574,16 +576,29 @@ pub fn collect_pickups(
 
         match p.kind {
             PickupKind::Weapon(w) => {
-                if hud.owns(w) {
-                    consumed = false;
-                } else {
-                    let kind = match w {
-                        WeaponSlot::Chaingun => Some(SfxKind::PickupChaingun),
-                        WeaponSlot::MachineGun => Some(SfxKind::PickupMachineGun),
-                        _ => None,
-                    };
+                let pickup_sfx = match w {
+                    WeaponSlot::Chaingun => Some(SfxKind::PickupChaingun),
+                    WeaponSlot::MachineGun => Some(SfxKind::PickupMachineGun),
+                    _ => None,
+                };
 
-                    if let Some(kind) = kind {
+                // If the player already owns the weapon, turn the pickup into ammo.
+                if hud.owns(w) {
+                    if hud.ammo >= AMMO_MAX {
+                        consumed = false;
+                    } else {
+                        let gain = WEAPON_PICKUP_BULLETS.min(AMMO_MAX - hud.ammo);
+                        hud.ammo += gain;
+
+                        if let Some(kind) = pickup_sfx {
+                            sfx.write(PlaySfx {
+                                kind,
+                                pos: player_tf.translation,
+                            });
+                        }
+                    }
+                } else {
+                    if let Some(kind) = pickup_sfx {
                         sfx.write(PlaySfx {
                             kind,
                             pos: player_tf.translation,
@@ -592,6 +607,12 @@ pub fn collect_pickups(
 
                     hud.grant(w);
                     hud.selected = w;
+
+                    // Wolf-like: weapon pickup also grants bullets. :contentReference[oaicite:3]{index=3}
+                    if hud.ammo < AMMO_MAX {
+                        let gain = WEAPON_PICKUP_BULLETS.min(AMMO_MAX - hud.ammo);
+                        hud.ammo += gain;
+                    }
 
                     if w == WeaponSlot::Chaingun {
                         face_ov.active = true;
@@ -706,8 +727,8 @@ pub fn collect_pickups(
                             }
 
                             commands.entity(player_e).insert(match k {
-                                KeyKind::Gold => davelib::player::PlayerKeys { 
-                                    gold: true, 
+                                KeyKind::Gold => davelib::player::PlayerKeys {
+                                    gold: true,
                                     silver: false,
                                 },
                                 KeyKind::Silver => davelib::player::PlayerKeys {

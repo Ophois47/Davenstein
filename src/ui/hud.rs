@@ -14,7 +14,11 @@ use super::{
     GameOver,
 };
 use davelib::audio::{PlaySfx, SfxKind};
-use davelib::player::{Player, PlayerControlLock};
+use davelib::player::{
+    GodMode,
+    Player,
+    PlayerControlLock,
+};
 use davelib::level::CurrentLevel;
 use crate::level_complete::MissionSuccessOverlay;
 
@@ -122,22 +126,24 @@ pub(crate) struct HudFaceSprites {
     pub bands: [[Handle<Image>; 3]; 7],
     pub grin: Handle<Image>,
     pub dead: Handle<Image>,
+    stone: Handle<Image>,
 }
 
 impl HudFaceSprites {
-    #[inline]
-    pub fn at(&self, band: usize, dir: usize) -> Handle<Image> {
-        self.bands[band][dir].clone()
+    pub fn bands(&self, band: usize, dir: usize) -> Handle<Image> {
+        self.bands[band.min(6)][dir.min(2)].clone()
     }
 
-    #[inline]
     pub fn grin(&self) -> Handle<Image> {
         self.grin.clone()
     }
 
-    #[inline]
     pub fn dead(&self) -> Handle<Image> {
         self.dead.clone()
+    }
+
+    pub fn stone(&self) -> Handle<Image> {
+        self.stone.clone()
     }
 }
 
@@ -822,6 +828,71 @@ pub(crate) fn sync_hud_lives_digits(
     }
 }
 
+pub fn tick_hud_face_timers(
+    time: Res<Time>,
+    hud: Res<HudState>,
+    mut prev_hp: ResMut<HudFacePrevHp>,
+    mut look: ResMut<HudFaceLook>,
+    mut face_ov: ResMut<HudFaceOverride>,
+) {
+    if face_ov.active {
+        face_ov.timer.tick(time.delta());
+        if face_ov.timer.is_finished() {
+            face_ov.active = false;
+        }
+    }
+
+    let hp = hud.hp as i32;
+    let dropped = hp < prev_hp.0;
+
+    if dropped {
+        // On damage, cancel any "grin" and reset look to forward.
+        face_ov.active = false;
+        look.dir = FaceDir::Forward;
+        look.timer.reset();
+        look.tick = 0;
+    }
+
+    prev_hp.0 = hp;
+
+    // If you want "look left/right" behavior again, this is where
+    // it needs to be re-driven (right now it’s effectively dormant).
+    look.timer.tick(time.delta());
+    if look.timer.is_finished() {
+        look.timer.reset();
+        look.tick = look.tick.wrapping_add(1);
+        // (Your old code likely selected Right/Left here.)
+    }
+}
+
+pub fn sync_hud_face(
+    faces: Res<HudFaceSprites>,
+    hud: Res<HudState>,
+    look: Res<HudFaceLook>,
+    face_ov: Res<HudFaceOverride>,
+    god_mode: Res<GodMode>,
+    mut q_face: Query<&mut ImageNode, With<HudFaceImage>>,
+) {
+    let Ok(mut node) = q_face.single_mut() else {
+        return;
+    };
+
+    if face_ov.active {
+        // Override uses the known grin sprite from the atlas
+        node.image = faces.grin();
+        return;
+    }
+
+    let hp = hud.hp as i32;
+    let band = stage_from_hp(hp);
+
+    // If you want Right/Left back, this needs to use coords_for(hp, look.dir)
+    // instead of hardcoding Forward.
+    let face = faces.bands(band, 0);
+
+    node.image = if god_mode.0 { faces.grin() } else { face };
+}
+
 pub(crate) fn sync_hud_icons(
     hud: Res<HudState>,
     icons: Res<HudIconSprites>,
@@ -989,7 +1060,7 @@ fn stage_from_hp(hp: i32) -> usize {
 /// Column Order Within a Group Matches Sprite Sheet: Forward, Right, Left
 fn coords_for(hp: i32, dir: FaceDir) -> (usize, usize) {
     if hp <= 0 {
-        return (1, 10); // dead (r1_c10)
+        return (1, 10); // Dead (r1_c10)
     }
 
     let stage = stage_from_hp(hp); // 0..6
@@ -1008,69 +1079,6 @@ fn coords_for(hp: i32, dir: FaceDir) -> (usize, usize) {
         let s = stage - 4;
         (1, s * 3 + dir_off)
     }
-}
-
-pub(crate) fn sync_hud_face(
-    time: Res<Time>,
-    hud: Res<HudState>,
-    faces: Res<HudFaceSprites>,
-    mut ov: ResMut<HudFaceOverride>,
-    mut look: ResMut<HudFaceLook>,
-    mut prev_hp: ResMut<HudFacePrevHp>,
-    mut q_face: Query<&mut ImageNode, With<HudFaceImage>>,
-) {
-    let Some(mut img) = q_face.iter_mut().next() else { return; };
-
-    // Dead Face Always Wins
-    if hud.hp <= 0 {
-        *img = ImageNode::new(faces.dead());
-        ov.active = false;
-        prev_hp.0 = 0;
-        return;
-    }
-
-    if prev_hp.0 == 0 {
-        prev_hp.0 = hud.hp;
-    }
-
-    // Idle Glance Direction
-    look.timer.tick(time.delta());
-    if look.timer.just_finished() {
-        look.tick = look.tick.wrapping_add(1);
-        look.dir = match look.tick % 4 {
-            0 => FaceDir::Forward,
-            1 => FaceDir::Right,
-            2 => FaceDir::Forward,
-            _ => FaceDir::Left,
-        };
-    }
-
-    // Grin Timer
-    if ov.active {
-        ov.timer.tick(time.delta());
-        if ov.timer.is_finished() {
-            ov.active = false;
-        }
-    }
-
-    // Grin Override
-    if ov.active {
-        *img = ImageNode::new(faces.grin());
-        return;
-    }
-
-    // Base Face: Compute (Row, Col) Then Map to 7x3 "Bands" Table
-    let (row, col) = coords_for(hud.hp, look.dir);
-
-    // Convert (Row, Col) -> Stage 0..6 and Dir 0..2 (Forward / Right / Left)
-    let (stage, dir_idx) = if row == 0 {
-        (col / 3, col % 3)
-    } else {
-        (4 + (col / 3), col % 3)
-    };
-
-    let stage = stage.min(6);
-    *img = ImageNode::new(faces.at(stage, dir_idx));
 }
 
 pub(crate) fn setup_hud(
@@ -1109,7 +1117,7 @@ pub(crate) fn setup_hud(
     };
     commands.insert_resource(hud_icons.clone());
 
-    // --- NEW: HUD Face Sprites ---
+    // HUD Face Sprites
     let f = |r: u8, c: u8| asset_server.load(format!("textures/hud/faces/face_r{r}_c{c}.png"));
 
     let hud_faces = HudFaceSprites {
@@ -1122,8 +1130,9 @@ pub(crate) fn setup_hud(
             [f(1, 3), f(1, 4), f(1, 5)],
             [f(1, 6), f(1, 7), f(1, 8)],
         ],
-        grin: f(1, 9),   // r1_c9  = grin
-        dead: f(1, 10),  // r1_c10 = dead
+        grin: f(1, 9),   // r1_c9  = Grin
+        dead: f(1, 10),  // r1_c10 = Dead
+        stone: f(1, 11),  // r1_c11 = God Mode
     };
 
     commands.insert_resource(hud_faces.clone());

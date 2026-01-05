@@ -416,6 +416,7 @@ fn tick_ss_dying(
             if d.frame >= 4 {
                 commands.entity(e).remove::<SsDying>();
                 commands.entity(e).insert(SsCorpse);
+                commands.entity(e).remove::<OccupiesTile>();
             }
         }
     }
@@ -437,6 +438,7 @@ fn tick_dog_dying(
             if d.frame >= DEATH_FRAMES {
                 commands.entity(e).remove::<DogDying>();
                 commands.entity(e).insert(DogCorpse);
+                commands.entity(e).remove::<OccupiesTile>();
             }
         }
     }
@@ -909,9 +911,10 @@ pub fn tick_guard_dying(
             dying.frame = dying.frame.saturating_add(1);
 
             if dying.frame >= DEATH_FRAMES {
-                // End of Animation -> Permanent Corpse
+                // End of Animation -> Permanent Corpse (and non-blocking)
                 commands.entity(e).remove::<GuardDying>();
                 commands.entity(e).insert(GuardCorpse);
+                commands.entity(e).remove::<OccupiesTile>();
             }
         }
     }
