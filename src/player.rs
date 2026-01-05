@@ -79,7 +79,12 @@ pub fn grab_mouse(
     mut cursor_options: Single<&mut CursorOptions>,
     mouse: Res<ButtonInput<MouseButton>>,
     key: Res<ButtonInput<KeyCode>>,
+    lock: Res<PlayerControlLock>,
 ) {
+    if lock.0 {
+        return;
+    }
+
     if mouse.just_pressed(MouseButton::Left) {
         cursor_options.visible = false;
         cursor_options.grab_mode = CursorGrabMode::Locked;
