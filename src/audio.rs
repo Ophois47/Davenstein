@@ -362,7 +362,7 @@ pub fn sync_level_music(
     commands.spawn((
         Music,
         AudioPlayer::new(clip),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(0.45)),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(1.4)),
     ));
 
     *last = Some(level.0);
