@@ -835,6 +835,7 @@ pub fn tick_hud_face_timers(
     mut look: ResMut<HudFaceLook>,
     mut face_ov: ResMut<HudFaceOverride>,
 ) {
+    // Timed grin override (separate from "stone" god-mode face).
     if face_ov.active {
         face_ov.timer.tick(time.delta());
         if face_ov.timer.is_finished() {
@@ -855,15 +856,25 @@ pub fn tick_hud_face_timers(
 
     prev_hp.0 = hp;
 
-    // If you want "look left/right" behavior again, this is where
-    // it needs to be re-driven (right now it’s effectively dormant).
+    // Re-drive the classic "look left/right" behavior.
+    //
+    // Simple rule:
+    // - Every FACE_LOOK_PERIOD_SECS, BJ alternates: Forward -> (Right/Left) -> Forward -> ...
+    // - Damage resets to Forward immediately (handled above).
     look.timer.tick(time.delta());
-    if look.timer.is_finished() {
-        look.timer.reset();
+    if look.timer.just_finished() {
         look.tick = look.tick.wrapping_add(1);
-        // (Your old code likely selected Right/Left here.)
+
+        look.dir = match look.dir {
+            FaceDir::Forward => {
+                // Alternate which side we glance toward.
+                if (look.tick & 1) == 0 { FaceDir::Right } else { FaceDir::Left }
+            }
+            FaceDir::Right | FaceDir::Left => FaceDir::Forward,
+        };
     }
 }
+
 
 pub fn sync_hud_face(
     faces: Res<HudFaceSprites>,
@@ -877,21 +888,48 @@ pub fn sync_hud_face(
         return;
     };
 
+    // 1) Timed grin override (e.g. pickups / healing)
     if face_ov.active {
-        // Override uses the known grin sprite from the atlas
         node.image = faces.grin();
         return;
     }
 
+    // 2) God mode face (stone)
+    if god_mode.0 {
+        node.image = faces.stone();
+        return;
+    }
+
+    // 3) Normal face selection (HP band + look direction)
     let hp = hud.hp as i32;
-    let band = stage_from_hp(hp);
 
-    // If you want Right/Left back, this needs to use coords_for(hp, look.dir)
-    // instead of hardcoding Forward.
-    let face = faces.bands(band, 0);
+    // coords_for() already returns (Dead) when hp <= 0.
+    let (row, col) = coords_for(hp, look.dir);
 
-    node.image = if god_mode.0 { faces.grin() } else { face };
+    node.image = match (row, col) {
+        // Special faces on row 1
+        (1, 9) => faces.grin(),
+        (1, 10) => faces.dead(),
+        (1, 11) => faces.stone(),
+
+        // Row 0: stages 0..3, each stage is 3 columns (F/R/L)
+        (0, c @ 0..=11) => {
+            let band = (c / 3) as usize;      // 0..3
+            let dir = (c % 3) as usize;       // 0..2
+            faces.bands(band, dir)
+        }
+
+        // Row 1: stages 4..6 live in columns 0..8 (3 stages * 3 dirs)
+        (1, c @ 0..=8) => {
+            let band = 4usize + (c / 3) as usize; // 4..6
+            let dir = (c % 3) as usize;           // 0..2
+            faces.bands(band, dir)
+        }
+
+        _ => faces.bands(0, 0),
+    };
 }
+
 
 pub(crate) fn sync_hud_icons(
     hud: Res<HudState>,

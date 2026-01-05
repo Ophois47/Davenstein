@@ -180,7 +180,6 @@ fn main() {
                 use_pushwalls,
                 use_doors,
                 level_complete::use_elevator_exit,
-                level_complete::use_elevator_exit,
             )
                 .chain()
                 .run_if(world_ready),

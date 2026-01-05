@@ -4,12 +4,6 @@ Davenstein - by David Petnick
 use bevy::prelude::*;
 
 use crate::combat::WeaponSlot;
-use davelib::player::{
-    Player,
-    PlayerControlLock,
-    PlayerDeathLatch,
-    PlayerVitals,
-};
 
 #[derive(Resource, Debug, Clone)]
 pub struct HudState {

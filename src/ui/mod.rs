@@ -30,7 +30,9 @@ impl Plugin for UiPlugin {
             .init_resource::<sync::NewGameRequested>()
             .init_resource::<hud::HudFacePrevHp>()
             .init_resource::<hud::HudFaceLook>()
-            .add_systems(Startup, hud::setup_hud)
+            .init_resource::<hud::WeaponState>()
+            .add_plugins(splash::SplashPlugin)
+            .add_systems(Startup, (hud::setup_hud, splash::setup_splash).chain())
             .add_systems(
                 Update,
                 (
@@ -60,6 +62,7 @@ impl Plugin for UiPlugin {
                     // Overlays
                     (
                         hud::flash_on_hp_drop,
+                        hud::ensure_pickup_flash_overlay,
                         hud::tick_pickup_flash,
                         hud::tick_damage_flash,
                         hud::tick_death_overlay,
