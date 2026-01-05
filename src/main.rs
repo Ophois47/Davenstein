@@ -119,7 +119,7 @@ fn main() {
         .init_resource::<PushwallClock>()
         .init_resource::<level_complete::LevelComplete>()
         .init_resource::<davelib::level::CurrentLevel>()
-        .init_resource::<davelib::audio::MusicMode>() // <-- NEW
+        .init_resource::<davelib::audio::MusicMode>()
         // -----------------------------
         // Messages / Events
         // -----------------------------
@@ -146,17 +146,29 @@ fn main() {
         // Update:
         // Input/UI + World Gameplay
         // -----------------------------
+
+        // 1) Gameplay control systems MUST be blocked during splash/menu AND mission success.
         .add_systems(
             Update,
             (
                 grab_mouse,
                 mouse_look,
+            )
+                .chain()
+                .run_if(|lock: Res<PlayerControlLock>| !lock.0),
+        )
+
+        // 2) Mission success UI + Enter-to-advance MUST still run while locked.
+        .add_systems(
+            Update,
+            (
                 level_complete::mission_success_input,
                 level_complete::sync_mission_success_overlay_visibility,
             )
-                .chain()
-                .run_if(|lock: Res<PlayerControlLock>| !lock.0), // <-- NEW: block during splash/menu
+                .chain(),
         )
+
+        // 3) Normal gameplay interaction systems (doors/pushwalls/elevator use)
         .add_systems(
             Update,
             (
@@ -164,6 +176,7 @@ fn main() {
                 billboard_decorations,
                 use_pushwalls,
                 use_doors,
+                level_complete::use_elevator_exit,
                 level_complete::use_elevator_exit,
             )
                 .chain()

@@ -1610,7 +1610,7 @@ pub(crate) fn setup_hud(
                 ));
 
                 ms.spawn((
-                    Text::new("Press Enter to restart"),
+                    Text::new("Press ENTER to Continue ..."),
                     TextFont {
                         font: ui_font.clone(),
                         font_size: 24.0,

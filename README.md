@@ -10,7 +10,7 @@ Then Run: $ cargo run --bin Davenstein
 
 Alternatively: $ ./target/release/Davenstein
 
-*********************************************
+**********************************************
 CURRENT TODO LIST:
 **********************************************
 - Boss Hans for E1M9
@@ -21,4 +21,3 @@ CURRENT TODO LIST:
 - Enemies should sentry and patrol
 - Pause game mechanic
 - God mode mechanic (debug)
-
