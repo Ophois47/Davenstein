@@ -91,8 +91,8 @@ pub struct Music;
 
 pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     let mut music_levels: Vec<Handle<AudioSource>> = Vec::new();
-    for n in 1..=9 {
-        music_levels.push(asset_server.load(format!("sounds/music/level{}.ogg", n)));
+    for n in 1..=10 {
+        music_levels.push(asset_server.load(format!("sounds/music/E1M{}.ogg", n)));
     }
 
     commands.insert_resource(GameAudio {
@@ -267,7 +267,7 @@ pub fn start_music(
     commands.spawn((
         Music,
         AudioPlayer::new(clip),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(0.45)),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(1.45)),
     ));
 }
 
@@ -293,7 +293,7 @@ pub fn sync_level_music(
     }
 
     let floor = level.0.floor_number();
-    let clamped = floor.clamp(1, 9);
+    let clamped = floor.clamp(1, 10);
     let idx = (clamped - 1) as usize;
 
     let clip = audio
@@ -305,7 +305,7 @@ pub fn sync_level_music(
     commands.spawn((
         Music,
         AudioPlayer::new(clip),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(0.45)),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(1.4)),
     ));
 
     *last = Some(level.0);
