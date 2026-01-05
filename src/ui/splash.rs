@@ -25,6 +25,9 @@ pub struct SplashUi;
 #[derive(Component)]
 struct SplashImage;
 
+#[derive(Component)]
+struct MenuHint;
+
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 enum SplashStep {
     Splash0,
