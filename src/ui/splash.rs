@@ -11,9 +11,9 @@ use bevy::window::{
 
 use davelib::player::PlayerControlLock;
 
-// Both Should be Authored for 320x200 Base Resolution
 pub const SPLASH_0_PATH: &str = "textures/ui/splash0.png";
-pub const SPLASH_1_PATH: &str = "textures/ui/title_screen.png";
+pub const SPLASH_1_PATH: &str = "textures/ui/splash1.png";
+pub const MAIN_MENU_PATH: &str = "textures/ui/main_menu.png";
 
 // Used to Compute Clean Integer UI Scale
 const BASE_W: f32 = 320.0;
@@ -27,14 +27,22 @@ struct SplashImage;
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 enum SplashStep {
-    First,
-    Second,
+    Splash0,
+    Splash1,
+    Menu,
     Done,
+}
+
+impl Default for SplashStep {
+    fn default() -> Self {
+        SplashStep::Splash0
+    }
 }
 
 #[derive(Resource)]
 struct SplashImages {
-    second: Handle<Image>,
+    splash1: Handle<Image>,
+    menu: Handle<Image>,
 }
 
 pub struct SplashPlugin;
@@ -53,12 +61,6 @@ impl Plugin for SplashPlugin {
     }
 }
 
-impl Default for SplashStep {
-    fn default() -> Self {
-        SplashStep::First
-    }
-}
-
 fn compute_scaled_size(win_w: f32, win_h: f32) -> (f32, f32) {
     let scale = (win_w / BASE_W).min(win_h / BASE_H).floor().max(1.0);
     (BASE_W * scale, BASE_H * scale)
@@ -71,29 +73,29 @@ pub fn setup_splash(
     mut cursor: Single<&mut CursorOptions>,
     q_win: Single<&Window, With<PrimaryWindow>>,
 ) {
-    // Freeze Gameplay Input While Splash is Up
+    // Freeze Gameplay Input While Splash / Menu Up
     lock.0 = true;
 
-    // Ensure Mouse is Released and Visible
+    // Ensure Mouse Released + Visible
     cursor.visible = true;
     cursor.grab_mode = CursorGrabMode::None;
 
     // Load Images
-    let first = asset_server.load(SPLASH_0_PATH);
-    let second = asset_server.load(SPLASH_1_PATH);
+    let splash0 = asset_server.load(SPLASH_0_PATH);
+    let splash1 = asset_server.load(SPLASH_1_PATH);
+    let menu = asset_server.load(MAIN_MENU_PATH);
 
-    // We only need to keep the second handle for the step-2 swap
     commands.insert_resource(SplashImages {
-        second: second.clone(),
+        splash1: splash1.clone(),
+        menu: menu.clone(),
     });
 
-    // Spawn first splash immediately
     let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
-    spawn_splash_ui(&mut commands, first, w, h);
+    spawn_splash_ui(&mut commands, splash0, w, h);
 }
 
 fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32) {
-    // Fullscreen black backdrop + centered art
+    // Fullscreen Black Backdrop + Centered Art
     commands
         .spawn((
             SplashUi,
@@ -133,40 +135,60 @@ fn splash_advance_on_any_input(
     q_win: Single<&Window, With<PrimaryWindow>>,
     q_splash: Query<Entity, With<SplashUi>>,
     mut lock: ResMut<PlayerControlLock>,
+    mut new_game: ResMut<super::sync::NewGameRequested>,
+    mut music_mode: ResMut<davelib::audio::MusicMode>,
 ) {
     if *step == SplashStep::Done {
         return;
     }
 
     let any_key = keys.get_just_pressed().next().is_some();
-    let any_mouse = mouse.get_just_pressed().next().is_some();
-    if !any_key && !any_mouse {
-        return;
-    }
+    let left_click = mouse.just_pressed(MouseButton::Left);
 
-    let Some(imgs) = imgs else {
-        return;
-    };
+    let Some(imgs) = imgs else { return; };
 
     match *step {
-        SplashStep::First => {
-            *step = SplashStep::Second;
+        SplashStep::Splash0 => {
+            if !any_key && !left_click { return; }
+            *step = SplashStep::Splash1;
 
             for e in q_splash.iter() {
                 commands.entity(e).despawn();
             }
 
             let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
-            spawn_splash_ui(&mut commands, imgs.second.clone(), w, h);
+            spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
         }
-        SplashStep::Second => {
+        SplashStep::Splash1 => {
+            if !any_key && !left_click { return; }
+            *step = SplashStep::Menu;
+
+            for e in q_splash.iter() {
+                commands.entity(e).despawn();
+            }
+
+            // Switch to Menu Music on Entry
+            music_mode.0 = davelib::audio::MusicModeKind::Menu;
+
+            let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
+            spawn_splash_ui(&mut commands, imgs.menu.clone(), w, h);
+        }
+        SplashStep::Menu => {
+            // Enter Starts Game
+            if !keys.just_pressed(KeyCode::Enter) { return; }
+
             *step = SplashStep::Done;
 
             for e in q_splash.iter() {
                 commands.entity(e).despawn();
             }
 
+            // Start Fresh Run + Allow Gameplay Input
+            new_game.0 = true;
             lock.0 = false;
+
+            // Hand Off to Gameplay Music (Level Music System)
+            music_mode.0 = davelib::audio::MusicModeKind::Gameplay;
         }
         SplashStep::Done => {}
     }

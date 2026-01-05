@@ -79,15 +79,33 @@ impl SfxLibrary {
     }
 }
 
+#[derive(Component)]
+pub struct Music;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MusicModeKind {
+    Splash,
+    Menu,
+    Gameplay,
+}
+
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MusicMode(pub MusicModeKind);
+
+impl Default for MusicMode {
+    fn default() -> Self {
+        Self(MusicModeKind::Splash)
+    }
+}
+
 #[derive(Resource)]
 pub struct GameAudio {
     pub door_open: Handle<AudioSource>,
     pub door_close: Handle<AudioSource>,
+    pub music_splash: Handle<AudioSource>,
+    pub music_main_menu: Handle<AudioSource>,
     pub music_levels: Vec<Handle<AudioSource>>,
 }
-
-#[derive(Component)]
-pub struct Music;
 
 pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     let mut music_levels: Vec<Handle<AudioSource>> = Vec::new();
@@ -98,8 +116,13 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(GameAudio {
         door_open: asset_server.load("sounds/sfx/door_open.ogg"),
         door_close: asset_server.load("sounds/sfx/door_close.ogg"),
+        music_splash: asset_server.load("sounds/music/splash.ogg"),
+        music_main_menu: asset_server.load("sounds/music/main_menu.ogg"),
         music_levels,
     });
+
+    // Default boot mode
+    commands.insert_resource(MusicMode(MusicModeKind::Splash));
 
     // Library That Supports 1 or Many Clips per SfxKind
     let mut lib = SfxLibrary::default();
@@ -251,37 +274,70 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
 pub fn start_music(
     mut commands: Commands,
     audio: Res<GameAudio>,
+    mode: Res<MusicMode>,
     q_music: Query<(), With<Music>>,
 ) {
-    // Prevent Duplicates if Startup Runs Again
     if q_music.iter().next().is_some() {
         return;
     }
 
-    let clip = audio
-        .music_levels
-        .get(0)
-        .cloned()
-        .unwrap_or_else(|| Handle::default());
+    let clip = match mode.0 {
+        MusicModeKind::Splash => audio.music_splash.clone(),
+        MusicModeKind::Menu => audio.music_main_menu.clone(),
+        MusicModeKind::Gameplay => audio.music_levels.get(0).cloned().unwrap_or_default(),
+    };
 
     commands.spawn((
         Music,
         AudioPlayer::new(clip),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(1.45)),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(0.45)),
     ));
+}
+
+pub fn sync_boot_music(
+    mut commands: Commands,
+    audio: Res<GameAudio>,
+    mode: Res<MusicMode>,
+    q_music: Query<Entity, With<Music>>,
+    mut last: Local<Option<MusicModeKind>>,
+) {
+    if mode.0 == MusicModeKind::Gameplay {
+        *last = Some(MusicModeKind::Gameplay);
+        return;
+    }
+
+    if *last == Some(mode.0) {
+        return;
+    }
+
+    for e in q_music.iter() {
+        commands.entity(e).despawn();
+    }
+
+    let clip = match mode.0 {
+        MusicModeKind::Splash => audio.music_splash.clone(),
+        MusicModeKind::Menu => audio.music_main_menu.clone(),
+        MusicModeKind::Gameplay => unreachable!(),
+    };
+
+    commands.spawn((
+        Music,
+        AudioPlayer::new(clip),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(0.45)),
+    ));
+
+    *last = Some(mode.0);
 }
 
 pub fn sync_level_music(
     mut commands: Commands,
     audio: Res<GameAudio>,
     level: Res<CurrentLevel>,
+    mode: Res<MusicMode>,
     q_music: Query<Entity, With<Music>>,
     mut last: Local<Option<LevelId>>,
 ) {
-    // If Music Already Exists and we Haven't Tracked it Yet,
-    // Assume it's Correct for Current Level
-    if last.is_none() && q_music.iter().next().is_some() {
-        *last = Some(level.0);
+    if mode.0 != MusicModeKind::Gameplay {
         return;
     }
 
@@ -306,7 +362,7 @@ pub fn sync_level_music(
     commands.spawn((
         Music,
         AudioPlayer::new(clip),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(1.4)),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(0.45)),
     ));
 
     *last = Some(level.0);

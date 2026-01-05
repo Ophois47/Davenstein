@@ -119,6 +119,7 @@ fn main() {
         .init_resource::<PushwallClock>()
         .init_resource::<level_complete::LevelComplete>()
         .init_resource::<davelib::level::CurrentLevel>()
+        .init_resource::<davelib::audio::MusicMode>() // <-- NEW
         // -----------------------------
         // Messages / Events
         // -----------------------------
@@ -153,7 +154,8 @@ fn main() {
                 level_complete::mission_success_input,
                 level_complete::sync_mission_success_overlay_visibility,
             )
-                .chain(),
+                .chain()
+                .run_if(|lock: Res<PlayerControlLock>| !lock.0), // <-- NEW: block during splash/menu
         )
         .add_systems(
             Update,
@@ -173,7 +175,14 @@ fn main() {
         // Level Transitions
         // -----------------------------
         .add_systems(PostUpdate, play_sfx_events)
-        .add_systems(PostUpdate, davelib::audio::sync_level_music)
+        .add_systems(
+            PostUpdate,
+            (
+                davelib::audio::sync_boot_music,
+                davelib::audio::sync_level_music,
+            )
+                .chain(),
+        )
         .add_systems(
             PostUpdate,
             (
