@@ -425,6 +425,8 @@ fn tick_dog_dying(
     mut commands: Commands,
     mut q: Query<(Entity, &mut DogDying)>,
 ) {
+    const DEATH_FRAMES: u8 = 3;
+
     for (e, mut d) in q.iter_mut() {
         d.tics = d.tics.saturating_add(1);
 
@@ -432,7 +434,7 @@ fn tick_dog_dying(
             d.tics = 0;
             d.frame = d.frame.saturating_add(1);
 
-            if d.frame >= 4 {
+            if d.frame >= DEATH_FRAMES {
                 commands.entity(e).remove::<DogDying>();
                 commands.entity(e).insert(DogCorpse);
             }
@@ -462,7 +464,7 @@ pub struct DogSprites {
     pub idle: [Handle<Image>; 8],
     pub walk: [[Handle<Image>; 8]; 4],
     pub bite: [Handle<Image>; 3],
-    pub dying: [[Handle<Image>; 8]; 4],
+    pub dying: [[Handle<Image>; 8]; 3],
     pub corpse: [Handle<Image>; 8],
 }
 
@@ -500,26 +502,28 @@ impl FromWorld for DogSprites {
     fn from_world(world: &mut World) -> Self {
         let server = world.resource::<AssetServer>();
 
-        let idle = std::array::from_fn(|i| server.load(format!("enemies/dog/dog_idle_a{i}.png")));
-
-        // matches: dog_walk_r{row}_dir{dir}.png
-        let walk = std::array::from_fn(|row| {
+        // Walk frames (4) x directions (8)
+        // Uses your exported naming: dog_walk_d{dir}_f{frame}.png
+        let walk: [[Handle<Image>; 8]; 4] = std::array::from_fn(|frame| {
             std::array::from_fn(|dir| {
-                server.load(format!("enemies/dog/dog_walk_r{row}_dir{dir}.png"))
+                server.load(format!("enemies/dog/dog_walk_d{dir}_f{frame}.png"))
             })
         });
 
-        // bite is a 3 frame animation, not 8-dir views
+        // Idle: use the "stand-looking" walk frame f2 for each direction
+        let idle: [Handle<Image>; 8] = std::array::from_fn(|dir| walk[2][dir].clone());
+
+        // Bite: 3 frames (not directional)
         let bite: [Handle<Image>; 3] =
             std::array::from_fn(|f| server.load(format!("enemies/dog/dog_bite_{f}.png")));
 
-        // files on disk: dog_death_0.png..dog_death_3.png (no per-dir variants) -> duplicate across dirs
-        let dying = std::array::from_fn(|f| {
+        // Dying: 3 frames (0..2), duplicated across dirs
+        let dying: [[Handle<Image>; 8]; 3] = std::array::from_fn(|f| {
             let h: Handle<Image> = server.load(format!("enemies/dog/dog_death_{f}.png"));
             std::array::from_fn(|_| h.clone())
         });
 
-        // file on disk: dog_corpse.png (no per-dir variants) -> duplicate across dirs
+        // Corpse: duplicated across dirs
         let corpse_one: Handle<Image> = server.load("enemies/dog/dog_corpse.png");
         let corpse = std::array::from_fn(|_| corpse_one.clone());
 
@@ -761,7 +765,7 @@ pub fn update_ss_views(
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse[v as usize].clone()
         } else if let Some(d) = dying {
-            let f = (d.frame as usize).min(3);
+            let f = (d.frame as usize).min(2);
             sprites.dying[f][v as usize].clone()
         } else if let Some(p) = pain {
             let dur = p.timer.duration().as_secs_f32().max(1e-6);

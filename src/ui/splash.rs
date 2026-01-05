@@ -78,37 +78,36 @@ pub fn setup_splash(
     mut cursor: Single<&mut CursorOptions>,
     q_win: Single<&Window, With<PrimaryWindow>>,
 ) {
-    // Freeze gameplay input while splash/menu is up
+    // Freeze Gameplay Input While Splash / Menu Up
     lock.0 = true;
 
-    // Splash music should be active during splash flow
+    // Splash Music Should be Active During Splash Flow
     music_mode.0 = MusicModeKind::Splash;
 
-    // Ensure mouse is released and visible
+    // Ensure Mouse is Released and Visible
     cursor.visible = true;
     cursor.grab_mode = CursorGrabMode::None;
 
-    // Load images
+    // Load Images
     let first = asset_server.load(SPLASH_0_PATH);
     let second = asset_server.load(SPLASH_1_PATH);
     let menu = asset_server.load(MAIN_MENU_PATH);
 
-    // Keep handles for swaps
+    // Keep Handles for Swaps
     commands.insert_resource(SplashImages {
         splash1: second.clone(),
         menu: menu.clone(),
     });
 
-    // Spawn first splash immediately
+    // Spawn First Splash Immediately
     let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
     spawn_splash_ui(&mut commands, first, w, h);
 }
 
 fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32) {
-    // Fullscreen Black Backdrop + Centered Art
     commands
         .spawn((
-            SplashUi,
+            SplashUi, // ONLY on root
             ZIndex(1000),
             Node {
                 width: Val::Percent(100.0),
@@ -124,8 +123,7 @@ fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32
         ))
         .with_children(|root| {
             root.spawn((
-                SplashUi,
-                SplashImage,
+                SplashImage, // child marker is fine
                 ImageNode::new(image),
                 Node {
                     width: Val::Px(w),
@@ -144,7 +142,7 @@ fn splash_advance_on_any_input(
     mut step: ResMut<SplashStep>,
     imgs: Option<Res<SplashImages>>,
     q_win: Single<&Window, With<PrimaryWindow>>,
-    q_splash: Query<Entity, With<SplashUi>>,
+    q_splash_roots: Query<Entity, (With<SplashUi>, Without<bevy::prelude::ChildOf>)>,
     mut lock: ResMut<PlayerControlLock>,
     mut music_mode: ResMut<MusicMode>,
 ) {
@@ -152,9 +150,7 @@ fn splash_advance_on_any_input(
         return;
     }
 
-    let Some(imgs) = imgs else {
-        return;
-    };
+    let Some(imgs) = imgs else { return; };
 
     match *step {
         SplashStep::Splash0 => {
@@ -166,13 +162,14 @@ fn splash_advance_on_any_input(
 
             *step = SplashStep::Splash1;
 
-            for e in q_splash.iter() {
+            for e in q_splash_roots.iter() {
                 commands.entity(e).despawn();
             }
 
             let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
             spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
         }
+
         SplashStep::Splash1 => {
             let any_key = keys.get_just_pressed().next().is_some();
             let left_click = mouse.just_pressed(MouseButton::Left);
@@ -182,35 +179,34 @@ fn splash_advance_on_any_input(
 
             *step = SplashStep::Menu;
 
-            for e in q_splash.iter() {
+            for e in q_splash_roots.iter() {
                 commands.entity(e).despawn();
             }
 
-            // Switch to menu music on menu entry (hard cut handled by audio sync)
+            // Hard cut to menu music
             music_mode.0 = MusicModeKind::Menu;
 
             let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
             spawn_splash_ui(&mut commands, imgs.menu.clone(), w, h);
             spawn_menu_hint(&mut commands, &asset_server);
         }
+
         SplashStep::Menu => {
-            // Rudimentary menu: Enter starts the game
             if !keys.just_pressed(KeyCode::Enter) {
                 return;
             }
 
             *step = SplashStep::Done;
 
-            for e in q_splash.iter() {
+            for e in q_splash_roots.iter() {
                 commands.entity(e).despawn();
             }
 
-            // Gameplay begins: unlock input
+            // Enter gameplay
             lock.0 = false;
-
-            // Switch to gameplay music (hard cut handled by audio sync)
             music_mode.0 = MusicModeKind::Gameplay;
         }
+
         SplashStep::Done => {}
     }
 }
