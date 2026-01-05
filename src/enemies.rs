@@ -472,6 +472,18 @@ impl FromWorld for SsSprites {
     fn from_world(world: &mut World) -> Self {
         let server = world.resource::<AssetServer>();
 
+        const SS_PAIN_FILES: [&str; 2] = [
+            "enemies/ss/ss_pain.png",
+            "enemies/ss/ss_pain.png",
+        ];
+
+        const SS_DYING_FILES: [&str; 4] = [
+            "enemies/ss/ss_death_0.png",
+            "enemies/ss/ss_death_1.png",
+            "enemies/ss/ss_death_2.png",
+            "enemies/ss/ss_death_3.png",
+        ];
+
         let idle = std::array::from_fn(|i| server.load(format!("enemies/ss/ss_idle_a{i}.png")));
         let walk = std::array::from_fn(|row| {
             std::array::from_fn(|dir| server.load(format!("enemies/ss/ss_walk_r{row}_dir{dir}.png")))
@@ -480,14 +492,17 @@ impl FromWorld for SsSprites {
         let shoot: [Handle<Image>; 3] =
             std::array::from_fn(|f| server.load(format!("enemies/ss/ss_shoot_{f}.png")));
 
-        let pain0: Handle<Image> = server.load("enemies/ss/ss_death_0.png");
-        let pain1: Handle<Image> = server.load("enemies/ss/ss_death_1.png");
+        // Pain: load exactly what we want, duplicated across dirs
+        let pain0: Handle<Image> = server.load(SS_PAIN_FILES[0]);
+        let pain1: Handle<Image> = server.load(SS_PAIN_FILES[1]);
         let pain = [
             std::array::from_fn(|_| pain0.clone()),
             std::array::from_fn(|_| pain1.clone()),
         ];
-        let dying = std::array::from_fn(|f| {
-            let h: Handle<Image> = server.load(format!("enemies/ss/ss_death_{f}.png"));
+
+        // Dying: load death frames in explicit order, duplicated across dirs
+        let dying = std::array::from_fn(|i| {
+            let h: Handle<Image> = server.load(SS_DYING_FILES[i]);
             std::array::from_fn(|_| h.clone())
         });
 
