@@ -15,6 +15,17 @@ use davelib::player::PlayerControlLock;
 pub const SPLASH_0_PATH: &str = "textures/ui/splash0.png";
 pub const SPLASH_1_PATH: &str = "textures/ui/splash1.png";
 pub const MAIN_MENU_PATH: &str = "textures/ui/main_menu.png";
+pub const GET_PSYCHED_PATH: &str = "textures/ui/get_psyched.png";
+
+// Loading Screen
+const BASE_HUD_H: f32 = 40.0;   // Status Bar Area
+const PSYCHED_DURATION_SECS: f32 = 1.2;
+const PSYCHED_SPR_W: f32 = 220.0;
+const PSYCHED_SPR_H: f32 = 40.0;
+
+// Wolfenstein 3D-Like Teal + Red Bar
+const PSYCHED_TEAL: Color = Color::srgb(0.00, 0.55, 0.55);
+const PSYCHED_RED: Color = Color::srgb(0.80, 0.00, 0.00);
 
 // Used to Compute Clean Integer UI Scale
 const BASE_W: f32 = 320.0;
@@ -28,6 +39,29 @@ struct SplashImage;
 
 #[derive(Component)]
 struct MenuHint;
+
+#[derive(Component)]
+struct LoadingUi;
+
+#[derive(Component)]
+struct PsychedBar {
+    target_w: f32,
+}
+
+#[derive(Resource)]
+struct PsychedLoad {
+    timer: Timer,
+    active: bool,
+}
+
+impl Default for PsychedLoad {
+    fn default() -> Self {
+        Self {
+            timer: Timer::from_seconds(PSYCHED_DURATION_SECS, TimerMode::Once),
+            active: false,
+        }
+    }
+}
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 enum SplashStep {
@@ -54,10 +88,14 @@ pub struct SplashPlugin;
 impl Plugin for SplashPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SplashStep>();
+        app.init_resource::<PsychedLoad>();
+
         app.add_systems(
             Update,
             (
                 splash_advance_on_any_input,
+                auto_get_psyched_on_level_start,
+                tick_get_psyched_loading,
                 splash_resize_on_window_change,
             )
                 .chain(),
@@ -145,20 +183,18 @@ fn splash_advance_on_any_input(
     q_splash_roots: Query<Entity, (With<SplashUi>, Without<bevy::prelude::ChildOf>)>,
     mut lock: ResMut<PlayerControlLock>,
     mut music_mode: ResMut<MusicMode>,
+    mut psyched: ResMut<PsychedLoad>,
 ) {
     if *step == SplashStep::Done {
         return;
     }
-
     let Some(imgs) = imgs else { return; };
 
     match *step {
         SplashStep::Splash0 => {
             let any_key = keys.get_just_pressed().next().is_some();
             let left_click = mouse.just_pressed(MouseButton::Left);
-            if !any_key && !left_click {
-                return;
-            }
+            if !any_key && !left_click { return; }
 
             *step = SplashStep::Splash1;
 
@@ -169,13 +205,10 @@ fn splash_advance_on_any_input(
             let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
             spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
         }
-
         SplashStep::Splash1 => {
             let any_key = keys.get_just_pressed().next().is_some();
             let left_click = mouse.just_pressed(MouseButton::Left);
-            if !any_key && !left_click {
-                return;
-            }
+            if !any_key && !left_click { return; }
 
             *step = SplashStep::Menu;
 
@@ -190,23 +223,29 @@ fn splash_advance_on_any_input(
             spawn_splash_ui(&mut commands, imgs.menu.clone(), w, h);
             spawn_menu_hint(&mut commands, &asset_server);
         }
-
         SplashStep::Menu => {
             if !keys.just_pressed(KeyCode::Enter) {
                 return;
             }
 
-            *step = SplashStep::Done;
-
+            // Remove menu UI roots
             for e in q_splash_roots.iter() {
                 commands.entity(e).despawn();
             }
 
-            // Enter gameplay
-            lock.0 = false;
-            music_mode.0 = MusicModeKind::Gameplay;
-        }
+            // We are now in gameplay flow (even though we temporarily lock controls)
+            *step = SplashStep::Done;
 
+            // Start Get Psyched + start gameplay music immediately
+            begin_get_psyched_loading(
+                &mut commands,
+                &asset_server,
+                &q_win,
+                &mut psyched,
+                &mut lock,
+                &mut music_mode,
+            );
+        }
         SplashStep::Done => {}
     }
 }
@@ -264,4 +303,185 @@ fn spawn_menu_hint(commands: &mut Commands, asset_server: &AssetServer) {
                 TextLayout::new_with_justify(Justify::Center),
             ));
         });
+}
+
+fn spawn_get_psyched_ui(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    win_w: f32,
+    win_h: f32,
+) {
+    // HUD is bottom 40/200 of the screen (Wolf ratio)
+    let hud_h = (win_h * (BASE_HUD_H / BASE_H)).round();
+    let view_h = (win_h - hud_h).max(0.0);
+
+    // Scale banner based on width, clamp so it never exceeds the screen
+    let mut scale = (win_w / BASE_W).max(1.0);
+    let mut spr_w = (PSYCHED_SPR_W * scale).round();
+    let mut spr_h = (PSYCHED_SPR_H * scale).round();
+    if spr_w > win_w {
+        scale = win_w / PSYCHED_SPR_W;
+        spr_w = (PSYCHED_SPR_W * scale).round();
+        spr_h = (PSYCHED_SPR_H * scale).round();
+    }
+
+    let banner = asset_server.load(GET_PSYCHED_PATH);
+
+    // Center banner in the view region
+    let left = ((win_w - spr_w) * 0.5).round().max(0.0);
+    let top = ((view_h - spr_h) * 0.5).round().max(0.0);
+
+    // Bar goes ACROSS THE BOTTOM OF THE BANNER
+    let bar_h = (1.0 * scale).max(1.0).round();
+    let bar_top = (top + spr_h - bar_h).max(0.0);
+
+    commands
+        .spawn((
+            LoadingUi,
+            ZIndex(950),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+        ))
+        .with_children(|root| {
+            // FULL-WIDTH teal fill for the entire view region (NOT the HUD region)
+            root.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    top: Val::Px(0.0),
+                    width: Val::Percent(100.0),
+                    height: Val::Px(view_h),
+                    ..default()
+                },
+                BackgroundColor(PSYCHED_TEAL),
+            ));
+
+            // Banner
+            root.spawn((
+                ImageNode::new(banner),
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(left),
+                    top: Val::Px(top),
+                    width: Val::Px(spr_w),
+                    height: Val::Px(spr_h),
+                    ..default()
+                },
+            ));
+
+            // Progress bar (grows to the banner width)
+            root.spawn((
+                PsychedBar { target_w: spr_w },
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(left),
+                    top: Val::Px(bar_top),
+                    width: Val::Px(0.0),
+                    height: Val::Px(bar_h),
+                    ..default()
+                },
+                BackgroundColor(PSYCHED_RED),
+            ));
+        });
+}
+
+fn begin_get_psyched_loading(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    win: &Window,
+    psyched: &mut PsychedLoad,
+    lock: &mut PlayerControlLock,
+    music_mode: &mut MusicMode,
+) {
+    // Lock gameplay controls during the fake load
+    lock.0 = true;
+
+    // IMPORTANT: start gameplay music DURING the loading overlay
+    music_mode.0 = MusicModeKind::Gameplay;
+
+    // Start timer + spawn overlay
+    psyched.active = true;
+    psyched.timer.reset();
+    spawn_get_psyched_ui(commands, asset_server, win.width(), win.height());
+}
+
+fn tick_get_psyched_loading(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut lock: ResMut<PlayerControlLock>,
+    mut psyched: ResMut<PsychedLoad>,
+    q_loading_roots: Query<Entity, (With<LoadingUi>, Without<bevy::prelude::ChildOf>)>,
+    mut q_bar: Query<(&mut Node, &PsychedBar)>,
+) {
+    if !psyched.active {
+        return;
+    }
+
+    psyched.timer.tick(time.delta());
+
+    let t = (psyched.timer.elapsed_secs() / psyched.timer.duration().as_secs_f32()).clamp(0.0, 1.0);
+
+    if let Some((mut node, bar)) = q_bar.iter_mut().next() {
+        node.width = Val::Px((bar.target_w * t).floor());
+    }
+
+    if psyched.timer.is_finished() && psyched.timer.just_finished() {
+        for e in q_loading_roots.iter() {
+            commands.entity(e).despawn();
+        }
+
+        psyched.active = false;
+        lock.0 = false;
+    }
+}
+
+fn auto_get_psyched_on_level_start(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    q_win: Single<&Window, With<PrimaryWindow>>,
+    step: Res<SplashStep>,
+    level: Res<davelib::level::CurrentLevel>,
+    grid: Option<Res<davelib::map::MapGrid>>,
+    solid: Option<Res<davelib::decorations::SolidStatics>>,
+    markers: Option<Res<davelib::pushwalls::PushwallMarkers>>,
+    mut last_ready: Local<bool>,
+    mut psyched: ResMut<PsychedLoad>,
+    mut lock: ResMut<PlayerControlLock>,
+    mut music_mode: ResMut<MusicMode>,
+) {
+    // Only do this during gameplay (not while still in splash/menu)
+    if *step != SplashStep::Done {
+        let ready = grid.is_some() && solid.is_some() && markers.is_some();
+        *last_ready = ready;
+        return;
+    }
+
+    let ready = grid.is_some() && solid.is_some() && markers.is_some();
+    let ready_rise = ready && !*last_ready;
+    *last_ready = ready;
+
+    // Any "new level just became active" signal
+    let level_changed = level.is_changed();
+
+    if psyched.active {
+        return;
+    }
+
+    if level_changed || ready_rise {
+        begin_get_psyched_loading(
+            &mut commands,
+            &asset_server,
+            &q_win,
+            &mut psyched,
+            &mut lock,
+            &mut music_mode,
+        );
+    }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "Davenstein"
-version = "0.9.9"
+version = "0.9.10"
 edition = "2024"
 
 [lib]
