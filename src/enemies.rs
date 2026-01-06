@@ -298,8 +298,6 @@ impl DogBiteCooldown {
 }
 
 const SS_WALK_FPS: f32 = 6.0;
-const HANS_WALK_FPS: f32 = 6.0;
-const DOG_WALK_FPS: f32 = 8.0;
 pub(crate) const SS_SHOOT_SECS: f32 = 0.35;
 pub(crate) const HANS_SHOOT_SECS: f32 = 0.35;
 const DOG_BITE_SECS: f32 = 0.35;
@@ -341,9 +339,11 @@ fn tick_hans_walk(
     mut q: Query<(&mut HansWalk, Option<&EnemyMove>), (With<Hans>, Without<HansDying>)>,
 ) {
     let dt = time.delta_secs();
+
     for (mut w, moving) in q.iter_mut() {
-        if moving.is_some() {
-            w.phase = (w.phase + dt * HANS_WALK_FPS) % 1.0;
+        if let Some(m) = moving {
+            // Drive animation by distance traveled (tiles).
+            w.phase += m.speed_tps * dt;
         } else {
             w.phase = 0.0;
         }
@@ -355,9 +355,11 @@ fn tick_dog_walk(
     mut q: Query<(&mut DogWalk, Option<&EnemyMove>), (With<Dog>, Without<DogDying>)>,
 ) {
     let dt = time.delta_secs();
+
     for (mut w, moving) in q.iter_mut() {
-        if moving.is_some() {
-            w.phase = (w.phase + dt * DOG_WALK_FPS) % 1.0;
+        if let Some(m) = moving {
+            // Drive animation by distance traveled (tiles).
+            w.phase += m.speed_tps * dt;
         } else {
             w.phase = 0.0;
         }

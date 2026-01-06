@@ -13,6 +13,6 @@ Alternatively: $ ./target/release/Davenstein
 **********************************************
 CURRENT TODO LIST:
 **********************************************
-- Pause game mechanic
-- Boss Hans for E1M9 (In Progress with Other Model)
+- Main menu and pause game mechanic
 - Enemies should sentry and patrol
+- Widen enemy hitscan area

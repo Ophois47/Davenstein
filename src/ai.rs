@@ -455,6 +455,7 @@ pub fn enemy_ai_tick(
     q_player: Query<&GlobalTransform, With<Player>>,
     mut q_doors: Query<(&DoorTile, &mut DoorState, &GlobalTransform)>,
     mut sfx: MessageWriter<PlaySfx>,
+    mut los_hold: Local<HashMap<Entity, f32>>,
     mut enemy_fire: MessageWriter<EnemyFire>,
     mut shoot_cd: Local<HashMap<Entity, f32>>,
     mut alerted: Local<HashSet<Entity>>,
@@ -484,6 +485,7 @@ pub fn enemy_ai_tick(
     const GUARD_SHOOT_MAX_DIST_TILES: i32 = 7;
     
     const GUARD_SHOOT_PAUSE_SECS: f32 = 0.25;
+    const LOS_FIRST_SHOT_DELAY_SECS: f32 = 0.02;
 
     // Extra Delay After Pause Before Another Shot Can Start
     const GUARD_SHOOT_COOLDOWN_SECS: f32 = 0.55;
@@ -615,6 +617,7 @@ pub fn enemy_ai_tick(
             // ============
             let in_pain = guard_pain.is_some() || ss_pain.is_some() || dog_pain.is_some();
             if in_pain {
+                los_hold.remove(&e);
                 // Face Player, Do NOT Move, Shoot, Open Doors While Flinching
                 *dir8 = dir8_towards(my_tile, player_tile);
                 continue;
@@ -678,13 +681,24 @@ pub fn enemy_ai_tick(
                 let dx = (player_tile.x - my_tile.x).abs();
                 let dy = (player_tile.y - my_tile.y).abs();
                 let shoot_dist = dx.max(dy);
-
                 let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
+
+                // Track How Long LOS Held, Reset on Loss / Out of Range
+                let held = if can_see && in_range {
+                    let t = los_hold.entry(e).or_insert(0.0);
+                    *t = (*t + AI_TIC_SECS).min(LOS_FIRST_SHOT_DELAY_SECS);
+                    *t
+                } else {
+                    los_hold.remove(&e);
+                    0.0
+                };
+
+                let los_ready = held >= LOS_FIRST_SHOT_DELAY_SECS;
 
                 if can_see && in_range {
                     *dir8 = dir8_towards(my_tile, player_tile);
 
-                    if cd_now <= 0.0 {
+                    if cd_now <= 0.0 && los_ready {
                         shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
                         let hits = wolf_far_miss_gate(shoot_dist);
