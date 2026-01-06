@@ -371,13 +371,40 @@ fn tick_dog_bite_cooldown(
     }
 }
 
-fn tick_ss_pain(time: Res<Time>, mut commands: Commands, mut q: Query<(Entity, &mut SsPain)>) {
+fn tick_ss_pain(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut SsPain)>,
+    mut started: Local<std::collections::HashMap<Entity, f32>>,
+) {
+    let now = time.elapsed_secs();
+
+    // Track live entities so the Local map doesn't grow if something despawns mid-pain
+    let mut live: Vec<Entity> = Vec::new();
+
     for (e, mut p) in q.iter_mut() {
+        live.push(e);
+
+        // Latch the *first* time this entity entered pain.
+        let start = started.entry(e).or_insert(now);
+
+        // Keep ticking (harmless), but drive the elapsed from the latched start time
+        // so repeated inserts won't reset the animation back to frame 0
         p.timer.tick(time.delta());
-        if p.timer.is_finished() {
+
+        let dur = p.timer.duration().as_secs_f32().max(1e-6);
+        let elapsed = (now - *start).clamp(0.0, dur);
+
+        p.timer
+            .set_elapsed(std::time::Duration::from_secs_f32(elapsed));
+
+        if (now - *start) >= dur {
             commands.entity(e).remove::<SsPain>();
+            started.remove(&e);
         }
     }
+
+    started.retain(|e, _| live.iter().any(|x| x == e));
 }
 
 fn tick_dog_pain(
