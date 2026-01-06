@@ -88,11 +88,11 @@ fn process_fire_shots(
         // feels generous when you're pointing at a target. Widen XZ radius a bit so hitscan
         // lands when the player is aiming at the sprite, not only the mathematical center
         match kind {
-            EnemyKind::Dog => (0.36, 0.40, 0.40),
+            EnemyKind::Dog => (0.38, 0.45, 0.40),
             // Boss is Visually Big, Slightly Larger Hitbox
-            EnemyKind::Hans => (0.46, 0.60, 0.55),
+            EnemyKind::Hans => (0.52, 0.70, 0.55),
             // Guard / SS / Officer / Mutant
-            _ => (0.42, 0.55, 0.50),
+            _ => (0.48, 0.65, 0.50),
         }
     }
 
@@ -163,13 +163,14 @@ fn process_fire_shots(
     }
 
     fn roll_gun_damage(dist_tiles: i32, rng: &mut u32) -> Option<i32> {
+        let effective_dist = ((dist_tiles.max(0) * 1) / 2).clamp(0, 20);
         // Treat 0 Damage as Miss so Hits Never Deal 0
-        let damage = if dist_tiles < 2 {
+        let damage = if effective_dist < 2 {
             rnd_byte(rng) / 4
-        } else if dist_tiles < 4 {
+        } else if effective_dist < 4 {
             rnd_byte(rng) / 6
         } else {
-            if (rnd_byte(rng) / 12) < dist_tiles {
+            if (rnd_byte(rng) / 12) < effective_dist {
                 return None;
             }
             rnd_byte(rng) / 6
