@@ -8,7 +8,7 @@ use crate::actors::{Dead, OccupiesTile};
 use crate::ai_patrol::{
     Patrol,
     patrol_dir_from_plane1,
-    patrol_step_4way,
+    patrol_step_8way,
     spawn_dir_and_patrol_for_kind,
 };
 use crate::audio::{PlaySfx, SfxKind};
@@ -667,7 +667,7 @@ pub fn enemy_ai_tick(
                         continue;
                     }
 
-                    let Some(mut patrol) = patrol else {
+                    let Some(_patrol) = patrol else {
                         continue;
                     };
 
@@ -675,42 +675,63 @@ pub fn enemy_ai_tick(
                         let code = wolf_plane1.0[idx(my_tile)];
                         if let Some(new_dir) = patrol_dir_from_plane1(code) {
                             *dir8 = new_dir;
-                            patrol.diag_phase = false;
                         }
                     }
 
-                    let (step, next_phase) = patrol_step_4way(*dir8, patrol.diag_phase);
+                    let step = patrol_step_8way(*dir8);
                     let dest = my_tile + step;
 
                     if step == IVec2::ZERO || !in_bounds(dest) || dest == player_tile {
                         dir8.0 = (dir8.0 + 4) & 7;
-                        patrol.diag_phase = false;
                         continue;
+                    }
+
+                    let diagonal = step.x != 0 && step.y != 0;
+                    if diagonal {
+                        let a = my_tile + IVec2::new(step.x, 0);
+                        let b = my_tile + IVec2::new(0, step.y);
+
+                        if !in_bounds(a) || !in_bounds(b) {
+                            dir8.0 = (dir8.0 + 4) & 7;
+                            continue;
+                        }
+
+                        if occupied.contains(&a) || occupied.contains(&b) {
+                            dir8.0 = (dir8.0 + 4) & 7;
+                            continue;
+                        }
+
+                        if solid.is_solid(a.x, a.y) || solid.is_solid(b.x, b.y) {
+                            dir8.0 = (dir8.0 + 4) & 7;
+                            continue;
+                        }
+
+                        let ta = tile_at(&grid, a).unwrap_or(Tile::Wall);
+                        let tb = tile_at(&grid, b).unwrap_or(Tile::Wall);
+                        if matches!(ta, Tile::Wall | Tile::DoorClosed) || matches!(tb, Tile::Wall | Tile::DoorClosed) {
+                            dir8.0 = (dir8.0 + 4) & 7;
+                            continue;
+                        }
                     }
 
                     if solid.is_solid(dest.x, dest.y) || occupied.contains(&dest) {
                         dir8.0 = (dir8.0 + 4) & 7;
-                        patrol.diag_phase = false;
                         continue;
                     }
 
-                    match grid.tile(dest.x as usize, dest.y as usize) {
+                    match tile_at(&grid, dest).unwrap_or(Tile::Wall) {
                         Tile::Wall => {
                             dir8.0 = (dir8.0 + 4) & 7;
-                            patrol.diag_phase = false;
                             continue;
                         }
                         Tile::DoorClosed => {
                             if !matches!(*kind, EnemyKind::Dog) {
                                 try_open_door_at(dest, &mut q_doors, &mut sfx);
                             }
-                            patrol.diag_phase = false;
                             continue;
                         }
                         Tile::DoorOpen | Tile::Empty => {
-                            patrol.diag_phase = next_phase;
-
-                            let patrol_speed = tunings.for_kind(*kind).chase_speed_tps * 0.65;
+                            let patrol_speed = t.chase_speed_tps * 0.65;
 
                             if CLAIM_TILE_EARLY {
                                 occ.0 = dest;

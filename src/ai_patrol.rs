@@ -23,9 +23,7 @@ use crate::enemies::{Dir8, EnemyKind};
 /// `diag_phase` is used to emulate Wolf's diagonal stair-stepping:
 /// diagonal directions alternate between their X and Y components
 #[derive(Component, Debug, Clone, Copy, Default)]
-pub struct Patrol {
-    pub diag_phase: bool,
-}
+pub struct Patrol;
 
 /// Wolf plane1 path arrow codes (90..=97) to our Dir8 convention
 ///
@@ -38,62 +36,29 @@ pub struct Patrol {
 /// - W is (-1,0) => Dir8(6)
 pub fn patrol_dir_from_plane1(code: u16) -> Option<Dir8> {
     match code {
-        90 => Some(Dir8(4)), // N
-        91 => Some(Dir8(2)), // E
-        92 => Some(Dir8(0)), // S
-        93 => Some(Dir8(6)), // W
-        94 => Some(Dir8(3)), // NE
-        95 => Some(Dir8(1)), // SE
-        96 => Some(Dir8(7)), // SW
-        97 => Some(Dir8(5)), // NW
+        90 => Some(Dir8(4)),
+        91 => Some(Dir8(2)),
+        92 => Some(Dir8(0)),
+        93 => Some(Dir8(6)),
+        94 => Some(Dir8(3)),
+        95 => Some(Dir8(1)),
+        96 => Some(Dir8(7)),
+        97 => Some(Dir8(5)),
         _ => None,
     }
 }
 
-/// Decide the next patrol step (tile delta) given the current facing
-/// For diagonal facings, alternate between the two axis steps
-pub fn patrol_step_4way(dir: Dir8, diag_phase: bool) -> (IVec2, bool) {
+pub fn patrol_step_8way(dir: Dir8) -> IVec2 {
     match dir.0 & 7 {
-        // Cardinals
-        0 => (IVec2::new(0, 1), diag_phase),   // +Y / +Z (south)
-        2 => (IVec2::new(1, 0), diag_phase),   // +X (east)
-        4 => (IVec2::new(0, -1), diag_phase),  // -Y / -Z (north)
-        6 => (IVec2::new(-1, 0), diag_phase),  // -X (west)
-
-        // Diagonals (stair-step)
-        1 => {
-            // SE: (1, 1)
-            if diag_phase {
-                (IVec2::new(1, 0), false)
-            } else {
-                (IVec2::new(0, 1), true)
-            }
-        }
-        3 => {
-            // NE: (1, -1)
-            if diag_phase {
-                (IVec2::new(1, 0), false)
-            } else {
-                (IVec2::new(0, -1), true)
-            }
-        }
-        5 => {
-            // NW: (-1, -1)
-            if diag_phase {
-                (IVec2::new(-1, 0), false)
-            } else {
-                (IVec2::new(0, -1), true)
-            }
-        }
-        7 => {
-            // SW: (-1, 1)
-            if diag_phase {
-                (IVec2::new(-1, 0), false)
-            } else {
-                (IVec2::new(0, 1), true)
-            }
-        }
-        _ => (IVec2::ZERO, diag_phase),
+        0 => IVec2::new(0, 1),
+        1 => IVec2::new(1, 1),
+        2 => IVec2::new(1, 0),
+        3 => IVec2::new(1, -1),
+        4 => IVec2::new(0, -1),
+        5 => IVec2::new(-1, -1),
+        6 => IVec2::new(-1, 0),
+        7 => IVec2::new(-1, 1),
+        _ => IVec2::ZERO,
     }
 }
 
