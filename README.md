@@ -15,4 +15,3 @@ CURRENT TODO LIST:
 **********************************************
 - Main menu and pause game mechanic
 - Enemies should sentry and patrol
-- Widen enemy hitscan area

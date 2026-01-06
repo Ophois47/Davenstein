@@ -84,9 +84,15 @@ fn process_fire_shots(
 
     fn hitbox(kind: EnemyKind) -> (f32, f32, f32) {
         // (radius, half_h, center_y)
+        // Sprites are visually wider than a "physical" cylinder, and classic Wolfenstein 3-D
+        // feels generous when you're pointing at a target. Widen XZ radius a bit so hitscan
+        // lands when the player is aiming at the sprite, not only the mathematical center
         match kind {
-            EnemyKind::Dog => (0.30, 0.40, 0.40),
-            _ => (0.35, 0.55, 0.50),
+            EnemyKind::Dog => (0.36, 0.40, 0.40),
+            // Boss is Visually Big, Slightly Larger Hitbox
+            EnemyKind::Hans => (0.46, 0.60, 0.55),
+            // Guard / SS / Officer / Mutant
+            _ => (0.42, 0.55, 0.50),
         }
     }
 
