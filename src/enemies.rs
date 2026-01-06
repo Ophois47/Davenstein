@@ -385,7 +385,7 @@ fn tick_ss_pain(
     for (e, mut p) in q.iter_mut() {
         live.push(e);
 
-        // Latch the *first* time this entity entered pain.
+        // Latch the *first* time this entity entered pain
         let start = started.entry(e).or_insert(now);
 
         // Keep ticking (harmless), but drive the elapsed from the latched start time
@@ -430,21 +430,21 @@ fn tick_ss_dying(
     mut q: Query<(Entity, &mut SsDying)>,
 ) {
     for (e, mut d) in q.iter_mut() {
-        // Wolf-style: advance animation by tics, not by a Timer.
+        // Wolf-style: advance animation by tics, not by a Timer
         d.tics = d.tics.saturating_add(1);
 
         // Every N tics, advance one frame.
-        // (We'll tune N later; 8 is a sane starting point.)
+        // (We'll tune N later; 8 is a sane starting point)
         if d.tics >= 8 {
             d.tics = 0;
             d.frame = d.frame.saturating_add(1);
 
-            // 4 death frames: 0,1,2,3. After that, become a corpse.
+            // 4 death frames: 0,1,2,3. After that, become a corpse
             if d.frame >= 4 {
                 commands.entity(e).remove::<SsDying>();
                 commands.entity(e).insert(SsCorpse);
-                // Keep OccupiesTile on corpses so doors won't close on them.
-                // Player/enemy collision queries already ignore Dead.
+                // Keep OccupiesTile on corpses so doors won't close on them
+                // Player/enemy collision queries already ignore Dead
             }
         }
     }
@@ -466,8 +466,8 @@ fn tick_dog_dying(
             if d.frame >= DEATH_FRAMES {
                 commands.entity(e).remove::<DogDying>();
                 commands.entity(e).insert(DogCorpse);
-                // Keep OccupiesTile on corpses so doors won't close on them.
-                // Player/enemy collision queries already ignore Dead.
+                // Keep OccupiesTile on corpses so doors won't close on them
+                // Player/enemy collision queries already ignore Dead
             }
         }
     }

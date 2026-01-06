@@ -435,7 +435,7 @@ pub fn drop_ss_loot(
     // Tiny Lift to Avoid Z-Fighting With Floor
     const DROP_Y_LIFT: f32 = 0.01;
 
-    let has_machinegun = hud.owns(WeaponSlot::MachineGun) || hud.owns(WeaponSlot::Chaingun);
+    let has_machinegun = hud.owns(WeaponSlot::MachineGun);
     let kind = if has_machinegun {
         PickupKind::Ammo { rounds: MAP_AMMO_ROUNDS }
     } else {
@@ -552,7 +552,7 @@ pub fn collect_pickups(
     q_pickups: Query<(Entity, &Pickup)>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
-    const WEAPON_PICKUP_BULLETS: i32 = 6; // Wolf-like: MG/Chaingun give 6 bullets. :contentReference[oaicite:2]{index=2}
+    const WEAPON_PICKUP_BULLETS: i32 = 6; // Wolf-like: MG/Chaingun give 6 bullets.
 
     let Some((player_e, player_tf)) = q_player.iter().next() else {
         return;
@@ -582,8 +582,11 @@ pub fn collect_pickups(
                     _ => None,
                 };
 
-                // If the player already owns the weapon, turn the pickup into ammo.
-                if hud.owns(w) {
+                // Simple + correct: only treat the weapon as owned if that exact slot is owned.
+                let already_owns = hud.owns(w);
+
+                if already_owns {
+                    // Already own weapon => ammo-only
                     if hud.ammo >= AMMO_MAX {
                         consumed = false;
                     } else {
@@ -598,6 +601,7 @@ pub fn collect_pickups(
                         }
                     }
                 } else {
+                    // New weapon pickup
                     if let Some(kind) = pickup_sfx {
                         sfx.write(PlaySfx {
                             kind,
@@ -608,12 +612,13 @@ pub fn collect_pickups(
                     hud.grant(w);
                     hud.selected = w;
 
-                    // Wolf-like: weapon pickup also grants bullets. :contentReference[oaicite:3]{index=3}
+                    // Weapon pickup also grants bullets
                     if hud.ammo < AMMO_MAX {
                         let gain = WEAPON_PICKUP_BULLETS.min(AMMO_MAX - hud.ammo);
                         hud.ammo += gain;
                     }
 
+                    // Only grin on actual chaingun pickup (not ammo-only)
                     if w == WeaponSlot::Chaingun {
                         face_ov.active = true;
                         face_ov.timer.reset();
@@ -683,7 +688,7 @@ pub fn collect_pickups(
             }
 
             PickupKind::Key(k) => {
-                // Use PlayerKeys as Gameplay Truth, Keep HUD Mirrored
+                // Use PlayerKeys as gameplay truth, keep HUD mirrored
                 match q_pkeys.get_mut(player_e) {
                     Ok(mut pk) => {
                         let already = match k {
@@ -712,7 +717,6 @@ pub fn collect_pickups(
                         }
                     }
                     Err(_) => {
-                        // If Player Somehow Spawned Without PlayerKeys, Attach Immediately
                         let already = match k {
                             KeyKind::Gold => hud.key_gold,
                             KeyKind::Silver => hud.key_silver,

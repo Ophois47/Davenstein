@@ -13,9 +13,7 @@ Alternatively: $ ./target/release/Davenstein
 **********************************************
 CURRENT TODO LIST:
 **********************************************
-- SS Guard needs to complete pain animation and repeat it rather than getting stuck in it, like we fixed for guard
 - Pause game mechanic
 - Boss Hans for E1M9 (In Progress with Other Model)
 - Get enemy damage to player in line with original 1992 Wolfenstein
-- Guard shouldnt be able to fire when getting shot
 - Enemies should sentry and patrol
