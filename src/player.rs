@@ -8,6 +8,7 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use crate::actors::{Dead, OccupiesTile};
 use crate::ai::EnemyFire;
 use crate::audio::{PlaySfx, SfxKind};
+use crate::enemies::EnemyKind;
 use crate::map::{
 	DoorAnim,
 	DoorState,
@@ -301,6 +302,8 @@ pub fn use_doors(
     mut grid: ResMut<MapGrid>,
     q_player: Query<&Transform, With<Player>>,
     q_keys: Query<&PlayerKeys, With<Player>>,
+    q_occupied: Query<&OccupiesTile>,
+    q_dead_enemies: Query<&GlobalTransform, (With<EnemyKind>, With<Dead>)>,
     mut q_doors: Query<(&DoorTile, &mut DoorState, &mut Visibility)>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
@@ -310,6 +313,9 @@ pub fn use_doors(
 
     const TILE_SIZE: f32 = 1.0;
     const DOOR_OPEN_SECS: f32 = 4.5;
+    const RETRY_SECS_IF_BLOCKED: f32 = 0.2;
+    const CORPSE_RADIUS: f32 = 0.35;
+    const CORPSE_PAD: f32 = 0.02;
 
     if !keys.just_pressed(KeyCode::Space) {
         return;
@@ -321,6 +327,17 @@ pub fn use_doors(
 
     fn world_to_tile(p: Vec2) -> IVec2 {
         IVec2::new((p.x + 0.5).floor() as i32, (p.y + 0.5).floor() as i32)
+    }
+
+    fn circle_overlaps_tile(circle: Vec2, r: f32, tile: IVec2) -> bool {
+        let cx = tile.x as f32;
+        let cz = tile.y as f32;
+
+        let min = Vec2::new(cx - 0.5, cz - 0.5);
+        let max = Vec2::new(cx + 0.5, cz + 0.5);
+
+        let closest = Vec2::new(circle.x.clamp(min.x, max.x), circle.y.clamp(min.y, max.y));
+        (circle - closest).length_squared() <= r * r
     }
 
     let player_tile = world_to_tile(Vec2::new(player_tf.translation.x, player_tf.translation.z));
@@ -377,13 +394,25 @@ pub fn use_doors(
 
         match cur {
             Tile::DoorOpen => {
-                state.want_open = false;
-                state.open_timer = 0.0;
-                grid.set_tile(tx, tz, Tile::DoorClosed);
-                sfx_kind = Some(SfxKind::DoorClose);
+                // Don't let doors close on top of living enemies OR dead bodies.
+                let dead_blocks = q_dead_enemies.iter().any(|gt| {
+                    let p = gt.translation();
+                    let xz = Vec2::new(p.x, p.z);
+                    circle_overlaps_tile(xz, CORPSE_RADIUS + CORPSE_PAD, target)
+                });
+
+                if q_occupied.iter().any(|o| o.0 == target) || dead_blocks {
+                    state.want_open = true;
+                    state.open_timer = RETRY_SECS_IF_BLOCKED;
+                    sfx_kind = Some(SfxKind::NoWay);
+                } else {
+                    state.want_open = false;
+                    state.open_timer = 0.0;
+                    grid.set_tile(tx, tz, Tile::DoorClosed);
+                    sfx_kind = Some(SfxKind::DoorClose);
+                }
             }
             Tile::DoorClosed => {
-                // Player cannot open locked doors without the correct key.
                 if locked && ((needs_gold && !has_gold) || (needs_silver && !has_silver)) {
                     sfx_kind = Some(SfxKind::NoWay);
                     break;
@@ -459,12 +488,16 @@ pub fn door_auto_close(
     mut grid: ResMut<MapGrid>,
     q_player: Query<&Transform, With<Player>>,
     q_occupied: Query<&crate::actors::OccupiesTile>,
+    q_dead_enemies: Query<&GlobalTransform, (With<EnemyKind>, With<Dead>)>,
     mut q_doors: Query<(&DoorTile, &mut DoorState, &DoorAnim, &mut Visibility)>,
     mut sfx: MessageWriter<PlaySfx>,
 ) {
     const TILE_SIZE: f32 = 1.0;
     const RETRY_SECS_IF_BLOCKED: f32 = 0.2;
     const FULLY_OPEN_EPS: f32 = 0.999;
+
+    const CORPSE_RADIUS: f32 = 0.35;
+    const CORPSE_PAD: f32 = 0.02;
 
     // Must Match player_move()
     const PLAYER_RADIUS: f32 = 0.20;
@@ -493,9 +526,16 @@ pub fn door_auto_close(
     let player_xz = Vec2::new(player_tf.translation.x, player_tf.translation.z);
     let _player_tile = world_to_tile(player_xz);
 
-    // Enemy That Still has OccupiesTile Considered "Blocking Door From Closing"
-    // Corpses Should NOT Have OccupiesTile (Removed When Finalizing Corpse), so They Won't Block
+    // Snapshot occupied tiles (anything with OccupiesTile).
     let occupied_tiles: Vec<IVec2> = q_occupied.iter().map(|o| o.0).collect();
+
+    let dead_xz: Vec<Vec2> = q_dead_enemies
+        .iter()
+        .map(|gt| {
+            let p = gt.translation();
+            Vec2::new(p.x, p.z)
+        })
+        .collect();
 
     for (door, mut state, anim, mut vis) in q_doors.iter_mut() {
         let dt = door.0;
@@ -524,8 +564,14 @@ pub fn door_auto_close(
             continue;
         }
 
-        // Block Closing if Enemy Still Occupying Doorway Tile (Alive or Dying)
-        // Corpses Should Have had OccupiesTile Removed, so They Won't Block This
+        // Block closing if any dead enemy body overlaps the doorway in world space.
+        // This handles corpses even if their OccupiesTile isn't reliable.
+        if dead_xz.iter().any(|p| circle_overlaps_tile(*p, CORPSE_RADIUS + CORPSE_PAD, dt)) {
+            state.open_timer = RETRY_SECS_IF_BLOCKED;
+            continue;
+        }
+
+        // Block closing if something still claims this doorway tile (alive/dying).
         if occupied_tiles.iter().any(|t| *t == dt) {
             state.open_timer = RETRY_SECS_IF_BLOCKED;
             continue;
