@@ -13,12 +13,9 @@ Alternatively: $ ./target/release/Davenstein
 **********************************************
 CURRENT TODO LIST:
 **********************************************
-- Boss Hans for E1M9
-- Doors should not close when corpses are in the way
-- Guns we already have, we should still pick up and simply get ammo for
-- Get enemy damage to player in line with original 1992 Wolfenstein
-- Enemies shouldnt be able to fire when getting shot
-- Enemies should sentry and patrol
+- SS Guard needs to complete pain animation and repeat it rather than getting stuck in it, like we fixed for guard
 - Pause game mechanic
-- Proper main menu
-- God mode mechanic (debug)
+- Boss Hans for E1M9 (In Progress with Other Model)
+- Get enemy damage to player in line with original 1992 Wolfenstein
+- Guard shouldnt be able to fire when getting shot
+- Enemies should sentry and patrol

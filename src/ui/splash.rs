@@ -18,7 +18,7 @@ pub const MAIN_MENU_PATH: &str = "textures/ui/main_menu.png";
 pub const GET_PSYCHED_PATH: &str = "textures/ui/get_psyched.png";
 
 // Loading Screen
-const BASE_HUD_H: f32 = 40.0;   // Status Bar Area
+const BASE_HUD_H: f32 = 44.0;   // Status Bar Area
 const PSYCHED_DURATION_SECS: f32 = 1.2;
 const PSYCHED_SPR_W: f32 = 220.0;
 const PSYCHED_SPR_H: f32 = 40.0;
@@ -289,7 +289,7 @@ fn spawn_menu_hint(commands: &mut Commands, asset_server: &AssetServer) {
                 align_items: AlignItems::Center,
                 ..default()
             },
-            BackgroundColor(Color::NONE),
+            BackgroundColor(Color::NONE), // was PSYCHED_TEAL
         ))
         .with_children(|p| {
             p.spawn((
@@ -311,23 +311,27 @@ fn spawn_get_psyched_ui(
     win_w: f32,
     win_h: f32,
 ) {
-    // HUD is bottom 40/200 of the screen (Wolf ratio)
-    let hud_h = (win_h * (BASE_HUD_H / BASE_H)).round();
+    // IMPORTANT: match the HUD sizing rules exactly (see ui/hud.rs).
+    // HUD scale is an integer derived from WINDOW WIDTH, and the status bar is 44px * scale.
+    const HUD_W: f32 = 320.0;
+
+    let hud_scale = (win_w / HUD_W).floor().max(1.0);
+    let hud_h = (BASE_HUD_H * hud_scale).round();
     let view_h = (win_h - hud_h).max(0.0);
 
-    // Scale banner based on width, clamp so it never exceeds the screen
-    let mut scale = (win_w / BASE_W).max(1.0);
+    // Banner uses the same integer HUD scale by default, but clamps so it never exceeds the window.
+    let mut scale = hud_scale.max(1.0);
     let mut spr_w = (PSYCHED_SPR_W * scale).round();
     let mut spr_h = (PSYCHED_SPR_H * scale).round();
     if spr_w > win_w {
-        scale = win_w / PSYCHED_SPR_W;
+        scale = (win_w / PSYCHED_SPR_W).max(1.0);
         spr_w = (PSYCHED_SPR_W * scale).round();
         spr_h = (PSYCHED_SPR_H * scale).round();
     }
 
     let banner = asset_server.load(GET_PSYCHED_PATH);
 
-    // Center banner in the view region
+    // Center banner in the view region (which ends above the HUD strip).
     let left = ((win_w - spr_w) * 0.5).round().max(0.0);
     let top = ((view_h - spr_h) * 0.5).round().max(0.0);
 
@@ -335,34 +339,22 @@ fn spawn_get_psyched_ui(
     let bar_h = (1.0 * scale).max(1.0).round();
     let bar_top = (top + spr_h - bar_h).max(0.0);
 
+    // Root ONLY covers the view region, so it can never overlap the HUD.
     commands
         .spawn((
             LoadingUi,
             ZIndex(950),
             Node {
                 width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
+                height: Val::Px(view_h),
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
                 top: Val::Px(0.0),
                 ..default()
             },
-            BackgroundColor(Color::NONE),
+            BackgroundColor(PSYCHED_TEAL),
         ))
         .with_children(|root| {
-            // FULL-WIDTH teal fill for the entire view region (NOT the HUD region)
-            root.spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(0.0),
-                    top: Val::Px(0.0),
-                    width: Val::Percent(100.0),
-                    height: Val::Px(view_h),
-                    ..default()
-                },
-                BackgroundColor(PSYCHED_TEAL),
-            ));
-
             // Banner
             root.spawn((
                 ImageNode::new(banner),
