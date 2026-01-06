@@ -326,11 +326,17 @@ fn tick_ss_walk(
 ) {
     let dt = time.delta_secs();
     for (mut w, moving) in q.iter_mut() {
-        if moving.is_some() {
-            w.phase = (w.phase + dt * SS_WALK_FPS) % 1.0;
+        if let Some(m) = moving {
+            // Drive Animation by Distance Traveled (Tiles)
+            w.phase += m.speed_tps * dt;
         } else {
             w.phase = 0.0;
         }
+        /*if moving.is_some() {
+            w.phase = (w.phase + dt * SS_WALK_FPS) % 1.0;
+        } else {
+            w.phase = 0.0;
+        }*/
     }
 }
 
@@ -339,10 +345,9 @@ fn tick_hans_walk(
     mut q: Query<(&mut HansWalk, Option<&EnemyMove>), (With<Hans>, Without<HansDying>)>,
 ) {
     let dt = time.delta_secs();
-
     for (mut w, moving) in q.iter_mut() {
         if let Some(m) = moving {
-            // Drive animation by distance traveled (tiles).
+            // Drive Animation by Distance Traveled (Tiles)
             w.phase += m.speed_tps * dt;
         } else {
             w.phase = 0.0;
@@ -355,7 +360,6 @@ fn tick_dog_walk(
     mut q: Query<(&mut DogWalk, Option<&EnemyMove>), (With<Dog>, Without<DogDying>)>,
 ) {
     let dt = time.delta_secs();
-
     for (mut w, moving) in q.iter_mut() {
         if let Some(m) = moving {
             // Drive animation by distance traveled (tiles).
