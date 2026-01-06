@@ -5,6 +5,12 @@ use bevy::prelude::*;
 use std::collections::{HashSet, HashMap};
 
 use crate::actors::{Dead, OccupiesTile};
+use crate::ai_patrol::{
+    Patrol,
+    patrol_dir_from_plane1,
+    patrol_step_4way,
+    spawn_dir_and_patrol_for_kind,
+};
 use crate::audio::{PlaySfx, SfxKind};
 use crate::decorations::SolidStatics;
 use crate::enemies::{
@@ -57,6 +63,7 @@ impl Default for EnemyAi {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnemyAiState {
     Stand,
+    Patrol,
     Chase,
 }
 
@@ -164,10 +171,32 @@ fn pick_chase_step(
 
 fn attach_enemy_ai(
     mut commands: Commands,
-    q_new: Query<Entity, (Added<EnemyKind>, Without<EnemyAi>)>,
+    grid: Res<MapGrid>,
+    wolf_plane1: Res<crate::level::WolfPlane1>,
+    mut q_new: Query<(Entity, &EnemyKind, &OccupiesTile, &mut Dir8), (Added<EnemyKind>, Without<EnemyAi>)>,
 ) {
-    for e in q_new.iter() {
-        commands.entity(e).insert(EnemyAi::default());
+    let w = grid.width as i32;
+
+    for (e, kind, occ, mut dir8) in q_new.iter_mut() {
+        let mut state = EnemyAiState::Stand;
+
+        // Derive initial facing / patrol-ness from the raw Wolf plane1 code at this spawn tile
+        // This keeps the "sentry vs patrol" behavior data-driven from plane1
+        let idx = (occ.0.y * w + occ.0.x) as usize;
+        if let Some(code) = wolf_plane1.0.get(idx).copied() {
+            if let Some((d, is_patrol)) = spawn_dir_and_patrol_for_kind(*kind, code) {
+                *dir8 = d;
+                if is_patrol {
+                    state = EnemyAiState::Patrol;
+                    commands.entity(e).insert(Patrol::default());
+                }
+            }
+        }
+
+        commands.entity(e).insert(EnemyAi {
+            state,
+            last_step: IVec2::ZERO,
+        });
     }
 }
 
@@ -459,6 +488,7 @@ pub fn enemy_ai_tick(
     mut enemy_fire: MessageWriter<EnemyFire>,
     mut shoot_cd: Local<HashMap<Entity, f32>>,
     mut alerted: Local<HashSet<Entity>>,
+    wolf_plane1: Res<crate::level::WolfPlane1>,
     tunings: Res<EnemyTunings>,
     mut q: ParamSet<(
         Query<&OccupiesTile, (With<EnemyKind>, Without<Dead>)>,
@@ -471,6 +501,7 @@ pub fn enemy_ai_tick(
                 &mut Dir8,
                 &Transform,
                 Option<&EnemyMove>,
+                Option<&mut Patrol>,
                 Option<&crate::enemies::GuardPain>,
                 Option<&crate::enemies::SsPain>,
                 Option<&crate::enemies::DogPain>,
@@ -581,6 +612,7 @@ pub fn enemy_ai_tick(
             mut dir8,
             tf,
             moving,
+            patrol,
             guard_pain,
             ss_pain,
             dog_pain,
@@ -593,7 +625,7 @@ pub fn enemy_ai_tick(
             let my_tile = occ.0;
 
             // Acquire -> Chase (Activation Gated by Same Area + LOS)
-            if ai.state == EnemyAiState::Stand {
+            if matches!(ai.state, EnemyAiState::Stand | EnemyAiState::Patrol) {
                 let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
                 if same_area && has_line_of_sight(&grid, &solid, my_tile, player_tile) {
                     ai.state = EnemyAiState::Chase;
@@ -606,10 +638,6 @@ pub fn enemy_ai_tick(
                         });
                     }
                 }
-            }
-
-            if ai.state != EnemyAiState::Chase {
-                continue;
             }
 
             // ============
@@ -627,6 +655,86 @@ pub fn enemy_ai_tick(
             if matches!(*kind, EnemyKind::Dog) && dog_bite.is_some() {
                 *dir8 = dir8_towards(my_tile, player_tile);
                 continue;
+            }
+
+            // Guard Patrol
+            match ai.state {
+                EnemyAiState::Stand => {
+                    continue;
+                }
+                EnemyAiState::Patrol => {
+                    if moving.is_some() {
+                        continue;
+                    }
+
+                    let Some(mut patrol) = patrol else {
+                        continue;
+                    };
+
+                    if in_bounds(my_tile) {
+                        let code = wolf_plane1.0[idx(my_tile)];
+                        if let Some(new_dir) = patrol_dir_from_plane1(code) {
+                            *dir8 = new_dir;
+                            patrol.diag_phase = false;
+                        }
+                    }
+
+                    let (step, next_phase) = patrol_step_4way(*dir8, patrol.diag_phase);
+                    let dest = my_tile + step;
+
+                    if step == IVec2::ZERO || !in_bounds(dest) || dest == player_tile {
+                        dir8.0 = (dir8.0 + 4) & 7;
+                        patrol.diag_phase = false;
+                        continue;
+                    }
+
+                    if solid.is_solid(dest.x, dest.y) || occupied.contains(&dest) {
+                        dir8.0 = (dir8.0 + 4) & 7;
+                        patrol.diag_phase = false;
+                        continue;
+                    }
+
+                    match grid.tile(dest.x as usize, dest.y as usize) {
+                        Tile::Wall => {
+                            dir8.0 = (dir8.0 + 4) & 7;
+                            patrol.diag_phase = false;
+                            continue;
+                        }
+                        Tile::DoorClosed => {
+                            if !matches!(*kind, EnemyKind::Dog) {
+                                try_open_door_at(dest, &mut q_doors, &mut sfx);
+                            }
+                            patrol.diag_phase = false;
+                            continue;
+                        }
+                        Tile::DoorOpen | Tile::Empty => {
+                            patrol.diag_phase = next_phase;
+
+                            let patrol_speed = tunings.for_kind(*kind).chase_speed_tps * 0.65;
+
+                            if CLAIM_TILE_EARLY {
+                                occ.0 = dest;
+                            }
+
+                            let y = tf.translation.y;
+                            let target = Vec3::new(dest.x as f32, y, dest.y as f32);
+
+                            commands.entity(e).insert(EnemyMove {
+                                target,
+                                speed_tps: patrol_speed,
+                            });
+
+                            occupied.insert(dest);
+                            if CLAIM_TILE_EARLY {
+                                occupied.remove(&my_tile);
+                            }
+
+                            continue;
+                        }
+                    }
+                }
+                EnemyAiState::Chase => {
+                }
             }
 
             // Current Shooting Cooldown Remaining (0 => Ready)
