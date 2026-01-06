@@ -297,7 +297,6 @@ impl DogBiteCooldown {
     }
 }
 
-const SS_WALK_FPS: f32 = 6.0;
 pub(crate) const SS_SHOOT_SECS: f32 = 0.35;
 pub(crate) const HANS_SHOOT_SECS: f32 = 0.35;
 const DOG_BITE_SECS: f32 = 0.35;
@@ -332,11 +331,6 @@ fn tick_ss_walk(
         } else {
             w.phase = 0.0;
         }
-        /*if moving.is_some() {
-            w.phase = (w.phase + dt * SS_WALK_FPS) % 1.0;
-        } else {
-            w.phase = 0.0;
-        }*/
     }
 }
 

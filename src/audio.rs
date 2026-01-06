@@ -330,7 +330,7 @@ pub fn sync_boot_music(
     }
 
     for e in q_music.iter() {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
 
     let clip = match mode.0 {
@@ -365,7 +365,7 @@ pub fn sync_level_music(
     }
 
     for e in q_music.iter() {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
 
     let floor = level.0.floor_number();

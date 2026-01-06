@@ -808,7 +808,7 @@ pub fn collect_pickups(
 
         if consumed {
             pickup_flash.trigger(Srgba::new(1.0, 62.0 / 64.0, 0.0, 1.0));
-            commands.entity(e).despawn();
+            commands.entity(e).try_despawn();
         }
     }
 }

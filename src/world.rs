@@ -307,7 +307,7 @@ pub fn rebuild_wall_faces_on_request(
     }
 
     for e in q_faces.iter() {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
 
     spawn_wall_faces_for_grid(&mut commands, &grid, &cache, skip);

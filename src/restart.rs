@@ -46,7 +46,7 @@ pub fn restart_despawn_level(
     kill.extend(q_lights.iter());
 
     for e in kill {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
 }
 
