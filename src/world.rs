@@ -321,6 +321,7 @@ pub fn setup(
     guard_sprites: Res<crate::enemies::GuardSprites>,
     ss_sprites: Res<crate::enemies::SsSprites>,
     dog_sprites: Res<crate::enemies::DogSprites>,
+    hans_sprites: Res<crate::enemies::HansSprites>,
     current_level: Res<crate::level::CurrentLevel>,
 ) {
     // --- Map load (Wolf planes) ---
@@ -365,7 +366,7 @@ pub fn setup(
     commands.insert_resource(crate::level::WolfPlane1(plane1.clone()));
 
     let pushwall_markers = PushwallMarkers::from_wolf_plane1(64, 64, &plane1);
-    let (grid, spawn, guards, ss, dogs) = MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
+    let (grid, spawn, guards, ss, dogs, hans) = MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
 
     // --- Enemy difficulty selection (TEMP: default to base set; menus later) ---
     // Wolf thing codes repeat in 3 bands spaced by +36
@@ -398,7 +399,21 @@ pub fn setup(
         })
         .collect();
 
-    info!("enemy spawns (filtered): guards={}, ss={}, dogs={}", guards.len(), ss.len(), dogs.len());
+    // Bosses 
+    // Not Difficulty-Banded, Spawn Always If Present
+    // E1M9: Boss Hans Grosse = 214
+    let hans: Vec<IVec2> = hans
+        .into_iter()
+        .filter(|&t| plane1[idx(t)] == 214)
+        .collect();
+
+    info!(
+        "enemy spawns (filtered): guards={}, ss={}, dogs={}, hans={}",
+        guards.len(),
+        ss.len(),
+        dogs.len(),
+        hans.len(),
+    );
 
     let (spawn, spawn_yaw) = spawn.unwrap_or((IVec2::new(1, 1), 0.0));
 
@@ -736,6 +751,10 @@ pub fn setup(
 
     for d in dogs {
         crate::enemies::spawn_dog(&mut commands, &mut meshes, &mut materials, &dog_sprites, d);
+    }
+
+    for h in hans {
+        crate::enemies::spawn_hans(&mut commands, &mut meshes, &mut materials, &hans_sprites, h);
     }
 
     // Player spawn from grid

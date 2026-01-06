@@ -192,8 +192,8 @@ fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVe
         return true;
     }
 
-    // Ray from tile center to tile center, using
-    // same N+0.5 boundary scheme as hitscan/collision
+    // Ray From Tile Center to Tile Center, Using
+    // Same N+0.5 Boundary Scheme as Hitscan / Collision
     let origin = Vec2::new(from.x as f32, from.y as f32);
     let target = Vec2::new(to.x as f32, to.y as f32);
 
@@ -208,9 +208,10 @@ fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVe
     let dz = dir.y;
 
     const EPS: f32 = 1e-8;
-    const EPS_T: f32 = 1e-6; // tie-break for corner hits
+    // Tie-Break For Corner Hits
+    const EPS_T: f32 = 1e-6;
 
-    // Tile boundaries at N+0.5
+    // Tile Boundaries at N+0.5
     let px = origin.x + 0.5;
     let pz = origin.y + 0.5;
 
@@ -251,7 +252,8 @@ fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVe
             t_max_z += t_delta_z;
             d
         } else {
-            // Corner crossing: treat either adjacent blocking tile as blocking LOS
+            // Corner Crossing: Treat Either
+            // Adjacent Blocking Tile as Blocking LOS
             let next_ix = ix + step_x;
             let next_iz = iz + step_z;
 
@@ -314,10 +316,10 @@ fn dir8_towards(from: IVec2, to: IVec2) -> Dir8 {
         return Dir8(0);
     }
 
-    // 0 rad = +Z (positive "y" in grid coords), matches your yaw usage elsewhere
+    // 0 Rad = +Z (Positive "y" in Grid Coords)
     let ang = (d.x as f32).atan2(d.y as f32);
 
-    // Quantize into 8 octants (0..7), with 0 = +Z, 2 = +X, 4 = -Z, 6 = -X
+    // Quantize Into 8 Octants (0..7), with 0 = +Z, 2 = +X, 4 = -Z, 6 = -X
     let step = std::f32::consts::FRAC_PI_4; // 45°
     let mut oct = ((ang + step * 0.5) / step).floor() as i32;
     oct = ((oct % 8) + 8) % 8;
@@ -353,7 +355,7 @@ fn try_open_door_at(
 struct AreaMap {
     w: usize,
     h: usize,
-    ids: Vec<i32>, // -1 = solid/unassigned
+    ids: Vec<i32>, // -1 = Solid / Unassigned
 }
 
 impl AreaMap {
@@ -425,6 +427,25 @@ impl AreaMap {
     }
 }
 
+fn wolf_hitscan_damage(dist_tiles: i32) -> i32 {
+    let r = rand::random::<u8>() as i32; // 0..255
+    if dist_tiles <= 1 {
+        r / 4 // 0..63
+    } else {
+        r / 6 // 0..42
+    }
+}
+
+fn wolf_far_miss_gate(dist_tiles: i32) -> bool {
+    if dist_tiles <= 3 {
+        true
+    } else {
+        // Floor(r/12) is 0..21, Must Be >= Dist to Hit
+        let r = rand::random::<u8>() as i32; // 0..255
+        (r / 12) >= dist_tiles
+    }
+}
+
 pub fn enemy_ai_tick(
     mut commands: Commands,
     time: Res<Time>,
@@ -459,32 +480,27 @@ pub fn enemy_ai_tick(
         >,
     )>,
 ) {
-    // Tunables (single place; later we can move these into an Options/Difficulty resource)
+    // Tunables (Later Move These Into Options / Difficulty Resource)
     const GUARD_SHOOT_MAX_DIST_TILES: i32 = 7;
-
-    // "Stop to shoot" window (Wolf swaps to attack state and doesn't move during it)
+    
     const GUARD_SHOOT_PAUSE_SECS: f32 = 0.25;
 
-    // Extra delay after the pause before another shot can start
+    // Extra Delay After Pause Before Another Shot Can Start
     const GUARD_SHOOT_COOLDOWN_SECS: f32 = 0.55;
 
     const GUARD_SHOOT_TOTAL_SECS: f32 = GUARD_SHOOT_PAUSE_SECS + GUARD_SHOOT_COOLDOWN_SECS;
-
-    // Make guards a bit more accurate
-    const GUARD_HIT_CHANCE_MIN: f32 = 0.25;
-    const GUARD_HIT_CHANCE_MAX: f32 = 0.85;
 
     let Some(player_gt) = q_player.iter().next() else { return; };
     let player_pos = player_gt.translation();
     let player_tile = world_to_tile_xz(Vec2::new(player_pos.x, player_pos.z));
 
-    // Snapshot occupied tiles (alive enemies only)
+    // Snapshot Occupied Tiles (Alive Enemies Only)
     let mut occupied: HashSet<IVec2> = HashSet::new();
     for ot in q.p0().iter() {
         occupied.insert(ot.0);
     }
 
-    // Cooldowns tick down every frame
+    // Cooldowns Tick Down Every Frame
     let dt = time.delta_secs();
     shoot_cd.retain(|_, t| {
         *t -= dt;
@@ -496,7 +512,7 @@ pub fn enemy_ai_tick(
     while ticker.accum >= AI_TIC_SECS {
         ticker.accum -= AI_TIC_SECS;
 
-        // Areas only used for initial activation gating
+        // Areas Only Used for Initial Activation Gating
         let areas = AreaMap::compute(&grid);
         let player_area = areas.id(player_tile);
 
@@ -544,7 +560,7 @@ pub fn enemy_ai_tick(
                         continue;
                     }
 
-                    // Only walls are hard blocking for BFS, doors are traversable intent
+                    // Only Walls Hard Blocking for BFS, Doors Traversable Intent
                     if solid.is_solid(n.x, n.y) || grid.tile(n.x as usize, n.y as usize) == Tile::Wall {
                         continue;
                     }
@@ -574,13 +590,13 @@ pub fn enemy_ai_tick(
             let speed = t.chase_speed_tps;
             let my_tile = occ.0;
 
-            // Acquire -> Chase (activation gated by same area + LOS)
+            // Acquire -> Chase (Activation Gated by Same Area + LOS)
             if ai.state == EnemyAiState::Stand {
                 let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
                 if same_area && has_line_of_sight(&grid, &solid, my_tile, player_tile) {
                     ai.state = EnemyAiState::Chase;
 
-                    // one time alert per enemy (without adding fields to EnemyAi)
+                    // One Time Alert Per Enemy
                     if alerted.insert(e) {
                         sfx.write(PlaySfx {
                             kind: SfxKind::EnemyAlert(*kind),
@@ -599,28 +615,29 @@ pub fn enemy_ai_tick(
             // ============
             let in_pain = guard_pain.is_some() || ss_pain.is_some() || dog_pain.is_some();
             if in_pain {
-                // face the player, but do NOT move, shoot, open doors while flinching
+                // Face Player, Do NOT Move, Shoot, Open Doors While Flinching
                 *dir8 = dir8_towards(my_tile, player_tile);
                 continue;
             }
 
-            // Dog bite state gate
+            // Dog Bite State Gate
             if matches!(*kind, EnemyKind::Dog) && dog_bite.is_some() {
                 *dir8 = dir8_towards(my_tile, player_tile);
                 continue;
             }
 
-            // Current shooting cooldown remaining (0 => ready)
+            // Current Shooting Cooldown Remaining (0 => Ready)
             let cd_now = shoot_cd.get(&e).copied().unwrap_or(0.0);
 
-            // Wolf like "stop to shoot"
-            // during the initial pause window after firing, do not pick movement
+            // Stop to Shoot
+            // During Initial Pause Window After Firing, Do Not Pick Movement
             if cd_now > GUARD_SHOOT_COOLDOWN_SECS {
                 *dir8 = dir8_towards(my_tile, player_tile);
                 continue;
             }
 
-            // If already moving, don't shoot mid step and don't pick a new chase step this tic
+            // If Already Moving, Don't Shoot Mid Step,
+            // Don't Pick New Chase Step This Tic
             if moving.is_some() {
                 continue;
             }
@@ -641,24 +658,23 @@ pub fn enemy_ai_tick(
 
                     commands.entity(e).insert(crate::enemies::DogBite::new());
 
-                    // Bite SFX plays at start
+                    // Bite SFX Plays at Start
                     sfx.write(PlaySfx {
                         kind: SfxKind::EnemyShoot(EnemyKind::Dog),
                         pos: tf.translation,
                     });
 
-                    // Don't also schedule a move on the same tic we start a bite
+                    // Don't Schedule Move on Same Tic We Start Bite
                     continue;
                 }
             }
 
             // =========================
-            // SHOOT LOGIC (NOT DOGS)
+            // SHOOT LOGIC (Excluding Dogs)
             // =========================
             if !matches!(*kind, EnemyKind::Dog) {
                 let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
 
-                // Wolf-ish distance (Chebyshev)
                 let dx = (player_tile.x - my_tile.x).abs();
                 let dy = (player_tile.y - my_tile.y).abs();
                 let shoot_dist = dx.max(dy);
@@ -671,16 +687,12 @@ pub fn enemy_ai_tick(
                     if cd_now <= 0.0 {
                         shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
-                        let distf = shoot_dist as f32;
-                        let maxf = GUARD_SHOOT_MAX_DIST_TILES as f32;
-                        let hit_chance =
-                            (1.0 - (distf / maxf)).clamp(GUARD_HIT_CHANCE_MIN, GUARD_HIT_CHANCE_MAX);
-
-                        let damage = if rand::random::<f32>() < hit_chance { 10 } else { 0 };
+                        let hits = wolf_far_miss_gate(shoot_dist);
+                        let damage = if hits { wolf_hitscan_damage(shoot_dist) } else { 0 };
 
                         enemy_fire.write(EnemyFire { kind: *kind, damage });
 
-                        // Start the correct attack animation for this enemy kind
+                        // Start Correct Attack Animation for Enemy Kind
                         match kind {
                             EnemyKind::Guard => {
                                 commands.entity(e).insert(crate::enemies::GuardShoot {
@@ -692,6 +704,11 @@ pub fn enemy_ai_tick(
                                     t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
                                 });
                             }
+                            EnemyKind::Hans => {
+                                commands.entity(e).insert(crate::enemies::HansShoot {
+                                    t: Timer::from_seconds(crate::enemies::HANS_SHOOT_SECS, TimerMode::Once),
+                                });
+                            }
                             EnemyKind::Dog => {}
                         }
 
@@ -700,14 +717,14 @@ pub fn enemy_ai_tick(
                             pos: tf.translation,
                         });
 
-                        // Don’t also schedule a move on the same tic we start a shot
+                        // Don't Schedule Move on Same Tic We Start Shot
                         continue;
                     }
                 }
             }
 
             // =========================
-            // MOVE LOGIC (BFS gradient + door open)
+            // MOVE LOGIC (BFS Gradient + Door Open)
             // =========================
             let dirs = [
                 IVec2::new(1, 0),
@@ -735,23 +752,23 @@ pub fn enemy_ai_tick(
                             continue;
                         }
 
-                        // Dogs never open doors
+                        // Dogs Never Open Doors
                         if matches!(*kind, EnemyKind::Dog) && tile == Tile::DoorClosed {
                             continue;
                         }
 
                         let d = dist[idx(dest)];
                         if d < 0 || d >= my_d {
-                            continue; // don’t walk away / sideways on equal distance if avoidable
+                            continue;
                         }
 
                         if occupied.contains(&dest) {
                             continue;
                         }
 
-                        // Prefer smaller distance
-                        // avoid immediate reverse unless needed
-                        // prefer non door if tied
+                        // Prefer Smaller Distance
+                        // Avoid Immediate Reverse Unless Needed
+                        // Prefer Non Door if Tied
                         let mut score = d * 10;
                         if step == -ai.last_step {
                             score += 5;
@@ -828,7 +845,7 @@ pub fn enemy_ai_tick(
                         }
                     }
                     ChasePick::OpenDoor(door_tile) => {
-                        // Dogs never open doors
+                        // Dogs Never Open Doors
                         if !matches!(*kind, EnemyKind::Dog) {
                             try_open_door_at(door_tile, &mut q_doors, &mut sfx);
                             ai.last_step = IVec2::ZERO;

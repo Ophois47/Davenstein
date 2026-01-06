@@ -7,7 +7,11 @@ use std::f32::consts::FRAC_PI_2;
 use crate::combat::WeaponSlot;
 use crate::ui::HudState;
 use davelib::audio::{PlaySfx, SfxKind};
-use davelib::enemies::{GuardCorpse, SsCorpse};
+use davelib::enemies::{
+    GuardCorpse,
+    HansCorpse,
+    SsCorpse,
+};
 use davelib::level::WolfPlane1;
 use davelib::map::{MapGrid, Tile};
 use davelib::player::Player;
@@ -479,6 +483,57 @@ pub fn drop_ss_loot(
 
         commands.spawn((
             Name::new("Pickup_Drop_SS"),
+            Pickup { tile, kind },
+            Mesh3d(quad),
+            MeshMaterial3d(mat),
+            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
+                .with_rotation(pickup_base_rot()),
+            GlobalTransform::default(),
+        ));
+    }
+}
+
+pub fn drop_hans_key(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    q_corpses: Query<(Entity, &GlobalTransform), (With<HansCorpse>, Without<DroppedLoot>)>,
+) {
+    // Depth Tweak: with AlphaMode::Mask this will actually affect depth testing
+    const DROP_DEPTH_BIAS: f32 = -250.0;
+
+    // Tiny Lift to Avoid Z-Fighting With Floor
+    const DROP_Y_LIFT: f32 = 0.01;
+
+    let kind = PickupKind::Key(KeyKind::Gold);
+    let (w, h) = key_size();
+    let tex_path = key_texture(KeyKind::Gold);
+
+    for (corpse_e, gt) in q_corpses.iter() {
+        // Drop Once per Corpse
+        commands.entity(corpse_e).insert(DroppedLoot);
+
+        // Drop at the Corpse Tile
+        let p = gt.translation();
+        let tile = world_to_tile_xz(Vec2::new(p.x, p.z));
+
+        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
+        let tex: Handle<Image> = asset_server.load(tex_path);
+
+        let mat = materials.add(StandardMaterial {
+            base_color_texture: Some(tex),
+            alpha_mode: AlphaMode::Mask(0.5),
+            unlit: true,
+            cull_mode: None,
+            depth_bias: DROP_DEPTH_BIAS,
+            ..default()
+        });
+
+        let y = (h * 0.5) + DROP_Y_LIFT;
+
+        commands.spawn((
+            Name::new("Pickup_Drop_Hans_Key"),
             Pickup { tile, kind },
             Mesh3d(quad),
             MeshMaterial3d(mat),

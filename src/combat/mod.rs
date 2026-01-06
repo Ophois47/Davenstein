@@ -20,6 +20,7 @@ use davelib::enemies::{
     GuardPain,
     SsDying,
     SsPain,
+    HansDying,
     DogDying,
     DogPain,
 };
@@ -316,6 +317,9 @@ fn process_fire_shots(
                         EnemyKind::Ss => {
                             commands.entity(e).insert(SsDying { frame: 0, tics: 0 });
                         }
+                        EnemyKind::Hans => {
+                            commands.entity(e).insert(HansDying {frame: 0, tics: 0 });
+                        }
                         EnemyKind::Dog => {
                             commands.entity(e).insert(DogDying { frame: 0, tics: 0 });
                         }
@@ -323,10 +327,19 @@ fn process_fire_shots(
                 } else {
                     let timer = Timer::from_seconds(0.20, TimerMode::Once);
                     match kind {
-                        EnemyKind::Guard => commands.entity(e).insert(GuardPain { timer }),
-                        EnemyKind::Ss => commands.entity(e).insert(SsPain { timer }),
-                        EnemyKind::Dog => commands.entity(e).insert(DogPain { timer }),
-                    };
+                        EnemyKind::Guard => {
+                            commands.entity(e).insert(GuardPain { timer });
+                        }
+                        EnemyKind::Ss => {
+                            commands.entity(e).insert(SsPain { timer });
+                        }
+                        EnemyKind::Dog => {
+                            commands.entity(e).insert(DogPain { timer });
+                        }
+                        EnemyKind::Hans => {
+                            // Wolfenstein 3-D Bosses Do Not Flinch / Enter Pain
+                        }
+                    }
                 }
             }
 

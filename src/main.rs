@@ -247,6 +247,7 @@ fn main() {
                 player_move,
                 pickups::drop_guard_ammo,
                 pickups::drop_ss_loot,
+                pickups::drop_hans_key,
                 pickups::collect_pickups,
             )
                 .chain()

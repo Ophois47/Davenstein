@@ -4,7 +4,11 @@ Davenstein - by David Petnick
 use bevy::prelude::*;
 use bevy::time::Timer;
 
-use crate::actors::{Dead, Health, OccupiesTile};
+use crate::actors::{
+    Dead,
+    Health,
+    OccupiesTile,
+};
 use crate::ai::EnemyMove;
 use crate::audio::{PlaySfx, SfxKind};
 use crate::player::Player;
@@ -12,12 +16,14 @@ use crate::player::Player;
 const GUARD_MAX_HP: i32 = 25;
 const SS_MAX_HP: i32 = 100;
 const DOG_MAX_HP: i32 = 1;
+const HANS_MAX_HP: i32 = 850;
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnemyKind {
     Guard,
     Ss,
     Dog,
+    Hans,
     // TODO: Officer, Mutant, Boss, etc.
 }
 
@@ -44,10 +50,12 @@ pub struct EnemyTunings {
     pub guard: EnemyTuning,
     pub ss: EnemyTuning,
     pub dog: EnemyTuning,
+    pub hans: EnemyTuning,
 }
 
 impl EnemyTunings {
-    /// Single source of truth for defaults without relying on Default/derive(Default)
+    /// Single Source of Truth for Defaults
+    /// Without Relying on Default / Derive(Default)
     pub fn baseline() -> Self {
         Self {
             guard: EnemyTuning {
@@ -58,7 +66,7 @@ impl EnemyTunings {
                 attack_damage: 8,
                 attack_cooldown_secs: 0.6,
                 attack_range_tiles: 6.0,
-                reaction_time_secs: 0.35,
+                reaction_time_secs: 0.80,
             },
             ss: EnemyTuning {
                 max_hp: 100,
@@ -68,7 +76,7 @@ impl EnemyTunings {
                 attack_damage: 10,
                 attack_cooldown_secs: 0.55,
                 attack_range_tiles: 7.0,
-                reaction_time_secs: 0.30,
+                reaction_time_secs: 0.50,
             },
             dog: EnemyTuning {
                 max_hp: 1,
@@ -80,6 +88,17 @@ impl EnemyTunings {
                 attack_range_tiles: 1.1,
                 reaction_time_secs: 0.20,
             },
+            hans: EnemyTuning {
+                max_hp: HANS_MAX_HP,
+                // Wolfenstein 3-D Bosses Typically Stand Still Until Alerted
+                wander_speed_tps: 0.0,
+                chase_speed_tps: 1.3,
+                can_shoot: true,
+                attack_damage: 10,
+                attack_cooldown_secs: 0.35,
+                attack_range_tiles: 8.0,
+                reaction_time_secs: 0.30,
+            },
         }
     }
 
@@ -88,6 +107,7 @@ impl EnemyTunings {
             EnemyKind::Guard => self.guard,
             EnemyKind::Ss => self.ss,
             EnemyKind::Dog => self.dog,
+            EnemyKind::Hans => self.hans,
         }
     }
 }
@@ -100,7 +120,8 @@ pub struct GuardCorpse;
 
 #[derive(Component, Debug, Default)]
 pub struct GuardWalk {
-    // Progress in "tiles moved"; frame = floor(phase*4) & 3
+    // Progress in "Tiles Moved"
+    // Frame = Floor(Phase*4) & 3
     pub phase: f32,
 }
 
@@ -192,6 +213,12 @@ pub struct SsCorpse;
 pub struct DogCorpse;
 
 #[derive(Component)]
+pub struct Hans;
+
+#[derive(Component)]
+pub struct HansCorpse;
+
+#[derive(Component)]
 pub struct SsPain {
     pub timer: Timer,
 }
@@ -203,6 +230,12 @@ pub struct DogPain {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct SsDying {
+    pub frame: u8, // 0..DEATH_FRAMES-1
+    pub tics: u8,  // Fixed-Step Counter
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct HansDying {
     pub frame: u8, // 0..DEATH_FRAMES-1
     pub tics: u8,  // Fixed-Step Counter
 }
@@ -220,6 +253,16 @@ pub struct SsWalk {
 
 #[derive(Component)]
 pub struct SsShoot {
+    pub t: Timer,
+}
+
+#[derive(Component, Default)]
+pub struct HansWalk {
+    pub phase: f32,
+}
+
+#[derive(Component)]
+pub struct HansShoot {
     pub t: Timer,
 }
 
@@ -255,13 +298,21 @@ impl DogBiteCooldown {
 }
 
 const SS_WALK_FPS: f32 = 6.0;
+const HANS_WALK_FPS: f32 = 6.0;
 const DOG_WALK_FPS: f32 = 8.0;
 pub(crate) const SS_SHOOT_SECS: f32 = 0.35;
+pub(crate) const HANS_SHOOT_SECS: f32 = 0.35;
 const DOG_BITE_SECS: f32 = 0.35;
 
 fn attach_ss_walk(mut commands: Commands, q: Query<Entity, Added<Ss>>) {
     for e in q.iter() {
         commands.entity(e).insert(SsWalk::default());
+    }
+}
+
+fn attach_hans_walk(mut commands: Commands, q: Query<Entity, Added<Hans>>) {
+    for e in q.iter() {
+        commands.entity(e).insert(HansWalk::default());
     }
 }
 
@@ -279,6 +330,20 @@ fn tick_ss_walk(
     for (mut w, moving) in q.iter_mut() {
         if moving.is_some() {
             w.phase = (w.phase + dt * SS_WALK_FPS) % 1.0;
+        } else {
+            w.phase = 0.0;
+        }
+    }
+}
+
+fn tick_hans_walk(
+    time: Res<Time>,
+    mut q: Query<(&mut HansWalk, Option<&EnemyMove>), (With<Hans>, Without<HansDying>)>,
+) {
+    let dt = time.delta_secs();
+    for (mut w, moving) in q.iter_mut() {
+        if moving.is_some() {
+            w.phase = (w.phase + dt * HANS_WALK_FPS) % 1.0;
         } else {
             w.phase = 0.0;
         }
@@ -304,6 +369,19 @@ fn tick_ss_shoot(time: Res<Time>, mut commands: Commands, mut q: Query<(Entity, 
         s.t.tick(time.delta());
         if s.t.is_finished() {
             commands.entity(e).remove::<SsShoot>();
+        }
+    }
+}
+
+fn tick_hans_shoot(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut HansShoot), With<Hans>>,
+) {
+    for (e, mut s) in q.iter_mut() {
+        s.t.tick(time.delta());
+        if s.t.is_finished() {
+            commands.entity(e).remove::<HansShoot>();
         }
     }
 }
@@ -450,6 +528,26 @@ fn tick_ss_dying(
     }
 }
 
+fn tick_hans_dying(
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut HansDying)>,
+) {
+    for (e, mut d) in q.iter_mut() {
+        // Advance animation by tics, not by a Timer
+        d.tics = d.tics.saturating_add(1);
+
+        if d.tics >= 8 {
+            d.tics = 0;
+            d.frame = d.frame.saturating_add(1);
+
+            if d.frame >= 4 {
+                commands.entity(e).remove::<HansDying>();
+                commands.entity(e).insert(HansCorpse);
+            }
+        }
+    }
+}
+
 fn tick_dog_dying(
     mut commands: Commands,
     mut q: Query<(Entity, &mut DogDying)>,
@@ -499,6 +597,15 @@ pub struct DogSprites {
     pub corpse: [Handle<Image>; 8],
 }
 
+#[derive(Resource)]
+pub struct HansSprites {
+    pub idle: [Handle<Image>; 8],
+    pub walk: [[Handle<Image>; 8]; 4],
+    pub shoot: [Handle<Image>; 3],
+    pub dying: [[Handle<Image>; 8]; 4],
+    pub corpse: [Handle<Image>; 8],
+}
+
 impl FromWorld for SsSprites {
     fn from_world(world: &mut World) -> Self {
         let server = world.resource::<AssetServer>();
@@ -541,6 +648,43 @@ impl FromWorld for SsSprites {
         let corpse = std::array::from_fn(|_| corpse_one.clone());
 
         Self { idle, walk, shoot, pain, dying, corpse }
+    }
+}
+
+impl FromWorld for HansSprites {
+    fn from_world(world: &mut World) -> Self {
+        let server = world.resource::<AssetServer>();
+
+        let idle = std::array::from_fn(|i| server.load(format!("enemies/hans/hans_idle_a{i}.png")));
+        let walk = std::array::from_fn(|row| {
+            std::array::from_fn(|dir| server.load(format!("enemies/hans/hans_walk_r{row}_dir{dir}.png")))
+        });
+
+        let shoot: [Handle<Image>; 3] =
+            std::array::from_fn(|f| server.load(format!("enemies/hans/hans_shoot_{f}.png")));
+
+        let d0: Handle<Image> = server.load("enemies/hans/hans_death_0.png");
+        let d1: Handle<Image> = server.load("enemies/hans/hans_death_1.png");
+        let d2: Handle<Image> = server.load("enemies/hans/hans_death_2.png");
+        let d3: Handle<Image> = server.load("enemies/hans/hans_death_3.png");
+
+        let dying = [
+            std::array::from_fn(|_| d0.clone()),
+            std::array::from_fn(|_| d1.clone()),
+            std::array::from_fn(|_| d2.clone()),
+            std::array::from_fn(|_| d3.clone()),
+        ];
+
+        let corpse0: Handle<Image> = server.load("enemies/hans/hans_corpse.png");
+        let corpse = std::array::from_fn(|_| corpse0.clone());
+
+        Self {
+            idle,
+            walk,
+            shoot,
+            dying,
+            corpse,
+        }
     }
 }
 
@@ -735,6 +879,40 @@ pub fn spawn_ss(
     ));
 }
 
+pub fn spawn_hans(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    sprites: &HansSprites,
+    tile: IVec2,
+) {
+    const TILE_SIZE: f32 = 1.0;
+    const WALL_H: f32 = 1.0;
+
+    let pos = Vec3::new(tile.x as f32 * TILE_SIZE, WALL_H * 0.5, tile.y as f32 * TILE_SIZE);
+
+    let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
+    let mat = materials.add(StandardMaterial {
+        base_color_texture: Some(sprites.idle[0].clone()),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    commands.spawn((
+        Hans,
+        EnemyKind::Hans,
+        Dir8(0),
+        View8(0),
+        Health::new(HANS_MAX_HP),
+        OccupiesTile(tile),
+        Mesh3d(quad),
+        MeshMaterial3d(mat),
+        Transform::from_translation(pos),
+    ));
+}
+
 pub fn spawn_dog(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -819,6 +997,69 @@ pub fn update_ss_views(
             let fi = ((t / dur) * 2.0).floor() as usize;
             let fi = fi.min(1);
             sprites.pain[fi][v as usize].clone()
+        } else if let Some(s) = shoot {
+            let dur = s.t.duration().as_secs_f32().max(1e-6);
+            let t = s.t.elapsed().as_secs_f32();
+            let fi = ((t / dur) * 3.0).floor() as usize;
+            let fi = fi.min(2);
+            sprites.shoot[fi].clone()
+        } else if mv.is_some() {
+            let w = walk.map(|w| w.phase).unwrap_or(0.0);
+            let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
+            sprites.walk[frame_i][v as usize].clone()
+        } else {
+            sprites.idle[v as usize].clone()
+        };
+
+        if mat.base_color_texture.as_ref() != Some(&tex) {
+            mat.base_color_texture = Some(tex);
+        }
+    }
+}
+
+pub fn update_hans_views(
+    sprites: Res<HansSprites>,
+    q_player: Query<&GlobalTransform, With<Player>>,
+    mut q: Query<
+        (
+            Option<&HansCorpse>,
+            Option<&HansDying>,
+            Option<&HansShoot>,
+            Option<&HansWalk>,
+            Option<&EnemyMove>,
+            &GlobalTransform,
+            &Dir8,
+            &mut View8,
+            &MeshMaterial3d<StandardMaterial>,
+            &mut Transform,
+        ),
+        (With<Hans>, Without<Player>),
+    >,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(player_gt) = q_player.iter().next() else { return; };
+    let player_pos = player_gt.translation();
+
+    for (corpse, dying, shoot, walk, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+        let enemy_pos = gt.translation();
+
+        let v = quantize_view8(dir8.0, enemy_pos, player_pos);
+        view.0 = v;
+
+        let to_player = player_pos - enemy_pos;
+        let flat_len2 = to_player.x * to_player.x + to_player.z * to_player.z;
+        if flat_len2 > 1e-6 {
+            let yaw = to_player.x.atan2(to_player.z);
+            tf.rotation = Quat::from_rotation_y(yaw);
+        }
+
+        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+
+        let tex: Handle<Image> = if corpse.is_some() {
+            sprites.corpse[v as usize].clone()
+        } else if let Some(d) = dying {
+            let f = (d.frame as usize).min(3);
+            sprites.dying[f][v as usize].clone()
         } else if let Some(s) = shoot {
             let dur = s.t.duration().as_secs_f32().max(1e-6);
             let t = s.t.elapsed().as_secs_f32();
@@ -1074,15 +1315,18 @@ impl Plugin for EnemiesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GuardSprites>()
             .init_resource::<SsSprites>()
+            .init_resource::<HansSprites>()
             .init_resource::<DogSprites>()
             .add_systems(
                 Update,
                 (
                     attach_guard_walk,
                     attach_ss_walk,
+                    attach_hans_walk,
                     attach_dog_walk,
                     update_guard_views,
                     update_ss_views,
+                    update_hans_views,
                     update_dog_views,
                 )
                     .chain(),
@@ -1098,6 +1342,9 @@ impl Plugin for EnemiesPlugin {
                     tick_ss_pain,
                     tick_ss_shoot,
                     tick_ss_dying,
+                    tick_hans_walk,
+                    tick_hans_shoot,
+                    tick_hans_dying,
                     tick_dog_walk,
                     tick_dog_pain,
                     tick_dog_bite_cooldown,

@@ -268,6 +268,25 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         asset_server.load("sounds/sfx/enemies/dog/dog_death_0.ogg"),
     );
 
+    // Bosses
+    // Hans Alert
+    lib.insert_one(
+        SfxKind::EnemyAlert(EnemyKind::Hans),
+        asset_server.load("sounds/sfx/enemies/hans/hans_alert.ogg"),
+    );
+
+    // Hans Shoot
+    lib.insert_one(
+        SfxKind::EnemyShoot(EnemyKind::Hans),
+        asset_server.load("sounds/sfx/enemies/hans/hans_shoot.ogg"),
+    );
+
+    // Hans Death
+    lib.insert_one(
+        SfxKind::EnemyDeath(EnemyKind::Hans),
+        asset_server.load("sounds/sfx/enemies/hans/hans_death.ogg"),
+    );
+
     commands.insert_resource(lib);
 }
 
