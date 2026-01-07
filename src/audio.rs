@@ -87,6 +87,7 @@ pub enum MusicModeKind {
     Splash,
     Menu,
     Gameplay,
+    LevelEnd,
 }
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +105,7 @@ pub struct GameAudio {
     pub door_close: Handle<AudioSource>,
     pub music_splash: Handle<AudioSource>,
     pub music_main_menu: Handle<AudioSource>,
+    pub music_level_end: Handle<AudioSource>,
     pub music_levels: Vec<Handle<AudioSource>>,
 }
 
@@ -118,10 +120,11 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         door_close: asset_server.load("sounds/sfx/door_close.ogg"),
         music_splash: asset_server.load("sounds/music/splash.ogg"),
         music_main_menu: asset_server.load("sounds/music/main_menu.ogg"),
+        music_level_end: asset_server.load("sounds/music/level_end.ogg"),
         music_levels,
     });
 
-    // Default boot mode
+    // Default Boot Mode
     commands.insert_resource(MusicMode(MusicModeKind::Splash));
 
     // Library That Supports 1 or Many Clips per SfxKind
@@ -304,6 +307,7 @@ pub fn start_music(
         MusicModeKind::Splash => audio.music_splash.clone(),
         MusicModeKind::Menu => audio.music_main_menu.clone(),
         MusicModeKind::Gameplay => audio.music_levels.get(0).cloned().unwrap_or_default(),
+        MusicModeKind::LevelEnd => audio.music_level_end.clone(),
     };
 
     commands.spawn((
@@ -336,13 +340,14 @@ pub fn sync_boot_music(
     let clip = match mode.0 {
         MusicModeKind::Splash => audio.music_splash.clone(),
         MusicModeKind::Menu => audio.music_main_menu.clone(),
+        MusicModeKind::LevelEnd => audio.music_level_end.clone(),
         MusicModeKind::Gameplay => unreachable!(),
     };
 
     commands.spawn((
         Music,
         AudioPlayer::new(clip),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(0.45)),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(1.4)),
     ));
 
     *last = Some(mode.0);

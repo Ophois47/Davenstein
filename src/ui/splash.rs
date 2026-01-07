@@ -89,7 +89,6 @@ impl Plugin for SplashPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SplashStep>();
         app.init_resource::<PsychedLoad>();
-
         app.add_systems(
             Update,
             (
@@ -145,7 +144,7 @@ pub fn setup_splash(
 fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32) {
     commands
         .spawn((
-            SplashUi, // ONLY on root
+            SplashUi,
             ZIndex(1000),
             Node {
                 width: Val::Percent(100.0),
@@ -161,7 +160,7 @@ fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32
         ))
         .with_children(|root| {
             root.spawn((
-                SplashImage, // child marker is fine
+                SplashImage,
                 ImageNode::new(image),
                 Node {
                     width: Val::Px(w),
@@ -216,7 +215,7 @@ fn splash_advance_on_any_input(
                 commands.entity(e).despawn();
             }
 
-            // Hard cut to menu music
+            // Hard Cut to Menu Music
             music_mode.0 = MusicModeKind::Menu;
 
             let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
@@ -228,15 +227,15 @@ fn splash_advance_on_any_input(
                 return;
             }
 
-            // Remove menu UI roots
+            // Remove Menu UI Roots
             for e in q_splash_roots.iter() {
                 commands.entity(e).despawn();
             }
 
-            // We are now in gameplay flow (even though we temporarily lock controls)
+            // Now in Gameplay Flow (Even Though We Temporarily Lock Controls)
             *step = SplashStep::Done;
 
-            // Start Get Psyched + start gameplay music immediately
+            // Start Get Psyched + Gameplay Music Immediately
             begin_get_psyched_loading(
                 &mut commands,
                 &asset_server,

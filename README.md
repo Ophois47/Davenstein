@@ -30,3 +30,4 @@ BUGS:
 - Enemies sidestep in a strange way
 - Cannot pickup chaingun for ammo if already owned
 - Hans needs to do damage in line with Wolfenstein 3-D
+- HUD face sprites need to be just a little bigger

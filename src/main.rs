@@ -157,7 +157,7 @@ fn main() {
                 mouse_look,
             )
                 .chain()
-                .run_if(|lock: Res<PlayerControlLock>| !lock.0),
+                .run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
         )
         .add_systems(
             Update,

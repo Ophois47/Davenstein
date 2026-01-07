@@ -1,27 +1,11 @@
 /*
 Davenstein - by David Petnick
-
-Wolf-style patrol helpers.
-
-Coordinate conventions in this project:
-- Map tiles use IVec2(x, y) where y corresponds to world +Z
-- In Wolf's plane dumps, rows increase "south"
-- Our Dir8 convention (see enemies.rs / ai.rs) is:
-    Dir8(0)=+Z (south)
-    Dir8(2)=+X (east)
-    Dir8(4)=-Z (north)
-    Dir8(6)=-X (west)
-  with diagonals in between.
 */
 
 use bevy::prelude::*;
 
 use crate::enemies::{Dir8, EnemyKind};
 
-/// Marker/state for an actor that should patrol along Wolf path arrows
-///
-/// `diag_phase` is used to emulate Wolf's diagonal stair-stepping:
-/// diagonal directions alternate between their X and Y components
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct Patrol;
 

@@ -43,6 +43,7 @@ pub fn use_elevator_exit(
     q_player: Query<&Transform, With<Player>>,
     mut sfx: MessageWriter<PlaySfx>,
     mut rebuild: MessageWriter<RebuildWalls>,
+    mut music_mode: ResMut<davelib::audio::MusicMode>,
 ) {
     if lock.0 || win.0 {
         return;
@@ -108,6 +109,9 @@ pub fn use_elevator_exit(
     // Latch Win State and Freeze Gameplay
     win.0 = true;
     lock.0 = true;
+
+    // Hard cut to end level music
+    music_mode.0 = davelib::audio::MusicModeKind::LevelEnd;
 }
 
 pub fn sync_mission_success_overlay_visibility(
@@ -159,17 +163,24 @@ pub fn sync_mission_success_stats_text(
 
 pub fn mission_success_input(
     keys: Res<ButtonInput<KeyCode>>,
-    mut win: ResMut<LevelComplete>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    win: Res<LevelComplete>,
     mut advance: ResMut<crate::ui::sync::AdvanceLevelRequested>,
     mut current_level: ResMut<davelib::level::CurrentLevel>,
+    mut music_mode: ResMut<davelib::audio::MusicMode>,
 ) {
     // Only While Mission Success Active, Only Once
     if !win.0 || advance.0 {
         return;
     }
 
-    if keys.just_pressed(KeyCode::Enter) {
-        win.0 = false; // Hide mission success immediately on continue
+    let go = keys.just_pressed(KeyCode::Enter)
+        || keys.just_pressed(KeyCode::Space)
+        || buttons.just_pressed(MouseButton::Left);
+
+    if go {
+        // Return to gameplay music before the next level transition
+        music_mode.0 = davelib::audio::MusicModeKind::Gameplay;
 
         current_level.0 = current_level.0.next_e1_normal();
 
