@@ -17,3 +17,9 @@ CURRENT TODO LIST:
 - Associated screens and interactivity for menus
 - Episodes 2-6
 - Enemies for episodes 2-6 (mutant, officer)
+
+*******
+BUGS:
+*******
+- Enemies sidestep in a strange way
+- Cannot pickup chaingun for ammo if already owned
