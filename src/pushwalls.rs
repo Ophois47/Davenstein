@@ -304,6 +304,7 @@ pub fn use_pushwalls(
     mut pw_occ: ResMut<PushwallOcc>,
     mut sfx: MessageWriter<PlaySfx>,
     mut rebuild: MessageWriter<RebuildWalls>,
+    mut level_score: ResMut<crate::level_score::LevelScore>,
     mut commands: Commands,
 ) {
     let (Some(grid), Some(solid)) = (grid, solid) else {
@@ -399,6 +400,7 @@ pub fn use_pushwalls(
 
     // Consume Marker so Can't be Pushed Again
     markers.consume(front.x, front.y);
+    level_score.secrets_found += 1; // Secret discovery counts when push starts
 
     // Spawn Visual Wall Centered on Pushwall Tile (Y is Half Wall Height = 0.5)
     let start_center = Vec3::new(front.x as f32, 0.5, front.y as f32);

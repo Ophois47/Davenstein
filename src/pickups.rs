@@ -606,8 +606,9 @@ pub fn collect_pickups(
     mut pickup_flash: ResMut<crate::ui::PickupFlash>,
     q_pickups: Query<(Entity, &Pickup)>,
     mut sfx: MessageWriter<PlaySfx>,
+    mut level_score: ResMut<davelib::level_score::LevelScore>,
 ) {
-    const WEAPON_PICKUP_BULLETS: i32 = 6; // Wolf-like: MG/Chaingun give 6 bullets.
+    const WEAPON_PICKUP_BULLETS: i32 = 6; // Wolf-like: MG/Chaingun give 6 bullets
 
     let Some((player_e, player_tf)) = q_player.iter().next() else {
         return;
@@ -637,7 +638,7 @@ pub fn collect_pickups(
                     _ => None,
                 };
 
-                // Simple + correct: only treat the weapon as owned if that exact slot is owned.
+                // Simple + correct: only treat the weapon as owned if that exact slot is owned
                 let already_owns = hud.owns(w);
 
                 if already_owns {
@@ -709,6 +710,7 @@ pub fn collect_pickups(
                 });
 
                 hud.score += t.points();
+                level_score.treasure_found += 1; // Intermission tally
             }
 
             PickupKind::Health(hk) => {

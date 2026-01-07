@@ -76,6 +76,7 @@ fn process_fire_shots(
     >,
     mut q_hp: Query<&mut Health, (With<EnemyKind>, Without<Dead>)>,
     mut q_ai: Query<&mut davelib::ai::EnemyAi, (With<EnemyKind>, Without<Dead>)>,
+    mut level_score: ResMut<davelib::level_score::LevelScore>,
     mut rng: Local<u32>,
 ) {
     let (Some(grid), Some(solid)) = (grid, solid) else {
@@ -307,6 +308,8 @@ fn process_fire_shots(
                 if hp.cur <= 0 {
                     hp.cur = 0;
 
+                    level_score.kills_found += 1; // Kill discovery counts when death is latched
+
                     if let Ok((_, _, _, gt)) = q_alive.get(e) {
                         let p = gt.translation();
                         sfx.write(PlaySfx {
@@ -325,7 +328,7 @@ fn process_fire_shots(
                             commands.entity(e).insert(SsDying { frame: 0, tics: 0 });
                         }
                         EnemyKind::Hans => {
-                            commands.entity(e).insert(HansDying {frame: 0, tics: 0 });
+                            commands.entity(e).insert(HansDying { frame: 0, tics: 0 });
                         }
                         EnemyKind::Dog => {
                             commands.entity(e).insert(DogDying { frame: 0, tics: 0 });

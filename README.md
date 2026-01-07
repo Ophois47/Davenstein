@@ -14,7 +14,6 @@ Alternatively: $ ./target/release/Davenstein
 CURRENT TODO LIST:
 **********************************************
 - Main menu and pause game mechanic
-- End level score and stats tally
 - Associated screens and interactivity for menus
 - Episodes 2-6
 - Enemies for episodes 2-6 (mutant, officer)

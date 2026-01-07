@@ -1267,6 +1267,8 @@ pub(crate) fn setup_hud(
     // Wolf HUD Blue (0, 0, 164)
     const BACKGROUND_COLOR: bevy::prelude::Srgba = Srgba::rgb(0.0, 0.0, 164.0 / 255.0);
 
+    let start_floor_num: i32 = current_level.0.floor_number();
+
     commands
         .spawn(Node {
             width: Val::Percent(100.0),
@@ -1646,10 +1648,69 @@ pub(crate) fn setup_hud(
             ))
             .with_children(|ms| {
                 ms.spawn((
-                    Text::new("MISSION SUCCESS"),
+                    crate::level_complete::MissionStatText {
+                        kind: crate::level_complete::MissionStatKind::Title,
+                    },
+                    Text::new(format!("FLOOR {start_floor_num} COMPLETED")),
                     TextFont {
                         font: ui_font.clone(),
                         font_size: 64.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    TextLayout::new_with_justify(Justify::Center),
+                ));
+
+                ms.spawn((
+                    crate::level_complete::MissionStatText {
+                        kind: crate::level_complete::MissionStatKind::KillRatio,
+                    },
+                    Text::new("KILL RATIO     0%"),
+                    TextFont {
+                        font: ui_font.clone(),
+                        font_size: 28.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    TextLayout::new_with_justify(Justify::Center),
+                ));
+
+                ms.spawn((
+                    crate::level_complete::MissionStatText {
+                        kind: crate::level_complete::MissionStatKind::SecretRatio,
+                    },
+                    Text::new("SECRET RATIO   0%"),
+                    TextFont {
+                        font: ui_font.clone(),
+                        font_size: 28.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    TextLayout::new_with_justify(Justify::Center),
+                ));
+
+                ms.spawn((
+                    crate::level_complete::MissionStatText {
+                        kind: crate::level_complete::MissionStatKind::TreasureRatio,
+                    },
+                    Text::new("TREASURE RATIO 0%"),
+                    TextFont {
+                        font: ui_font.clone(),
+                        font_size: 28.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    TextLayout::new_with_justify(Justify::Center),
+                ));
+
+                ms.spawn((
+                    crate::level_complete::MissionStatText {
+                        kind: crate::level_complete::MissionStatKind::Time,
+                    },
+                    Text::new("TIME          0:00"),
+                    TextFont {
+                        font: ui_font.clone(),
+                        font_size: 28.0,
                         ..default()
                     },
                     TextColor(Color::WHITE),

@@ -8,6 +8,7 @@ pub mod audio;
 pub mod decorations;
 pub mod enemies;
 pub mod level;
+pub mod level_score;
 pub mod map;
 pub mod player;
 pub mod pushwalls;

@@ -16,6 +16,20 @@ pub struct LevelComplete(pub bool);
 #[derive(Component)]
 pub struct MissionSuccessOverlay;
 
+#[derive(Component, Clone, Copy)]
+pub enum MissionStatKind {
+    Title,
+    KillRatio,
+    SecretRatio,
+    TreasureRatio,
+    Time,
+}
+
+#[derive(Component, Clone, Copy)]
+pub struct MissionStatText {
+    pub kind: MissionStatKind,
+}
+
 /// Wall IDs for the Elevator Switch Textures 
 // (Wolfenstein Wall IDs, NOT Atlas Chunk Indices)
 const ELEV_SWITCH_DOWN_WALL_ID: u16 = 21;
@@ -109,9 +123,35 @@ pub fn sync_mission_success_overlay_visibility(
     };
 }
 
+pub fn sync_mission_success_stats_text(
+    win: Res<LevelComplete>,
+    score: Res<davelib::level_score::LevelScore>,
+    current_level: Res<davelib::level::CurrentLevel>,
+    mut q: Query<(&MissionStatText, &mut Text)>,
+) {
+    if !win.0 {
+        return;
+    }
+
+    let floor = current_level.0.floor_number();
+    let (mm, ss) = score.time_mm_ss();
+
+    for (tag, mut text) in q.iter_mut() {
+        let s = match tag.kind {
+            MissionStatKind::Title => format!("FLOOR {} COMPLETED", floor),
+            MissionStatKind::KillRatio => format!("KILL RATIO     {}%", score.kills_pct()),
+            MissionStatKind::SecretRatio => format!("SECRET RATIO   {}%", score.secrets_pct()),
+            MissionStatKind::TreasureRatio => format!("TREASURE RATIO {}%", score.treasure_pct()),
+            MissionStatKind::Time => format!("TIME          {}:{:02}", mm, ss),
+        };
+
+        text.0 = s;
+    }
+}
+
 pub fn mission_success_input(
     keys: Res<ButtonInput<KeyCode>>,
-    win: Res<LevelComplete>,
+    mut win: ResMut<LevelComplete>,
     mut advance: ResMut<crate::ui::sync::AdvanceLevelRequested>,
     mut current_level: ResMut<davelib::level::CurrentLevel>,
 ) {
@@ -121,6 +161,8 @@ pub fn mission_success_input(
     }
 
     if keys.just_pressed(KeyCode::Enter) {
+        win.0 = false; // Hide mission success immediately on continue
+
         current_level.0 = current_level.0.next_e1_normal();
 
         advance.0 = true;

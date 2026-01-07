@@ -323,6 +323,7 @@ pub fn setup(
     dog_sprites: Res<crate::enemies::DogSprites>,
     hans_sprites: Res<crate::enemies::HansSprites>,
     current_level: Res<crate::level::CurrentLevel>,
+    mut level_score: ResMut<crate::level_score::LevelScore>,
 ) {
     // --- Map load (Wolf planes) ---
     const E1M1_PLANE0: &str = include_str!("../assets/maps/e1m1_plane0_u16.txt");
@@ -414,6 +415,16 @@ pub fn setup(
         dogs.len(),
         hans.len(),
     );
+
+    // Totals for intermission screen
+    let kills_total = guards.len() + ss.len() + dogs.len();
+    let secrets_total = plane1.iter().filter(|&&c| c == 98).count();
+    let treasure_total = plane1
+        .iter()
+        .filter(|&&c| matches!(c, 52 | 53 | 54 | 55))
+        .count();
+
+    level_score.reset_for_level(kills_total, secrets_total, treasure_total);
 
     let (spawn, spawn_yaw) = spawn.unwrap_or((IVec2::new(1, 1), 0.0));
 

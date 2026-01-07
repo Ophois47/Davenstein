@@ -122,6 +122,7 @@ fn main() {
         .init_resource::<level_complete::LevelComplete>()
         .init_resource::<davelib::level::CurrentLevel>()
         .init_resource::<davelib::audio::MusicMode>()
+        .init_resource::<davelib::level_score::LevelScore>()
         // -----------------------------
         // Messages / Events
         // -----------------------------
@@ -148,8 +149,6 @@ fn main() {
         // Update:
         // Input/UI + World Gameplay
         // -----------------------------
-
-        // 1) Gameplay control systems MUST be blocked during splash/menu AND mission success.
         .add_systems(
             Update,
             (
@@ -160,18 +159,15 @@ fn main() {
                 .chain()
                 .run_if(|lock: Res<PlayerControlLock>| !lock.0),
         )
-
-        // 2) Mission success UI + Enter-to-advance MUST still run while locked.
         .add_systems(
             Update,
             (
                 level_complete::mission_success_input,
                 level_complete::sync_mission_success_overlay_visibility,
+                level_complete::sync_mission_success_stats_text,
             )
                 .chain(),
         )
-
-        // 3) Normal gameplay interaction systems (doors/pushwalls/elevator use)
         .add_systems(
             Update,
             (
@@ -240,6 +236,7 @@ fn main() {
         .add_systems(
             FixedUpdate,
             (
+                davelib::level_score::tick_level_time,
                 tick_pushwalls,
                 rebuild_wall_faces_on_request,
                 door_auto_close,
@@ -251,7 +248,8 @@ fn main() {
                 pickups::collect_pickups,
             )
                 .chain()
-                .run_if(world_ready),
+                .run_if(world_ready)
+                .run_if(|lock: Res<PlayerControlLock>| !lock.0),
         )
         .run();
 }
