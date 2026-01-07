@@ -3,7 +3,7 @@ Davenstein - by David Petnick
 */
 use bevy::prelude::*;
 
-/// Per-floor tallies for the Wolf3D-style intermission ("MISSION SUCCESS") screen
+/// Per-Floor Tallies for Intermission ("MISSION SUCCESS") Screen
 #[derive(Resource, Debug, Clone)]
 pub struct LevelScore {
     pub kills_found: i32,
@@ -33,7 +33,12 @@ impl Default for LevelScore {
 }
 
 impl LevelScore {
-    pub fn reset_for_level(&mut self, kills_total: usize, secrets_total: usize, treasure_total: usize) {
+    pub fn reset_for_level(
+        &mut self,
+        kills_total: usize,
+        secrets_total: usize,
+        treasure_total: usize,
+    ) {
         self.kills_found = 0;
         self.secrets_found = 0;
         self.treasure_found = 0;
@@ -70,7 +75,7 @@ impl LevelScore {
     }
 }
 
-/// Tick only while gameplay is running (we gate FixedUpdate with PlayerControlLock)
+/// Tick Only While Gameplay is Running (We Already Gate FixedUpdate with PlayerControlLock)
 pub fn tick_level_time(time: Res<Time>, mut score: ResMut<LevelScore>) {
     score.time_secs += time.delta_secs();
 }

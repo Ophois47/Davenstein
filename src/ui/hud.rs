@@ -1253,6 +1253,11 @@ pub(crate) fn setup_hud(
     // Simple UI Text Font (Used for Game Over Overlay)
     let ui_font: Handle<Font> = asset_server.load("fonts/font.ttf");
 
+    // End Level Success Screen Text
+    let end_font_sheet: Handle<Image> =
+    asset_server.load("textures/ui/level_end/end_level_font.png");
+    commands.insert_resource(crate::ui::level_end_font::LevelEndFont { sheet: end_font_sheet });
+
     // --- Native Wolf HUD Sizing (Current Strip-Only HUD) ---
     const HUD_W: f32 = 320.0;
     const STATUS_H: f32 = 44.0;
@@ -1749,14 +1754,14 @@ pub(crate) fn setup_hud(
                     crate::level_complete::MissionStatText {
                         kind: crate::level_complete::MissionStatKind::KillRatio,
                     },
-                    Text::new("KILL RATIO     0%"),
-                    TextFont {
-                        font: ui_font.clone(),
-                        font_size: 28.0,
+                    crate::ui::level_end_font::LevelEndBitmapText {
+                        text: "KILL RATIO     0%".to_string(),
+                    },
+                    Node {
+                        flex_direction: FlexDirection::Row,
+                        align_items: AlignItems::Center,
                         ..default()
                     },
-                    TextColor(Color::WHITE),
-                    TextLayout::new_with_justify(Justify::Center),
                 ));
 
                 ms.spawn((

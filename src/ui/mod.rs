@@ -1,9 +1,10 @@
 /*
 Davenstein - by David Petnick
 */
-mod state;
 mod hud;
+pub(crate) mod level_end_font;
 mod splash;
+mod state;
 pub mod sync;
 
 use bevy::prelude::*;
@@ -67,6 +68,7 @@ impl Plugin for UiPlugin {
                         hud::tick_damage_flash,
                         hud::tick_death_overlay,
                         hud::sync_game_over_overlay_visibility,
+                        level_end_font::sync_level_end_bitmap_text,
                         hud::tick_mission_bj_card,
                     )
                         .chain(),

@@ -127,7 +127,11 @@ pub fn sync_mission_success_stats_text(
     win: Res<LevelComplete>,
     score: Res<davelib::level_score::LevelScore>,
     current_level: Res<davelib::level::CurrentLevel>,
-    mut q: Query<(&MissionStatText, &mut Text)>,
+    mut q: Query<(
+        &MissionStatText,
+        Option<&mut Text>,
+        Option<&mut crate::ui::level_end_font::LevelEndBitmapText>,
+    )>,
 ) {
     if !win.0 {
         return;
@@ -136,7 +140,7 @@ pub fn sync_mission_success_stats_text(
     let floor = current_level.0.floor_number();
     let (mm, ss) = score.time_mm_ss();
 
-    for (tag, mut text) in q.iter_mut() {
+    for (tag, text, bt) in q.iter_mut() {
         let s = match tag.kind {
             MissionStatKind::Title => format!("FLOOR {} COMPLETED", floor),
             MissionStatKind::KillRatio => format!("KILL RATIO     {}%", score.kills_pct()),
@@ -145,7 +149,11 @@ pub fn sync_mission_success_stats_text(
             MissionStatKind::Time => format!("TIME          {}:{:02}", mm, ss),
         };
 
-        text.0 = s;
+        if let Some(mut text) = text {
+            text.0 = s;
+        } else if let Some(mut bt) = bt {
+            bt.text = s;
+        }
     }
 }
 
