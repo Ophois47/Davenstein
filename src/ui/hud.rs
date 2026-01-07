@@ -171,6 +171,67 @@ pub(super) struct HudLivesDigit(pub usize); // 0..1 (Two Digits)
 #[derive(Component)]
 pub(super) struct HudFloorDigit(pub usize); // 0..1 (Two Digits)
 
+#[derive(Component)]
+pub(crate) struct MissionBjCardImage;
+
+#[derive(Resource, Clone)]
+pub(crate) struct MissionBjCardSprites {
+    pub cards: [Handle<Image>; 3],
+}
+
+pub(crate) struct MissionBjCardAnim {
+    timer: Timer,
+    idx: usize,
+    active: bool,
+}
+
+impl Default for MissionBjCardAnim {
+    fn default() -> Self {
+        const TIC: f32 = 1.0 / 70.0;
+        const BJ_FRAME_TICS: f32 = 10.0;
+
+        Self {
+            timer: Timer::from_seconds(BJ_FRAME_TICS * TIC, TimerMode::Repeating),
+            idx: 0,
+            active: false,
+        }
+    }
+}
+
+pub(crate) fn tick_mission_bj_card(
+    time: Res<Time>,
+    win: Res<crate::level_complete::LevelComplete>,
+    sprites: Option<Res<MissionBjCardSprites>>,
+    mut q: Query<&mut ImageNode, With<MissionBjCardImage>>,
+    mut anim: Local<MissionBjCardAnim>,
+) {
+    let Some(sprites) = sprites else { return; };
+    let Some(mut img) = q.iter_mut().next() else { return; };
+
+    if !win.0 {
+        if anim.active {
+            anim.active = false;
+            anim.idx = 0;
+            anim.timer.reset();
+            img.image = sprites.cards[0].clone();
+        }
+        return;
+    }
+
+    if !anim.active {
+        anim.active = true;
+        anim.idx = 0;
+        anim.timer.reset();
+        img.image = sprites.cards[0].clone();
+    }
+
+    anim.timer.tick(time.delta());
+    if anim.timer.just_finished() {
+        anim.idx = (anim.idx + 1) % 3;
+        img.image = sprites.cards[anim.idx].clone();
+    }
+}
+
 fn split_score_6_blanks(n: i32) -> [Option<usize>; 6] {
     let mut n = n.max(0) as u32;
     if n > 999_999 {
@@ -1179,6 +1240,16 @@ pub(crate) fn setup_hud(
     // Boxed HUD Strip Background (320x44)
     let status_bar: Handle<Image> = asset_server.load("textures/hud/status_bar.png");
 
+    // Mission Success BJ Cards (80x80)
+    let bj_pistol_0: Handle<Image> = asset_server.load("textures/ui/level_end/bj_pistol_0.png");
+    let bj_pistol_1: Handle<Image> = asset_server.load("textures/ui/level_end/bj_pistol_1.png");
+    let bj_pistol_2: Handle<Image> = asset_server.load("textures/ui/level_end/bj_pistol_2.png");
+
+    let bj_cards = MissionBjCardSprites {
+        cards: [bj_pistol_0.clone(), bj_pistol_1, bj_pistol_2],
+    };
+    commands.insert_resource(bj_cards);
+
     // Simple UI Text Font (Used for Game Over Overlay)
     let ui_font: Handle<Font> = asset_server.load("fonts/font.ttf");
 
@@ -1647,6 +1718,19 @@ pub(crate) fn setup_hud(
                 BackgroundColor(Srgba::new(0.0, 0.0, 0.0, 0.80).into()),
             ))
             .with_children(|ms| {
+                // BJ Card (Animated During Counting Later)
+                const BJ_CARD_SRC_PX: f32 = 80.0;
+                let bj_card_px = BJ_CARD_SRC_PX * hud_scale;
+                ms.spawn((
+                    MissionBjCardImage,
+                    ImageNode::new(bj_pistol_0.clone()),
+                    Node {
+                        width: Val::Px(bj_card_px),
+                        height: Val::Px(bj_card_px),
+                        ..default()
+                    },
+                ));
+
                 ms.spawn((
                     crate::level_complete::MissionStatText {
                         kind: crate::level_complete::MissionStatKind::Title,

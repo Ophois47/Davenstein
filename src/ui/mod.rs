@@ -67,6 +67,7 @@ impl Plugin for UiPlugin {
                         hud::tick_damage_flash,
                         hud::tick_death_overlay,
                         hud::sync_game_over_overlay_visibility,
+                        hud::tick_mission_bj_card,
                     )
                         .chain(),
                 )
