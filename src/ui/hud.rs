@@ -2027,41 +2027,115 @@ fn spawn_mission_success_overlay(
     start_floor_num: i32,
     bj_pistol_0: Handle<Image>,
 ) {
-    commands.entity(parent).with_children(|ui| {
-        // Your existing body goes here unchanged, just using `ui.spawn(...)`
-        // Keep your existing sizing math based on `hud_scale`
+    use crate::level_complete::{MissionStatKind, MissionStatText, MissionSuccessOverlay};
+    use crate::ui::level_end_font::LevelEndBitmapText;
 
+    // Classic composition: 320x160 view area + 44px status bar (scaled).
+    let status_h_px = 44.0 * hud_scale;
+    let panel_w_px = 320.0 * hud_scale;
+    let panel_h_px = 160.0 * hud_scale;
+
+    // Backgrounds (tweak later; goal right now is “text exists + is visible”)
+    let overlay_bg: Srgba = Srgba::new(0.0, 0.0, 0.0, 0.65);
+    let panel_bg: Srgba = Srgba::new(0.0, 0.35, 0.35, 1.0);
+
+    commands.entity(parent).with_children(|ui| {
         ui.spawn((
+            MissionSuccessOverlay,
+            ZIndex(90),
+            Visibility::Hidden,
             Node {
                 position_type: PositionType::Absolute,
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                right: Val::Px(0.0),
+                bottom: Val::Px(status_h_px), // keep HUD/status bar visible
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
                 ..default()
             },
-            Visibility::Hidden,
-            MissionSuccessOverlay,
+            BackgroundColor(overlay_bg.into()),
         ))
-        .with_children(|ms| {
-            // BJ Card (Animated Later)
-            ms.spawn((
-                ImageNode::new(bj_pistol_0),
+        .with_children(|over| {
+            over.spawn((
                 Node {
-                    width: Val::Px(64.0 * hud_scale),
-                    height: Val::Px(80.0 * hud_scale),
+                    width: Val::Px(panel_w_px),
+                    height: Val::Px(panel_h_px),
+                    padding: UiRect::all(Val::Px(8.0 * hud_scale)),
+                    column_gap: Val::Px(14.0 * hud_scale),
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::FlexStart,
                     ..default()
                 },
-                MissionBjCardImage,
-            ));
+                BackgroundColor(panel_bg.into()),
+            ))
+            .with_children(|panel| {
+                // BJ Card (animated by tick_mission_bj_card)
+                panel.spawn((
+                    ImageNode::new(bj_pistol_0),
+                    Node {
+                        width: Val::Px(64.0 * hud_scale),
+                        height: Val::Px(80.0 * hud_scale),
+                        ..default()
+                    },
+                    MissionBjCardImage,
+                ));
 
-            // Title text etc (keep your existing text tree)
-            ms.spawn((
-                Text::new(format!("FLOOR {} COMPLETED", start_floor_num)),
-                TextFont {
-                    font: ui_font,
-                    font_size: 32.0 * hud_scale,
-                    ..default()
-                },
-            ));
+                // Right-hand text column (bitmap font)
+                panel
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Column,
+                        row_gap: Val::Px(6.0 * hud_scale),
+                        align_items: AlignItems::FlexStart,
+                        ..default()
+                    })
+                    .with_children(|col| {
+                        // TITLE
+                        col.spawn((
+                            MissionStatText {
+                                kind: MissionStatKind::Title,
+                            },
+                            LevelEndBitmapText {
+                                text: format!("FLOOR {} COMPLETED", start_floor_num),
+                                scale: 2.0,
+                            },
+                            Node {
+                                flex_direction: FlexDirection::Row,
+                                ..default()
+                            },
+                        ));
+
+                        // STATS (placeholders; real values are filled by sync_mission_success_stats_text)
+                        for (kind, placeholder) in [
+                            (MissionStatKind::KillRatio, "KILL RATIO     0%"),
+                            (MissionStatKind::SecretRatio, "SECRET RATIO   0%"),
+                            (MissionStatKind::TreasureRatio, "TREASURE RATIO 0%"),
+                            (MissionStatKind::Time, "TIME          0:00"),
+                        ] {
+                            col.spawn((
+                                MissionStatText { kind },
+                                LevelEndBitmapText {
+                                    text: placeholder.to_string(),
+                                    scale: 1.0,
+                                },
+                                Node {
+                                    flex_direction: FlexDirection::Row,
+                                    ..default()
+                                },
+                            ));
+                        }
+
+                        col.spawn((
+                            Text::new("PRESS ENTER TO CONTINUE"),
+                            TextFont {
+                                font: ui_font,
+                                font_size: 14.0 * hud_scale,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                        ));
+                    });
+            });
         });
     });
 }
