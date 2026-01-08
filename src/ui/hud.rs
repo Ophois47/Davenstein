@@ -20,6 +20,7 @@ use davelib::player::{
     PlayerControlLock,
 };
 use davelib::level::CurrentLevel;
+use crate::level_complete::MissionSuccessOverlay;
 
 #[derive(Component)]
 pub(super) struct DamageFlashOverlay;
@@ -169,6 +170,9 @@ pub(super) struct HudLivesDigit(pub usize); // 0..1 (Two Digits)
 
 #[derive(Component)]
 pub(super) struct HudFloorDigit(pub usize); // 0..1 (Two Digits)
+
+#[derive(Component)]
+pub(crate) struct HudRoot;
 
 #[derive(Component)]
 pub(crate) struct MissionBjCardImage;
@@ -1294,9 +1298,9 @@ fn load_hud_setup_assets(
     commands.insert_resource(crate::ui::level_end_font::LevelEndFont { sheet: end_font_sheet });
 
     // BJ Card Sprites (Level End Screen)
-    let bj_pistol_0: Handle<Image> = asset_server.load("textures/ui/level_end/bj_pistol_clean_0.png");
-    let bj_pistol_1: Handle<Image> = asset_server.load("textures/ui/level_end/bj_pistol_clean_1.png");
-    let bj_pistol_2: Handle<Image> = asset_server.load("textures/ui/level_end/bj_pistol_clean_2.png");
+    let bj_pistol_0: Handle<Image> = asset_server.load("textures/ui/level_end/bj_pistol_0.png");
+    let bj_pistol_1: Handle<Image> = asset_server.load("textures/ui/level_end/bj_pistol_1.png");
+    let bj_pistol_2: Handle<Image> = asset_server.load("textures/ui/level_end/bj_pistol_2.png");
 
     commands.insert_resource(MissionBjCardSprites {
         cards: [bj_pistol_0.clone(), bj_pistol_1, bj_pistol_2],
@@ -1425,27 +1429,23 @@ fn compute_hud_layout(q_windows: &Query<&Window, With<PrimaryWindow>>) -> HudLay
     }
 }
 
-fn spawn_view_area(commands: &mut Commands, parent: Entity, weapon_idle: Handle<Image>, gun_px: f32) {
+fn spawn_view_area(
+    commands: &mut Commands,
+    parent: Entity,
+    weapon_idle: Handle<Image>,
+    gun_px: f32,
+) {
     commands.entity(parent).with_children(|ui| {
-        // View Area Canvas (Scaled)
+        // View Area: fill remaining space above the status bar
         ui.spawn(Node {
-            width: Val::Px(gun_px),
-            height: Val::Px(gun_px),
+            width: Val::Percent(100.0),
             flex_grow: 1.0,
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
             ..default()
         })
         .with_children(|view| {
-            // Absolute Overlay Layer (Does NOT Affect Layout)
-            view.spawn(Node {
-                position_type: PositionType::Absolute,
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                ..default()
-            });
-
-            // ViewModel Root
+            // Bottom-centered viewmodel container
             view.spawn(Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
@@ -1454,7 +1454,9 @@ fn spawn_view_area(commands: &mut Commands, parent: Entity, weapon_idle: Handle<
                 ..default()
             })
             .with_children(|vm| {
+                // IMPORTANT: tag the image so animation + sizing systems can find it
                 vm.spawn((
+                    ViewModelImage,
                     ImageNode::new(weapon_idle),
                     Node {
                         width: Val::Px(gun_px),
@@ -1464,6 +1466,33 @@ fn spawn_view_area(commands: &mut Commands, parent: Entity, weapon_idle: Handle<
                 ));
             });
         });
+
+        // Full-screen overlays (required by damage flash + death overlay + pickup flash attachment)
+        ui.spawn((
+            DamageFlashOverlay,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+        ));
+
+        ui.spawn((
+            DeathOverlayOverlay,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+        ));
     });
 }
 
@@ -2090,10 +2119,10 @@ pub(crate) fn setup_hud(
     q_windows: Query<&Window, With<PrimaryWindow>>,
     current_level: Res<CurrentLevel>,
 ) {
-    let assets = load_hud_setup_assets(&asset_server);
+    let assets = load_hud_setup_assets(&mut commands, &asset_server, &hud);
     let layout = compute_hud_layout(&q_windows);
 
-    // Root HUD Node (Full Screen)
+    // Root HUD Node (Full Screen) — COLUMN so status bar lands at the bottom.
     let root = commands
         .spawn((
             HudRoot,
@@ -2103,17 +2132,21 @@ pub(crate) fn setup_hud(
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
                 top: Val::Px(0.0),
+
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::FlexStart,
+                align_items: AlignItems::Stretch,
+
                 ..default()
             },
         ))
         .id();
 
-    // View Area (276px Tall)
+    // View Area (fills remaining space above the status bar)
     let weapon_idle = assets.weapon_idle.clone();
-    let gun_px = layout.gun_px;
-    spawn_view_area(&mut commands, root, weapon_idle, gun_px);
+    spawn_view_area(&mut commands, root, weapon_idle, layout.gun_px);
 
-    // Status Bar (44px Tall)
+    // Status Bar (fixed height at bottom because column + view area grows)
     spawn_status_bar(
         &mut commands,
         root,
@@ -2128,7 +2161,7 @@ pub(crate) fn setup_hud(
 
     spawn_game_over_overlay(&mut commands, root, assets.ui_font.clone());
 
-    // Mission Success Overlay
+    // Mission Success Overlay (unchanged)
     let start_floor_num: i32 = current_level.0.floor_number();
     spawn_mission_success_overlay(
         &mut commands,
