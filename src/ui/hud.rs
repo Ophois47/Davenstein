@@ -1736,306 +1736,48 @@ fn spawn_status_bar(
     });
 }
 
-fn spawn_status_bar_container(
-    commands: &mut Commands,
-    parent: Entity,
-    // sizes
-    hud_w_px: f32,
-    status_h_px: f32,
-    // background
-    background_color: Srgba,
-    // background strip image
-    status_bar: Handle<Image>,
-    // HUD resources / values (pass by value so closures are happy)
-    hud: HudState,
-    current_level: CurrentLevel,
-    hud_digits: HudDigitSprites,
-    hud_icons: HudIconSprites,
-    hud_faces: HudFaceSprites,
-    // layout numbers (already computed px)
-    digit_w_px: f32,
-    digit_h_px: f32,
-    digit_top_px: f32,
-    score_x_px: f32,
-    lives_x_px: f32,
-    hp_x_px: f32,
-    ammo_x_px: f32,
-    floor_x_px: f32,
-    key_w_px: f32,
-    key_h_px: f32,
-    key_x_px: f32,
-    key_gold_y_px: f32,
-    key_silver_y_px: f32,
-    wep_x_px: f32,
-    wep_top_px: f32,
-    wep_w_px: f32,
-    wep_h_px: f32,
-    face_x_px: f32,
-    face_top_px: f32,
-    face_w_px: f32,
-    face_h_px: f32,
-) {
-    commands.entity(parent).with_children(|ui| {
-        ui.spawn((
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Px(status_h_px),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(background_color.into()),
-        ))
-        .with_children(|bar| {
-            bar.spawn(Node {
-                width: Val::Px(hud_w_px),
-                height: Val::Px(status_h_px),
-                position_type: PositionType::Relative,
-                ..default()
-            })
-            .with_children(|inner| {
-                // Background strip
-                inner.spawn((
-                    ImageNode::new(status_bar),
-                    ZIndex(0),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(0.0),
-                        top: Val::Px(0.0),
-                        width: Val::Px(hud_w_px),
-                        height: Val::Px(status_h_px),
-                        ..default()
-                    },
-                ));
-
-                // Face
-                inner.spawn((
-                    HudFaceImage,
-                    ImageNode::new(hud_faces.bands[0][0].clone()),
-                    ZIndex(1),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(face_x_px),
-                        top: Val::Px(face_top_px),
-                        width: Val::Px(face_w_px),
-                        height: Val::Px(face_h_px),
-                        ..default()
-                    },
-                ));
-
-                // Weapon icon
-                inner.spawn((
-                    HudWeaponIcon,
-                    ImageNode::new(hud_icons.weapon(hud.selected)),
-                    ZIndex(1),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(wep_x_px),
-                        top: Val::Px(wep_top_px),
-                        width: Val::Px(wep_w_px),
-                        height: Val::Px(wep_h_px),
-                        ..default()
-                    },
-                ));
-
-                // Gold key
-                inner.spawn((
-                    HudGoldKeyIcon,
-                    ImageNode::new(hud_icons.key_gold.clone()),
-                    ZIndex(1),
-                    if hud.key_gold {
-                        Visibility::Visible
-                    } else {
-                        Visibility::Hidden
-                    },
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(key_x_px),
-                        top: Val::Px(key_gold_y_px),
-                        width: Val::Px(key_w_px),
-                        height: Val::Px(key_h_px),
-                        ..default()
-                    },
-                ));
-
-                // Silver key
-                inner.spawn((
-                    HudSilverKeyIcon,
-                    ImageNode::new(hud_icons.key_silver.clone()),
-                    ZIndex(1),
-                    if hud.key_silver {
-                        Visibility::Visible
-                    } else {
-                        Visibility::Hidden
-                    },
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(key_x_px),
-                        top: Val::Px(key_silver_y_px),
-                        width: Val::Px(key_w_px),
-                        height: Val::Px(key_h_px),
-                        ..default()
-                    },
-                ));
-
-                // FLOOR
-                let floor_num: i32 = current_level.0.floor_number();
-                let floor_digits = split_right_aligned_blanks(floor_num, 2);
-
-                inner.spawn(Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(floor_x_px),
-                    top: Val::Px(digit_top_px),
-                    flex_direction: FlexDirection::Row,
-                    ..default()
-                })
-                .with_children(|floor| {
-                    for (slot, dopt) in floor_digits.iter().enumerate() {
-                        let handle = match dopt {
-                            Some(d) => hud_digits.digits[*d].clone(),
-                            None => hud_digits.blank.clone(),
-                        };
-                        floor.spawn((
-                            HudFloorDigit(slot),
-                            ImageNode::new(handle),
-                            Node {
-                                width: Val::Px(digit_w_px),
-                                height: Val::Px(digit_h_px),
-                                ..default()
-                            },
-                        ));
-                    }
-                });
-
-                // SCORE
-                let score_digits = split_score_6_blanks(hud.score);
-                inner.spawn(Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(score_x_px),
-                    top: Val::Px(digit_top_px),
-                    flex_direction: FlexDirection::Row,
-                    ..default()
-                })
-                .with_children(|score| {
-                    for (slot, dopt) in score_digits.iter().enumerate() {
-                        let handle = match dopt {
-                            Some(d) => hud_digits.digits[*d].clone(),
-                            None => hud_digits.blank.clone(),
-                        };
-                        score.spawn((
-                            HudScoreDigit(slot),
-                            ImageNode::new(handle),
-                            Node {
-                                width: Val::Px(digit_w_px),
-                                height: Val::Px(digit_h_px),
-                                ..default()
-                            },
-                        ));
-                    }
-                });
-
-                // LIVES
-                let lives_digits = split_right_aligned_blanks(hud.lives, 2);
-                inner.spawn(Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(lives_x_px),
-                    top: Val::Px(digit_top_px),
-                    flex_direction: FlexDirection::Row,
-                    ..default()
-                })
-                .with_children(|lives| {
-                    for (slot, dopt) in lives_digits.iter().enumerate() {
-                        let handle = match dopt {
-                            Some(d) => hud_digits.digits[*d].clone(),
-                            None => hud_digits.blank.clone(),
-                        };
-                        lives.spawn((
-                            HudLivesDigit(slot),
-                            ImageNode::new(handle),
-                            Node {
-                                width: Val::Px(digit_w_px),
-                                height: Val::Px(digit_h_px),
-                                ..default()
-                            },
-                        ));
-                    }
-                });
-
-                // HEALTH
-                let hp_digits = split_3_right_aligned(hud.hp);
-                inner.spawn(Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(hp_x_px),
-                    top: Val::Px(digit_top_px),
-                    flex_direction: FlexDirection::Row,
-                    ..default()
-                })
-                .with_children(|hp| {
-                    for (slot, dopt) in hp_digits.iter().enumerate() {
-                        let handle = match dopt {
-                            Some(d) => hud_digits.digits[*d].clone(),
-                            None => hud_digits.blank.clone(),
-                        };
-                        hp.spawn((
-                            HudHpDigit(slot),
-                            ImageNode::new(handle),
-                            Node {
-                                width: Val::Px(digit_w_px),
-                                height: Val::Px(digit_h_px),
-                                ..default()
-                            },
-                        ));
-                    }
-                });
-
-                // AMMO
-                let ammo_digits = split_3_right_aligned(hud.ammo);
-                inner.spawn(Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(ammo_x_px),
-                    top: Val::Px(digit_top_px),
-                    flex_direction: FlexDirection::Row,
-                    ..default()
-                })
-                .with_children(|ammo| {
-                    for (slot, dopt) in ammo_digits.iter().enumerate() {
-                        let handle = match dopt {
-                            Some(d) => hud_digits.digits[*d].clone(),
-                            None => hud_digits.blank.clone(),
-                        };
-                        ammo.spawn((
-                            HudAmmoDigit(slot),
-                            ImageNode::new(handle),
-                            Node {
-                                width: Val::Px(digit_w_px),
-                                height: Val::Px(digit_h_px),
-                                ..default()
-                            },
-                        ));
-                    }
-                });
-            });
-        });
-    });
-}
-
 fn spawn_mission_success_overlay(
     commands: &mut Commands,
     parent: Entity,
     ui_font: Handle<Font>,
     hud_scale: f32,
+    q_windows: &Query<&Window, With<PrimaryWindow>>,
     start_floor_num: i32,
     bj_pistol_0: Handle<Image>,
 ) {
-    use crate::level_complete::{MissionStatKind, MissionStatText, MissionSuccessOverlay};
+    use crate::level_complete::{MissionStatKind, MissionStatText};
     use crate::ui::level_end_font::LevelEndBitmapText;
 
-    // Classic composition: 320x160 view area + 44px status bar (scaled).
+    // Status bar stays visible; overlay occupies the area above it.
     let status_h_px = 44.0 * hud_scale;
-    let panel_w_px = 320.0 * hud_scale;
-    let panel_h_px = 160.0 * hud_scale;
 
-    // Backgrounds (tweak later; goal right now is “text exists + is visible”)
+    let win = q_windows.iter().next().expect("PrimaryWindow");
+    let win_w = win.resolution.width();
+    let win_h = win.resolution.height();
+
+    // Integer width scale currently driving the HUD + bitmap font system.
+    let width_scale_i = (win_w / 320.0).floor().max(1.0) as i32;
+
+    // Available height above the status bar corresponds to 156px at native 320x200.
+    let avail_h = (win_h - status_h_px).max(1.0);
+    let max_scale_h = (avail_h / 156.0).floor().max(1.0) as i32;
+
+    // Score screen scale: must fit BOTH width and remaining height.
+    let overlay_scale_i = width_scale_i.min(max_scale_h);
+    let overlay_scale = overlay_scale_i as f32;
+
+    // Compensate LevelEndBitmapText, which internally multiplies by width_scale_i.
+    // This makes glyph_px become exactly 16 * overlay_scale (pixel perfect).
+    let bt_mul = overlay_scale / (width_scale_i as f32);
+
+    // Panel dimensions in *native* coords, scaled by overlay_scale.
+    let panel_w_px = 320.0 * overlay_scale;
+    let panel_h_px = 156.0 * overlay_scale;
+
+    let pad_px = 8.0 * overlay_scale;
+    let col_gap_px = 14.0 * overlay_scale;
+    let row_gap_px = 6.0 * overlay_scale;
+
     let overlay_bg: Srgba = Srgba::new(0.0, 0.0, 0.0, 0.65);
     let panel_bg: Srgba = Srgba::new(0.0, 0.35, 0.35, 1.0);
 
@@ -2061,8 +1803,8 @@ fn spawn_mission_success_overlay(
                 Node {
                     width: Val::Px(panel_w_px),
                     height: Val::Px(panel_h_px),
-                    padding: UiRect::all(Val::Px(8.0 * hud_scale)),
-                    column_gap: Val::Px(14.0 * hud_scale),
+                    padding: UiRect::all(Val::Px(pad_px)),
+                    column_gap: Val::Px(col_gap_px),
                     flex_direction: FlexDirection::Row,
                     align_items: AlignItems::FlexStart,
                     ..default()
@@ -2074,8 +1816,8 @@ fn spawn_mission_success_overlay(
                 panel.spawn((
                     ImageNode::new(bj_pistol_0),
                     Node {
-                        width: Val::Px(64.0 * hud_scale),
-                        height: Val::Px(80.0 * hud_scale),
+                        width: Val::Px(64.0 * overlay_scale),
+                        height: Val::Px(80.0 * overlay_scale),
                         ..default()
                     },
                     MissionBjCardImage,
@@ -2085,19 +1827,19 @@ fn spawn_mission_success_overlay(
                 panel
                     .spawn(Node {
                         flex_direction: FlexDirection::Column,
-                        row_gap: Val::Px(6.0 * hud_scale),
+                        row_gap: Val::Px(row_gap_px),
                         align_items: AlignItems::FlexStart,
                         ..default()
                     })
                     .with_children(|col| {
-                        // TITLE
+                        // TITLE (2x glyphs in Wolf terms, but compensated to fit the overlay scale)
                         col.spawn((
                             MissionStatText {
                                 kind: MissionStatKind::Title,
                             },
                             LevelEndBitmapText {
                                 text: format!("FLOOR {} COMPLETED", start_floor_num),
-                                scale: 2.0,
+                                scale: 2.0 * bt_mul,
                             },
                             Node {
                                 flex_direction: FlexDirection::Row,
@@ -2105,7 +1847,6 @@ fn spawn_mission_success_overlay(
                             },
                         ));
 
-                        // STATS (placeholders; real values are filled by sync_mission_success_stats_text)
                         for (kind, placeholder) in [
                             (MissionStatKind::KillRatio, "KILL RATIO     0%"),
                             (MissionStatKind::SecretRatio, "SECRET RATIO   0%"),
@@ -2116,7 +1857,7 @@ fn spawn_mission_success_overlay(
                                 MissionStatText { kind },
                                 LevelEndBitmapText {
                                     text: placeholder.to_string(),
-                                    scale: 1.0,
+                                    scale: 1.0 * bt_mul,
                                 },
                                 Node {
                                     flex_direction: FlexDirection::Row,
@@ -2125,11 +1866,13 @@ fn spawn_mission_success_overlay(
                             ));
                         }
 
+                        // Keep your prompt for now (we can swap to bitmap later),
+                        // but scale it with overlay_scale so it stays proportional.
                         col.spawn((
                             Text::new("PRESS ENTER TO CONTINUE"),
                             TextFont {
                                 font: ui_font,
-                                font_size: 14.0 * hud_scale,
+                                font_size: 14.0 * overlay_scale,
                                 ..default()
                             },
                             TextColor(Color::WHITE),
@@ -2235,13 +1978,14 @@ pub(crate) fn setup_hud(
 
     spawn_game_over_overlay(&mut commands, root, assets.ui_font.clone());
 
-    // Mission Success Overlay (unchanged)
+    // Mission Success Overlay
     let start_floor_num: i32 = current_level.0.floor_number();
     spawn_mission_success_overlay(
         &mut commands,
         root,
         assets.ui_font.clone(),
         layout.hud_scale,
+        &q_windows,
         start_floor_num,
         assets.bj_pistol_0.clone(),
     );

@@ -33,12 +33,12 @@ fn glyph_cell(c: char) -> (usize, usize) {
         return (row, col);
     }
 
-    // Fallback for unknown
+    // Fallback for Unknown
     (3, 8) // ?
 }
 
 fn glyph_rect_full(row: usize, col: usize) -> Rect {
-    // 16x16 glyphs with 1px separators
+    // 16x16 Glyphs with 1px Separators
     const GLYPH: f32 = 16.0;
     const SEP: f32 = 1.0;
     const STRIDE: f32 = GLYPH + SEP;
@@ -60,8 +60,8 @@ fn glyph_rect_and_advance(c: char) -> (Rect, f32) {
         ':' => (glyph_rect_full(3, 6), 1.0),
 
         '%' => {
-            // % shares the cell with ! (row 3 col 7)
-            // % extends into column 8 so 8px chops it
+            // % Shares Cell With ! (Row 3 Col 7)
+            // % Extends Into Column 8 so 8px Chops It
             let x0 = 7.0 * STRIDE;
             let y0 = 3.0 * STRIDE;
             let w = 9.0;
@@ -73,7 +73,7 @@ fn glyph_rect_and_advance(c: char) -> (Rect, f32) {
         }
 
         '!' => {
-            // ! is on the far right of that same cell
+            // ! On Far Right of Same Cell
             let x0 = 7.0 * STRIDE;
             let y0 = 3.0 * STRIDE;
             let start = 11.0;
@@ -119,14 +119,14 @@ pub(crate) fn sync_level_end_bitmap_text(
     for (e, bt, kids) in q_text.iter() {
         let glyph_px = 16.0 * base_scale * bt.scale;
 
-        // Clear old glyphs
+        // Clear Old Glyphs
         if let Some(kids) = kids {
             for k in kids.iter() {
                 commands.entity(k).despawn();
             }
         }
 
-        // Rebuild glyphs
+        // Rebuild Glyphs
         commands.entity(e).with_children(|ui| {
             for ch in bt.text.chars() {
                 if ch == ' ' {

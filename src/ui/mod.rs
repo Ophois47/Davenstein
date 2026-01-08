@@ -37,7 +37,7 @@ impl Plugin for UiPlugin {
             .add_systems(
                 Update,
                 (
-                    // Core state/sync (keep strict ordering)
+                    // Core State / Sync
                     (
                         sync::apply_enemy_fire_to_player_vitals,
                         sync::sync_player_hp_with_hud,
@@ -46,7 +46,7 @@ impl Plugin for UiPlugin {
                         sync::game_over_input,
                     )
                         .chain(),
-                    // HUD + viewmodel (strict ordering)
+                    // HUD + Viewmodel
                     (
                         hud::sync_viewmodel_size,
                         hud::weapon_fire_and_viewmodel,
