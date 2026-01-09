@@ -19,10 +19,11 @@ This is an attempt to recreate Wolfenstein 3-D written entirely in Rust, using t
 **********************************************
 FEATURES TO BE DONE:
 **********************************************
-- Main menu and pause game mechanic
+- Main menus and pause game mechanic
 - Associated screens and interactivity for menus
 - Episodes 2-6
 - Enemies for episodes 2-6 (mutant, officer)
+- BJ victory animation and logic at end of episodes
 
 **********************************************
 BUGS:
@@ -33,3 +34,4 @@ BUGS:
 - Hans needs to do damage in line with Wolfenstein 3-D
 - HUD face sprites need to be just a little bigger
 - HUD face sprite seems to look only in one direction
+- Dog alert sound doesnt always play, something takes precedence

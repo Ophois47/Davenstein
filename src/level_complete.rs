@@ -146,11 +146,11 @@ pub fn sync_mission_success_stats_text(
 
     for (tag, text, bt) in q.iter_mut() {
         let s = match tag.kind {
-            MissionStatKind::Title => format!("FLOOR {} COMPLETED", floor),
-            MissionStatKind::KillRatio => format!("KILL RATIO     {}%", score.kills_pct()),
-            MissionStatKind::SecretRatio => format!("SECRET RATIO   {}%", score.secrets_pct()),
-            MissionStatKind::TreasureRatio => format!("TREASURE RATIO {}%", score.treasure_pct()),
-            MissionStatKind::Time => format!("TIME          {}:{:02}", mm, ss),
+            MissionStatKind::Title => format!("{}", floor),
+            MissionStatKind::KillRatio => format!("{}%", score.kills_pct()),
+            MissionStatKind::SecretRatio => format!("{}%", score.secrets_pct()),
+            MissionStatKind::TreasureRatio => format!("{}%", score.treasure_pct()),
+            MissionStatKind::Time => format!("{}:{:02}", mm, ss),
         };
 
         if let Some(mut text) = text {

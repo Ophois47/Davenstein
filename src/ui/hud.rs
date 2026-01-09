@@ -20,7 +20,6 @@ use davelib::player::{
     PlayerControlLock,
 };
 use davelib::level::CurrentLevel;
-use crate::level_complete::MissionSuccessOverlay;
 
 #[derive(Component)]
 pub(super) struct DamageFlashOverlay;
@@ -1745,41 +1744,101 @@ fn spawn_mission_success_overlay(
     start_floor_num: i32,
     bj_pistol_0: Handle<Image>,
 ) {
-    use crate::level_complete::{MissionStatKind, MissionStatText};
+    use bevy::prelude::ChildSpawnerCommands; // correct in Bevy 0.17
+    use crate::level_complete::{MissionStatKind, MissionStatText, MissionSuccessOverlay};
     use crate::ui::level_end_font::LevelEndBitmapText;
 
-    // Status bar stays visible; overlay occupies the area above it.
-    let status_h_px = 44.0 * hud_scale;
+    // Native Wolf view area above the 44px status bar (your project’s convention here)
+    const VIEW_W: f32 = 320.0;
+    const VIEW_H: f32 = 156.0;
+    const STATUS_H: f32 = 44.0;
 
+    // HUD scale is width-derived; keep it as "width scale"
+    let width_scale_i = hud_scale.floor().max(1.0) as i32;
+    let status_h_px = STATUS_H * (width_scale_i as f32);
+
+    // Fit overlay vertically above the status bar
     let win = q_windows.iter().next().expect("PrimaryWindow");
-    let win_w = win.resolution.width();
     let win_h = win.resolution.height();
-
-    // Integer width scale currently driving the HUD + bitmap font system.
-    let width_scale_i = (win_w / 320.0).floor().max(1.0) as i32;
-
-    // Available height above the status bar corresponds to 156px at native 320x200.
     let avail_h = (win_h - status_h_px).max(1.0);
-    let max_scale_h = (avail_h / 156.0).floor().max(1.0) as i32;
+    let max_scale_h_i = (avail_h / VIEW_H).floor().max(1.0) as i32;
 
-    // Score screen scale: must fit BOTH width and remaining height.
-    let overlay_scale_i = width_scale_i.min(max_scale_h);
+    // Overlay scale fits both width scale and remaining height
+    let overlay_scale_i = width_scale_i.min(max_scale_h_i).max(1);
     let overlay_scale = overlay_scale_i as f32;
 
-    // Compensate LevelEndBitmapText, which internally multiplies by width_scale_i.
-    // This makes glyph_px become exactly 16 * overlay_scale (pixel perfect).
+    // LevelEndBitmapText uses hud_scale_i() internally; compensate so glyph_px == 16 * overlay_scale_i
     let bt_mul = overlay_scale / (width_scale_i as f32);
 
-    // Panel dimensions in *native* coords, scaled by overlay_scale.
-    let panel_w_px = 320.0 * overlay_scale;
-    let panel_h_px = 156.0 * overlay_scale;
+    // Full teal background like DOS (hides world)
+    let teal: Srgba = Srgba::new(0.0, 0.35, 0.35, 1.0);
 
-    let pad_px = 8.0 * overlay_scale;
-    let col_gap_px = 14.0 * overlay_scale;
-    let row_gap_px = 6.0 * overlay_scale;
+    // --- tiny layout helpers (all “virtual pixels” in the 320x156 space) ---
+    fn text_w_virtual_px(s: &str) -> f32 {
+        // Matches level_end_font: '%' is 17px wide, everything else 16px
+        s.chars()
+            .map(|ch| if ch == '%' { 17.0 } else { 16.0 })
+            .sum()
+    }
 
-    let overlay_bg: Srgba = Srgba::new(0.0, 0.0, 0.0, 0.65);
-    let panel_bg: Srgba = Srgba::new(0.0, 0.35, 0.35, 1.0);
+    fn right_align_x(text: &str, right_edge: f32) -> f32 {
+        (right_edge - text_w_virtual_px(text)).max(0.0)
+    }
+
+    fn center_in_left_half_x(text: &str, left_half_w: f32) -> f32 {
+        ((left_half_w - text_w_virtual_px(text)) * 0.5).max(0.0)
+    }
+
+    // Helper fns (NOT closures) to avoid borrow-checker pitfalls
+    fn spawn_bt<'w>(
+        c: &mut ChildSpawnerCommands<'w>,
+        text: &str,
+        scale: f32,
+        overlay_scale: f32,
+        bt_mul: f32,
+        x: f32,
+        y: f32,
+    ) {
+        c.spawn((
+            LevelEndBitmapText {
+                text: text.to_string(),
+                scale: scale * bt_mul,
+            },
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(x * overlay_scale),
+                top: Val::Px(y * overlay_scale),
+                flex_direction: FlexDirection::Row,
+                ..default()
+            },
+        ));
+    }
+
+    fn spawn_bt_tagged<'w>(
+        c: &mut ChildSpawnerCommands<'w>,
+        kind: MissionStatKind,
+        text: &str,
+        scale: f32,
+        overlay_scale: f32,
+        bt_mul: f32,
+        x: f32,
+        y: f32,
+    ) {
+        c.spawn((
+            MissionStatText { kind },
+            LevelEndBitmapText {
+                text: text.to_string(),
+                scale: scale * bt_mul,
+            },
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(x * overlay_scale),
+                top: Val::Px(y * overlay_scale),
+                flex_direction: FlexDirection::Row,
+                ..default()
+            },
+        ));
+    }
 
     commands.entity(parent).with_children(|ui| {
         ui.spawn((
@@ -1796,88 +1855,174 @@ fn spawn_mission_success_overlay(
                 align_items: AlignItems::Center,
                 ..default()
             },
-            BackgroundColor(overlay_bg.into()),
+            BackgroundColor(teal.into()),
         ))
         .with_children(|over| {
-            over.spawn((
-                Node {
-                    width: Val::Px(panel_w_px),
-                    height: Val::Px(panel_h_px),
-                    padding: UiRect::all(Val::Px(pad_px)),
-                    column_gap: Val::Px(col_gap_px),
-                    flex_direction: FlexDirection::Row,
-                    align_items: AlignItems::FlexStart,
-                    ..default()
-                },
-                BackgroundColor(panel_bg.into()),
-            ))
-            .with_children(|panel| {
-                // BJ Card (animated by tick_mission_bj_card)
-                panel.spawn((
+            // 320x156 canvas scaled and centered
+            over.spawn(Node {
+                width: Val::Px(VIEW_W * overlay_scale),
+                height: Val::Px(VIEW_H * overlay_scale),
+                position_type: PositionType::Relative,
+                ..default()
+            })
+            .with_children(|c| {
+                // BJ portrait (left)
+                c.spawn((
+                    MissionBjCardImage,
                     ImageNode::new(bj_pistol_0),
                     Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(16.0 * overlay_scale),
+                        top: Val::Px(16.0 * overlay_scale),
                         width: Val::Px(64.0 * overlay_scale),
                         height: Val::Px(80.0 * overlay_scale),
                         ..default()
                     },
-                    MissionBjCardImage,
                 ));
 
-                // Right-hand text column (bitmap font)
-                panel
-                    .spawn(Node {
-                        flex_direction: FlexDirection::Column,
-                        row_gap: Val::Px(row_gap_px),
-                        align_items: AlignItems::FlexStart,
+                // --- Columns (virtual pixels) ---
+                // Right block (to the right of the portrait)
+                let x_label_right = 112.0;
+
+                // Bottom block uses a true "RATIO" column in the center
+                let x_ratio = 160.0;
+
+                // Values should fit and not clip: right-align to the canvas edge
+                let right_edge = VIEW_W;
+
+                // --- Rows (virtual pixels) ---
+                // Match DOS rhythm: tight 16px rows with “blank line” gaps.
+                let y_floor = 16.0;
+                let y_completed = 32.0;
+
+                let y_bonus = 56.0;  // blank line after COMPLETED
+                let y_time = 80.0;   // blank line after BONUS
+
+                let y_par = 96.0;
+
+                let y_kill = 112.0;
+                let y_secret = 128.0;
+                let y_treasure = 144.0;
+
+                // --- Top block: FLOOR / COMPLETED / BONUS / TIME / PAR ---
+                spawn_bt(c, "FLOOR", 1.0, overlay_scale, bt_mul, x_label_right, y_floor);
+                spawn_bt_tagged(
+                    c,
+                    MissionStatKind::Title,
+                    &format!("{}", start_floor_num),
+                    1.0,
+                    overlay_scale,
+                    bt_mul,
+                    240.0, // DOS-like placement (not right-aligned)
+                    y_floor,
+                );
+                spawn_bt(c, "COMPLETED", 1.0, overlay_scale, bt_mul, x_label_right, y_completed);
+
+                let bonus_text = "0";
+                spawn_bt(c, "BONUS", 1.0, overlay_scale, bt_mul, x_label_right, y_bonus);
+                spawn_bt(
+                    c,
+                    bonus_text,
+                    1.0,
+                    overlay_scale,
+                    bt_mul,
+                    right_align_x(bonus_text, right_edge),
+                    y_bonus,
+                );
+
+                let time_text = "0:00";
+                spawn_bt(c, "TIME", 1.0, overlay_scale, bt_mul, x_label_right, y_time);
+                spawn_bt_tagged(
+                    c,
+                    MissionStatKind::Time,
+                    time_text,
+                    1.0,
+                    overlay_scale,
+                    bt_mul,
+                    right_align_x(time_text, right_edge),
+                    y_time,
+                );
+
+                let par_text = "0:00";
+                spawn_bt(c, "PAR", 1.0, overlay_scale, bt_mul, x_label_right, y_par);
+                spawn_bt(
+                    c,
+                    par_text,
+                    1.0,
+                    overlay_scale,
+                    bt_mul,
+                    right_align_x(par_text, right_edge),
+                    y_par,
+                );
+
+                // --- Bottom block: centered labels | RATIO column | right-aligned values ---
+                let kill_label = "KILL";
+                let secret_label = "SECRET";
+                let treasure_label = "TREASURE";
+
+                let x_kill = center_in_left_half_x(kill_label, x_ratio);
+                let x_secret = center_in_left_half_x(secret_label, x_ratio);
+                let x_treasure = center_in_left_half_x(treasure_label, x_ratio);
+
+                let kill_val = "0%";
+                let secret_val = "0%";
+                let treasure_val = "0%";
+
+                spawn_bt(c, kill_label, 1.0, overlay_scale, bt_mul, x_kill, y_kill);
+                spawn_bt(c, "RATIO", 1.0, overlay_scale, bt_mul, x_ratio, y_kill);
+                spawn_bt_tagged(
+                    c,
+                    MissionStatKind::KillRatio,
+                    kill_val,
+                    1.0,
+                    overlay_scale,
+                    bt_mul,
+                    right_align_x(kill_val, right_edge),
+                    y_kill,
+                );
+
+                spawn_bt(c, secret_label, 1.0, overlay_scale, bt_mul, x_secret, y_secret);
+                spawn_bt(c, "RATIO", 1.0, overlay_scale, bt_mul, x_ratio, y_secret);
+                spawn_bt_tagged(
+                    c,
+                    MissionStatKind::SecretRatio,
+                    secret_val,
+                    1.0,
+                    overlay_scale,
+                    bt_mul,
+                    right_align_x(secret_val, right_edge),
+                    y_secret,
+                );
+
+                spawn_bt(c, treasure_label, 1.0, overlay_scale, bt_mul, x_treasure, y_treasure);
+                spawn_bt(c, "RATIO", 1.0, overlay_scale, bt_mul, x_ratio, y_treasure);
+                spawn_bt_tagged(
+                    c,
+                    MissionStatKind::TreasureRatio,
+                    treasure_val,
+                    1.0,
+                    overlay_scale,
+                    bt_mul,
+                    right_align_x(treasure_val, right_edge),
+                    y_treasure,
+                );
+
+                // Optional “Press Any Key …” prompt (keep, but anchor safely)
+                c.spawn((
+                    Text::new("Press Any Key ..."),
+                    TextFont {
+                        font: ui_font,
+                        font_size: 14.0 * overlay_scale,
                         ..default()
-                    })
-                    .with_children(|col| {
-                        // TITLE (2x glyphs in Wolf terms, but compensated to fit the overlay scale)
-                        col.spawn((
-                            MissionStatText {
-                                kind: MissionStatKind::Title,
-                            },
-                            LevelEndBitmapText {
-                                text: format!("FLOOR {} COMPLETED", start_floor_num),
-                                scale: 2.0 * bt_mul,
-                            },
-                            Node {
-                                flex_direction: FlexDirection::Row,
-                                ..default()
-                            },
-                        ));
-
-                        for (kind, placeholder) in [
-                            (MissionStatKind::KillRatio, "KILL RATIO     0%"),
-                            (MissionStatKind::SecretRatio, "SECRET RATIO   0%"),
-                            (MissionStatKind::TreasureRatio, "TREASURE RATIO 0%"),
-                            (MissionStatKind::Time, "TIME          0:00"),
-                        ] {
-                            col.spawn((
-                                MissionStatText { kind },
-                                LevelEndBitmapText {
-                                    text: placeholder.to_string(),
-                                    scale: 1.0 * bt_mul,
-                                },
-                                Node {
-                                    flex_direction: FlexDirection::Row,
-                                    ..default()
-                                },
-                            ));
-                        }
-
-                        // Keep your prompt for now (we can swap to bitmap later),
-                        // but scale it with overlay_scale so it stays proportional.
-                        col.spawn((
-                            Text::new("PRESS ENTER TO CONTINUE"),
-                            TextFont {
-                                font: ui_font,
-                                font_size: 14.0 * overlay_scale,
-                                ..default()
-                            },
-                            TextColor(Color::WHITE),
-                        ));
-                    });
+                    },
+                    TextColor(Color::WHITE),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(92.0 * overlay_scale),
+                        bottom: Val::Px(4.0 * overlay_scale),
+                        ..default()
+                    },
+                ));
             });
         });
     });
@@ -1939,7 +2084,7 @@ pub(crate) fn setup_hud(
     let assets = load_hud_setup_assets(&mut commands, &asset_server, &hud);
     let layout = compute_hud_layout(&q_windows);
 
-    // Root HUD Node (Full Screen) — COLUMN so status bar lands at the bottom.
+    // Root HUD Node (Full Screen) — COLUMN so status bar lands at the bottom
     let root = commands
         .spawn((
             HudRoot,
@@ -1963,7 +2108,7 @@ pub(crate) fn setup_hud(
     let weapon_idle = assets.weapon_idle.clone();
     spawn_view_area(&mut commands, root, weapon_idle, layout.gun_px);
 
-    // Status Bar (fixed height at bottom because column + view area grows)
+    // Status Bar
     spawn_status_bar(
         &mut commands,
         root,
