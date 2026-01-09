@@ -15,85 +15,109 @@ pub(crate) struct LevelEndBitmapText {
     pub scale: f32,
 }
 
-fn glyph_cell(c: char) -> (usize, usize) {
-    let c = c.to_ascii_uppercase();
-
-    // Row 0: 0..9
-    if ('0'..='9').contains(&c) {
-        return (0, (c as u8 - b'0') as usize);
-    }
-
-    // Row 1: A..J
-    // Row 2: K..T
-    // Row 3: U..Z
-    if ('A'..='Z').contains(&c) {
-        let idx = (c as u8 - b'A') as usize; // 0..25
-        let row = 1 + (idx / 10); // 1..3
-        let col = idx % 10;
-        return (row, col);
-    }
-
-    // Fallback for Unknown
-    (3, 8) // ?
-}
-
-fn glyph_rect_full(row: usize, col: usize) -> Rect {
-    // 16x16 Glyphs with 1px Separators
-    const GLYPH: f32 = 16.0;
-    const SEP: f32 = 1.0;
-    const STRIDE: f32 = GLYPH + SEP;
-
-    let x0 = col as f32 * STRIDE;
-    let y0 = row as f32 * STRIDE;
-
-    Rect::from_corners(Vec2::new(x0, y0), Vec2::new(x0 + GLYPH, y0 + GLYPH))
-}
-
 fn glyph_rect_and_advance(c: char) -> (Rect, f32) {
-    const GLYPH: f32 = 16.0;
-    const SEP: f32 = 1.0;
-    const STRIDE: f32 = GLYPH + SEP;
+    // Keep these local so we don't depend on any other constants.
+    const GLYPH: u32 = 16;
+    const SEP: u32 = 1;
 
-    let c = c.to_ascii_uppercase();
+    // Tiny epsilon so we don't ever land exactly on a neighbor edge.
+    // IMPORTANT: this is *not* an inset big enough to cut strokes—just avoids edge sampling.
+    const EPS: f32 = 0.01;
 
-    match c {
-        ':' => (glyph_rect_full(3, 6), 1.0),
+    // Full-cell rect (16px wide), starting at col*(16+1), row*(16+1)
+    let rect_full = |col: u32, row: u32| {
+        let x0 = col * (GLYPH + SEP);
+        let y0 = row * (GLYPH + SEP);
+        Rect::from_corners(
+            Vec2::new(x0 as f32 + EPS, y0 as f32 + EPS),
+            Vec2::new((x0 + GLYPH) as f32 - EPS, (y0 + GLYPH) as f32 - EPS),
+        )
+    };
 
+    // Sub-rect inside a cell (for shared-cell punctuation)
+    let rect_sub = |col: u32, row: u32, x_off: u32, w: u32| {
+        let x0 = col * (GLYPH + SEP) + x_off;
+        let y0 = row * (GLYPH + SEP);
+        Rect::from_corners(
+            Vec2::new(x0 as f32 + EPS, y0 as f32 + EPS),
+            Vec2::new((x0 + w) as f32 - EPS, (y0 + GLYPH) as f32 - EPS),
+        )
+    };
+
+    let one = 1.0;
+
+    match c.to_ascii_uppercase() {
+        // digits
+        '0' => (rect_full(0, 0), one),
+        '1' => (rect_full(1, 0), one),
+        '2' => (rect_full(2, 0), one),
+        '3' => (rect_full(3, 0), one),
+        '4' => (rect_full(4, 0), one),
+        '5' => (rect_full(5, 0), one),
+        '6' => (rect_full(6, 0), one),
+        '7' => (rect_full(7, 0), one),
+        '8' => (rect_full(8, 0), one),
+        '9' => (rect_full(9, 0), one),
+
+        // A..J
+        'A' => (rect_full(0, 1), one),
+        'B' => (rect_full(1, 1), one),
+        'C' => (rect_full(2, 1), one),
+        'D' => (rect_full(3, 1), one),
+        'E' => (rect_full(4, 1), one),
+        'F' => (rect_full(5, 1), one),
+        'G' => (rect_full(6, 1), one),
+        'H' => (rect_full(7, 1), one),
+        'I' => (rect_full(8, 1), one),
+        'J' => (rect_full(9, 1), one),
+
+        // K..T
+        'K' => (rect_full(0, 2), one),
+        'L' => (rect_full(1, 2), one),
+        'M' => (rect_full(2, 2), one),
+        'N' => (rect_full(3, 2), one),
+        'O' => (rect_full(4, 2), one),
+        'P' => (rect_full(5, 2), one),
+        'Q' => (rect_full(6, 2), one),
+        'R' => (rect_full(7, 2), one),
+        'S' => (rect_full(8, 2), one),
+        'T' => (rect_full(9, 2), one),
+
+        // U..Z
+        'U' => (rect_full(0, 3), one),
+        'V' => (rect_full(1, 3), one),
+        'W' => (rect_full(2, 3), one),
+        'X' => (rect_full(3, 3), one),
+        'Y' => (rect_full(4, 3), one),
+        'Z' => (rect_full(5, 3), one),
+
+        // punctuation
+        ':' => (rect_full(6, 3), one),
+
+        // Row 3 col 7 is shared: [% .... !]
+        // Split point that matches your sheet: '!' starts at x=11 and is 5px wide (11..15).
         '%' => {
-            // % Shares Cell With ! (Row 3 Col 7)
-            // % Extends Into Column 8 so 8px Chops It
-            let x0 = 7.0 * STRIDE;
-            let y0 = 3.0 * STRIDE;
-            let w = 9.0;
-
-            (
-                Rect::from_corners(Vec2::new(x0, y0), Vec2::new(x0 + w, y0 + GLYPH)),
-                w / GLYPH,
-            )
+            let w = 11; // 0..10 is the percent region (includes its dot at x=8)
+            (rect_sub(7, 3, 0, w), w as f32 / GLYPH as f32)
         }
-
         '!' => {
-            // ! On Far Right of Same Cell
-            let x0 = 7.0 * STRIDE;
-            let y0 = 3.0 * STRIDE;
-            let start = 11.0;
-            let w = 5.0;
-
-            (
-                Rect::from_corners(
-                    Vec2::new(x0 + start, y0),
-                    Vec2::new(x0 + start + w, y0 + GLYPH),
-                ),
-                w / GLYPH,
-            )
+            let x_off = 11;
+            let w = 5;
+            (rect_sub(7, 3, x_off, w), w as f32 / GLYPH as f32)
         }
 
-        '?' => (glyph_rect_full(3, 8), 1.0),
-
-        _ => {
-            let (row, col) = glyph_cell(c);
-            (glyph_rect_full(row, col), 1.0)
+        // Apostrophe is in row 3 col 8 but that cell contains white area.
+        // Only sample the left teal part (skip the fully-white column 0 and the white right half).
+        '\'' => {
+            let x_off = 1;
+            let w = 8; // columns 1..8 are the teal region; avoids the white right side
+            (rect_sub(8, 3, x_off, w), w as f32 / GLYPH as f32)
         }
+
+        // Keep '?' as a safe fallback; your sheet’s (3,9) is blank, so this effectively shows nothing.
+        '?' => (rect_full(9, 3), one),
+
+        _ => (rect_full(0, 0), one),
     }
 }
 

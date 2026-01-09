@@ -35,3 +35,4 @@ BUGS:
 - HUD face sprites need to be just a little bigger
 - HUD face sprite seems to look only in one direction
 - Dog alert sound doesnt always play, something takes precedence
+- Player can look around while 'Get Psyched' loading screen plays
