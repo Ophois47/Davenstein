@@ -21,6 +21,7 @@ FEATURES TO BE DONE:
 **********************************************
 - Main menus and pause game mechanic
 - Associated screens and interactivity for menus
+- E1M10 the secret level
 - Episodes 2-6
 - Enemies for episodes 2-6 (mutant, officer)
 - BJ victory animation and logic at end of episodes

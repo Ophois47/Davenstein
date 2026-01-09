@@ -48,6 +48,10 @@ pub struct MissionSuccessTally {
     pub target_secret: i32,
     pub target_treasure: i32,
 
+    pub shown_time_secs: i32,
+    pub target_time_secs: i32,
+    pub time_step_accum: i32,
+
     pub tick: Timer,
 }
 
@@ -70,10 +74,12 @@ impl Default for MissionSuccessTally {
             target_kill: 0,
             target_secret: 0,
             target_treasure: 0,
-            tick: Timer::from_seconds(
-                1.0 / 25.0,
-                TimerMode::Repeating,
-            ),
+
+            shown_time_secs: 0,
+            target_time_secs: 0,
+            time_step_accum: 0,
+
+            tick: Timer::from_seconds(1.0 / 45.0, TimerMode::Repeating),
         }
     }
 }
@@ -185,22 +191,29 @@ pub fn sync_mission_success_stats_text(
         return;
     }
 
-    let floor = current_level.0.floor_number();
-    let (mm, ss) = score.time_mm_ss();
+    fn secs_to_mm_ss(secs: i32) -> (i32, i32) {
+        let s = secs.max(0);
+        (s / 60, s % 60)
+    }
 
-    // If tally exists and is active, show counting numbers; otherwise show final
-    let (kill_pct, secret_pct, treasure_pct) = if let Some(t) = tally.as_deref() {
+    let floor = current_level.0.floor_number();
+
+    let (kill_pct, secret_pct, treasure_pct, (mm, ss)) = if let Some(t) = tally.as_deref() {
         if t.active {
-            (t.shown_kill, t.shown_secret, t.shown_treasure)
+            (
+                t.shown_kill,
+                t.shown_secret,
+                t.shown_treasure,
+                secs_to_mm_ss(t.shown_time_secs),
+            )
         } else {
-            (score.kills_pct(), score.secrets_pct(), score.treasure_pct())
+            (score.kills_pct(), score.secrets_pct(), score.treasure_pct(), score.time_mm_ss())
         }
     } else {
-        (score.kills_pct(), score.secrets_pct(), score.treasure_pct())
+        (score.kills_pct(), score.secrets_pct(), score.treasure_pct(), score.time_mm_ss())
     };
 
     for (tag, text, bt) in q.iter_mut() {
-        // IMPORTANT: values only (labels are static nodes in hud.rs)
         let s = match tag.kind {
             MissionStatKind::Title => format!("{floor}"),
             MissionStatKind::Time => format!("{}:{:02}", mm, ss),
@@ -238,18 +251,19 @@ pub fn mission_success_input(
         return;
     }
 
-    // If counting is in progress, first press 
-    // fast-forwards the tally and does NOT advance
     if tally.active {
         tally.shown_kill = tally.target_kill;
         tally.shown_secret = tally.target_secret;
         tally.shown_treasure = tally.target_treasure;
+
+        tally.shown_time_secs = tally.target_time_secs;
+        tally.time_step_accum = 0;
+
         tally.active = false;
         tally.phase = MissionSuccessPhase::Done;
         return;
     }
 
-    // Otherwise, proceed to next level (your existing behavior)
     music_mode.0 = davelib::audio::MusicModeKind::Gameplay;
     current_level.0 = current_level.0.next_e1_normal();
     advance.0 = true;
@@ -266,7 +280,6 @@ pub fn start_mission_success_tally_on_win(
     mut tally: ResMut<MissionSuccessTally>,
     mut prev_win: Local<bool>,
 ) {
-    // Leaving intermission resets the edge detector + tally
     if !win.0 {
         tally.active = false;
         tally.phase = MissionSuccessPhase::Done;
@@ -274,7 +287,6 @@ pub fn start_mission_success_tally_on_win(
         return;
     }
 
-    // Rising edge only
     if *prev_win {
         return;
     }
@@ -291,6 +303,10 @@ pub fn start_mission_success_tally_on_win(
     tally.target_secret = score.secrets_pct().clamp(0, 100);
     tally.target_treasure = score.treasure_pct().clamp(0, 100);
 
+    tally.shown_time_secs = 0;
+    tally.target_time_secs = score.time_secs.max(0.0).floor() as i32;
+    tally.time_step_accum = 0;
+
     tally.tick.reset();
 }
 
@@ -304,15 +320,22 @@ pub fn tick_mission_success_tally(
     }
 
     tally.tick.tick(time.delta());
-
-    // Just_finished() stays true for the whole frame if it finished at least once
-    // Use times_finished_this_tick() to know how many steps to advance this frame
     let steps = tally.tick.times_finished_this_tick();
     if steps == 0 {
         return;
     }
 
     for _ in 0..steps {
+        // NEW: time advances slower than percent roll:
+        // 1 second per 3 tally steps (tweakable)
+        if tally.shown_time_secs < tally.target_time_secs {
+            tally.time_step_accum += 1;
+            if tally.time_step_accum >= 3 {
+                tally.time_step_accum = 0;
+                tally.shown_time_secs += 1;
+            }
+        }
+
         match tally.phase {
             MissionSuccessPhase::Kill => {
                 if tally.shown_kill < tally.target_kill {
