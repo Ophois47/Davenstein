@@ -15,112 +15,71 @@ pub(crate) struct LevelEndBitmapText {
     pub scale: f32,
 }
 
-fn glyph_cell(c: char) -> (usize, usize) {
-    let c = c.to_ascii_uppercase();
-
-    match c {
-        // Digits
-        '0'..='9' => (0, (c as u8 - b'0') as usize),
-
-        // Letters A..J
-        'A'..='J' => (1, (c as u8 - b'A') as usize),
-
-        // Letters K..T
-        'K'..='T' => (2, (c as u8 - b'K') as usize),
-
-        // Letters U..Z
-        'U'..='Z' => (3, (c as u8 - b'U') as usize),
-
-        // Punctuation row (row 3, cols 6..9 in your sheet)
-        // NOTE: '%' and '!' share col 7 in your current atlas; ':' is col 6.
-        ':' => (3, 6),
-        '%' => (3, 7),
-        '!' => (3, 7),
-        '\'' => (3, 9),
-
-        // Space -> treat as a blank cell (you can also special-case to "advance only")
-        ' ' => (0, 0),
-
-        // Fallback: show '0' for unknown characters
-        _ => (0, 0),
-    }
-}
-
-fn glyph_rect_and_advance(c: char) -> (Rect, f32) {
-    // Your sheet is: 16px glyphs, 1px separators between cells.
-    const GLYPH: u32 = 16;
-    const SEP: u32 = 1;
-    const STRIDE: u32 = GLYPH + SEP;
-
-    // Tiny inset so we don’t sample neighbor pixels at edges (prevents bleed).
-    const EPS: f32 = 0.01;
-
-    let rect_full = |col: u32, row: u32| {
-        let x0 = col * STRIDE;
-        let y0 = row * STRIDE;
-        Rect::from_corners(
-            Vec2::new(x0 as f32 + EPS, y0 as f32 + EPS),
-            Vec2::new((x0 + GLYPH) as f32 - EPS, (y0 + GLYPH) as f32 - EPS),
-        )
-    };
-
-    let rect_sub = |col: u32, row: u32, x_off: u32, w: u32| {
-        let x0 = col * STRIDE + x_off;
-        let y0 = row * STRIDE;
-        Rect::from_corners(
-            Vec2::new(x0 as f32 + EPS, y0 as f32 + EPS),
-            Vec2::new((x0 + w) as f32 - EPS, (y0 + GLYPH) as f32 - EPS),
-        )
-    };
-
-    let c = c.to_ascii_uppercase();
-
-    // Default: alphanumerics map through glyph_cell (row,col)
-    let default_full = || {
-        let (row, col) = glyph_cell(c);
-        (rect_full(col as u32, row as u32), 1.0)
-    };
-
-    match c {
-        // Special punctuation row (row 3)
-        ':' => (rect_full(6, 3), 1.0),
-
-        // IMPORTANT: row 3 col 7 contains BOTH '%' and '!' with a white divider at local x=8.
-        // '%' is on the LEFT. We also include the 1px *left* separator column because the art bleeds into it.
-        // That left separator is at global x = (7*STRIDE - 1). We take 9px total: [-1 .. 7], and EXCLUDE local x=8 (white).
-        '%' => {
-            let col = 7u32;
-            let row = 3u32;
-            let x0 = col * STRIDE;
-            let y0 = row * STRIDE;
-
-            // Start one pixel left of the cell, end before local x=8 (the internal white divider).
-            // Range: (x0 - 1) .. (x0 + 8)  => width 9px
-            let rect = Rect::from_corners(
-                Vec2::new((x0 - 1) as f32 + EPS, y0 as f32 + EPS),
-                Vec2::new((x0 + 8) as f32 - EPS, (y0 + GLYPH) as f32 - EPS),
-            );
-
-            // Advance matches sampled width so the glyph isn't stretched.
-            (rect, 9.0 / 16.0)
-        }
-
-        // '!' is on the RIGHT side of that same shared cell: local x = 11..15 (5px wide).
-        '!' => (rect_sub(7, 3, 11, 5), 5.0 / 16.0),
-
-        // Apostrophe lives in row 3 col 8, but that cell is half white.
-        // Only use the left teal region: local x = 1..8 (8px wide). (col0 is white)
-        '\'' => (rect_sub(8, 3, 1, 8), 8.0 / 16.0),
-
-        _ => default_full(),
-    }
-}
-
 fn hud_scale_i(q_windows: &Query<&Window, With<PrimaryWindow>>) -> f32 {
     const BASE_W: f32 = 320.0;
 
     let Some(win) = q_windows.iter().next() else { return 1.0; };
     (win.resolution.width() / BASE_W).floor().max(1.0)
+}
+
+fn glyph_cell(c: char) -> (usize, usize) {
+    let c = c.to_ascii_uppercase();
+
+    // Row 0: 0..9
+    if ('0'..='9').contains(&c) {
+        return (0, (c as u8 - b'0') as usize);
+    }
+
+    // Row 1: A..J
+    // Row 2: K..T
+    // Row 3: U..Z
+    if ('A'..='Z').contains(&c) {
+        let idx = (c as u8 - b'A') as usize; // 0..25
+        let row = 1 + (idx / 10); // 1..3
+        let col = idx % 10;
+        return (row, col);
+    }
+
+    // Fallback for unknown
+    (3, 0)
+}
+
+fn glyph_rect_full(row: usize, col: usize) -> Rect {
+    // 16x16 glyphs with 1px separators
+    const GLYPH: f32 = 16.0;
+    const SEP: f32 = 1.0;
+    const STRIDE: f32 = GLYPH + SEP;
+
+    let x0 = col as f32 * STRIDE;
+    let y0 = row as f32 * STRIDE;
+
+    Rect::from_corners(Vec2::new(x0, y0), Vec2::new(x0 + GLYPH, y0 + GLYPH))
+}
+
+fn glyph_rect_sub(row: usize, col: usize, x_off: f32, w: f32) -> Rect {
+    const GLYPH: f32 = 16.0;
+    const SEP: f32 = 1.0;
+    const STRIDE: f32 = GLYPH + SEP;
+
+    let x0 = col as f32 * STRIDE + x_off;
+    let y0 = row as f32 * STRIDE;
+
+    Rect::from_corners(Vec2::new(x0, y0), Vec2::new(x0 + w, y0 + GLYPH))
+}
+
+fn glyph_rect_and_advance(c: char) -> (Rect, f32) {
+    let c = c.to_ascii_uppercase();
+
+    // IMPORTANT:
+    // ':' '%' '!' are handled specially in sync_level_end_bitmap_text
+    // because they are split/composited in your atlas.
+    match c {
+        // Treat '?' (and unknown) as a full-cell fallback
+        _ => {
+            let (row, col) = glyph_cell(c);
+            (glyph_rect_full(row, col), 1.0)
+        }
+    }
 }
 
 pub(crate) fn sync_level_end_bitmap_text(
@@ -135,19 +94,31 @@ pub(crate) fn sync_level_end_bitmap_text(
     let Some(font) = font else { return; };
     let base_scale = hud_scale_i(&q_windows);
 
+    // Atlas facts (from your sheet):
+    // - Punctuation row is row=3
+    // - Col 6 + Col 7 are split by an internal white divider at local x=8
+    // - ':'  is left half of (3,6)      [0..8)
+    // - '%'  is composite: right half of (3,6) + left half of (3,7)
+    // - '!'  is right half of (3,7)
+    // - Avoid sampling the divider column at local x=8 (it is solid white)
+
     for (e, bt, kids) in q_text.iter() {
         let glyph_px = 16.0 * base_scale * bt.scale;
 
-        // Clear Old Glyphs
+        // Clear old glyphs
         if let Some(kids) = kids {
             for k in kids.iter() {
                 commands.entity(k).despawn();
             }
         }
 
-        // Rebuild Glyphs
         commands.entity(e).with_children(|ui| {
+            // tiny helper for spacer widths in "source pixels"
+            let px = |src_px: f32| glyph_px * (src_px / 16.0);
+
             for ch in bt.text.chars() {
+                let ch = ch.to_ascii_uppercase();
+
                 if ch == ' ' {
                     ui.spawn(Node {
                         width: Val::Px(glyph_px),
@@ -157,20 +128,113 @@ pub(crate) fn sync_level_end_bitmap_text(
                     continue;
                 }
 
-                let (rect, adv) = glyph_rect_and_advance(ch);
-                let w_px = glyph_px * adv;
+                // --- SPECIAL PUNCTUATION PATHS (surgical, no new systems) ---
+                match ch {
+                    ':' => {
+                        // left half of (3,6): [0..8)
+                        let rect = glyph_rect_sub(3, 6, 0.0, 8.0);
 
-                let mut img = ImageNode::new(font.sheet.clone());
-                img.rect = Some(rect);
+                        let mut img = ImageNode::new(font.sheet.clone());
+                        img.rect = Some(rect);
 
-                ui.spawn((
-                    img,
-                    Node {
-                        width: Val::Px(w_px),
-                        height: Val::Px(glyph_px),
-                        ..default()
-                    },
-                ));
+                        ui.spawn((
+                            img,
+                            Node {
+                                width: Val::Px(px(8.0)),
+                                height: Val::Px(glyph_px),
+                                ..default()
+                            },
+                        ));
+
+                        // optional 1px teal spacing instead of sampling the white divider
+                        ui.spawn(Node {
+                            width: Val::Px(px(1.0)),
+                            height: Val::Px(glyph_px),
+                            ..default()
+                        });
+                    }
+
+                    '%' => {
+                        // Compose '%' from:
+                        // - right half of (3,6): [9..16) (7px wide)
+                        // - 1px spacer (teal)
+                        // - left half of (3,7): [0..8)  (8px wide)
+
+                        // Right half of col6 (skip divider at x=8)
+                        {
+                            let rect = glyph_rect_sub(3, 6, 9.0, 7.0);
+                            let mut img = ImageNode::new(font.sheet.clone());
+                            img.rect = Some(rect);
+
+                            ui.spawn((
+                                img,
+                                Node {
+                                    width: Val::Px(px(7.0)),
+                                    height: Val::Px(glyph_px),
+                                    ..default()
+                                },
+                            ));
+                        }
+
+                        // 1px teal spacer (replaces the divider column cleanly)
+                        ui.spawn(Node {
+                            width: Val::Px(px(1.0)),
+                            height: Val::Px(glyph_px),
+                            ..default()
+                        });
+
+                        // Left half of col7
+                        {
+                            let rect = glyph_rect_sub(3, 7, 0.0, 8.0);
+                            let mut img = ImageNode::new(font.sheet.clone());
+                            img.rect = Some(rect);
+
+                            ui.spawn((
+                                img,
+                                Node {
+                                    width: Val::Px(px(8.0)),
+                                    height: Val::Px(glyph_px),
+                                    ..default()
+                                },
+                            ));
+                        }
+                    }
+
+                    '!' => {
+                        // right half of (3,7): [9..16) (7px)
+                        let rect = glyph_rect_sub(3, 7, 9.0, 7.0);
+
+                        let mut img = ImageNode::new(font.sheet.clone());
+                        img.rect = Some(rect);
+
+                        ui.spawn((
+                            img,
+                            Node {
+                                width: Val::Px(px(7.0)),
+                                height: Val::Px(glyph_px),
+                                ..default()
+                            },
+                        ));
+                    }
+
+                    _ => {
+                        // Normal glyph path
+                        let (rect, adv) = glyph_rect_and_advance(ch);
+                        let w_px = glyph_px * adv;
+
+                        let mut img = ImageNode::new(font.sheet.clone());
+                        img.rect = Some(rect);
+
+                        ui.spawn((
+                            img,
+                            Node {
+                                width: Val::Px(w_px),
+                                height: Val::Px(glyph_px),
+                                ..default()
+                            },
+                        ));
+                    }
+                }
             }
         });
     }
