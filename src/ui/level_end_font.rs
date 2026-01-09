@@ -15,109 +15,104 @@ pub(crate) struct LevelEndBitmapText {
     pub scale: f32,
 }
 
+fn glyph_cell(c: char) -> (usize, usize) {
+    let c = c.to_ascii_uppercase();
+
+    match c {
+        // Digits
+        '0'..='9' => (0, (c as u8 - b'0') as usize),
+
+        // Letters A..J
+        'A'..='J' => (1, (c as u8 - b'A') as usize),
+
+        // Letters K..T
+        'K'..='T' => (2, (c as u8 - b'K') as usize),
+
+        // Letters U..Z
+        'U'..='Z' => (3, (c as u8 - b'U') as usize),
+
+        // Punctuation row (row 3, cols 6..9 in your sheet)
+        // NOTE: '%' and '!' share col 7 in your current atlas; ':' is col 6.
+        ':' => (3, 6),
+        '%' => (3, 7),
+        '!' => (3, 7),
+        '\'' => (3, 9),
+
+        // Space -> treat as a blank cell (you can also special-case to "advance only")
+        ' ' => (0, 0),
+
+        // Fallback: show '0' for unknown characters
+        _ => (0, 0),
+    }
+}
+
 fn glyph_rect_and_advance(c: char) -> (Rect, f32) {
-    // Keep these local so we don't depend on any other constants.
+    // Your sheet is: 16px glyphs, 1px separators between cells.
     const GLYPH: u32 = 16;
     const SEP: u32 = 1;
+    const STRIDE: u32 = GLYPH + SEP;
 
-    // Tiny epsilon so we don't ever land exactly on a neighbor edge.
-    // IMPORTANT: this is *not* an inset big enough to cut strokes—just avoids edge sampling.
+    // Tiny inset so we don’t sample neighbor pixels at edges (prevents bleed).
     const EPS: f32 = 0.01;
 
-    // Full-cell rect (16px wide), starting at col*(16+1), row*(16+1)
     let rect_full = |col: u32, row: u32| {
-        let x0 = col * (GLYPH + SEP);
-        let y0 = row * (GLYPH + SEP);
+        let x0 = col * STRIDE;
+        let y0 = row * STRIDE;
         Rect::from_corners(
             Vec2::new(x0 as f32 + EPS, y0 as f32 + EPS),
             Vec2::new((x0 + GLYPH) as f32 - EPS, (y0 + GLYPH) as f32 - EPS),
         )
     };
 
-    // Sub-rect inside a cell (for shared-cell punctuation)
     let rect_sub = |col: u32, row: u32, x_off: u32, w: u32| {
-        let x0 = col * (GLYPH + SEP) + x_off;
-        let y0 = row * (GLYPH + SEP);
+        let x0 = col * STRIDE + x_off;
+        let y0 = row * STRIDE;
         Rect::from_corners(
             Vec2::new(x0 as f32 + EPS, y0 as f32 + EPS),
             Vec2::new((x0 + w) as f32 - EPS, (y0 + GLYPH) as f32 - EPS),
         )
     };
 
-    let one = 1.0;
+    let c = c.to_ascii_uppercase();
 
-    match c.to_ascii_uppercase() {
-        // digits
-        '0' => (rect_full(0, 0), one),
-        '1' => (rect_full(1, 0), one),
-        '2' => (rect_full(2, 0), one),
-        '3' => (rect_full(3, 0), one),
-        '4' => (rect_full(4, 0), one),
-        '5' => (rect_full(5, 0), one),
-        '6' => (rect_full(6, 0), one),
-        '7' => (rect_full(7, 0), one),
-        '8' => (rect_full(8, 0), one),
-        '9' => (rect_full(9, 0), one),
+    // Default: alphanumerics map through glyph_cell (row,col)
+    let default_full = || {
+        let (row, col) = glyph_cell(c);
+        (rect_full(col as u32, row as u32), 1.0)
+    };
 
-        // A..J
-        'A' => (rect_full(0, 1), one),
-        'B' => (rect_full(1, 1), one),
-        'C' => (rect_full(2, 1), one),
-        'D' => (rect_full(3, 1), one),
-        'E' => (rect_full(4, 1), one),
-        'F' => (rect_full(5, 1), one),
-        'G' => (rect_full(6, 1), one),
-        'H' => (rect_full(7, 1), one),
-        'I' => (rect_full(8, 1), one),
-        'J' => (rect_full(9, 1), one),
+    match c {
+        // Special punctuation row (row 3)
+        ':' => (rect_full(6, 3), 1.0),
 
-        // K..T
-        'K' => (rect_full(0, 2), one),
-        'L' => (rect_full(1, 2), one),
-        'M' => (rect_full(2, 2), one),
-        'N' => (rect_full(3, 2), one),
-        'O' => (rect_full(4, 2), one),
-        'P' => (rect_full(5, 2), one),
-        'Q' => (rect_full(6, 2), one),
-        'R' => (rect_full(7, 2), one),
-        'S' => (rect_full(8, 2), one),
-        'T' => (rect_full(9, 2), one),
-
-        // U..Z
-        'U' => (rect_full(0, 3), one),
-        'V' => (rect_full(1, 3), one),
-        'W' => (rect_full(2, 3), one),
-        'X' => (rect_full(3, 3), one),
-        'Y' => (rect_full(4, 3), one),
-        'Z' => (rect_full(5, 3), one),
-
-        // punctuation
-        ':' => (rect_full(6, 3), one),
-
-        // Row 3 col 7 is shared: [% .... !]
-        // Split point that matches your sheet: '!' starts at x=11 and is 5px wide (11..15).
+        // IMPORTANT: row 3 col 7 contains BOTH '%' and '!' with a white divider at local x=8.
+        // '%' is on the LEFT. We also include the 1px *left* separator column because the art bleeds into it.
+        // That left separator is at global x = (7*STRIDE - 1). We take 9px total: [-1 .. 7], and EXCLUDE local x=8 (white).
         '%' => {
-            let w = 11; // 0..10 is the percent region (includes its dot at x=8)
-            (rect_sub(7, 3, 0, w), w as f32 / GLYPH as f32)
-        }
-        '!' => {
-            let x_off = 11;
-            let w = 5;
-            (rect_sub(7, 3, x_off, w), w as f32 / GLYPH as f32)
+            let col = 7u32;
+            let row = 3u32;
+            let x0 = col * STRIDE;
+            let y0 = row * STRIDE;
+
+            // Start one pixel left of the cell, end before local x=8 (the internal white divider).
+            // Range: (x0 - 1) .. (x0 + 8)  => width 9px
+            let rect = Rect::from_corners(
+                Vec2::new((x0 - 1) as f32 + EPS, y0 as f32 + EPS),
+                Vec2::new((x0 + 8) as f32 - EPS, (y0 + GLYPH) as f32 - EPS),
+            );
+
+            // Advance matches sampled width so the glyph isn't stretched.
+            (rect, 9.0 / 16.0)
         }
 
-        // Apostrophe is in row 3 col 8 but that cell contains white area.
-        // Only sample the left teal part (skip the fully-white column 0 and the white right half).
-        '\'' => {
-            let x_off = 1;
-            let w = 8; // columns 1..8 are the teal region; avoids the white right side
-            (rect_sub(8, 3, x_off, w), w as f32 / GLYPH as f32)
-        }
+        // '!' is on the RIGHT side of that same shared cell: local x = 11..15 (5px wide).
+        '!' => (rect_sub(7, 3, 11, 5), 5.0 / 16.0),
 
-        // Keep '?' as a safe fallback; your sheet’s (3,9) is blank, so this effectively shows nothing.
-        '?' => (rect_full(9, 3), one),
+        // Apostrophe lives in row 3 col 8, but that cell is half white.
+        // Only use the left teal region: local x = 1..8 (8px wide). (col0 is white)
+        '\'' => (rect_sub(8, 3, 1, 8), 8.0 / 16.0),
 
-        _ => (rect_full(0, 0), one),
+        _ => default_full(),
     }
 }
 
