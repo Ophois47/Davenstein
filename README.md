@@ -22,6 +22,7 @@ FEATURES TO BE DONE:
 - Ceilings need to be their respective colors per level
 - Main menus and pause game mechanic
 - Associated screens and interactivity for menus
+- Game difficulty
 - E1M10 the secret level
 - Episodes 2-6
 - Enemies for episodes 2-6 (mutant, officer)

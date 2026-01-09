@@ -28,6 +28,7 @@ pub enum MissionStatKind {
     SecretRatio,
     TreasureRatio,
     Time,
+    Par,
 }
 
 #[derive(Component, Clone, Copy)]
@@ -159,8 +160,29 @@ pub fn use_elevator_exit(
     win.0 = true;
     lock.0 = true;
 
-    // Hard cut to end level music
+    // Hard Cut to End Level Music
     music_mode.0 = davelib::audio::MusicModeKind::LevelEnd;
+}
+
+fn par_seconds_ep1(floor: i32) -> Option<u32> {
+    // Wolf3D Episode 1 PAR times (floors 1..=8)
+    // Boss/secret floors have no par
+    // 1:30, 2:00, 2:00, 3:30, 3:00, 3:00, 2:30, 2:30  (E1)
+    match floor {
+        1 => Some(1 * 60 + 30),
+        2 => Some(2 * 60 + 0),
+        3 => Some(2 * 60 + 0),
+        4 => Some(3 * 60 + 30),
+        5 => Some(3 * 60 + 0),
+        6 => Some(3 * 60 + 0),
+        7 => Some(2 * 60 + 30),
+        8 => Some(2 * 60 + 30),
+        _ => None, // 9/10 (boss/secret) => no PAR
+    }
+}
+
+fn mm_ss_from_seconds(total: u32) -> (u32, u32) {
+    (total / 60, total % 60)
 }
 
 pub fn sync_mission_success_overlay_visibility(
@@ -220,6 +242,15 @@ pub fn sync_mission_success_stats_text(
             MissionStatKind::KillRatio => format!("{kill_pct}%"),
             MissionStatKind::SecretRatio => format!("{secret_pct}%"),
             MissionStatKind::TreasureRatio => format!("{treasure_pct}%"),
+            MissionStatKind::Par => {
+                match par_seconds_ep1(floor) {
+                    Some(par_sec) => {
+                        let (pm, ps) = mm_ss_from_seconds(par_sec);
+                        format!("{}:{:02}", pm, ps)
+                    }
+                    None => "--:--".to_string(),
+                }
+            }
         };
 
         if let Some(mut text) = text {
