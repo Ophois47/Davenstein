@@ -70,7 +70,10 @@ impl Default for MissionSuccessTally {
             target_kill: 0,
             target_secret: 0,
             target_treasure: 0,
-            tick: Timer::from_seconds(1.0 / 60.0, TimerMode::Repeating),
+            tick: Timer::from_seconds(
+                1.0 / 25.0,
+                TimerMode::Repeating,
+            ),
         }
     }
 }
