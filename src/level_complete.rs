@@ -8,6 +8,11 @@ use davelib::map::{MapGrid, Tile};
 use davelib::player::{Player, PlayerControlLock};
 use davelib::world::RebuildWalls;
 
+/// Wall IDs for the Elevator Switch Textures 
+// (Wolfenstein Wall IDs, NOT Atlas Chunk Indices)
+const ELEV_SWITCH_DOWN_WALL_ID: u16 = 21;
+const ELEV_SWITCH_UP_WALL_ID: u16 = 22;
+
 /// Latched "Win" State, Driven by Elevator Switch
 #[derive(Resource, Debug, Clone, Default)]
 pub struct LevelComplete(pub bool);
@@ -30,10 +35,45 @@ pub struct MissionStatText {
     pub kind: MissionStatKind,
 }
 
-/// Wall IDs for the Elevator Switch Textures 
-// (Wolfenstein Wall IDs, NOT Atlas Chunk Indices)
-const ELEV_SWITCH_DOWN_WALL_ID: u16 = 21;
-const ELEV_SWITCH_UP_WALL_ID: u16 = 22;
+#[derive(Resource, Debug, Clone)]
+pub struct MissionSuccessTally {
+    pub active: bool,
+    pub phase: MissionSuccessPhase,
+
+    pub shown_kill: i32,
+    pub shown_secret: i32,
+    pub shown_treasure: i32,
+
+    pub target_kill: i32,
+    pub target_secret: i32,
+    pub target_treasure: i32,
+
+    pub tick: Timer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissionSuccessPhase {
+    Kill,
+    Secret,
+    Treasure,
+    Done,
+}
+
+impl Default for MissionSuccessTally {
+    fn default() -> Self {
+        Self {
+            active: false,
+            phase: MissionSuccessPhase::Done,
+            shown_kill: 0,
+            shown_secret: 0,
+            shown_treasure: 0,
+            target_kill: 0,
+            target_secret: 0,
+            target_treasure: 0,
+            tick: Timer::from_seconds(1.0 / 60.0, TimerMode::Repeating),
+        }
+    }
+}
 
 pub fn use_elevator_exit(
     keys: Res<ButtonInput<KeyCode>>,
@@ -131,6 +171,7 @@ pub fn sync_mission_success_stats_text(
     win: Res<LevelComplete>,
     score: Res<davelib::level_score::LevelScore>,
     current_level: Res<davelib::level::CurrentLevel>,
+    tally: Option<Res<MissionSuccessTally>>,
     mut q: Query<(
         &MissionStatText,
         Option<&mut Text>,
@@ -144,13 +185,25 @@ pub fn sync_mission_success_stats_text(
     let floor = current_level.0.floor_number();
     let (mm, ss) = score.time_mm_ss();
 
+    // If tally exists and is active, show counting numbers; otherwise show final
+    let (kill_pct, secret_pct, treasure_pct) = if let Some(t) = tally.as_deref() {
+        if t.active {
+            (t.shown_kill, t.shown_secret, t.shown_treasure)
+        } else {
+            (score.kills_pct(), score.secrets_pct(), score.treasure_pct())
+        }
+    } else {
+        (score.kills_pct(), score.secrets_pct(), score.treasure_pct())
+    };
+
     for (tag, text, bt) in q.iter_mut() {
+        // IMPORTANT: values only (labels are static nodes in hud.rs)
         let s = match tag.kind {
-            MissionStatKind::Title => format!("{}", floor),
-            MissionStatKind::KillRatio => format!("{}%", score.kills_pct()),
-            MissionStatKind::SecretRatio => format!("{}%", score.secrets_pct()),
-            MissionStatKind::TreasureRatio => format!("{}%", score.treasure_pct()),
+            MissionStatKind::Title => format!("{floor}"),
             MissionStatKind::Time => format!("{}:{:02}", mm, ss),
+            MissionStatKind::KillRatio => format!("{kill_pct}%"),
+            MissionStatKind::SecretRatio => format!("{secret_pct}%"),
+            MissionStatKind::TreasureRatio => format!("{treasure_pct}%"),
         };
 
         if let Some(mut text) = text {
@@ -165,11 +218,11 @@ pub fn mission_success_input(
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
     win: Res<LevelComplete>,
+    mut tally: ResMut<MissionSuccessTally>,
     mut advance: ResMut<crate::ui::sync::AdvanceLevelRequested>,
     mut current_level: ResMut<davelib::level::CurrentLevel>,
     mut music_mode: ResMut<davelib::audio::MusicMode>,
 ) {
-    // Only While Mission Success Active, Only Once
     if !win.0 || advance.0 {
         return;
     }
@@ -178,16 +231,113 @@ pub fn mission_success_input(
         || keys.just_pressed(KeyCode::Space)
         || buttons.just_pressed(MouseButton::Left);
 
-    if go {
-        // Return to gameplay music before the next level transition
-        music_mode.0 = davelib::audio::MusicModeKind::Gameplay;
+    if !go {
+        return;
+    }
 
-        current_level.0 = current_level.0.next_e1_normal();
+    // If counting is in progress, first press 
+    // fast-forwards the tally and does NOT advance
+    if tally.active {
+        tally.shown_kill = tally.target_kill;
+        tally.shown_secret = tally.target_secret;
+        tally.shown_treasure = tally.target_treasure;
+        tally.active = false;
+        tally.phase = MissionSuccessPhase::Done;
+        return;
+    }
 
-        advance.0 = true;
-        info!(
-            "Mission Success: advancing to {:?} -> advance level requested",
-            current_level.0
-        );
+    // Otherwise, proceed to next level (your existing behavior)
+    music_mode.0 = davelib::audio::MusicModeKind::Gameplay;
+    current_level.0 = current_level.0.next_e1_normal();
+    advance.0 = true;
+
+    info!(
+        "Mission Success: advancing to {:?} -> advance level requested",
+        current_level.0
+    );
+}
+
+pub fn start_mission_success_tally_on_win(
+    win: Res<LevelComplete>,
+    score: Res<davelib::level_score::LevelScore>,
+    mut tally: ResMut<MissionSuccessTally>,
+    mut prev_win: Local<bool>,
+) {
+    // Leaving intermission resets the edge detector + tally
+    if !win.0 {
+        tally.active = false;
+        tally.phase = MissionSuccessPhase::Done;
+        *prev_win = false;
+        return;
+    }
+
+    // Rising edge only
+    if *prev_win {
+        return;
+    }
+    *prev_win = true;
+
+    tally.active = true;
+    tally.phase = MissionSuccessPhase::Kill;
+
+    tally.shown_kill = 0;
+    tally.shown_secret = 0;
+    tally.shown_treasure = 0;
+
+    tally.target_kill = score.kills_pct().clamp(0, 100);
+    tally.target_secret = score.secrets_pct().clamp(0, 100);
+    tally.target_treasure = score.treasure_pct().clamp(0, 100);
+
+    tally.tick.reset();
+}
+
+pub fn tick_mission_success_tally(
+    time: Res<Time>,
+    win: Res<LevelComplete>,
+    mut tally: ResMut<MissionSuccessTally>,
+) {
+    if !win.0 || !tally.active {
+        return;
+    }
+
+    tally.tick.tick(time.delta());
+
+    // Just_finished() stays true for the whole frame if it finished at least once
+    // Use times_finished_this_tick() to know how many steps to advance this frame
+    let steps = tally.tick.times_finished_this_tick();
+    if steps == 0 {
+        return;
+    }
+
+    for _ in 0..steps {
+        match tally.phase {
+            MissionSuccessPhase::Kill => {
+                if tally.shown_kill < tally.target_kill {
+                    tally.shown_kill += 1;
+                } else {
+                    tally.phase = MissionSuccessPhase::Secret;
+                }
+            }
+            MissionSuccessPhase::Secret => {
+                if tally.shown_secret < tally.target_secret {
+                    tally.shown_secret += 1;
+                } else {
+                    tally.phase = MissionSuccessPhase::Treasure;
+                }
+            }
+            MissionSuccessPhase::Treasure => {
+                if tally.shown_treasure < tally.target_treasure {
+                    tally.shown_treasure += 1;
+                } else {
+                    tally.phase = MissionSuccessPhase::Done;
+                    tally.active = false;
+                    break;
+                }
+            }
+            MissionSuccessPhase::Done => {
+                tally.active = false;
+                break;
+            }
+        }
     }
 }

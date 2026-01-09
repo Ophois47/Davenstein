@@ -119,10 +119,11 @@ fn main() {
         .init_resource::<PushwallOcc>()
         .init_resource::<PushwallState>()
         .init_resource::<PushwallClock>()
-        .init_resource::<level_complete::LevelComplete>()
         .init_resource::<davelib::level::CurrentLevel>()
         .init_resource::<davelib::audio::MusicMode>()
+        .init_resource::<level_complete::LevelComplete>()
         .init_resource::<davelib::level_score::LevelScore>()
+        .init_resource::<level_complete::MissionSuccessTally>()
         // -----------------------------
         // Messages / Events
         // -----------------------------
@@ -162,9 +163,11 @@ fn main() {
         .add_systems(
             Update,
             (
-                level_complete::mission_success_input,
                 level_complete::sync_mission_success_overlay_visibility,
+                level_complete::start_mission_success_tally_on_win,
+                level_complete::tick_mission_success_tally,
                 level_complete::sync_mission_success_stats_text,
+                level_complete::mission_success_input,
             )
                 .chain(),
         )
