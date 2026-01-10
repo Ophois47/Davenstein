@@ -61,6 +61,7 @@ pub struct MissionSuccessTally {
     pub shown_time_secs: i32,
     pub target_time_secs: i32,
     pub time_step_accum: i32,
+    pub pause_steps: u8,
 
     pub shown_bonus: i32,
     pub target_bonus: i32,
@@ -92,10 +93,12 @@ impl Default for MissionSuccessTally {
             target_time_secs: 0,
             time_step_accum: 0,
 
+            pause_steps: 0,
+
             shown_bonus: 0,
             target_bonus: 0,
 
-            tick: Timer::from_seconds(1.0 / 45.0, TimerMode::Repeating),
+            tick: Timer::from_seconds(1.0 / 120.0, TimerMode::Repeating),
         }
     }
 }
@@ -369,6 +372,7 @@ pub fn mission_success_input(
         tally.time_step_accum = 0;
 
         tally.shown_bonus = tally.target_bonus;
+        tally.pause_steps = 0;
 
         tally.active = false;
         tally.phase = MissionSuccessPhase::Done;
@@ -419,6 +423,8 @@ pub fn start_mission_success_tally_on_win(
     tally.target_time_secs = score.time_secs.max(0.0).floor() as i32;
     tally.time_step_accum = 0;
 
+    tally.pause_steps = 0;
+
     let floor = current_level.0.floor_number();
     tally.target_bonus = compute_target_bonus(&score, floor);
 
@@ -432,20 +438,130 @@ pub fn tick_mission_success_tally(
     time: Res<Time>,
     win: Res<LevelComplete>,
     mut tally: ResMut<MissionSuccessTally>,
+    mut sfx: MessageWriter<PlaySfx>,
+
+    // Local-only state (so we don't have to change MissionSuccessTally's struct again)
+    mut pause_steps_local: Local<i32>,
+    mut pending_sound_local: Local<Option<SfxKind>>,
+    mut pending_next_phase_local: Local<Option<MissionSuccessPhase>>,
+    mut pending_post_pause_local: Local<i32>,
 ) {
+    // If we're not tallying, reset local state
     if !win.0 || !tally.active {
+        *pause_steps_local = 0;
+        *pending_sound_local = None;
+        *pending_next_phase_local = None;
+        *pending_post_pause_local = 0;
         return;
     }
 
+    // --- Tuneables (45 Hz tally timer) ---
+    // DOS used VBLWAIT=30 vbls (~0.43s @ ~70Hz). Map that to ~20 steps @ 45Hz.
+    const PRE_STINGER_PAUSE_STEPS: i32 = 20;   // before 100% / 0% stinger
+    const POST_CONFIRM_PAUSE_STEPS: i32 = 8;   // after IntermissionConfirm
+    const POST_STINGER_PAUSE_STEPS: i32 = 12;  // after Percent100 / NoBonus
+
+    // DOS feels faster than 45Hz. Advancing 2% per tick is a good match.
+    const PCT_STEP: i32 = 2;
+
+    // --- Helpers ---
+    fn crossed_multiple(prev: i32, new: i32, n: i32) -> bool {
+        if n <= 0 || new <= prev {
+            return false;
+        }
+        (prev / n) < (new / n)
+    }
+
+    let mut emitted_this_call = false;
+    let emit_once = |kind: SfxKind, sfx: &mut MessageWriter<PlaySfx>, emitted: &mut bool| {
+        if *emitted {
+            return;
+        }
+        sfx.write(PlaySfx {
+            kind,
+            pos: Vec3::ZERO, // UI sounds configured non-spatial
+        });
+        *emitted = true;
+    };
+
+    // Deref Locals ONCE so we don't fight &mut Local<T> typing inside helpers
+    let pause_steps: &mut i32 = &mut *pause_steps_local;
+    let pending_sound: &mut Option<SfxKind> = &mut *pending_sound_local;
+    let pending_next_phase: &mut Option<MissionSuccessPhase> = &mut *pending_next_phase_local;
+    let pending_post_pause: &mut i32 = &mut *pending_post_pause_local;
+
+    let schedule_end = |ratio: i32,
+                            next: MissionSuccessPhase,
+                            pause_steps: &mut i32,
+                            pending_sound: &mut Option<SfxKind>,
+                            pending_post_pause: &mut i32,
+                            pending_next_phase: &mut Option<MissionSuccessPhase>,
+                            sfx: &mut MessageWriter<PlaySfx>,
+                            emitted: &mut bool| {
+        // Choose completion sound based on final ratio
+        let (sound, pre_pause, post_pause) = if ratio == 100 {
+            (SfxKind::IntermissionPercent100, PRE_STINGER_PAUSE_STEPS, POST_STINGER_PAUSE_STEPS)
+        } else if ratio == 0 {
+            (SfxKind::IntermissionNoBonus, PRE_STINGER_PAUSE_STEPS, POST_STINGER_PAUSE_STEPS)
+        } else {
+            (SfxKind::IntermissionConfirm, 0, POST_CONFIRM_PAUSE_STEPS)
+        };
+
+        *pending_next_phase = Some(next);
+
+        if pre_pause > 0 {
+            // Pause, then play stinger, then pause, then advance phase.
+            *pause_steps = pre_pause;
+            *pending_sound = Some(sound);
+            *pending_post_pause = post_pause;
+        } else {
+            // Play confirm immediately, then pause, then advance phase.
+            emit_once(sound, sfx, emitted);
+            *pause_steps = post_pause;
+            *pending_sound = None;
+            *pending_post_pause = 0;
+        }
+    };
+
+    // Drive from the existing 45Hz timer
     tally.tick.tick(time.delta());
-    let steps = tally.tick.times_finished_this_tick();
+    let mut steps = tally.tick.times_finished_this_tick();
     if steps == 0 {
         return;
     }
 
-    for _ in 0..steps {
-        // NEW: time advances slower than percent roll:
-        // 1 second per 3 tally steps (tweakable)
+    // Avoid huge dt spikes (alt-tab) causing lots of roll in one frame
+    steps = steps.min(6);
+
+    for _ in 0..(steps as i32) {
+        // Pause gate: during pause, nothing advances.
+        if *pause_steps > 0 {
+            *pause_steps -= 1;
+
+            if *pause_steps == 0 {
+                // If a stinger is queued after a pre-pause, play it now then start post-pause.
+                if let Some(k) = pending_sound.take() {
+                    emit_once(k, &mut sfx, &mut emitted_this_call);
+
+                    if *pending_post_pause > 0 {
+                        *pause_steps = *pending_post_pause;
+                        *pending_post_pause = 0;
+                    }
+                } else {
+                    // This was a post-sound pause; now advance to next phase.
+                    if let Some(next) = pending_next_phase.take() {
+                        tally.phase = next;
+                        if tally.phase == MissionSuccessPhase::Done {
+                            tally.active = false;
+                        }
+                    }
+                }
+            }
+
+            continue;
+        }
+
+        // Keep your existing time roll behavior (no regressions)
         if tally.shown_time_secs < tally.target_time_secs {
             tally.time_step_accum += 1;
             if tally.time_step_accum >= 3 {
@@ -457,27 +573,71 @@ pub fn tick_mission_success_tally(
         match tally.phase {
             MissionSuccessPhase::Kill => {
                 if tally.shown_kill < tally.target_kill {
-                    tally.shown_kill += 1;
+                    let prev = tally.shown_kill;
+                    tally.shown_kill = (tally.shown_kill + PCT_STEP).min(tally.target_kill);
+
+                    // DOS: tick at 10% boundaries during roll
+                    if crossed_multiple(prev, tally.shown_kill, 10) {
+                        emit_once(SfxKind::IntermissionTick, &mut sfx, &mut emitted_this_call);
+                    }
                 } else {
-                    tally.phase = MissionSuccessPhase::Secret;
+                    schedule_end(
+                        tally.target_kill,
+                        MissionSuccessPhase::Secret,
+                        pause_steps,
+                        pending_sound,
+                        pending_post_pause,
+                        pending_next_phase,
+                        &mut sfx,
+                        &mut emitted_this_call,
+                    );
                 }
             }
+
             MissionSuccessPhase::Secret => {
                 if tally.shown_secret < tally.target_secret {
-                    tally.shown_secret += 1;
+                    let prev = tally.shown_secret;
+                    tally.shown_secret = (tally.shown_secret + PCT_STEP).min(tally.target_secret);
+
+                    if crossed_multiple(prev, tally.shown_secret, 10) {
+                        emit_once(SfxKind::IntermissionTick, &mut sfx, &mut emitted_this_call);
+                    }
                 } else {
-                    tally.phase = MissionSuccessPhase::Treasure;
+                    schedule_end(
+                        tally.target_secret,
+                        MissionSuccessPhase::Treasure,
+                        pause_steps,
+                        pending_sound,
+                        pending_post_pause,
+                        pending_next_phase,
+                        &mut sfx,
+                        &mut emitted_this_call,
+                    );
                 }
             }
+
             MissionSuccessPhase::Treasure => {
                 if tally.shown_treasure < tally.target_treasure {
-                    tally.shown_treasure += 1;
+                    let prev = tally.shown_treasure;
+                    tally.shown_treasure = (tally.shown_treasure + PCT_STEP).min(tally.target_treasure);
+
+                    if crossed_multiple(prev, tally.shown_treasure, 10) {
+                        emit_once(SfxKind::IntermissionTick, &mut sfx, &mut emitted_this_call);
+                    }
                 } else {
-                    tally.phase = MissionSuccessPhase::Done;
-                    tally.active = false;
-                    break;
+                    schedule_end(
+                        tally.target_treasure,
+                        MissionSuccessPhase::Done,
+                        pause_steps,
+                        pending_sound,
+                        pending_post_pause,
+                        pending_next_phase,
+                        &mut sfx,
+                        &mut emitted_this_call,
+                    );
                 }
             }
+
             MissionSuccessPhase::Done => {
                 tally.active = false;
                 break;

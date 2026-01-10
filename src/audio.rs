@@ -23,6 +23,12 @@ pub enum SfxKind {
     NoWay,
     Pushwall,
     ElevatorSwitch,
+
+    // Sfx - Intermission / Stats
+    IntermissionTick,
+    IntermissionConfirm,
+    IntermissionNoBonus,
+    IntermissionPercent100,
     
     // Sfx - Weapons
     KnifeSwing,
@@ -67,6 +73,9 @@ pub struct ActivePickupSfx;
 
 #[derive(Component)]
 pub struct ActiveEnemyVoiceSfx;
+
+#[derive(Component)]
+pub struct ActiveIntermissionSfx;
 
 #[derive(Resource, Default)]
 pub struct SfxLibrary {
@@ -129,6 +138,24 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     // Library That Supports 1 or Many Clips per SfxKind
     let mut lib = SfxLibrary::default();
+
+    // Intermission / Score Tally
+    lib.insert_one(
+        SfxKind::IntermissionTick,
+        asset_server.load("sounds/sfx/stats/tally_tick_b.ogg"),
+    );
+    lib.insert_one(
+        SfxKind::IntermissionConfirm,
+        asset_server.load("sounds/sfx/stats/tally_tick_a.ogg"),
+    );
+    lib.insert_one(
+        SfxKind::IntermissionNoBonus,
+        asset_server.load("sounds/sfx/stats/no_bonus.ogg"),
+    );
+    lib.insert_one(
+        SfxKind::IntermissionPercent100,
+        asset_server.load("sounds/sfx/stats/percent_100.ogg"),
+    );
 
     // Doors
     lib.insert_one(SfxKind::DoorOpen, asset_server.load("sounds/sfx/door_open.ogg"));
@@ -423,6 +450,7 @@ pub fn play_sfx_events(
     mut ev: MessageReader<PlaySfx>,
     q_active_pickup: Query<Entity, With<ActivePickupSfx>>,
     q_active_enemy_voice: Query<Entity, With<ActiveEnemyVoiceSfx>>,
+    q_active_intermission: Query<Entity, With<ActiveIntermissionSfx>>,
 ) {
     // Collect Events: Play All Non-Pickups, Only Last Pickup (No Overlap)
     let mut last_pickup: Option<PlaySfx> = None;
@@ -438,7 +466,50 @@ pub fn play_sfx_events(
 
     // Play All Non-Pickups (Can Overlap),
     // EXCEPT Enemy Voice Which is Single-Channel
+    // AND Intermission SFX which we want to be single-channel (cutoff).
     for e in non_pickups {
+        // Intermission: single channel, hard-cut previous.
+        let is_intermission = matches!(
+            e.kind,
+            SfxKind::IntermissionTick
+                | SfxKind::IntermissionConfirm
+                | SfxKind::IntermissionNoBonus
+                | SfxKind::IntermissionPercent100
+        );
+
+        if is_intermission {
+            let Some(list) = lib.map.get(&e.kind) else {
+                warn!("Missing SFX for {:?}", e.kind);
+                continue;
+            };
+            if list.is_empty() {
+                continue;
+            }
+
+            // Cut off any currently playing intermission sound.
+            for ent in q_active_intermission.iter() {
+                commands.entity(ent).despawn();
+            }
+
+            let i = rand::rng().random_range(0..list.len());
+            let clip = list[i].clone();
+
+            // UI sound: non-spatial
+            let settings = PlaybackSettings::DESPAWN
+                .with_spatial(false)
+                .with_volume(Volume::Linear(1.0));
+
+            commands.spawn((
+                ActiveIntermissionSfx,
+                Transform::from_translation(e.pos), // pos irrelevant when non-spatial; kept for consistency
+                AudioPlayer::new(clip),
+                settings,
+            ));
+
+            continue;
+        }
+
+        // Normal non-pickups path (unchanged)
         let Some(list) = lib.map.get(&e.kind) else {
             warn!("Missing SFX for {:?}", e.kind);
             continue;
@@ -514,6 +585,13 @@ pub fn play_sfx_events(
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.12))
                 .with_volume(Volume::Linear(1.15)),
+
+            // Intermission kinds never reach this match due to `continue` above.
+            SfxKind::IntermissionTick
+            | SfxKind::IntermissionConfirm
+            | SfxKind::IntermissionNoBonus
+            | SfxKind::IntermissionPercent100 => PlaybackSettings::DESPAWN.with_spatial(false),
+
         };
 
         if is_enemy_voice {

@@ -16,6 +16,10 @@ pub const SPLASH_0_PATH: &str = "textures/ui/splash0.png";
 pub const SPLASH_1_PATH: &str = "textures/ui/splash1.png";
 pub const MAIN_MENU_PATH: &str = "textures/ui/main_menu.png";
 pub const GET_PSYCHED_PATH: &str = "textures/ui/get_psyched.png";
+pub const MENU_BANNER_PATH: &str = "textures/ui/menu_banner.png";
+pub const MENU_HINT_PATH: &str = "textures/ui/menu_hint_move_select_back.png";
+pub const MENU_CURSOR_LIGHT_PATH: &str = "textures/ui/menu_cursor_light.png";
+pub const MENU_CURSOR_DARK_PATH: &str = "textures/ui/menu_cursor_dark.png";
 
 // Loading Screen
 const BASE_HUD_H: f32 = 44.0;   // Status Bar Area
@@ -42,6 +46,15 @@ struct MenuHint;
 
 #[derive(Component)]
 struct LoadingUi;
+
+#[derive(Component)]
+struct MenuCursor;
+
+#[derive(Component)]
+struct MenuCursorLight;
+
+#[derive(Component)]
+struct MenuCursorDark;
 
 #[derive(Component)]
 struct PsychedBar {
@@ -81,6 +94,21 @@ impl Default for SplashStep {
 struct SplashImages {
     splash1: Handle<Image>,
     menu: Handle<Image>,
+}
+
+#[derive(Default)]
+struct MenuLocalState {
+    selection: usize, // 0 = New Game, 1 = Quit
+    blink: Timer,
+    blink_light: bool,
+}
+
+impl MenuLocalState {
+    fn reset(&mut self) {
+        self.selection = 0;
+        self.blink = Timer::from_seconds(0.12, TimerMode::Repeating);
+        self.blink_light = true;
+    }
 }
 
 pub struct SplashPlugin;
@@ -176,6 +204,7 @@ fn splash_advance_on_any_input(
     asset_server: Res<AssetServer>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
+    time: Res<Time>,
     mut step: ResMut<SplashStep>,
     imgs: Option<Res<SplashImages>>,
     q_win: Single<&Window, With<PrimaryWindow>>,
@@ -183,6 +212,21 @@ fn splash_advance_on_any_input(
     mut lock: ResMut<PlayerControlLock>,
     mut music_mode: ResMut<MusicMode>,
     mut psyched: ResMut<PsychedLoad>,
+
+    // menu-local state you added
+    mut menu: Local<MenuLocalState>,
+
+    // quit request (canonical Bevy way)
+    mut app_exit: MessageWriter<bevy::app::AppExit>,
+
+    // move both cursor nodes (light+dark) together
+    mut q_cursor_nodes: Query<&mut Node, With<MenuCursor>>,
+
+    // IMPORTANT: resolve &mut Visibility borrow conflict
+    mut vis_set: bevy::ecs::system::ParamSet<(
+        Query<&mut Visibility, With<MenuCursorLight>>,
+        Query<&mut Visibility, With<MenuCursorDark>>,
+    )>,
 ) {
     if *step == SplashStep::Done {
         return;
@@ -204,12 +248,14 @@ fn splash_advance_on_any_input(
             let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
             spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
         }
+
         SplashStep::Splash1 => {
             let any_key = keys.get_just_pressed().next().is_some();
             let left_click = mouse.just_pressed(MouseButton::Left);
             if !any_key && !left_click { return; }
 
             *step = SplashStep::Menu;
+            menu.reset();
 
             for e in q_splash_roots.iter() {
                 commands.entity(e).despawn();
@@ -220,31 +266,87 @@ fn splash_advance_on_any_input(
 
             let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
             spawn_splash_ui(&mut commands, imgs.menu.clone(), w, h);
-            spawn_menu_hint(&mut commands, &asset_server);
+
+            // If you updated this signature to accept w/h, keep it consistent here.
+            spawn_menu_hint(&mut commands, &asset_server, w, h);
         }
+
         SplashStep::Menu => {
-            if !keys.just_pressed(KeyCode::Enter) {
+            // Blink cursor
+            menu.blink.tick(time.delta());
+            if menu.blink.just_finished() {
+                menu.blink_light = !menu.blink_light;
+
+                // LIGHT
+                for mut v in vis_set.p0().iter_mut() {
+                    *v = if menu.blink_light { Visibility::Visible } else { Visibility::Hidden };
+                }
+                // DARK
+                for mut v in vis_set.p1().iter_mut() {
+                    *v = if menu.blink_light { Visibility::Hidden } else { Visibility::Visible };
+                }
+            }
+
+            // ESC exits immediately (per your requirement)
+            if keys.just_pressed(KeyCode::Escape) {
+                app_exit.write(bevy::app::AppExit::Success);
                 return;
             }
 
-            // Remove Menu UI Roots
-            for e in q_splash_roots.iter() {
-                commands.entity(e).despawn();
+            const ITEM_COUNT: usize = 2;
+
+            let moved_up = keys.just_pressed(KeyCode::ArrowUp);
+            let moved_down = keys.just_pressed(KeyCode::ArrowDown);
+
+            if moved_up {
+                menu.selection = (menu.selection + ITEM_COUNT - 1) % ITEM_COUNT;
+            } else if moved_down {
+                menu.selection = (menu.selection + 1) % ITEM_COUNT;
             }
 
-            // Now in Gameplay Flow (Even Though We Temporarily Lock Controls)
-            *step = SplashStep::Done;
+            if moved_up || moved_down {
+                let (w, _h) = compute_scaled_size(q_win.width(), q_win.height());
+                let scale = (w / BASE_W).round().max(1.0);
 
-            // Start Get Psyched + Gameplay Music Immediately
-            begin_get_psyched_loading(
-                &mut commands,
-                &asset_server,
-                &q_win,
-                &mut psyched,
-                &mut lock,
-                &mut music_mode,
-            );
+                let y = match menu.selection {
+                    0 => (94.0 * scale).round(),   // NEW GAME
+                    1 => (114.0 * scale).round(),  // QUIT
+                    _ => (94.0 * scale).round(),
+                };
+
+                for mut n in q_cursor_nodes.iter_mut() {
+                    n.top = Val::Px(y);
+                }
+            }
+
+            if keys.just_pressed(KeyCode::Enter) {
+                match menu.selection {
+                    0 => {
+                        // NEW GAME (unchanged behavior)
+                        for e in q_splash_roots.iter() {
+                            commands.entity(e).despawn();
+                        }
+
+                        *step = SplashStep::Done;
+
+                        begin_get_psyched_loading(
+                            &mut commands,
+                            &asset_server,
+                            &q_win,
+                            &mut psyched,
+                            &mut lock,
+                            &mut music_mode,
+                        );
+                    }
+                    1 => {
+                        // QUIT
+                        app_exit.write(bevy::app::AppExit::Success);
+                    }
+                    _ => {}
+                }
+            }
         }
+
         SplashStep::Done => {}
     }
 }
@@ -269,38 +371,161 @@ fn splash_resize_on_window_change(
     }
 }
 
-fn spawn_menu_hint(commands: &mut Commands, asset_server: &AssetServer) {
+fn spawn_menu_hint(commands: &mut Commands, asset_server: &AssetServer, w: f32, h: f32) {
     let ui_font: Handle<Font> = asset_server.load("fonts/honda_font.ttf");
+
+    let banner = asset_server.load(MENU_BANNER_PATH);
+    let hint = asset_server.load(MENU_HINT_PATH);
+    let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
+    let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
+
+    // w/h are already integer-scaled 320x200. Recover the integer UI scale.
+    let scale = (w / BASE_W).round().max(1.0);
+
+    // Native (320x200) layout coords, scaled up by `scale`.
+    // Banner is 156x52 in the extracted sheet.
+    let banner_w = 156.0 * scale;
+    let banner_h = 52.0 * scale;
+    let banner_x = ((BASE_W - 156.0) * 0.5 * scale).round();
+    let banner_y = (6.0 * scale).round();
+
+    // Hint strip is 120x23.
+    let hint_w = 120.0 * scale;
+    let hint_h = 23.0 * scale;
+    let hint_x = ((BASE_W - 120.0) * 0.5 * scale).round();
+    let hint_y = ((BASE_H - 23.0 - 6.0) * scale).round();
+
+    // Menu items (native positions)
+    let x_text = (150.0 * scale).round();
+    let y_new_game = (92.0 * scale).round();
+    let y_quit = (112.0 * scale).round();
+
+    // Cursor is 19x10.
+    let cursor_w = 19.0 * scale;
+    let cursor_h = 10.0 * scale;
+    let cursor_x = (128.0 * scale).round();
+    let cursor_y = (94.0 * scale).round(); // aligned to NEW GAME line
+
+    let font_size = (18.0 * scale).round();
 
     commands
         .spawn((
             SplashUi,
-            MenuHint,
-            ZIndex(1001),
+            MenuHint,      // keep your existing marker so this stays "menu UI"
+            ZIndex(1001),  // above the splash/menu background
             Node {
                 width: Val::Percent(100.0),
-                height: Val::Auto,
+                height: Val::Percent(100.0),
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
-                right: Val::Px(0.0),
-                bottom: Val::Px(10.0),
+                top: Val::Px(0.0),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
             },
-            BackgroundColor(Color::NONE), // was PSYCHED_TEAL
+            BackgroundColor(Color::NONE),
         ))
-        .with_children(|p| {
-            p.spawn((
-                Text::new("PRESS ENTER TO START"),
-                TextFont {
-                    font: ui_font,
-                    font_size: 22.0,
+        .with_children(|root| {
+            // Inner canvas sized to the same scaled 320x200 as the background image.
+            root.spawn((
+                Node {
+                    width: Val::Px(w),
+                    height: Val::Px(h),
+                    position_type: PositionType::Relative,
                     ..default()
                 },
-                TextColor(Color::WHITE),
-                TextLayout::new_with_justify(Justify::Center),
-            ));
+                BackgroundColor(Color::NONE),
+            ))
+            .with_children(|c| {
+                // Banner
+                c.spawn((
+                    ImageNode::new(banner),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(banner_x),
+                        top: Val::Px(banner_y),
+                        width: Val::Px(banner_w),
+                        height: Val::Px(banner_h),
+                        ..default()
+                    },
+                ));
+
+                // Hint strip (red MOVE/SELECT/ESC BACK box)
+                c.spawn((
+                    ImageNode::new(hint),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(hint_x),
+                        top: Val::Px(hint_y),
+                        width: Val::Px(hint_w),
+                        height: Val::Px(hint_h),
+                        ..default()
+                    },
+                ));
+
+                // Menu text items
+                c.spawn((
+                    Text::new("NEW GAME"),
+                    TextFont {
+                        font: ui_font.clone(),
+                        font_size,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(x_text),
+                        top: Val::Px(y_new_game),
+                        ..default()
+                    },
+                ));
+
+                c.spawn((
+                    Text::new("QUIT"),
+                    TextFont {
+                        font: ui_font.clone(),
+                        font_size,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(x_text),
+                        top: Val::Px(y_quit),
+                        ..default()
+                    },
+                ));
+
+                // Cursor (light + dark entities stacked; we toggle Visibility to "blink")
+                c.spawn((
+                    MenuCursor,
+                    MenuCursorLight,
+                    Visibility::Visible,
+                    ImageNode::new(cursor_light),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(cursor_x),
+                        top: Val::Px(cursor_y),
+                        width: Val::Px(cursor_w),
+                        height: Val::Px(cursor_h),
+                        ..default()
+                    },
+                ));
+                c.spawn((
+                    MenuCursor,
+                    MenuCursorDark,
+                    Visibility::Hidden,
+                    ImageNode::new(cursor_dark),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(cursor_x),
+                        top: Val::Px(cursor_y),
+                        width: Val::Px(cursor_w),
+                        height: Val::Px(cursor_h),
+                        ..default()
+                    },
+                ));
+            });
         });
 }
 
