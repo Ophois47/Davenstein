@@ -124,6 +124,7 @@ fn main() {
         .init_resource::<level_complete::LevelComplete>()
         .init_resource::<davelib::level_score::LevelScore>()
         .init_resource::<level_complete::MissionSuccessTally>()
+        .init_resource::<level_complete::ElevatorExitDelay>()
         // -----------------------------
         // Messages / Events
         // -----------------------------
@@ -163,6 +164,7 @@ fn main() {
         .add_systems(
             Update,
             (
+                level_complete::tick_elevator_exit_delay,
                 level_complete::sync_mission_success_overlay_visibility,
                 level_complete::start_mission_success_tally_on_win,
                 level_complete::tick_mission_success_tally,
@@ -239,10 +241,13 @@ fn main() {
         // -----------------------------
         .add_systems(
             FixedUpdate,
+            rebuild_wall_faces_on_request.run_if(world_ready),
+        )
+        .add_systems(
+            FixedUpdate,
             (
                 davelib::level_score::tick_level_time,
                 tick_pushwalls,
-                rebuild_wall_faces_on_request,
                 door_auto_close,
                 door_animate,
                 player_move,

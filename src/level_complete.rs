@@ -103,17 +103,68 @@ impl Default for MissionSuccessTally {
     }
 }
 
+#[derive(Resource)]
+pub struct ElevatorExitDelay {
+    pub active: bool,
+    pub timer: Timer,
+}
+
+impl Default for ElevatorExitDelay {
+    fn default() -> Self {
+        Self {
+            active: false,
+            // Tune: start small. This is just “long enough to see the flip”.
+            timer: Timer::from_seconds(0.35, TimerMode::Once),
+        }
+    }
+}
+
+/// When the player hits the elevator switch:
+/// - we lock immediately
+/// - we flip + rebuild immediately
+/// - we delay showing the intermission overlay (win.0) until this timer completes
+pub fn tick_elevator_exit_delay(
+    time: Res<Time>,
+    mut delay: ResMut<ElevatorExitDelay>,
+    mut win: ResMut<LevelComplete>,
+    mut lock: ResMut<PlayerControlLock>,
+) {
+    // If we’re not waiting to show the win screen, nothing to do.
+    if !delay.active {
+        return;
+    }
+
+    // If win is already up, clear pending state (safety).
+    if win.0 {
+        delay.active = false;
+        return;
+    }
+
+    // Keep gameplay frozen during the delay.
+    lock.0 = true;
+
+    delay.timer.tick(time.delta());
+
+    if delay.timer.is_finished() && delay.timer.just_finished() {
+        // NOW show the intermission overlay.
+        win.0 = true;
+        delay.active = false;
+    }
+}
+
 pub fn use_elevator_exit(
     keys: Res<ButtonInput<KeyCode>>,
     mut lock: ResMut<PlayerControlLock>,
-    mut win: ResMut<LevelComplete>,
+    win: ResMut<LevelComplete>,
     mut grid: ResMut<MapGrid>,
     q_player: Query<&Transform, With<Player>>,
     mut sfx: MessageWriter<PlaySfx>,
     mut rebuild: MessageWriter<RebuildWalls>,
     mut music_mode: ResMut<davelib::audio::MusicMode>,
+    mut exit_delay: ResMut<ElevatorExitDelay>,
 ) {
-    if lock.0 || win.0 {
+    // If gameplay is already locked, or win screen already up, or we're already delaying, do nothing.
+    if lock.0 || win.0 || exit_delay.active {
         return;
     }
     if !keys.just_pressed(KeyCode::Space) {
@@ -165,7 +216,7 @@ pub fn use_elevator_exit(
     // Flip Switch Texture
     grid.set_plane0_code(tx, tz, ELEV_SWITCH_UP_WALL_ID);
 
-    // Rebuild Wall Faces so Flipped Wall ID is Visible Immediately
+    // Rebuild Wall Faces so Flipped Wall ID is Visible
     rebuild.write(RebuildWalls { skip: None });
 
     // Play Elevator Switch Sound
@@ -174,12 +225,17 @@ pub fn use_elevator_exit(
         pos: Vec3::new(target.x as f32, 0.6, target.y as f32),
     });
 
-    // Latch Win State and Freeze Gameplay
-    win.0 = true;
+    // Freeze gameplay immediately
     lock.0 = true;
 
-    // Hard Cut to End Level Music
+    // Hard cut to end level music immediately
     music_mode.0 = davelib::audio::MusicModeKind::LevelEnd;
+
+    // IMPORTANT: Delay showing the score screen so the flip can render
+    exit_delay.active = true;
+    exit_delay.timer.reset();
+
+    // NOTE: We DO NOT set win.0 here anymore
 }
 
 fn par_seconds_ep1(floor: i32) -> Option<u32> {
