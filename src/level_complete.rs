@@ -29,11 +29,20 @@ pub enum MissionStatKind {
     TreasureRatio,
     Time,
     Par,
+    Bonus,
 }
 
 #[derive(Component, Clone, Copy)]
 pub struct MissionStatText {
     pub kind: MissionStatKind,
+}
+
+
+
+#[derive(Component, Clone, Copy)]
+pub struct MissionStatRightAlign {
+    pub right_edge_native: f32,
+    pub overlay_scale: f32,
 }
 
 #[derive(Resource, Debug, Clone)]
@@ -52,6 +61,9 @@ pub struct MissionSuccessTally {
     pub shown_time_secs: i32,
     pub target_time_secs: i32,
     pub time_step_accum: i32,
+
+    pub shown_bonus: i32,
+    pub target_bonus: i32,
 
     pub tick: Timer,
 }
@@ -79,6 +91,9 @@ impl Default for MissionSuccessTally {
             shown_time_secs: 0,
             target_time_secs: 0,
             time_step_accum: 0,
+
+            shown_bonus: 0,
+            target_bonus: 0,
 
             tick: Timer::from_seconds(1.0 / 45.0, TimerMode::Repeating),
         }
@@ -185,6 +200,35 @@ fn mm_ss_from_seconds(total: u32) -> (u32, u32) {
     (total / 60, total % 60)
 }
 
+
+const PAR_AMOUNT: i32 = 500;
+const PERCENT100AMT: i32 = 10_000;
+
+fn compute_target_bonus(score: &davelib::level_score::LevelScore, floor: i32) -> i32 {
+    let time_secs = score.time_secs.max(0.0).floor() as i32;
+
+    // Time-under-par bonus
+    let mut bonus = 0;
+    if let Some(par) = par_seconds_ep1(floor) {
+        let under = (par as i32 - time_secs).max(0);
+        bonus += under * PAR_AMOUNT;
+    }
+
+    // +10,000 for each category exactly 100%
+    if score.kills_pct() == 100 {
+        bonus += PERCENT100AMT;
+    }
+    if score.secrets_pct() == 100 {
+        bonus += PERCENT100AMT;
+    }
+    if score.treasure_pct() == 100 {
+        bonus += PERCENT100AMT;
+    }
+
+    bonus.max(0)
+}
+
+
 pub fn sync_mission_success_overlay_visibility(
     win: Res<LevelComplete>,
     mut q: Query<&mut Visibility, With<MissionSuccessOverlay>>,
@@ -205,6 +249,8 @@ pub fn sync_mission_success_stats_text(
     tally: Option<Res<MissionSuccessTally>>,
     mut q: Query<(
         &MissionStatText,
+        Option<&MissionStatRightAlign>,
+        &mut Node,
         Option<&mut Text>,
         Option<&mut crate::ui::level_end_font::LevelEndBitmapText>,
     )>,
@@ -218,40 +264,72 @@ pub fn sync_mission_success_stats_text(
         (s / 60, s % 60)
     }
 
+    fn text_w_native_px(s: &str) -> f32 {
+        let mut w = 0.0;
+        for ch in s.chars() {
+            w += match ch {
+                ' ' => 16.0,
+                ':' => 9.0,
+                '%' => 16.0,
+                '!' => 7.0,
+                '\'' => 8.0,
+                _ => 16.0,
+            };
+        }
+        w
+    }
+
     let floor = current_level.0.floor_number();
 
-    let (kill_pct, secret_pct, treasure_pct, (mm, ss)) = if let Some(t) = tally.as_deref() {
+    let (kill_pct, secret_pct, treasure_pct, (mm, ss), bonus_val) = if let Some(t) = tally.as_deref() {
         if t.active {
             (
                 t.shown_kill,
                 t.shown_secret,
                 t.shown_treasure,
                 secs_to_mm_ss(t.shown_time_secs),
+                t.shown_bonus,
             )
         } else {
-            (score.kills_pct(), score.secrets_pct(), score.treasure_pct(), score.time_mm_ss())
+            (
+                score.kills_pct(),
+                score.secrets_pct(),
+                score.treasure_pct(),
+                score.time_mm_ss(),
+                compute_target_bonus(&score, floor),
+            )
         }
     } else {
-        (score.kills_pct(), score.secrets_pct(), score.treasure_pct(), score.time_mm_ss())
+        (
+            score.kills_pct(),
+            score.secrets_pct(),
+            score.treasure_pct(),
+            score.time_mm_ss(),
+            compute_target_bonus(&score, floor),
+        )
     };
 
-    for (tag, text, bt) in q.iter_mut() {
+    for (tag, align, mut node, text, bt) in q.iter_mut() {
         let s = match tag.kind {
             MissionStatKind::Title => format!("{floor}"),
             MissionStatKind::Time => format!("{}:{:02}", mm, ss),
             MissionStatKind::KillRatio => format!("{kill_pct}%"),
             MissionStatKind::SecretRatio => format!("{secret_pct}%"),
             MissionStatKind::TreasureRatio => format!("{treasure_pct}%"),
-            MissionStatKind::Par => {
-                match par_seconds_ep1(floor) {
-                    Some(par_sec) => {
-                        let (pm, ps) = mm_ss_from_seconds(par_sec);
-                        format!("{}:{:02}", pm, ps)
-                    }
-                    None => "--:--".to_string(),
+            MissionStatKind::Par => match par_seconds_ep1(floor) {
+                Some(par_sec) => {
+                    let (pm, ps) = mm_ss_from_seconds(par_sec);
+                    format!("{}:{:02}", pm, ps)
                 }
-            }
+                None => "--:--".to_string(),
+            },
+            MissionStatKind::Bonus => format!("{bonus_val}"),
         };
+
+        if let Some(align) = align {
+            let left_native = (align.right_edge_native - text_w_native_px(&s)).max(0.0);
+            node.left = Val::Px(left_native * align.overlay_scale);
+        }
 
         if let Some(mut text) = text {
             text.0 = s;
@@ -290,6 +368,8 @@ pub fn mission_success_input(
         tally.shown_time_secs = tally.target_time_secs;
         tally.time_step_accum = 0;
 
+        tally.shown_bonus = tally.target_bonus;
+
         tally.active = false;
         tally.phase = MissionSuccessPhase::Done;
         return;
@@ -308,6 +388,7 @@ pub fn mission_success_input(
 pub fn start_mission_success_tally_on_win(
     win: Res<LevelComplete>,
     score: Res<davelib::level_score::LevelScore>,
+    current_level: Res<davelib::level::CurrentLevel>,
     mut tally: ResMut<MissionSuccessTally>,
     mut prev_win: Local<bool>,
 ) {
@@ -337,6 +418,12 @@ pub fn start_mission_success_tally_on_win(
     tally.shown_time_secs = 0;
     tally.target_time_secs = score.time_secs.max(0.0).floor() as i32;
     tally.time_step_accum = 0;
+
+    let floor = current_level.0.floor_number();
+    tally.target_bonus = compute_target_bonus(&score, floor);
+
+    // Checkpoint behavior: show correct bonus immediately (counting comes next step)
+    tally.shown_bonus = tally.target_bonus;
 
     tally.tick.reset();
 }

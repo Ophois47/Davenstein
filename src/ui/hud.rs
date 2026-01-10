@@ -1744,7 +1744,7 @@ fn spawn_mission_success_overlay(
     bj_pistol_0: Handle<Image>,
 ) {
     use bevy::prelude::ChildSpawnerCommands; // Bevy 0.17
-    use crate::level_complete::{MissionStatKind, MissionStatText, MissionSuccessOverlay};
+    use crate::level_complete::{MissionStatKind, MissionStatRightAlign, MissionStatText, MissionSuccessOverlay};
     use crate::ui::level_end_font::LevelEndBitmapText;
 
     const VIEW_W: f32 = 320.0;
@@ -1837,6 +1837,38 @@ fn spawn_mission_success_overlay(
         ));
     }
 
+    fn spawn_bt_tagged_right_aligned<'w>(
+        c: &mut ChildSpawnerCommands<'w>,
+        kind: MissionStatKind,
+        text: &str,
+        scale: f32,
+        overlay_scale: f32,
+        bt_mul: f32,
+        x: f32,
+        y: f32,
+        right_edge_native: f32,
+    ) {
+        c.spawn((
+            MissionStatText { kind },
+            MissionStatRightAlign {
+                right_edge_native,
+                overlay_scale,
+            },
+            LevelEndBitmapText {
+                text: text.to_string(),
+                scale: scale * bt_mul,
+            },
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(x * overlay_scale),
+                top: Val::Px(y * overlay_scale),
+                flex_direction: FlexDirection::Row,
+                ..default()
+            },
+        ));
+    }
+
+
     commands.entity(parent).with_children(|ui| {
         ui.spawn((
             MissionSuccessOverlay,
@@ -1878,9 +1910,10 @@ fn spawn_mission_success_overlay(
                 let x_label = 110.0;
                 let x_ratio = 176.0;
                 let x_right = 304.0;
-                let x_ratio_left = 48.0;
 
-                let y_floor     = 12.0;
+                
+                let x_ratio_left = 48.0;
+let y_floor     = 12.0;
                 let y_completed = 32.0;
                 let y_bonus     = 56.0;
                 let y_time      = 72.0;
@@ -1909,7 +1942,17 @@ fn spawn_mission_success_overlay(
 
                 spawn_bt(c, "BONUS", TEXT_SCALE, overlay_scale, bt_mul, x_label, y_bonus);
                 let x_bonus_val = right_align_x_native("0", x_right);
-                spawn_bt(c, "0", TEXT_SCALE, overlay_scale, bt_mul, x_bonus_val, y_bonus);
+                spawn_bt_tagged_right_aligned(
+                    c,
+                    MissionStatKind::Bonus,
+                    "0",
+                    TEXT_SCALE,
+                    overlay_scale,
+                    bt_mul,
+                    x_bonus_val,
+                    y_bonus,
+                    x_right,
+                );
 
                 spawn_bt(c, "TIME", TEXT_SCALE, overlay_scale, bt_mul, x_label, y_time);
                 let time_text = "0:30";
@@ -1929,6 +1972,7 @@ fn spawn_mission_success_overlay(
                 let par_text = "0:00";
                 let x_par_val = right_align_x_native(par_text, x_right);
 
+                // ✅ PAR VALUE MUST BE TAGGED (this is the only change)
                 spawn_bt_tagged(
                     c,
                     MissionStatKind::Par,
@@ -1940,11 +1984,12 @@ fn spawn_mission_success_overlay(
                     y_par,
                 );
 
-                spawn_bt(c, "KILL",     TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_kill);
-                spawn_bt(c, "SECRET",   TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_secret);
+                
+                spawn_bt(c, "KILL", TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_kill);
+                spawn_bt(c, "SECRET", TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_secret);
                 spawn_bt(c, "TREASURE", TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_treasure);
 
-                spawn_bt(c, "RATIO", TEXT_SCALE, overlay_scale, bt_mul, x_ratio, y_kill);
+spawn_bt(c, "RATIO", TEXT_SCALE, overlay_scale, bt_mul, x_ratio, y_kill);
                 let x_kill_val = right_align_x_native("27%", x_right);
                 spawn_bt_tagged(c, MissionStatKind::KillRatio, "27%", TEXT_SCALE, overlay_scale, bt_mul, x_kill_val, y_kill);
 
