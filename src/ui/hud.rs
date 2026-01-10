@@ -1923,7 +1923,7 @@ fn spawn_mission_success_overlay(
                 let y_treasure  = 136.0;
 
                 let floor_text = format!("{}", start_floor_num);
-                let x_floor_val = right_align_x_native(&floor_text, x_right);
+                let x_floor_val = x_label + text_w_native_px("FLOOR ");
 
                 spawn_bt(c, "FLOOR", TEXT_SCALE, overlay_scale, bt_mul, x_label, y_floor);
                 spawn_bt_tagged(

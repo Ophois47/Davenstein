@@ -471,9 +471,9 @@ pub fn play_sfx_events(
 
     // Play All Non-Pickups (Can Overlap),
     // EXCEPT Enemy Voice Which is Single-Channel
-    // AND Intermission SFX which we want to be single-channel (cutoff).
+    // AND Intermission SFX which we want to be single-channel (cutoff)
     for e in non_pickups {
-        // Intermission: single channel, hard-cut previous.
+        // Intermission: single channel, hard-cut previous
         let is_intermission = matches!(
             e.kind,
             SfxKind::IntermissionTick
@@ -492,7 +492,7 @@ pub fn play_sfx_events(
                 continue;
             }
 
-            // Cut off any currently playing intermission sound.
+            // Cut off any currently playing intermission sound
             for ent in q_active_intermission.iter() {
                 commands.entity(ent).despawn();
             }
@@ -507,7 +507,7 @@ pub fn play_sfx_events(
 
             commands.spawn((
                 ActiveIntermissionSfx,
-                Transform::from_translation(e.pos), // pos irrelevant when non-spatial; kept for consistency
+                Transform::from_translation(e.pos),
                 AudioPlayer::new(clip),
                 settings,
             ));
