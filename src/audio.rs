@@ -29,6 +29,7 @@ pub enum SfxKind {
     IntermissionConfirm,
     IntermissionNoBonus,
     IntermissionPercent100,
+    IntermissionBonusApply,
     
     // Sfx - Weapons
     KnifeSwing,
@@ -144,7 +145,6 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::IntermissionTick,
         asset_server.load("sounds/sfx/stats/tally_tick_b.ogg"),
     );
-
     lib.insert_one(
         SfxKind::IntermissionConfirm,
         asset_server.load("sounds/sfx/stats/tally_tick_a.ogg"),
@@ -156,6 +156,10 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     lib.insert_one(
         SfxKind::IntermissionPercent100,
         asset_server.load("sounds/sfx/stats/percent_100.ogg"),
+    );
+    lib.insert_one(
+        SfxKind::IntermissionBonusApply,
+        asset_server.load("sounds/sfx/stats/bonus_apply.ogg"),
     );
 
     // Doors
@@ -476,6 +480,7 @@ pub fn play_sfx_events(
                 | SfxKind::IntermissionConfirm
                 | SfxKind::IntermissionNoBonus
                 | SfxKind::IntermissionPercent100
+                | SfxKind::IntermissionBonusApply
         );
 
         if is_intermission {
@@ -591,7 +596,8 @@ pub fn play_sfx_events(
             SfxKind::IntermissionTick
             | SfxKind::IntermissionConfirm
             | SfxKind::IntermissionNoBonus
-            | SfxKind::IntermissionPercent100 => PlaybackSettings::DESPAWN.with_spatial(false),
+            | SfxKind::IntermissionPercent100 
+            | SfxKind::IntermissionBonusApply => PlaybackSettings::DESPAWN.with_spatial(false),
 
         };
 

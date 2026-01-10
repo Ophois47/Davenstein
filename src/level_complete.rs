@@ -446,6 +446,7 @@ pub fn apply_mission_success_bonus_to_player_score_once(
     win: Res<LevelComplete>,
     mut tally: ResMut<MissionSuccessTally>,
     mut hud: ResMut<crate::ui::HudState>,
+    mut sfx: MessageWriter<PlaySfx>,
 ) {
     // Only during the intermission screen
     if !win.0 {
@@ -465,6 +466,11 @@ pub fn apply_mission_success_bonus_to_player_score_once(
     let add = tally.target_bonus.max(0);
     hud.score = hud.score.saturating_add(add);
     tally.bonus_applied = true;
+
+    sfx.write(PlaySfx {
+        kind: SfxKind::IntermissionBonusApply,
+        pos: Vec3::ZERO,
+    });
 
     info!("Mission Success: applied bonus {} (new score: {})", add, hud.score);
 }
