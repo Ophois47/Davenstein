@@ -1878,6 +1878,7 @@ fn spawn_mission_success_overlay(
                 let x_label = 110.0;
                 let x_ratio = 176.0;
                 let x_right = 304.0;
+                let x_ratio_left = 48.0;
 
                 let y_floor     = 12.0;
                 let y_completed = 32.0;
@@ -1928,7 +1929,6 @@ fn spawn_mission_success_overlay(
                 let par_text = "0:00";
                 let x_par_val = right_align_x_native(par_text, x_right);
 
-                // ✅ PAR VALUE MUST BE TAGGED (this is the only change)
                 spawn_bt_tagged(
                     c,
                     MissionStatKind::Par,
@@ -1939,6 +1939,10 @@ fn spawn_mission_success_overlay(
                     x_par_val,
                     y_par,
                 );
+
+                spawn_bt(c, "KILL",     TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_kill);
+                spawn_bt(c, "SECRET",   TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_secret);
+                spawn_bt(c, "TREASURE", TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_treasure);
 
                 spawn_bt(c, "RATIO", TEXT_SCALE, overlay_scale, bt_mul, x_ratio, y_kill);
                 let x_kill_val = right_align_x_native("27%", x_right);

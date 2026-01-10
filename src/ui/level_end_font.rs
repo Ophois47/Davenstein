@@ -40,12 +40,12 @@ fn glyph_cell(c: char) -> (usize, usize) {
         return (row, col);
     }
 
-    // Fallback for unknown
+    // Fallback for Unknown
     (3, 0)
 }
 
 fn glyph_rect_full(row: usize, col: usize) -> Rect {
-    // 16x16 glyphs with 1px separators
+    // 16x16 Glyphs with 1px Separators
     const GLYPH: f32 = 16.0;
     const SEP: f32 = 1.0;
     const STRIDE: f32 = GLYPH + SEP;
@@ -128,7 +128,6 @@ pub(crate) fn sync_level_end_bitmap_text(
                     continue;
                 }
 
-                // --- SPECIAL PUNCTUATION PATHS (surgical, no new systems) ---
                 match ch {
                     ':' => {
                         // left half of (3,6): [0..8)
@@ -146,7 +145,7 @@ pub(crate) fn sync_level_end_bitmap_text(
                             },
                         ));
 
-                        // optional 1px teal spacing instead of sampling the white divider
+                        // Optional 1px Teal Spacing Instead of Sampling White Divider
                         ui.spawn(Node {
                             width: Val::Px(px(1.0)),
                             height: Val::Px(glyph_px),
