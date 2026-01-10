@@ -32,7 +32,7 @@ FEATURES TO BE DONE:
 BUGS:
 **********************************************
 - Score needs to get updated and play SFX sound when bonus applied
-- End of level score screen requires scaling
+- End of level score screen requires floor # to be closer to floor label
 - Enemy death sounds need to cut off enemy alert sounds for guard
 - Enemies sometimes sidestep and walk backwards in a strange way
 - Cannot pickup chaingun for ammo if it is already owned
@@ -42,3 +42,4 @@ BUGS:
 - Dog alert sound doesnt always play, something takes precedence
 - Player can look around while 'Get Psyched' loading screen plays
 - Elevator door texture facing wrong way
+- Player can close doors

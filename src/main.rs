@@ -168,6 +168,7 @@ fn main() {
                 level_complete::tick_mission_success_tally,
                 level_complete::sync_mission_success_stats_text,
                 level_complete::mission_success_input,
+                level_complete::apply_mission_success_bonus_to_player_score_once,
             )
                 .chain(),
         )

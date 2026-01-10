@@ -1743,7 +1743,7 @@ fn spawn_mission_success_overlay(
     start_floor_num: i32,
     bj_pistol_0: Handle<Image>,
 ) {
-    use bevy::prelude::ChildSpawnerCommands; // Bevy 0.17
+    use bevy::prelude::ChildSpawnerCommands;
     use crate::level_complete::{MissionStatKind, MissionStatRightAlign, MissionStatText, MissionSuccessOverlay};
     use crate::ui::level_end_font::LevelEndBitmapText;
 
@@ -1766,7 +1766,7 @@ fn spawn_mission_success_overlay(
 
     let bt_mul = overlay_scale / (width_scale_i as f32);
 
-    let teal: Srgba = Srgba::new(0.0, 0.35, 0.35, 1.0);
+    let teal = Srgba::new(0.0, 64.0 / 255.0, 64.0 / 255.0, 1.0);
 
     fn text_w_native_px(s: &str) -> f32 {
         let mut w = 0.0;
@@ -1868,7 +1868,6 @@ fn spawn_mission_success_overlay(
         ));
     }
 
-
     commands.entity(parent).with_children(|ui| {
         ui.spawn((
             MissionSuccessOverlay,
@@ -1913,7 +1912,7 @@ fn spawn_mission_success_overlay(
 
                 
                 let x_ratio_left = 48.0;
-let y_floor     = 12.0;
+                let y_floor     = 12.0;
                 let y_completed = 32.0;
                 let y_bonus     = 56.0;
                 let y_time      = 72.0;
@@ -1972,7 +1971,6 @@ let y_floor     = 12.0;
                 let par_text = "0:00";
                 let x_par_val = right_align_x_native(par_text, x_right);
 
-                // ✅ PAR VALUE MUST BE TAGGED (this is the only change)
                 spawn_bt_tagged(
                     c,
                     MissionStatKind::Par,
@@ -1989,7 +1987,7 @@ let y_floor     = 12.0;
                 spawn_bt(c, "SECRET", TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_secret);
                 spawn_bt(c, "TREASURE", TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_treasure);
 
-spawn_bt(c, "RATIO", TEXT_SCALE, overlay_scale, bt_mul, x_ratio, y_kill);
+                spawn_bt(c, "RATIO", TEXT_SCALE, overlay_scale, bt_mul, x_ratio, y_kill);
                 let x_kill_val = right_align_x_native("27%", x_right);
                 spawn_bt_tagged(c, MissionStatKind::KillRatio, "27%", TEXT_SCALE, overlay_scale, bt_mul, x_kill_val, y_kill);
 
