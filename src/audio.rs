@@ -144,6 +144,7 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::IntermissionTick,
         asset_server.load("sounds/sfx/stats/tally_tick_b.ogg"),
     );
+
     lib.insert_one(
         SfxKind::IntermissionConfirm,
         asset_server.load("sounds/sfx/stats/tally_tick_a.ogg"),

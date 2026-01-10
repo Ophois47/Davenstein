@@ -31,7 +31,9 @@ FEATURES TO BE DONE:
 **********************************************
 BUGS:
 **********************************************
+- Score needs to get updated and play SFX sound when bonus applied
 - End of level score screen requires scaling
+- Enemy death sounds need to cut off enemy alert sounds for guard
 - Enemies sometimes sidestep and walk backwards in a strange way
 - Cannot pickup chaingun for ammo if it is already owned
 - Hans needs to do damage in line with Wolfenstein 3-D
