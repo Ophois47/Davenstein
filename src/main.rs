@@ -241,13 +241,16 @@ fn main() {
         // -----------------------------
         .add_systems(
             FixedUpdate,
-            rebuild_wall_faces_on_request.run_if(world_ready),
+            rebuild_wall_faces_on_request
+                .run_if(world_ready)
+                .run_if(|lock: Res<PlayerControlLock>| lock.0),
         )
         .add_systems(
             FixedUpdate,
             (
                 davelib::level_score::tick_level_time,
                 tick_pushwalls,
+                rebuild_wall_faces_on_request,
                 door_auto_close,
                 door_animate,
                 player_move,
