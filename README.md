@@ -32,7 +32,6 @@ FEATURES TO BE DONE:
 BUGS:
 **********************************************
 - Pushwalls now jitter before settling into last tile
-- End of level score screen requires floor # to be closer to floor label
 - Enemy death sounds need to cut off enemy alert sounds for guard
 - Enemies sometimes sidestep and walk backwards in a strange way
 - Cannot pickup chaingun for ammo if it is already owned

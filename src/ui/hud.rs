@@ -1907,11 +1907,10 @@ fn spawn_mission_success_overlay(
                 ));
 
                 let x_label = 110.0;
-                let x_ratio = 176.0;
+                let x_ratio = 152.0;
                 let x_right = 304.0;
 
-                
-                let x_ratio_left = 48.0;
+                let x_ratio_left = 32.0;
                 let y_floor     = 12.0;
                 let y_completed = 32.0;
                 let y_bonus     = 56.0;
@@ -1970,7 +1969,6 @@ fn spawn_mission_success_overlay(
                 spawn_bt(c, "PAR", TEXT_SCALE, overlay_scale, bt_mul, x_label, y_par);
                 let par_text = "0:00";
                 let x_par_val = right_align_x_native(par_text, x_right);
-
                 spawn_bt_tagged(
                     c,
                     MissionStatKind::Par,
@@ -1981,7 +1979,6 @@ fn spawn_mission_success_overlay(
                     x_par_val,
                     y_par,
                 );
-
                 
                 spawn_bt(c, "KILL", TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_kill);
                 spawn_bt(c, "SECRET", TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_secret);
@@ -1989,15 +1986,45 @@ fn spawn_mission_success_overlay(
 
                 spawn_bt(c, "RATIO", TEXT_SCALE, overlay_scale, bt_mul, x_ratio, y_kill);
                 let x_kill_val = right_align_x_native("27%", x_right);
-                spawn_bt_tagged(c, MissionStatKind::KillRatio, "27%", TEXT_SCALE, overlay_scale, bt_mul, x_kill_val, y_kill);
+                spawn_bt_tagged_right_aligned(
+                    c,
+                    MissionStatKind::KillRatio,
+                    "27%",
+                    TEXT_SCALE,
+                    overlay_scale,
+                    bt_mul,
+                    x_kill_val,
+                    y_kill,
+                    x_right,
+                );
 
                 spawn_bt(c, "RATIO", TEXT_SCALE, overlay_scale, bt_mul, x_ratio, y_secret);
                 let x_secret_val = right_align_x_native("00%", x_right);
-                spawn_bt_tagged(c, MissionStatKind::SecretRatio, "00%", TEXT_SCALE, overlay_scale, bt_mul, x_secret_val, y_secret);
+                spawn_bt_tagged_right_aligned(
+                    c,
+                    MissionStatKind::SecretRatio,
+                    "00%",
+                    TEXT_SCALE,
+                    overlay_scale,
+                    bt_mul,
+                    x_secret_val,
+                    y_secret,
+                    x_right,
+                );
 
                 spawn_bt(c, "RATIO", TEXT_SCALE, overlay_scale, bt_mul, x_ratio, y_treasure);
                 let x_treasure_val = right_align_x_native("00%", x_right);
-                spawn_bt_tagged(c, MissionStatKind::TreasureRatio, "00%", TEXT_SCALE, overlay_scale, bt_mul, x_treasure_val, y_treasure);
+                spawn_bt_tagged_right_aligned(
+                    c,
+                    MissionStatKind::TreasureRatio,
+                    "00%",
+                    TEXT_SCALE,
+                    overlay_scale,
+                    bt_mul,
+                    x_treasure_val,
+                    y_treasure,
+                    x_right,
+                );
             });
         });
     });

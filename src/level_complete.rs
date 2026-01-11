@@ -304,6 +304,7 @@ pub fn sync_mission_success_stats_text(
     score: Res<davelib::level_score::LevelScore>,
     current_level: Res<davelib::level::CurrentLevel>,
     tally: Option<Res<MissionSuccessTally>>,
+    q_windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut q: Query<(
         &MissionStatText,
         Option<&MissionStatRightAlign>,
@@ -335,6 +336,15 @@ pub fn sync_mission_success_stats_text(
         }
         w
     }
+
+    // Match the bitmap font renderer’s "base_scale" (same 320-wide logic).
+    fn hud_scale_i(q_windows: &Query<&Window, With<bevy::window::PrimaryWindow>>) -> f32 {
+        const BASE_W: f32 = 320.0;
+        let Some(win) = q_windows.iter().next() else { return 1.0; };
+        (win.resolution.width() / BASE_W).floor().max(1.0)
+    }
+
+    let base_scale = hud_scale_i(&q_windows);
 
     let floor = current_level.0.floor_number();
 
@@ -384,7 +394,20 @@ pub fn sync_mission_success_stats_text(
         };
 
         if let Some(align) = align {
-            let left_native = (align.right_edge_native - text_w_native_px(&s)).max(0.0);
+            // IMPORTANT: bitmap text is rendered at (base_scale * bt.scale) pixels per native glyph,
+            // while your overlay positions are in (align.overlay_scale) pixels per native unit.
+            // Convert rendered width back into native overlay units before right-aligning.
+            let w_native = text_w_native_px(&s);
+
+            let effective_w_native = if let Some(bt_ref) = bt.as_ref() {
+                let px_per_native = base_scale * bt_ref.scale;
+                let overlay_px_per_native = align.overlay_scale.max(0.0001);
+                w_native * (px_per_native / overlay_px_per_native)
+            } else {
+                w_native
+            };
+
+            let left_native = (align.right_edge_native - effective_w_native).max(0.0);
             node.left = Val::Px(left_native * align.overlay_scale);
         }
 
