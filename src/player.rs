@@ -65,13 +65,13 @@ impl Default for PlayerVitals {
     }
 }
 
-/// When true, player input (move/look/use) are ignored
-/// Used for player death
+/// When True, Player Input (Move / Look / Use) Ignored
+/// For Player Death
 #[derive(Resource, Default)]
 pub struct PlayerControlLock(pub bool);
 
-/// Prevents decrementing lives every frame while hp == 0.
-/// false = alive (or not yet processed), true = death already handled.
+/// Prevents Decrementing Lives Every Frame While hp == 0
+/// false = Alive (or not yet processed), true = Death Handled
 #[derive(Resource, Default)]
 pub struct PlayerDeathLatch(pub bool);
 
@@ -369,7 +369,8 @@ pub fn use_doors(
     let (tx, tz) = (target.x as usize, target.y as usize);
     let cur = grid.tile(tx, tz);
 
-    // Locked doors are encoded in plane0 codes (Wolf3D style), but share the same Tile state.
+    // Locked Doors Encoded in plane0 Codes,
+    // But Share Same Tile State
     let plane0 = grid.plane0_code(tx, tz);
     let needs_gold = matches!(plane0, 92 | 93);
     let needs_silver = matches!(plane0, 94 | 95);
@@ -394,7 +395,7 @@ pub fn use_doors(
 
         match cur {
             Tile::DoorOpen => {
-                // Don't let doors close on top of living enemies OR dead bodies.
+                // Don't Allow Doors to Close on Living Enemies or Dead Bodies
                 let dead_blocks = q_dead_enemies.iter().any(|gt| {
                     let p = gt.translation();
                     let xz = Vec2::new(p.x, p.z);
@@ -526,7 +527,7 @@ pub fn door_auto_close(
     let player_xz = Vec2::new(player_tf.translation.x, player_tf.translation.z);
     let _player_tile = world_to_tile(player_xz);
 
-    // Snapshot occupied tiles (anything with OccupiesTile).
+    // Snapshot Occupied Tiles
     let occupied_tiles: Vec<IVec2> = q_occupied.iter().map(|o| o.0).collect();
 
     let dead_xz: Vec<Vec2> = q_dead_enemies
@@ -564,14 +565,13 @@ pub fn door_auto_close(
             continue;
         }
 
-        // Block closing if any dead enemy body overlaps the doorway in world space.
-        // This handles corpses even if their OccupiesTile isn't reliable.
+        // Block Closing if Dead Enemy Body Overlaps Doorway in World Space
         if dead_xz.iter().any(|p| circle_overlaps_tile(*p, CORPSE_RADIUS + CORPSE_PAD, dt)) {
             state.open_timer = RETRY_SECS_IF_BLOCKED;
             continue;
         }
 
-        // Block closing if something still claims this doorway tile (alive/dying).
+        // Block Closing if Something Still Claims Doorway Tile (Alive / Dying)
         if occupied_tiles.iter().any(|t| *t == dt) {
             state.open_timer = RETRY_SECS_IF_BLOCKED;
             continue;

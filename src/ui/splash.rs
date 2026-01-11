@@ -2,15 +2,41 @@
 Davenstein - by David Petnick
 */
 use bevy::prelude::*;
-use bevy::window::{
-    CursorGrabMode,
-    CursorOptions,
-    PrimaryWindow,
-    WindowResized,
-};
+use bevy::window::{PrimaryWindow, WindowResized};
+use bevy::ecs::system::SystemParam;
 
-use davelib::audio::{MusicMode, MusicModeKind};
+use davelib::audio::{MusicMode, MusicModeKind, PlaySfx, SfxKind};
 use davelib::player::PlayerControlLock;
+
+#[derive(SystemParam)]
+struct SplashAdvanceQueries<'w, 's> {
+    q_win: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+    q_splash_roots: Query<'w, 's, Entity, With<SplashUi>>,
+
+    q_node: Query<'w, 's, &'static mut Node, (With<MenuCursor>, Without<EpisodeHighlight>)>,
+
+    q_cursor_light: Query<
+        'w,
+        's,
+        &'static mut Visibility,
+        (With<MenuCursorLight>, Without<MenuCursorDark>),
+    >,
+    q_cursor_dark: Query<
+        'w,
+        's,
+        &'static mut Visibility,
+        (With<MenuCursorDark>, Without<MenuCursorLight>),
+    >,
+
+    q_episode_items: Query<'w, 's, (&'static EpisodeItem, &'static mut TextColor)>,
+
+    q_episode_hilite: Query<
+        'w,
+        's,
+        &'static mut Node,
+        (With<EpisodeHighlight>, Without<MenuCursor>),
+    >,
+}
 
 pub const SPLASH_0_PATH: &str = "textures/ui/splash0.png";
 pub const SPLASH_1_PATH: &str = "textures/ui/splash1.png";
@@ -21,8 +47,28 @@ pub const MENU_HINT_PATH: &str = "textures/ui/menu_hint_move_select_back.png";
 pub const MENU_CURSOR_LIGHT_PATH: &str = "textures/ui/menu_cursor_light.png";
 pub const MENU_CURSOR_DARK_PATH: &str = "textures/ui/menu_cursor_dark.png";
 
+// Episode Selection Screen
+const EPISODE_THUMBS_ATLAS_PATH: &str = "textures/ui/episode_thumbs_atlas.png";
+
+// 48x24 Cells, Arranged 3x2 in Atlas Image
+const EP_THUMB_W: f32 = 48.0;
+const EP_THUMB_H: f32 = 24.0;
+
+// Episode Layout in "Native" 320x200 Coords
+const EP_TITLE_TOP: f32 = 10.0;
+const EP_LIST_TOP: f32 = 32.0;
+const EP_ROW_H: f32 = 26.0;
+
+const EP_THUMB_X: f32 = 24.0;
+const EP_TEXT_X: f32 = 88.0;
+
+// Highlight Behind Selected Row
+const EP_HILITE_X: f32 = 76.0;
+const EP_HILITE_W: f32 = 220.0;
+const EP_HILITE_H: f32 = 20.0;
+
 // Loading Screen
-const BASE_HUD_H: f32 = 44.0;   // Status Bar Area
+const BASE_HUD_H: f32 = 44.0; // Status Bar Area
 const PSYCHED_DURATION_SECS: f32 = 1.2;
 const PSYCHED_SPR_W: f32 = 220.0;
 const PSYCHED_SPR_H: f32 = 40.0;
@@ -35,11 +81,47 @@ const PSYCHED_RED: Color = Color::srgb(0.80, 0.00, 0.00);
 const BASE_W: f32 = 320.0;
 const BASE_H: f32 = 200.0;
 
+// Cursor positioning in the native (unscaled) menu art.
+// These match the Y values you hard-coded in spawn_menu_hint().
+const MENU_CURSOR_TOP: f32 = 94.0;
+const MENU_ITEM_H: f32 = 20.0;
+const MENU_ACTIONS: [MenuAction; 2] = [MenuAction::NewGame, MenuAction::Quit];
+
 #[derive(Component)]
 pub struct SplashUi;
 
 #[derive(Component)]
 struct SplashImage;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Resource)]
+pub enum SplashStep {
+    Splash0,
+    Splash1,
+    Menu,
+    EpisodeSelect,
+    Done,
+}
+
+#[derive(Resource)]
+struct SplashImages {
+    splash0: Handle<Image>,
+    splash1: Handle<Image>,
+    menu: Handle<Image>,
+    episode_thumbs_atlas: Handle<Image>,
+}
+
+#[derive(Default)]
+struct EpisodeLocalState {
+    selection: usize,
+}
+
+#[derive(Component)]
+struct EpisodeItem {
+    idx: usize,
+}
+
+#[derive(Component)]
+struct EpisodeHighlight;
 
 #[derive(Component)]
 struct MenuHint;
@@ -55,6 +137,12 @@ struct MenuCursorLight;
 
 #[derive(Component)]
 struct MenuCursorDark;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuAction {
+    NewGame,
+    Quit,
+}
 
 #[derive(Component)]
 struct PsychedBar {
@@ -76,24 +164,10 @@ impl Default for PsychedLoad {
     }
 }
 
-#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
-enum SplashStep {
-    Splash0,
-    Splash1,
-    Menu,
-    Done,
-}
-
 impl Default for SplashStep {
     fn default() -> Self {
         SplashStep::Splash0
     }
-}
-
-#[derive(Resource)]
-struct SplashImages {
-    splash1: Handle<Image>,
-    menu: Handle<Image>,
 }
 
 #[derive(Default)]
@@ -117,16 +191,10 @@ impl Plugin for SplashPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SplashStep>();
         app.init_resource::<PsychedLoad>();
-        app.add_systems(
-            Update,
-            (
-                splash_advance_on_any_input,
-                auto_get_psyched_on_level_start,
-                tick_get_psyched_loading,
-                splash_resize_on_window_change,
-            )
-                .chain(),
-        );
+        app.add_systems(Update, splash_advance_on_any_input);
+        app.add_systems(Update, auto_get_psyched_on_level_start);
+        app.add_systems(Update, tick_get_psyched_loading);
+        app.add_systems(Update, splash_resize_on_window_change);
     }
 }
 
@@ -135,38 +203,168 @@ fn compute_scaled_size(win_w: f32, win_h: f32) -> (f32, f32) {
     (BASE_W * scale, BASE_H * scale)
 }
 
-pub fn setup_splash(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut lock: ResMut<PlayerControlLock>,
-    mut music_mode: ResMut<MusicMode>,
-    mut cursor: Single<&mut CursorOptions>,
-    q_win: Single<&Window, With<PrimaryWindow>>,
+fn spawn_episode_select_ui(
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    w: f32,
+    h: f32,
+    scale: f32,
+    imgs: &SplashImages,
+    selection: usize,
 ) {
-    // Freeze Gameplay Input While Splash / Menu Up
-    lock.0 = true;
+    let ui_font: Handle<Font> = asset_server.load("fonts/honda_font.ttf");
+    let hint_strip: Handle<Image> = asset_server.load(MENU_HINT_PATH);
 
-    // Splash Music Should be Active During Splash Flow
-    music_mode.0 = MusicModeKind::Splash;
+    // Full-screen root (opaque) so the world doesn't show around the 320x200 canvas.
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(1001),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
 
-    // Ensure Mouse is Released and Visible
-    cursor.visible = true;
-    cursor.grab_mode = CursorGrabMode::None;
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
+            ChildOf(root),
+        ))
+        .id();
 
-    // Load Images
-    let first = asset_server.load(SPLASH_0_PATH);
-    let second = asset_server.load(SPLASH_1_PATH);
-    let menu = asset_server.load(MAIN_MENU_PATH);
+    // Title
+    commands.spawn((
+        Text::new("Which episode to play?"),
+        TextFont {
+            font: ui_font.clone(),
+            font_size: (24.0 * scale).round(),
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 0.9, 0.0)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px((EP_TITLE_TOP * scale).round()),
+            left: Val::Px((44.0 * scale).round()),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
 
-    // Keep Handles for Swaps
-    commands.insert_resource(SplashImages {
-        splash1: second.clone(),
-        menu: menu.clone(),
-    });
+    // Highlight bar
+    let hilite_top = (EP_LIST_TOP + selection as f32 * EP_ROW_H + 2.0) * scale;
+    commands.spawn((
+        EpisodeHighlight,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px((EP_HILITE_X * scale).round()),
+            top: Val::Px(hilite_top.round()),
+            width: Val::Px((EP_HILITE_W * scale).round()),
+            height: Val::Px((EP_HILITE_H * scale).round()),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.65, 0.65, 0.65)),
+        ChildOf(canvas),
+    ));
 
-    // Spawn First Splash Immediately
-    let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
-    spawn_splash_ui(&mut commands, first, w, h);
+    // Episodes (DOS ordering)
+    const EP_TEXT: [&str; 6] = [
+        "Episode 1\nEscape from Wolfenstein",
+        "Episode 2\nOperation: Eisenfaust",
+        "Episode 3\nDie, Fuhrer, Die!",
+        "Episode 4\nA Dark Secret",
+        "Episode 5\nTrail of the Madman",
+        "Episode 6\nConfrontation",
+    ];
+
+    for idx in 0..6 {
+        let row_top = (EP_LIST_TOP + idx as f32 * EP_ROW_H) * scale;
+
+        // Thumb (cropped from atlas)
+        let col = (idx % 3) as f32;
+        let row = (idx / 3) as f32;
+
+        let rect = Rect::from_corners(
+            Vec2::new(col * EP_THUMB_W, row * EP_THUMB_H),
+            Vec2::new((col + 1.0) * EP_THUMB_W, (row + 1.0) * EP_THUMB_H),
+        );
+
+        let mut img = ImageNode::new(imgs.episode_thumbs_atlas.clone());
+        img.rect = Some(rect);
+
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px((EP_THUMB_X * scale).round()),
+                top: Val::Px(row_top.round()),
+                width: Val::Px((EP_THUMB_W * scale).round()),
+                height: Val::Px((EP_THUMB_H * scale).round()),
+                ..default()
+            },
+            img,
+            ChildOf(canvas),
+        ));
+
+        // Text
+        let is_selected = idx == selection;
+        commands.spawn((
+            EpisodeItem { idx },
+            Text::new(EP_TEXT[idx]),
+            TextFont {
+                font: ui_font.clone(),
+                font_size: (18.0 * scale).round(),
+                ..default()
+            },
+            TextColor(if is_selected {
+                Color::srgb(1.0, 1.0, 1.0)
+            } else {
+                Color::srgb(0.75, 0.75, 0.75)
+            }),
+            TextLayout::new_with_justify(Justify::Left),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px((EP_TEXT_X * scale).round()),
+                top: Val::Px((row_top - (2.0 * scale)).round()),
+                ..default()
+            },
+            ChildOf(canvas),
+        ));
+    }
+
+    // Bottom hint strip: reuse the same art as the main menu.
+    // Hint strip is 120x23, positioned same as spawn_menu_hint().
+    let hint_w = (120.0 * scale).round();
+    let hint_h = (23.0 * scale).round();
+    let hint_x = ((BASE_W - 120.0) * 0.5 * scale).round();
+    let hint_y = ((BASE_H - 23.0 - 6.0) * scale).round();
+
+    commands.spawn((
+        ImageNode::new(hint_strip),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(hint_x),
+            top: Val::Px(hint_y),
+            width: Val::Px(hint_w),
+            height: Val::Px(hint_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
 }
 
 fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32) {
@@ -202,147 +400,214 @@ fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32
 fn splash_advance_on_any_input(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    keys: Res<ButtonInput<KeyCode>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     time: Res<Time>,
     mut step: ResMut<SplashStep>,
     imgs: Option<Res<SplashImages>>,
-    q_win: Single<&Window, With<PrimaryWindow>>,
-    q_splash_roots: Query<Entity, (With<SplashUi>, Without<bevy::prelude::ChildOf>)>,
     mut lock: ResMut<PlayerControlLock>,
     mut music_mode: ResMut<MusicMode>,
     mut psyched: ResMut<PsychedLoad>,
-
-    // menu-local state you added
     mut menu: Local<MenuLocalState>,
-
-    // quit request (canonical Bevy way)
+    mut episode: Local<EpisodeLocalState>,
+    mut sfx: MessageWriter<PlaySfx>,
     mut app_exit: MessageWriter<bevy::app::AppExit>,
-
-    // move both cursor nodes (light+dark) together
-    mut q_cursor_nodes: Query<&mut Node, With<MenuCursor>>,
-
-    // IMPORTANT: resolve &mut Visibility borrow conflict
-    mut vis_set: bevy::ecs::system::ParamSet<(
-        Query<&mut Visibility, With<MenuCursorLight>>,
-        Query<&mut Visibility, With<MenuCursorDark>>,
-    )>,
+    mut q: SplashAdvanceQueries,
 ) {
-    if *step == SplashStep::Done {
+    let Some(win) = q.q_win.iter().next() else {
         return;
-    }
-    let Some(imgs) = imgs else { return; };
+    };
+
+    let (w, h) = compute_scaled_size(win.width(), win.height());
+    let scale = w / BASE_W;
+
+    let any_key = keyboard.get_just_pressed().len() > 0 || mouse.get_just_pressed().len() > 0;
 
     match *step {
         SplashStep::Splash0 => {
-            let any_key = keys.get_just_pressed().next().is_some();
-            let left_click = mouse.just_pressed(MouseButton::Left);
-            if !any_key && !left_click { return; }
+            lock.0 = true;
+            music_mode.0 = MusicModeKind::Splash;
 
-            *step = SplashStep::Splash1;
+            let Some(imgs) = imgs.as_ref() else { return };
 
-            for e in q_splash_roots.iter() {
-                commands.entity(e).despawn();
+            // Ensure splash0 is shown (no input needed to display it).
+            if q.q_splash_roots.iter().next().is_none() {
+                spawn_splash_ui(&mut commands, imgs.splash0.clone(), w, h);
             }
 
-            let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
-            spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
+            // Input advances to splash1.
+            if any_key {
+                for e in q.q_splash_roots.iter() {
+                    commands.entity(e).despawn();
+                }
+                spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
+                *step = SplashStep::Splash1;
+            }
         }
 
         SplashStep::Splash1 => {
-            let any_key = keys.get_just_pressed().next().is_some();
-            let left_click = mouse.just_pressed(MouseButton::Left);
-            if !any_key && !left_click { return; }
+            lock.0 = true;
+            music_mode.0 = MusicModeKind::Splash;
 
-            *step = SplashStep::Menu;
-            menu.reset();
+            let Some(imgs) = imgs.as_ref() else { return };
 
-            for e in q_splash_roots.iter() {
-                commands.entity(e).despawn();
+            // Safety: if we somehow enter Splash1 with no UI, show it.
+            if q.q_splash_roots.iter().next().is_none() {
+                spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
             }
 
-            // Hard Cut to Menu Music
-            music_mode.0 = MusicModeKind::Menu;
-
-            let (w, h) = compute_scaled_size(q_win.width(), q_win.height());
-            spawn_splash_ui(&mut commands, imgs.menu.clone(), w, h);
-
-            // If you updated this signature to accept w/h, keep it consistent here.
-            spawn_menu_hint(&mut commands, &asset_server, w, h);
+            // Input advances to main menu.
+            if any_key {
+                for e in q.q_splash_roots.iter() {
+                    commands.entity(e).despawn();
+                }
+                spawn_splash_ui(&mut commands, imgs.menu.clone(), w, h);
+                spawn_menu_hint(&mut commands, &asset_server, w, h);
+                menu.reset();
+                *step = SplashStep::Menu;
+            }
         }
 
         SplashStep::Menu => {
-            // Blink cursor
-            menu.blink.tick(time.delta());
-            if menu.blink.just_finished() {
-                menu.blink_light = !menu.blink_light;
+            lock.0 = true;
+            music_mode.0 = MusicModeKind::Menu;
 
-                // LIGHT
-                for mut v in vis_set.p0().iter_mut() {
-                    *v = if menu.blink_light { Visibility::Visible } else { Visibility::Hidden };
+            let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
+            let top = ((MENU_CURSOR_TOP + menu.selection as f32 * MENU_ITEM_H) * scale).round();
+
+            // Move BOTH cursor entities so blink doesn't "jump".
+            for mut node in q.q_node.iter_mut() {
+                node.top = Val::Px(top);
+            }
+
+            for mut v in q.q_cursor_light.iter_mut() {
+                *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
+            }
+            for mut v in q.q_cursor_dark.iter_mut() {
+                *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
+            }
+
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+                if menu.selection > 0 {
+                    menu.selection -= 1;
+                } else {
+                    menu.selection = MENU_ACTIONS.len() - 1;
                 }
-                // DARK
-                for mut v in vis_set.p1().iter_mut() {
-                    *v = if menu.blink_light { Visibility::Hidden } else { Visibility::Visible };
-                }
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
             }
 
-            // ESC exits immediately (per your requirement)
-            if keys.just_pressed(KeyCode::Escape) {
-                app_exit.write(bevy::app::AppExit::Success);
-                return;
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+                menu.selection = (menu.selection + 1) % MENU_ACTIONS.len();
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
             }
 
-            const ITEM_COUNT: usize = 2;
+            if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter) {
+                sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
-            let moved_up = keys.just_pressed(KeyCode::ArrowUp);
-            let moved_down = keys.just_pressed(KeyCode::ArrowDown);
-
-            if moved_up {
-                menu.selection = (menu.selection + ITEM_COUNT - 1) % ITEM_COUNT;
-            } else if moved_down {
-                menu.selection = (menu.selection + 1) % ITEM_COUNT;
-            }
-
-            if moved_up || moved_down {
-                let (w, _h) = compute_scaled_size(q_win.width(), q_win.height());
-                let scale = (w / BASE_W).round().max(1.0);
-
-                let y = match menu.selection {
-                    0 => (94.0 * scale).round(),   // NEW GAME
-                    1 => (114.0 * scale).round(),  // QUIT
-                    _ => (94.0 * scale).round(),
-                };
-
-                for mut n in q_cursor_nodes.iter_mut() {
-                    n.top = Val::Px(y);
-                }
-            }
-
-            if keys.just_pressed(KeyCode::Enter) {
-                match menu.selection {
-                    0 => {
-                        // NEW GAME (unchanged behavior)
-                        for e in q_splash_roots.iter() {
+                match MENU_ACTIONS[menu.selection] {
+                    MenuAction::NewGame => {
+                        for e in q.q_splash_roots.iter() {
                             commands.entity(e).despawn();
                         }
 
-                        *step = SplashStep::Done;
-
-                        begin_get_psyched_loading(
-                            &mut commands,
-                            &asset_server,
-                            &q_win,
-                            &mut psyched,
-                            &mut lock,
-                            &mut music_mode,
-                        );
+                        episode.selection = 0;
+                        if let Some(imgs) = imgs.as_ref() {
+                            spawn_episode_select_ui(
+                                &mut commands,
+                                &asset_server,
+                                w,
+                                h,
+                                scale,
+                                imgs,
+                                episode.selection,
+                            );
+                            *step = SplashStep::EpisodeSelect;
+                        }
                     }
-                    1 => {
-                        // QUIT
+                    MenuAction::Quit => {
                         app_exit.write(bevy::app::AppExit::Success);
                     }
-                    _ => {}
+                }
+            }
+        }
+
+        SplashStep::EpisodeSelect => {
+            lock.0 = true;
+            music_mode.0 = MusicModeKind::Menu;
+
+            if keyboard.just_pressed(KeyCode::Escape) {
+                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+
+                for e in q.q_splash_roots.iter() {
+                    commands.entity(e).despawn();
+                }
+
+                if let Some(imgs) = imgs.as_ref() {
+                    spawn_splash_ui(&mut commands, imgs.menu.clone(), w, h);
+                    spawn_menu_hint(&mut commands, &asset_server, w, h);
+                    menu.reset();
+                    *step = SplashStep::Menu;
+                }
+                return;
+            }
+
+            let mut moved = false;
+
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+                if episode.selection > 0 {
+                    episode.selection -= 1;
+                } else {
+                    episode.selection = 5;
+                }
+                moved = true;
+            }
+
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+                episode.selection = (episode.selection + 1) % 6;
+                moved = true;
+            }
+
+            if moved {
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+            }
+
+            for (item, mut color) in q.q_episode_items.iter_mut() {
+                *color = TextColor(if item.idx == episode.selection {
+                    Color::srgb(1.0, 1.0, 1.0)
+                } else {
+                    Color::srgb(0.75, 0.75, 0.75)
+                });
+            }
+
+            if let Some(mut node) = q.q_episode_hilite.iter_mut().next() {
+                let hilite_top = (EP_LIST_TOP + episode.selection as f32 * EP_ROW_H + 2.0) * scale;
+                node.top = Val::Px(hilite_top.round());
+            }
+
+            if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter) {
+                if episode.selection == 0 {
+                    sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+
+                    for e in q.q_splash_roots.iter() {
+                        commands.entity(e).despawn();
+                    }
+
+                    begin_get_psyched_loading(
+                        &mut commands,
+                        &asset_server,
+                        win,
+                        &mut *psyched,
+                        &mut *lock,
+                        &mut *music_mode,
+                    );
+
+                    // keep your existing behavior here:
+                    lock.0 = false;
+                    music_mode.0 = MusicModeKind::Gameplay;
+
+                    *step = SplashStep::Done;
+                } else {
+                    sfx.write(PlaySfx { kind: SfxKind::NoWay, pos: Vec3::ZERO });
                 }
             }
         }
@@ -369,6 +634,20 @@ fn splash_resize_on_window_change(
         n.width = Val::Px(w);
         n.height = Val::Px(h);
     }
+}
+
+pub(crate) fn setup_splash(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let splash0 = asset_server.load(SPLASH_0_PATH);
+    let splash1 = asset_server.load(SPLASH_1_PATH);
+    let menu = asset_server.load(MAIN_MENU_PATH);
+    let episode_thumbs_atlas = asset_server.load(EPISODE_THUMBS_ATLAS_PATH);
+
+    commands.insert_resource(SplashImages {
+        splash0,
+        splash1,
+        menu,
+        episode_thumbs_atlas,
+    });
 }
 
 fn spawn_menu_hint(commands: &mut Commands, asset_server: &AssetServer, w: f32, h: f32) {
@@ -411,8 +690,8 @@ fn spawn_menu_hint(commands: &mut Commands, asset_server: &AssetServer, w: f32, 
     commands
         .spawn((
             SplashUi,
-            MenuHint,      // keep your existing marker so this stays "menu UI"
-            ZIndex(1001),  // above the splash/menu background
+            MenuHint,     // keep your existing marker so this stays "menu UI"
+            ZIndex(1001), // above the splash/menu background
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
@@ -529,12 +808,7 @@ fn spawn_menu_hint(commands: &mut Commands, asset_server: &AssetServer, w: f32, 
         });
 }
 
-fn spawn_get_psyched_ui(
-    commands: &mut Commands,
-    asset_server: &AssetServer,
-    win_w: f32,
-    win_h: f32,
-) {
+fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win_w: f32, win_h: f32) {
     // IMPORTANT: match the HUD sizing rules exactly (see ui/hud.rs).
     // HUD scale is an integer derived from WINDOW WIDTH, and the status bar is 44px * scale.
     const HUD_W: f32 = 320.0;
@@ -672,7 +946,6 @@ fn auto_get_psyched_on_level_start(
     mut lock: ResMut<PlayerControlLock>,
     mut music_mode: ResMut<MusicMode>,
 ) {
-    // Only do this during gameplay (not while still in splash/menu)
     if *step != SplashStep::Done {
         let ready = grid.is_some() && solid.is_some() && markers.is_some();
         *last_ready = ready;
@@ -683,7 +956,6 @@ fn auto_get_psyched_on_level_start(
     let ready_rise = ready && !*last_ready;
     *last_ready = ready;
 
-    // Any "new level just became active" signal
     let level_changed = level.is_changed();
 
     if psyched.active {
@@ -691,13 +963,14 @@ fn auto_get_psyched_on_level_start(
     }
 
     if level_changed || ready_rise {
+        let win: &Window = q_win.into_inner();
         begin_get_psyched_loading(
             &mut commands,
             &asset_server,
-            &q_win,
-            &mut psyched,
-            &mut lock,
-            &mut music_mode,
+            win,
+            &mut *psyched,
+            &mut *lock,
+            &mut *music_mode,
         );
     }
 }

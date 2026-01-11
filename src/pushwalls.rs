@@ -1,19 +1,6 @@
 /*
 Davenstein - by David Petnick
 */
-
-// Wolf3D '92-style pushwalls (secret walls)
-//
-// Minimal, Wolf-accurate behavior:
-// - Only ONE pushwall can move at a time.
-// - Trigger: player "use" (Space) on a pushwall-marked wall.
-// - Moves 2 tiles total.
-// - Uses Wolf's 70 Hz tic clock and 128 tics per tile => 256 tics total.
-// - Collision/hitscan treat BOTH the current pushwall base tile and the
-//   tile in front as blocked (matches Wolf's tilemap=64 / actorat=BLOCKTILE trick).
-// - Tile-boundary updates: the tile the wall leaves becomes empty on 128-tic boundaries.
-// - Pushwalls are one-shot: marker is consumed on activation.
-
 use bevy::prelude::*;
 
 use crate::actors::{Dead, OccupiesTile};
@@ -27,11 +14,12 @@ use crate::world::{RebuildWalls, WallRenderCache};
 const WOLF_TIC_HZ: f32 = 70.0;
 const WOLF_TIC_SECS: f32 = 1.0 / WOLF_TIC_HZ;
 
-// Wolf uses 128 tics per tile for pushwalls (and stops at 256 for 2 tiles).
+// 128 Tics Per Tile for Pushwalls (Stops at 256 for 2 Tiles)
 const PUSHWALL_TICS_PER_TILE: u32 = 128;
 const PUSHWALL_TOTAL_TICS: u32 = PUSHWALL_TICS_PER_TILE * 2;
 
-// Plane1 "pushwall marker" code in Wolf maps (the tile in plane0 is a normal wall).
+// Plane1 "Pushwall Marker" Code in Wolfenstein 3-D Maps
+// Tile in plane0 is Normal Wall
 const PUSHWALL_MARKER_CODE: u16 = 98;
 
 #[derive(Resource, Debug, Clone)]
@@ -86,7 +74,7 @@ impl PushwallMarkers {
     }
 }
 
-/// Tiles blocked by the moving pushwall (current base + tile ahead).
+/// Tiles Blocked by Moving Pushwall (Current Base + Tile Ahead)
 #[derive(Resource, Default, Debug, Clone)]
 pub struct PushwallOcc {
     pub a: Option<IVec2>,

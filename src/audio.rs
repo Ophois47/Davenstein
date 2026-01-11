@@ -24,6 +24,11 @@ pub enum SfxKind {
     Pushwall,
     ElevatorSwitch,
 
+    // Sfx - Menu / UI
+    MenuMove,
+    MenuSelect,
+    MenuBack,
+
     // Sfx - Intermission / Stats
     IntermissionTick,
     IntermissionConfirm,
@@ -68,6 +73,9 @@ pub struct PlaySfx {
     pub kind: SfxKind,
     pub pos: Vec3,
 }
+
+#[derive(Component)]
+pub struct ActiveMenuSfx;
 
 #[derive(Component)]
 pub struct ActivePickupSfx;
@@ -139,6 +147,20 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     // Library That Supports 1 or Many Clips per SfxKind
     let mut lib = SfxLibrary::default();
+
+    // Menu / UI
+    lib.insert_one(
+        SfxKind::MenuMove,
+        asset_server.load("sounds/sfx/menu/menu_move.ogg"),
+    );
+    lib.insert_one(
+        SfxKind::MenuSelect,
+        asset_server.load("sounds/sfx/menu/menu_select.ogg"),
+    );
+    lib.insert_one(
+        SfxKind::MenuBack,
+        asset_server.load("sounds/sfx/menu/menu_back.ogg"),
+    );
 
     // Intermission / Score Tally
     lib.insert_one(
@@ -456,6 +478,7 @@ pub fn play_sfx_events(
     q_active_pickup: Query<Entity, With<ActivePickupSfx>>,
     q_active_enemy_voice: Query<Entity, With<ActiveEnemyVoiceSfx>>,
     q_active_intermission: Query<Entity, With<ActiveIntermissionSfx>>,
+    q_active_menu: Query<Entity, With<ActiveMenuSfx>>,
 ) {
     // Collect Events: Play All Non-Pickups, Only Last Pickup (No Overlap)
     let mut last_pickup: Option<PlaySfx> = None;
@@ -469,11 +492,7 @@ pub fn play_sfx_events(
         }
     }
 
-    // Play All Non-Pickups (Can Overlap),
-    // EXCEPT Enemy Voice Which is Single-Channel
-    // AND Intermission SFX which we want to be single-channel (cutoff)
     for e in non_pickups {
-        // Intermission: single channel, hard-cut previous
         let is_intermission = matches!(
             e.kind,
             SfxKind::IntermissionTick
@@ -483,6 +502,40 @@ pub fn play_sfx_events(
                 | SfxKind::IntermissionBonusApply
         );
 
+        let is_menu = matches!(e.kind, SfxKind::MenuMove | SfxKind::MenuSelect | SfxKind::MenuBack);
+
+        // Menu UI: single channel, hard-cut previous
+        if is_menu {
+            let Some(list) = lib.map.get(&e.kind) else {
+                warn!("Missing SFX for {:?}", e.kind);
+                continue;
+            };
+            if list.is_empty() {
+                continue;
+            }
+
+            for ent in q_active_menu.iter() {
+                commands.entity(ent).despawn();
+            }
+
+            let i = rand::rng().random_range(0..list.len());
+            let clip = list[i].clone();
+
+            let settings = PlaybackSettings::DESPAWN
+                .with_spatial(false)
+                .with_volume(Volume::Linear(1.0));
+
+            commands.spawn((
+                ActiveMenuSfx,
+                Transform::from_translation(e.pos),
+                AudioPlayer::new(clip),
+                settings,
+            ));
+
+            continue;
+        }
+
+        // Intermission: single channel, hard-cut previous
         if is_intermission {
             let Some(list) = lib.map.get(&e.kind) else {
                 warn!("Missing SFX for {:?}", e.kind);
@@ -492,7 +545,6 @@ pub fn play_sfx_events(
                 continue;
             }
 
-            // Cut off any currently playing intermission sound
             for ent in q_active_intermission.iter() {
                 commands.entity(ent).despawn();
             }
@@ -500,7 +552,6 @@ pub fn play_sfx_events(
             let i = rand::rng().random_range(0..list.len());
             let clip = list[i].clone();
 
-            // UI sound: non-spatial
             let settings = PlaybackSettings::DESPAWN
                 .with_spatial(false)
                 .with_volume(Volume::Linear(1.0));
@@ -530,7 +581,6 @@ pub fn play_sfx_events(
         let is_enemy_voice = matches!(e.kind, SfxKind::EnemyAlert(_) | SfxKind::EnemyDeath(_));
 
         if is_enemy_voice {
-            // Cut Off Any Currently Playing Enemy Voice (Alert / Death)
             for ent in q_active_enemy_voice.iter() {
                 commands.entity(ent).despawn();
             }
@@ -592,13 +642,16 @@ pub fn play_sfx_events(
                 .with_spatial_scale(SpatialScale::new(0.12))
                 .with_volume(Volume::Linear(1.15)),
 
-            // Intermission kinds never reach this match due to `continue` above.
+            // Menu/intermission generally won’t reach this match (handled above), but keep exhaustive.
+            SfxKind::MenuMove
+            | SfxKind::MenuSelect
+            | SfxKind::MenuBack => PlaybackSettings::DESPAWN.with_spatial(false),
+
             SfxKind::IntermissionTick
             | SfxKind::IntermissionConfirm
             | SfxKind::IntermissionNoBonus
-            | SfxKind::IntermissionPercent100 
+            | SfxKind::IntermissionPercent100
             | SfxKind::IntermissionBonusApply => PlaybackSettings::DESPAWN.with_spatial(false),
-
         };
 
         if is_enemy_voice {
@@ -617,20 +670,15 @@ pub fn play_sfx_events(
         }
     }
 
-    // Play ONLY Last Pickup (Stop Previous Pickup Sound)
-    let Some(e) = last_pickup else {
-        return;
-    };
+    // Pickups: ONLY last pickup (unchanged)
+    let Some(e) = last_pickup else { return; };
 
     let Some(list) = lib.map.get(&e.kind) else {
         warn!("Missing SFX for {:?}", e.kind);
         return;
     };
-    if list.is_empty() {
-        return;
-    }
+    if list.is_empty() { return; }
 
-    // Stop ONLY Previous Pickup Sound, Not Weapon Fire / Deaths / Doors
     for ent in q_active_pickup.iter() {
         commands.entity(ent).despawn();
     }
