@@ -1,9 +1,9 @@
 /*
 Davenstein - by David Petnick
 */
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowResized};
-use bevy::ecs::system::SystemParam;
 
 use davelib::audio::{MusicMode, MusicModeKind, PlaySfx, SfxKind};
 use davelib::player::PlayerControlLock;
@@ -12,9 +12,7 @@ use davelib::player::PlayerControlLock;
 struct SplashAdvanceQueries<'w, 's> {
     q_win: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     q_splash_roots: Query<'w, 's, Entity, With<SplashUi>>,
-
     q_node: Query<'w, 's, &'static mut Node, (With<MenuCursor>, Without<EpisodeHighlight>)>,
-
     q_cursor_light: Query<
         'w,
         's,
@@ -27,9 +25,12 @@ struct SplashAdvanceQueries<'w, 's> {
         &'static mut Visibility,
         (With<MenuCursorDark>, Without<MenuCursorLight>),
     >,
-
-    q_episode_items: Query<'w, 's, (&'static EpisodeItem, &'static mut TextColor)>,
-
+    q_episode_items: Query<
+        'w,
+        's,
+        (&'static EpisodeItem, &'static EpisodeTextVariant, &'static mut Visibility),
+        (Without<MenuCursorLight>, Without<MenuCursorDark>),
+    >,
     q_episode_hilite: Query<
         'w,
         's,
@@ -43,18 +44,19 @@ pub const SPLASH_1_PATH: &str = "textures/ui/splash1.png";
 pub const MAIN_MENU_PATH: &str = "textures/ui/main_menu.png";
 pub const GET_PSYCHED_PATH: &str = "textures/ui/get_psyched.png";
 pub const MENU_BANNER_PATH: &str = "textures/ui/menu_banner.png";
-pub const MENU_HINT_PATH: &str = "textures/ui/menu_hint_move_select_back.png";
+pub const MENU_HINT_PATH: &str = "textures/ui/menu_hint.png";
 pub const MENU_CURSOR_LIGHT_PATH: &str = "textures/ui/menu_cursor_light.png";
 pub const MENU_CURSOR_DARK_PATH: &str = "textures/ui/menu_cursor_dark.png";
 
-// Episode Selection Screen
+pub const MENU_FONT_WHITE_PATH: &str = "textures/ui/menu_font_white.png";
+pub const MENU_FONT_GRAY_PATH: &str = "textures/ui/menu_font_gray.png";
+pub const MENU_FONT_YELLOW_PATH: &str = "textures/ui/menu_font_yellow.png";
+
 const EPISODE_THUMBS_ATLAS_PATH: &str = "textures/ui/episode_thumbs_atlas.png";
 
-// 48x24 Cells, Arranged 3x2 in Atlas Image
 const EP_THUMB_W: f32 = 48.0;
 const EP_THUMB_H: f32 = 24.0;
 
-// Episode Layout in "Native" 320x200 Coords
 const EP_TITLE_TOP: f32 = 10.0;
 const EP_LIST_TOP: f32 = 32.0;
 const EP_ROW_H: f32 = 26.0;
@@ -62,30 +64,28 @@ const EP_ROW_H: f32 = 26.0;
 const EP_THUMB_X: f32 = 24.0;
 const EP_TEXT_X: f32 = 88.0;
 
-// Highlight Behind Selected Row
 const EP_HILITE_X: f32 = 76.0;
 const EP_HILITE_W: f32 = 220.0;
 const EP_HILITE_H: f32 = 20.0;
 
-// Loading Screen
-const BASE_HUD_H: f32 = 44.0; // Status Bar Area
+const BASE_HUD_H: f32 = 44.0;
 const PSYCHED_DURATION_SECS: f32 = 1.2;
 const PSYCHED_SPR_W: f32 = 220.0;
 const PSYCHED_SPR_H: f32 = 40.0;
 
-// Wolfenstein 3D-Like Teal + Red Bar
 const PSYCHED_TEAL: Color = Color::srgb(0.00, 0.55, 0.55);
 const PSYCHED_RED: Color = Color::srgb(0.80, 0.00, 0.00);
 
-// Used to Compute Clean Integer UI Scale
 const BASE_W: f32 = 320.0;
 const BASE_H: f32 = 200.0;
 
-// Cursor positioning in the native (unscaled) menu art.
-// These match the Y values you hard-coded in spawn_menu_hint().
 const MENU_CURSOR_TOP: f32 = 94.0;
 const MENU_ITEM_H: f32 = 20.0;
 const MENU_ACTIONS: [MenuAction; 2] = [MenuAction::NewGame, MenuAction::Quit];
+
+const MENU_FONT_CELL_W: f32 = 18.0;
+const MENU_FONT_CELL_H: f32 = 19.0;
+const MENU_FONT_DRAW_SCALE: f32 = 0.5;
 
 #[derive(Component)]
 pub struct SplashUi;
@@ -108,6 +108,10 @@ struct SplashImages {
     splash1: Handle<Image>,
     menu: Handle<Image>,
     episode_thumbs_atlas: Handle<Image>,
+
+    menu_font_white: Handle<Image>,
+    menu_font_gray: Handle<Image>,
+    menu_font_yellow: Handle<Image>,
 }
 
 #[derive(Default)]
@@ -122,6 +126,11 @@ struct EpisodeItem {
 
 #[derive(Component)]
 struct EpisodeHighlight;
+
+#[derive(Component)]
+struct EpisodeTextVariant {
+    selected: bool,
+}
 
 #[derive(Component)]
 struct MenuHint;
@@ -172,7 +181,7 @@ impl Default for SplashStep {
 
 #[derive(Default)]
 struct MenuLocalState {
-    selection: usize, // 0 = New Game, 1 = Quit
+    selection: usize,
     blink: Timer,
     blink_light: bool,
 }
@@ -203,6 +212,159 @@ fn compute_scaled_size(win_w: f32, win_h: f32) -> (f32, f32) {
     (BASE_W * scale, BASE_H * scale)
 }
 
+fn menu_font_cell_rect(row: u32, col: u32) -> Rect {
+    let x0 = col as f32 * MENU_FONT_CELL_W;
+    let y0 = row as f32 * MENU_FONT_CELL_H;
+    Rect::from_corners(
+        Vec2::new(x0, y0),
+        Vec2::new(x0 + MENU_FONT_CELL_W, y0 + MENU_FONT_CELL_H),
+    )
+}
+
+fn menu_font_glyph_rc(ch: char) -> Option<(u32, u32)> {
+    match ch {
+        ' ' => None,
+
+        // --- Row 0: small font symbols/digits/uppercase (NON-ASCII layout) ---
+
+        // !"#$%&'()*+/   (NO comma, dash, dot)
+        '!' => Some((0, 0)),
+        '"' => Some((0, 1)),
+        '#' => Some((0, 2)),
+        '$' => Some((0, 3)),
+        '%' => Some((0, 4)),
+        '&' => Some((0, 5)),
+        '\'' => Some((0, 6)),
+        '(' => Some((0, 7)),
+        ')' => Some((0, 8)),
+        '*' => Some((0, 9)),
+        '+' => Some((0, 10)),
+        '/' => Some((0, 11)),
+
+        // 0..9 at columns 12..21
+        '0'..='9' => Some((0, 12 + (ch as u32 - '0' as u32))),
+
+        // < = > @ at columns 22..25
+        '<' => Some((0, 22)),
+        '=' => Some((0, 23)),
+        '>' => Some((0, 24)),
+        '@' => Some((0, 25)),
+
+        // Uppercase letters in this row START at col 26,
+        // but the font sheet is missing N and Q in the small-font row.
+        'A'..='M' => Some((0, 26 + (ch as u32 - 'A' as u32))),
+        'O'..='P' => Some((0, 39 + (ch as u32 - 'O' as u32))),
+        'R'..='Z' => Some((0, 41 + (ch as u32 - 'R' as u32))),
+
+        // If you want *something* for N/Q in small font:
+        // use lowercase glyphs as fallback (looks better than garbage).
+        'N' => Some((1, 5 + ('n' as u32 - 'a' as u32))),
+        'Q' => Some((1, 5 + ('q' as u32 - 'a' as u32))),
+
+        // --- Row 1: [ \ ] ^ _ a..z { | } ~ (NO backtick) ---
+
+        '[' => Some((1, 0)),
+        '\\' => Some((1, 1)),
+        ']' => Some((1, 2)),
+        '^' => Some((1, 3)),
+        '_' => Some((1, 4)),
+
+        // lowercase starts at col 5 (NOT 6)
+        'a'..='z' => Some((1, 5 + (ch as u32 - 'a' as u32))),
+
+        '{' => Some((1, 31)),
+        '|' => Some((1, 32)),
+        '}' => Some((1, 33)),
+        '~' => Some((1, 34)),
+
+        _ => None,
+    }
+}
+
+fn spawn_menu_bitmap_text(
+    commands: &mut Commands,
+    parent: Entity,
+    font_img: Handle<Image>,
+    left: f32,
+    top: f32,
+    ui_scale: f32,
+    text: &str,
+    visibility: Visibility,
+) -> Entity {
+    let draw_w = (MENU_FONT_CELL_W * MENU_FONT_DRAW_SCALE * ui_scale).round().max(1.0);
+    let draw_h = (MENU_FONT_CELL_H * MENU_FONT_DRAW_SCALE * ui_scale).round().max(1.0);
+    let line_h = (draw_h + (1.0 * ui_scale).round()).max(1.0);
+
+    let mut max_cols: i32 = 0;
+    let mut cur_cols: i32 = 0;
+    let mut lines: i32 = 1;
+
+    for ch in text.chars() {
+        if ch == '\n' {
+            max_cols = max_cols.max(cur_cols);
+            cur_cols = 0;
+            lines += 1;
+            continue;
+        }
+        cur_cols += 1;
+    }
+    max_cols = max_cols.max(cur_cols);
+
+    let total_w = (max_cols as f32 * draw_w).max(1.0);
+    let total_h = (lines as f32 * line_h).max(1.0);
+
+    let run = commands
+        .spawn((
+            visibility,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(left.round()),
+                top: Val::Px(top.round()),
+                width: Val::Px(total_w.round()),
+                height: Val::Px(total_h.round()),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            ChildOf(parent),
+        ))
+        .id();
+
+    let mut x: f32 = 0.0;
+    let mut y: f32 = 0.0;
+
+    for ch in text.chars() {
+        if ch == '\n' {
+            x = 0.0;
+            y += line_h;
+            continue;
+        }
+
+        if let Some((r, c)) = menu_font_glyph_rc(ch) {
+            let rect = menu_font_cell_rect(r, c);
+
+            let mut img = ImageNode::new(font_img.clone());
+            img.rect = Some(rect);
+
+            commands.spawn((
+                img,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(x.round()),
+                    top: Val::Px(y.round()),
+                    width: Val::Px(draw_w),
+                    height: Val::Px(draw_h),
+                    ..default()
+                },
+                ChildOf(run),
+            ));
+        }
+
+        x += draw_w;
+    }
+
+    run
+}
+
 fn spawn_episode_select_ui(
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
@@ -212,14 +374,10 @@ fn spawn_episode_select_ui(
     imgs: &SplashImages,
     selection: usize,
 ) {
-    let ui_font: Handle<Font> = asset_server.load("fonts/honda_font.ttf");
-    let hint_strip: Handle<Image> = asset_server.load(MENU_HINT_PATH);
-
-    // Full-screen root (opaque) so the world doesn't show around the 320x200 canvas.
     let root = commands
         .spawn((
             SplashUi,
-            ZIndex(1001),
+            ZIndex(1000),
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
@@ -248,25 +406,17 @@ fn spawn_episode_select_ui(
         ))
         .id();
 
-    // Title
-    commands.spawn((
-        Text::new("Which episode to play?"),
-        TextFont {
-            font: ui_font.clone(),
-            font_size: (24.0 * scale).round(),
-            ..default()
-        },
-        TextColor(Color::srgb(1.0, 0.9, 0.0)),
-        Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px((EP_TITLE_TOP * scale).round()),
-            left: Val::Px((44.0 * scale).round()),
-            ..default()
-        },
-        ChildOf(canvas),
-    ));
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_yellow.clone(),
+        (44.0 * scale).round(),
+        (EP_TITLE_TOP * scale).round(),
+        scale,
+        "Which episode to play?",
+        Visibility::Visible,
+    );
 
-    // Highlight bar
     let hilite_top = (EP_LIST_TOP + selection as f32 * EP_ROW_H + 2.0) * scale;
     commands.spawn((
         EpisodeHighlight,
@@ -282,7 +432,6 @@ fn spawn_episode_select_ui(
         ChildOf(canvas),
     ));
 
-    // Episodes (DOS ordering)
     const EP_TEXT: [&str; 6] = [
         "Episode 1\nEscape from Wolfenstein",
         "Episode 2\nOperation: Eisenfaust",
@@ -295,7 +444,6 @@ fn spawn_episode_select_ui(
     for idx in 0..6 {
         let row_top = (EP_LIST_TOP + idx as f32 * EP_ROW_H) * scale;
 
-        // Thumb (cropped from atlas)
         let col = (idx % 3) as f32;
         let row = (idx / 3) as f32;
 
@@ -320,41 +468,53 @@ fn spawn_episode_select_ui(
             ChildOf(canvas),
         ));
 
-        // Text
+        let text_left = (EP_TEXT_X * scale).round();
+        let text_top = (row_top - (2.0 * scale)).round();
         let is_selected = idx == selection;
-        commands.spawn((
-            EpisodeItem { idx },
-            Text::new(EP_TEXT[idx]),
-            TextFont {
-                font: ui_font.clone(),
-                font_size: (18.0 * scale).round(),
-                ..default()
-            },
-            TextColor(if is_selected {
-                Color::srgb(1.0, 1.0, 1.0)
-            } else {
-                Color::srgb(0.75, 0.75, 0.75)
-            }),
-            TextLayout::new_with_justify(Justify::Left),
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px((EP_TEXT_X * scale).round()),
-                top: Val::Px((row_top - (2.0 * scale)).round()),
-                ..default()
-            },
-            ChildOf(canvas),
-        ));
+
+        let gray_run = spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_gray.clone(),
+            text_left,
+            text_top,
+            scale,
+            EP_TEXT[idx],
+            if is_selected { Visibility::Hidden } else { Visibility::Visible },
+        );
+        commands
+            .entity(gray_run)
+            .insert((EpisodeItem { idx }, EpisodeTextVariant { selected: false }));
+
+        let white_run = spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_white.clone(),
+            text_left,
+            text_top,
+            scale,
+            EP_TEXT[idx],
+            if is_selected { Visibility::Visible } else { Visibility::Hidden },
+        );
+        commands
+            .entity(white_run)
+            .insert((EpisodeItem { idx }, EpisodeTextVariant { selected: true }));
     }
 
-    // Bottom hint strip: reuse the same art as the main menu.
-    // Hint strip is 120x23, positioned same as spawn_menu_hint().
-    let hint_w = (120.0 * scale).round();
-    let hint_h = (23.0 * scale).round();
-    let hint_x = ((BASE_W - 120.0) * 0.5 * scale).round();
-    let hint_y = ((BASE_H - 23.0 - 6.0) * scale).round();
+    let hint = asset_server.load(MENU_HINT_PATH);
+    let ui_scale = (w / BASE_W).round().max(1.0);
+
+    let hint_native_w = 103.0;
+    let hint_native_h = 12.0;
+    let hint_bottom_pad = 6.0;
+
+    let hint_w = (hint_native_w * ui_scale).round();
+    let hint_h = (hint_native_h * ui_scale).round();
+    let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
+    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
 
     commands.spawn((
-        ImageNode::new(hint_strip),
+        ImageNode::new(hint),
         Node {
             position_type: PositionType::Absolute,
             left: Val::Px(hint_x),
@@ -397,6 +557,156 @@ fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32
         });
 }
 
+fn spawn_menu_hint(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    w: f32,
+    h: f32,
+    imgs: &SplashImages,
+) {
+    let banner = asset_server.load(MENU_BANNER_PATH);
+    let hint = asset_server.load(MENU_HINT_PATH);
+    let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
+    let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
+
+    let scale = (w / BASE_W).round().max(1.0);
+
+    let banner_w = 156.0 * scale;
+    let banner_h = 52.0 * scale;
+    let banner_x = ((BASE_W - 156.0) * 0.5 * scale).round();
+    let banner_y = (6.0 * scale).round();
+
+    let hint_native_w = 103.0;
+    let hint_native_h = 12.0;
+    let hint_bottom_pad = 6.0;
+
+    let hint_w = (hint_native_w * scale).round();
+    let hint_h = (hint_native_h * scale).round();
+    let hint_x = ((BASE_W - hint_native_w) * 0.5 * scale).round();
+    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * scale).round();
+
+    let x_text = (150.0 * scale).round();
+    let y_new_game = (92.0 * scale).round();
+    let y_quit = (112.0 * scale).round();
+
+    let cursor_w = 19.0 * scale;
+    let cursor_h = 10.0 * scale;
+    let cursor_x = (128.0 * scale).round();
+    let cursor_y = (94.0 * scale).round();
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            MenuHint,
+            ZIndex(1001),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            ChildOf(root),
+        ))
+        .id();
+
+    commands.spawn((
+        ImageNode::new(banner),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(banner_x),
+            top: Val::Px(banner_y),
+            width: Val::Px(banner_w),
+            height: Val::Px(banner_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    commands.spawn((
+        ImageNode::new(hint),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(hint_x),
+            top: Val::Px(hint_y),
+            width: Val::Px(hint_w),
+            height: Val::Px(hint_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_white.clone(),
+        x_text,
+        y_new_game,
+        scale,
+        "NEW GAME",
+        Visibility::Visible,
+    );
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_white.clone(),
+        x_text,
+        y_quit,
+        scale,
+        "QUIT",
+        Visibility::Visible,
+    );
+
+    commands.spawn((
+        MenuCursor,
+        MenuCursorLight,
+        Visibility::Visible,
+        ImageNode::new(cursor_light),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+    commands.spawn((
+        MenuCursor,
+        MenuCursorDark,
+        Visibility::Hidden,
+        ImageNode::new(cursor_dark),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+}
+
 fn splash_advance_on_any_input(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -428,14 +738,14 @@ fn splash_advance_on_any_input(
             lock.0 = true;
             music_mode.0 = MusicModeKind::Splash;
 
-            let Some(imgs) = imgs.as_ref() else { return };
+            let Some(imgs) = imgs.as_ref() else {
+                return;
+            };
 
-            // Ensure splash0 is shown (no input needed to display it).
             if q.q_splash_roots.iter().next().is_none() {
                 spawn_splash_ui(&mut commands, imgs.splash0.clone(), w, h);
             }
 
-            // Input advances to splash1.
             if any_key {
                 for e in q.q_splash_roots.iter() {
                     commands.entity(e).despawn();
@@ -449,20 +759,20 @@ fn splash_advance_on_any_input(
             lock.0 = true;
             music_mode.0 = MusicModeKind::Splash;
 
-            let Some(imgs) = imgs.as_ref() else { return };
+            let Some(imgs) = imgs.as_ref() else {
+                return;
+            };
 
-            // Safety: if we somehow enter Splash1 with no UI, show it.
             if q.q_splash_roots.iter().next().is_none() {
                 spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
             }
 
-            // Input advances to main menu.
             if any_key {
                 for e in q.q_splash_roots.iter() {
                     commands.entity(e).despawn();
                 }
                 spawn_splash_ui(&mut commands, imgs.menu.clone(), w, h);
-                spawn_menu_hint(&mut commands, &asset_server, w, h);
+                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs);
                 menu.reset();
                 *step = SplashStep::Menu;
             }
@@ -475,16 +785,23 @@ fn splash_advance_on_any_input(
             let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
             let top = ((MENU_CURSOR_TOP + menu.selection as f32 * MENU_ITEM_H) * scale).round();
 
-            // Move BOTH cursor entities so blink doesn't "jump".
             for mut node in q.q_node.iter_mut() {
                 node.top = Val::Px(top);
             }
 
             for mut v in q.q_cursor_light.iter_mut() {
-                *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
+                *v = if blink_on {
+                    Visibility::Visible
+                } else {
+                    Visibility::Hidden
+                };
             }
             for mut v in q.q_cursor_dark.iter_mut() {
-                *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
+                *v = if blink_on {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Visible
+                };
             }
 
             if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
@@ -493,16 +810,25 @@ fn splash_advance_on_any_input(
                 } else {
                     menu.selection = MENU_ACTIONS.len() - 1;
                 }
-                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+                sfx.write(PlaySfx {
+                    kind: SfxKind::MenuMove,
+                    pos: Vec3::ZERO,
+                });
             }
 
             if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
                 menu.selection = (menu.selection + 1) % MENU_ACTIONS.len();
-                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+                sfx.write(PlaySfx {
+                    kind: SfxKind::MenuMove,
+                    pos: Vec3::ZERO,
+                });
             }
 
             if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter) {
-                sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+                sfx.write(PlaySfx {
+                    kind: SfxKind::MenuSelect,
+                    pos: Vec3::ZERO,
+                });
 
                 match MENU_ACTIONS[menu.selection] {
                     MenuAction::NewGame => {
@@ -536,7 +862,10 @@ fn splash_advance_on_any_input(
             music_mode.0 = MusicModeKind::Menu;
 
             if keyboard.just_pressed(KeyCode::Escape) {
-                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+                sfx.write(PlaySfx {
+                    kind: SfxKind::MenuBack,
+                    pos: Vec3::ZERO,
+                });
 
                 for e in q.q_splash_roots.iter() {
                     commands.entity(e).despawn();
@@ -544,7 +873,7 @@ fn splash_advance_on_any_input(
 
                 if let Some(imgs) = imgs.as_ref() {
                     spawn_splash_ui(&mut commands, imgs.menu.clone(), w, h);
-                    spawn_menu_hint(&mut commands, &asset_server, w, h);
+                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs);
                     menu.reset();
                     *step = SplashStep::Menu;
                 }
@@ -568,15 +897,20 @@ fn splash_advance_on_any_input(
             }
 
             if moved {
-                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+                sfx.write(PlaySfx {
+                    kind: SfxKind::MenuMove,
+                    pos: Vec3::ZERO,
+                });
             }
 
-            for (item, mut color) in q.q_episode_items.iter_mut() {
-                *color = TextColor(if item.idx == episode.selection {
-                    Color::srgb(1.0, 1.0, 1.0)
+            // NOTE: this is q_episode_items (not q_episode_text_runs).
+            for (item, variant, mut vis) in q.q_episode_items.iter_mut() {
+                let want_selected = item.idx == episode.selection;
+                *vis = if variant.selected == want_selected {
+                    Visibility::Visible
                 } else {
-                    Color::srgb(0.75, 0.75, 0.75)
-                });
+                    Visibility::Hidden
+                };
             }
 
             if let Some(mut node) = q.q_episode_hilite.iter_mut().next() {
@@ -586,7 +920,10 @@ fn splash_advance_on_any_input(
 
             if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter) {
                 if episode.selection == 0 {
-                    sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+                    sfx.write(PlaySfx {
+                        kind: SfxKind::MenuSelect,
+                        pos: Vec3::ZERO,
+                    });
 
                     for e in q.q_splash_roots.iter() {
                         commands.entity(e).despawn();
@@ -601,13 +938,15 @@ fn splash_advance_on_any_input(
                         &mut *music_mode,
                     );
 
-                    // keep your existing behavior here:
                     lock.0 = false;
                     music_mode.0 = MusicModeKind::Gameplay;
 
                     *step = SplashStep::Done;
                 } else {
-                    sfx.write(PlaySfx { kind: SfxKind::NoWay, pos: Vec3::ZERO });
+                    sfx.write(PlaySfx {
+                        kind: SfxKind::NoWay,
+                        pos: Vec3::ZERO,
+                    });
                 }
             }
         }
@@ -642,182 +981,28 @@ pub(crate) fn setup_splash(mut commands: Commands, asset_server: Res<AssetServer
     let menu = asset_server.load(MAIN_MENU_PATH);
     let episode_thumbs_atlas = asset_server.load(EPISODE_THUMBS_ATLAS_PATH);
 
+    let menu_font_white = asset_server.load(MENU_FONT_WHITE_PATH);
+    let menu_font_gray = asset_server.load(MENU_FONT_GRAY_PATH);
+    let menu_font_yellow = asset_server.load(MENU_FONT_YELLOW_PATH);
+
     commands.insert_resource(SplashImages {
         splash0,
         splash1,
         menu,
         episode_thumbs_atlas,
+        menu_font_white,
+        menu_font_gray,
+        menu_font_yellow,
     });
 }
 
-fn spawn_menu_hint(commands: &mut Commands, asset_server: &AssetServer, w: f32, h: f32) {
-    let ui_font: Handle<Font> = asset_server.load("fonts/honda_font.ttf");
-
-    let banner = asset_server.load(MENU_BANNER_PATH);
-    let hint = asset_server.load(MENU_HINT_PATH);
-    let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
-    let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
-
-    // w/h are already integer-scaled 320x200. Recover the integer UI scale.
-    let scale = (w / BASE_W).round().max(1.0);
-
-    // Native (320x200) layout coords, scaled up by `scale`.
-    // Banner is 156x52 in the extracted sheet.
-    let banner_w = 156.0 * scale;
-    let banner_h = 52.0 * scale;
-    let banner_x = ((BASE_W - 156.0) * 0.5 * scale).round();
-    let banner_y = (6.0 * scale).round();
-
-    // Hint strip is 120x23.
-    let hint_w = 120.0 * scale;
-    let hint_h = 23.0 * scale;
-    let hint_x = ((BASE_W - 120.0) * 0.5 * scale).round();
-    let hint_y = ((BASE_H - 23.0 - 6.0) * scale).round();
-
-    // Menu items (native positions)
-    let x_text = (150.0 * scale).round();
-    let y_new_game = (92.0 * scale).round();
-    let y_quit = (112.0 * scale).round();
-
-    // Cursor is 19x10.
-    let cursor_w = 19.0 * scale;
-    let cursor_h = 10.0 * scale;
-    let cursor_x = (128.0 * scale).round();
-    let cursor_y = (94.0 * scale).round(); // aligned to NEW GAME line
-
-    let font_size = (18.0 * scale).round();
-
-    commands
-        .spawn((
-            SplashUi,
-            MenuHint,     // keep your existing marker so this stays "menu UI"
-            ZIndex(1001), // above the splash/menu background
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                top: Val::Px(0.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(Color::NONE),
-        ))
-        .with_children(|root| {
-            // Inner canvas sized to the same scaled 320x200 as the background image.
-            root.spawn((
-                Node {
-                    width: Val::Px(w),
-                    height: Val::Px(h),
-                    position_type: PositionType::Relative,
-                    ..default()
-                },
-                BackgroundColor(Color::NONE),
-            ))
-            .with_children(|c| {
-                // Banner
-                c.spawn((
-                    ImageNode::new(banner),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(banner_x),
-                        top: Val::Px(banner_y),
-                        width: Val::Px(banner_w),
-                        height: Val::Px(banner_h),
-                        ..default()
-                    },
-                ));
-
-                // Hint strip (red MOVE/SELECT/ESC BACK box)
-                c.spawn((
-                    ImageNode::new(hint),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(hint_x),
-                        top: Val::Px(hint_y),
-                        width: Val::Px(hint_w),
-                        height: Val::Px(hint_h),
-                        ..default()
-                    },
-                ));
-
-                // Menu text items
-                c.spawn((
-                    Text::new("NEW GAME"),
-                    TextFont {
-                        font: ui_font.clone(),
-                        font_size,
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(x_text),
-                        top: Val::Px(y_new_game),
-                        ..default()
-                    },
-                ));
-
-                c.spawn((
-                    Text::new("QUIT"),
-                    TextFont {
-                        font: ui_font.clone(),
-                        font_size,
-                        ..default()
-                    },
-                    TextColor(Color::WHITE),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(x_text),
-                        top: Val::Px(y_quit),
-                        ..default()
-                    },
-                ));
-
-                // Cursor (light + dark entities stacked; we toggle Visibility to "blink")
-                c.spawn((
-                    MenuCursor,
-                    MenuCursorLight,
-                    Visibility::Visible,
-                    ImageNode::new(cursor_light),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(cursor_x),
-                        top: Val::Px(cursor_y),
-                        width: Val::Px(cursor_w),
-                        height: Val::Px(cursor_h),
-                        ..default()
-                    },
-                ));
-                c.spawn((
-                    MenuCursor,
-                    MenuCursorDark,
-                    Visibility::Hidden,
-                    ImageNode::new(cursor_dark),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(cursor_x),
-                        top: Val::Px(cursor_y),
-                        width: Val::Px(cursor_w),
-                        height: Val::Px(cursor_h),
-                        ..default()
-                    },
-                ));
-            });
-        });
-}
-
 fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win_w: f32, win_h: f32) {
-    // IMPORTANT: match the HUD sizing rules exactly (see ui/hud.rs).
-    // HUD scale is an integer derived from WINDOW WIDTH, and the status bar is 44px * scale.
     const HUD_W: f32 = 320.0;
 
     let hud_scale = (win_w / HUD_W).floor().max(1.0);
     let hud_h = (BASE_HUD_H * hud_scale).round();
     let view_h = (win_h - hud_h).max(0.0);
 
-    // Banner uses the same integer HUD scale by default, but clamps so it never exceeds the window.
     let mut scale = hud_scale.max(1.0);
     let mut spr_w = (PSYCHED_SPR_W * scale).round();
     let mut spr_h = (PSYCHED_SPR_H * scale).round();
@@ -829,15 +1014,12 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
 
     let banner = asset_server.load(GET_PSYCHED_PATH);
 
-    // Center banner in the view region (which ends above the HUD strip).
     let left = ((win_w - spr_w) * 0.5).round().max(0.0);
     let top = ((view_h - spr_h) * 0.5).round().max(0.0);
 
-    // Bar goes ACROSS THE BOTTOM OF THE BANNER
     let bar_h = (1.0 * scale).max(1.0).round();
     let bar_top = (top + spr_h - bar_h).max(0.0);
 
-    // Root ONLY covers the view region, so it can never overlap the HUD.
     commands
         .spawn((
             LoadingUi,
@@ -853,7 +1035,6 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
             BackgroundColor(PSYCHED_TEAL),
         ))
         .with_children(|root| {
-            // Banner
             root.spawn((
                 ImageNode::new(banner),
                 Node {
@@ -866,7 +1047,6 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
                 },
             ));
 
-            // Progress bar (grows to the banner width)
             root.spawn((
                 PsychedBar { target_w: spr_w },
                 Node {
@@ -890,13 +1070,9 @@ fn begin_get_psyched_loading(
     lock: &mut PlayerControlLock,
     music_mode: &mut MusicMode,
 ) {
-    // Lock gameplay controls during the fake load
     lock.0 = true;
-
-    // IMPORTANT: start gameplay music DURING the loading overlay
     music_mode.0 = MusicModeKind::Gameplay;
 
-    // Start timer + spawn overlay
     psyched.active = true;
     psyched.timer.reset();
     spawn_get_psyched_ui(commands, asset_server, win.width(), win.height());
