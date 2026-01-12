@@ -212,73 +212,44 @@ fn compute_scaled_size(win_w: f32, win_h: f32) -> (f32, f32) {
     (BASE_W * scale, BASE_H * scale)
 }
 
+const ROW0: &str = "!\"#$%&'()*+,_./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const ROW1: &str = "[\\]^`abcdefghijklmnopqrstuvwxyz{|}~";
+
 fn menu_font_cell_rect(row: u32, col: u32) -> Rect {
+    const ATLAS_ROWS: u32 = 5;
+
     let x0 = col as f32 * MENU_FONT_CELL_W;
-    let y0 = row as f32 * MENU_FONT_CELL_H;
+
+    // Bevy rect Y=0 is bottom of the image; your row=0 is top of the PNG.
+    let y0 = (ATLAS_ROWS - 1 - row) as f32 * MENU_FONT_CELL_H;
+
+    let inset = 0.5;
+
     Rect::from_corners(
-        Vec2::new(x0, y0),
-        Vec2::new(x0 + MENU_FONT_CELL_W, y0 + MENU_FONT_CELL_H),
+        Vec2::new(x0 + inset, y0 + inset),
+        Vec2::new(x0 + MENU_FONT_CELL_W - inset, y0 + MENU_FONT_CELL_H - inset),
     )
 }
 
 fn menu_font_glyph_rc(ch: char) -> Option<(u32, u32)> {
-    match ch {
-        ' ' => None,
-
-        // --- Row 0: small font symbols/digits/uppercase (NON-ASCII layout) ---
-
-        // !"#$%&'()*+/   (NO comma, dash, dot)
-        '!' => Some((0, 0)),
-        '"' => Some((0, 1)),
-        '#' => Some((0, 2)),
-        '$' => Some((0, 3)),
-        '%' => Some((0, 4)),
-        '&' => Some((0, 5)),
-        '\'' => Some((0, 6)),
-        '(' => Some((0, 7)),
-        ')' => Some((0, 8)),
-        '*' => Some((0, 9)),
-        '+' => Some((0, 10)),
-        '/' => Some((0, 11)),
-
-        // 0..9 at columns 12..21
-        '0'..='9' => Some((0, 12 + (ch as u32 - '0' as u32))),
-
-        // < = > @ at columns 22..25
-        '<' => Some((0, 22)),
-        '=' => Some((0, 23)),
-        '>' => Some((0, 24)),
-        '@' => Some((0, 25)),
-
-        // Uppercase letters in this row START at col 26,
-        // but the font sheet is missing N and Q in the small-font row.
-        'A'..='M' => Some((0, 26 + (ch as u32 - 'A' as u32))),
-        'O'..='P' => Some((0, 39 + (ch as u32 - 'O' as u32))),
-        'R'..='Z' => Some((0, 41 + (ch as u32 - 'R' as u32))),
-
-        // If you want *something* for N/Q in small font:
-        // use lowercase glyphs as fallback (looks better than garbage).
-        'N' => Some((1, 5 + ('n' as u32 - 'a' as u32))),
-        'Q' => Some((1, 5 + ('q' as u32 - 'a' as u32))),
-
-        // --- Row 1: [ \ ] ^ _ a..z { | } ~ (NO backtick) ---
-
-        '[' => Some((1, 0)),
-        '\\' => Some((1, 1)),
-        ']' => Some((1, 2)),
-        '^' => Some((1, 3)),
-        '_' => Some((1, 4)),
-
-        // lowercase starts at col 5 (NOT 6)
-        'a'..='z' => Some((1, 5 + (ch as u32 - 'a' as u32))),
-
-        '{' => Some((1, 31)),
-        '|' => Some((1, 32)),
-        '}' => Some((1, 33)),
-        '~' => Some((1, 34)),
-
-        _ => None,
+    if ch == ' ' {
+        return None;
     }
+
+    // Atlas uses '_' in the '-' slot
+    let ch = if ch == '-' { '_' } else { ch };
+
+    if let Some(col) = ROW0.chars().position(|c| c == ch) {
+        return Some((0, col as u32));
+    }
+    if let Some(col) = ROW1.chars().position(|c| c == ch) {
+        return Some((1, col as u32));
+    }
+
+    // fallback to '?'
+    ROW0.chars()
+        .position(|c| c == '?')
+        .map(|col| (0, col as u32))
 }
 
 fn spawn_menu_bitmap_text(
