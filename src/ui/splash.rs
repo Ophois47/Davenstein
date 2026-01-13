@@ -36,10 +36,6 @@ const EP_ROW_H: f32 = 26.0;
 const EP_THUMB_X: f32 = 24.0;
 const EP_TEXT_X: f32 = 88.0;
 
-const EP_HILITE_X: f32 = 76.0;
-const EP_HILITE_W: f32 = 220.0;
-const EP_HILITE_H: f32 = 20.0;
-
 const BASE_HUD_H: f32 = 44.0;
 const PSYCHED_DURATION_SECS: f32 = 1.2;
 const PSYCHED_SPR_W: f32 = 220.0;
@@ -254,7 +250,7 @@ fn spawn_menu_bitmap_text(
 #[derive(SystemParam)]
 struct SplashAdvanceQueries<'w, 's> {
     q_win: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
-    q_splash_roots: Query<'w, 's, Entity, With<SplashUi>>,
+    q_splash_roots: Query<'w, 's, Entity, (With<SplashUi>, Without<ChildOf>)>,
     q_node: Query<'w, 's, &'static mut Node, (With<MenuCursor>, Without<EpisodeHighlight>)>,
     q_cursor_light: Query<
         'w,
@@ -273,12 +269,6 @@ struct SplashAdvanceQueries<'w, 's> {
         's,
         (&'static EpisodeItem, &'static EpisodeTextVariant, &'static mut Visibility),
         (Without<MenuCursorLight>, Without<MenuCursorDark>),
-    >,
-    q_episode_hilite: Query<
-        'w,
-        's,
-        &'static mut Node,
-        (With<EpisodeHighlight>, Without<MenuCursor>),
     >,
 }
 
@@ -448,6 +438,7 @@ fn spawn_episode_select_ui(
         ))
         .id();
 
+    // Title
     spawn_menu_bitmap_text(
         commands,
         canvas,
@@ -459,20 +450,46 @@ fn spawn_episode_select_ui(
         Visibility::Visible,
     );
 
-    let hilite_top = (EP_LIST_TOP + selection as f32 * EP_ROW_H + 2.0) * scale;
+    // We'll compute the hint position early so we can cap the sunken panel height
+    // (panel must NOT cover the bottom hint).
+    let hint_native_w = 103.0;
+    let hint_native_h = 12.0;
+    let hint_bottom_pad = 6.0;
+
+    let ui_scale = (w / BASE_W).round().max(1.0);
+    let hint_w = (hint_native_w * ui_scale).round();
+    let hint_h = (hint_native_h * ui_scale).round();
+    let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
+    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+
+    // Sunken darker-red panel behind ONLY the episode thumbs + text area.
+    // Not behind the title, not behind the bottom hint.
+    let panel_left = ((EP_THUMB_X - 6.0) * scale).round();
+    let panel_top = ((EP_LIST_TOP - 4.0) * scale).round();
+
+    // Right edge: keep a margin from the screen border so it feels inset.
+    let panel_right = ((BASE_W - 18.0) * scale).round();
+    let panel_w = (panel_right - panel_left).max(1.0);
+
+    // Bottom edge: stop above the hint (leave a small gap).
+    let panel_bottom = (hint_y - (2.0 * scale).round()).max(panel_top + 1.0);
+    let panel_h = (panel_bottom - panel_top).max(1.0);
+
     commands.spawn((
-        EpisodeHighlight,
+        SplashUi,
         Node {
             position_type: PositionType::Absolute,
-            left: Val::Px((EP_HILITE_X * scale).round()),
-            top: Val::Px(hilite_top.round()),
-            width: Val::Px((EP_HILITE_W * scale).round()),
-            height: Val::Px((EP_HILITE_H * scale).round()),
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(panel_h),
             ..default()
         },
-        BackgroundColor(Color::srgb(0.65, 0.65, 0.65)),
+        BackgroundColor(Color::srgb(0.40, 0.0, 0.0)),
         ChildOf(canvas),
     ));
+
+    // NOTE: No highlight bar — selection is indicated purely by gray vs white text runs.
 
     const EP_TEXT: [&str; 6] = [
         "Episode 1\nEscape from Wolfenstein",
@@ -483,6 +500,7 @@ fn spawn_episode_select_ui(
         "Episode 6\nConfrontation",
     ];
 
+    // Thumbnails + text
     for idx in 0..6 {
         let row_top = (EP_LIST_TOP + idx as f32 * EP_ROW_H) * scale;
 
@@ -543,18 +561,53 @@ fn spawn_episode_select_ui(
             .insert((EpisodeItem { idx }, EpisodeTextVariant { selected: true }));
     }
 
+    // Gun cursor (same sprites as main menu), positioned left of the thumbnail column.
+    let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
+    let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
+
+    let cursor_w = (19.0 * ui_scale).round();
+    let cursor_h = (10.0 * ui_scale).round();
+
+    let cursor_x = ((EP_THUMB_X * scale).round() - cursor_w - (8.0 * scale).round()).max(0.0);
+
+    let sel_row_top = (EP_LIST_TOP + selection as f32 * EP_ROW_H) * scale;
+    let cursor_y = (sel_row_top + ((EP_THUMB_H * scale - cursor_h) * 0.5)).round();
+
+    commands.spawn((
+        SplashUi,
+        MenuCursor,
+        MenuCursorLight,
+        Visibility::Visible,
+        ImageNode::new(cursor_light),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+    commands.spawn((
+        SplashUi,
+        MenuCursor,
+        MenuCursorDark,
+        Visibility::Hidden,
+        ImageNode::new(cursor_dark),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    // Bottom hint
     let hint = asset_server.load(MENU_HINT_PATH);
-    let ui_scale = (w / BASE_W).round().max(1.0);
-
-    let hint_native_w = 103.0;
-    let hint_native_h = 12.0;
-    let hint_bottom_pad = 6.0;
-
-    let hint_w = (hint_native_w * ui_scale).round();
-    let hint_h = (hint_native_h * ui_scale).round();
-    let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
-    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
-
     commands.spawn((
         ImageNode::new(hint),
         Node {
@@ -953,11 +1006,6 @@ fn splash_advance_on_any_input(
                 } else {
                     Visibility::Hidden
                 };
-            }
-
-            if let Some(mut node) = q.q_episode_hilite.iter_mut().next() {
-                let hilite_top = (EP_LIST_TOP + episode.selection as f32 * EP_ROW_H + 2.0) * scale;
-                node.top = Val::Px(hilite_top.round());
             }
 
             if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter) {

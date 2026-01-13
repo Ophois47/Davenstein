@@ -20,7 +20,7 @@ This is an attempt to recreate Wolfenstein 3-D written entirely in Rust, using t
 FEATURES TO BE DONE:
 **********************************************
 - Ceilings need to be their respective colors per level
-- Main Menu, its SFX, the episode selection screen
+- Menus need to look like the originals
 - Pause game mechanic, go to menu while playing
 - Game difficulty levels
 - E1M10 the secret level
