@@ -31,10 +31,7 @@ const EP_THUMB_H: f32 = 24.0;
 
 const EP_TITLE_TOP: f32 = 10.0;
 const EP_LIST_TOP: f32 = 32.0;
-const EP_ROW_H: f32 = 26.0;
-
-const EP_THUMB_X: f32 = 24.0;
-const EP_TEXT_X: f32 = 88.0;
+const EP_ROW_H: f32 = 24.0;
 
 const BASE_HUD_H: f32 = 44.0;
 const PSYCHED_DURATION_SECS: f32 = 1.2;
@@ -60,6 +57,10 @@ const MENU_FONT_SPACE_ADV_PX: f32 = 8.0;
 
 // Optional knob if you want the font smaller without touching UI scaling
 const MENU_FONT_DRAW_SCALE: f32 = 0.5;
+
+// Episode menu layout
+const EP_THUMB_X: f32 = 24.0; // left edge of the thumbnail column (in 320x200 space)
+const EP_TEXT_X: f32 = 88.0;  // left edge of the episode text block (in 320x200 space)
 
 #[derive(Deserialize)]
 struct PackedFontMap {
@@ -438,20 +439,51 @@ fn spawn_episode_select_ui(
         ))
         .id();
 
-    // Title
+    // ---- Title (centered like DOS Wolf3D) ----
+    let title = "Which episode to play?";
+
+    let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
+        let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+
+        let mut max_line_w = 0.0f32;
+        let mut cur_line_w = 0.0f32;
+
+        for ch in text.chars() {
+            if ch == '\n' {
+                max_line_w = max_line_w.max(cur_line_w);
+                cur_line_w = 0.0;
+                continue;
+            }
+
+            if ch == ' ' {
+                cur_line_w += (MENU_FONT_SPACE_W * s).round();
+                continue;
+            }
+
+            if let Some(g) = menu_glyph(ch) {
+                cur_line_w += (g.advance * s).round();
+            }
+        }
+
+        max_line_w = max_line_w.max(cur_line_w);
+        max_line_w.max(1.0)
+    };
+
+    let title_w = measure_menu_text_width(scale, title);
+    let title_x = ((w - title_w) * 0.5).round().max(0.0);
+
     spawn_menu_bitmap_text(
         commands,
         canvas,
         imgs.menu_font_yellow.clone(),
-        (44.0 * scale).round(),
+        title_x,
         (EP_TITLE_TOP * scale).round(),
         scale,
-        "Which episode to play?",
+        title,
         Visibility::Visible,
     );
 
-    // We'll compute the hint position early so we can cap the sunken panel height
-    // (panel must NOT cover the bottom hint).
+    // ---- Hint placement (so panel doesn't cover it) ----
     let hint_native_w = 103.0;
     let hint_native_h = 12.0;
     let hint_bottom_pad = 6.0;
@@ -462,17 +494,29 @@ fn spawn_episode_select_ui(
     let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
     let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
 
-    // Sunken darker-red panel behind ONLY the episode thumbs + text area.
-    // Not behind the title, not behind the bottom hint.
-    let panel_left = ((EP_THUMB_X - 6.0) * scale).round();
-    let panel_top = ((EP_LIST_TOP - 4.0) * scale).round();
+    // ---- Cursor + gutter column (so gun never overlaps thumbs) ----
+    let cursor_w = (19.0 * ui_scale).round();
+    let cursor_h = (10.0 * ui_scale).round();
 
-    // Right edge: keep a margin from the screen border so it feels inset.
-    let panel_right = ((BASE_W - 18.0) * scale).round();
+    // Space reserved to the left of the thumbnail column:
+    // cursor width + a little breathing room.
+    let gutter_x = cursor_w + (10.0 * ui_scale).round();
+
+    // Thumbnails + text start after the gutter.
+    let thumb_x = (EP_THUMB_X * ui_scale).round() + gutter_x;
+    let text_x = (EP_TEXT_X * ui_scale).round() + gutter_x;
+
+    // Cursor sits just left of the thumbnail column.
+    let cursor_x = (thumb_x - cursor_w - (8.0 * ui_scale).round()).max(0.0);
+
+    // ---- Sunken darker-red panel behind ONLY the episode thumbs+text+cursor ----
+    let panel_left = (cursor_x - (8.0 * ui_scale).round()).max(0.0);
+    let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
+
+    let panel_right = ((BASE_W - 18.0) * ui_scale).round();
     let panel_w = (panel_right - panel_left).max(1.0);
 
-    // Bottom edge: stop above the hint (leave a small gap).
-    let panel_bottom = (hint_y - (2.0 * scale).round()).max(panel_top + 1.0);
+    let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
     let panel_h = (panel_bottom - panel_top).max(1.0);
 
     commands.spawn((
@@ -489,8 +533,7 @@ fn spawn_episode_select_ui(
         ChildOf(canvas),
     ));
 
-    // NOTE: No highlight bar — selection is indicated purely by gray vs white text runs.
-
+    // ---- Episodes ----
     const EP_TEXT: [&str; 6] = [
         "Episode 1\nEscape from Wolfenstein",
         "Episode 2\nOperation: Eisenfaust",
@@ -500,9 +543,8 @@ fn spawn_episode_select_ui(
         "Episode 6\nConfrontation",
     ];
 
-    // Thumbnails + text
     for idx in 0..6 {
-        let row_top = (EP_LIST_TOP + idx as f32 * EP_ROW_H) * scale;
+        let row_top = (EP_LIST_TOP + idx as f32 * EP_ROW_H) * ui_scale;
 
         let col = (idx % 3) as f32;
         let row = (idx / 3) as f32;
@@ -518,27 +560,26 @@ fn spawn_episode_select_ui(
         commands.spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px((EP_THUMB_X * scale).round()),
+                left: Val::Px(thumb_x),
                 top: Val::Px(row_top.round()),
-                width: Val::Px((EP_THUMB_W * scale).round()),
-                height: Val::Px((EP_THUMB_H * scale).round()),
+                width: Val::Px((EP_THUMB_W * ui_scale).round()),
+                height: Val::Px((EP_THUMB_H * ui_scale).round()),
                 ..default()
             },
             img,
             ChildOf(canvas),
         ));
 
-        let text_left = (EP_TEXT_X * scale).round();
-        let text_top = (row_top - (2.0 * scale)).round();
+        let text_top = (row_top - (2.0 * ui_scale)).round();
         let is_selected = idx == selection;
 
         let gray_run = spawn_menu_bitmap_text(
             commands,
             canvas,
             imgs.menu_font_gray.clone(),
-            text_left,
+            text_x,
             text_top,
-            scale,
+            ui_scale,
             EP_TEXT[idx],
             if is_selected { Visibility::Hidden } else { Visibility::Visible },
         );
@@ -550,9 +591,9 @@ fn spawn_episode_select_ui(
             commands,
             canvas,
             imgs.menu_font_white.clone(),
-            text_left,
+            text_x,
             text_top,
-            scale,
+            ui_scale,
             EP_TEXT[idx],
             if is_selected { Visibility::Visible } else { Visibility::Hidden },
         );
@@ -561,17 +602,12 @@ fn spawn_episode_select_ui(
             .insert((EpisodeItem { idx }, EpisodeTextVariant { selected: true }));
     }
 
-    // Gun cursor (same sprites as main menu), positioned left of the thumbnail column.
+    // ---- Gun cursor (episode menu) ----
     let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
     let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
 
-    let cursor_w = (19.0 * ui_scale).round();
-    let cursor_h = (10.0 * ui_scale).round();
-
-    let cursor_x = ((EP_THUMB_X * scale).round() - cursor_w - (8.0 * scale).round()).max(0.0);
-
-    let sel_row_top = (EP_LIST_TOP + selection as f32 * EP_ROW_H) * scale;
-    let cursor_y = (sel_row_top + ((EP_THUMB_H * scale - cursor_h) * 0.5)).round();
+    let sel_row_top = (EP_LIST_TOP + selection as f32 * EP_ROW_H) * ui_scale;
+    let cursor_y = (sel_row_top + ((EP_THUMB_H * ui_scale - cursor_h) * 0.5)).round();
 
     commands.spawn((
         SplashUi,
@@ -606,7 +642,7 @@ fn spawn_episode_select_ui(
         ChildOf(canvas),
     ));
 
-    // Bottom hint
+    // ---- Bottom hint ----
     let hint = asset_server.load(MENU_HINT_PATH);
     commands.spawn((
         ImageNode::new(hint),
@@ -849,7 +885,6 @@ fn splash_advance_on_any_input(
                 *step = SplashStep::Splash1;
             }
         }
-
         SplashStep::Splash1 => {
             lock.0 = true;
             music_mode.0 = MusicModeKind::Splash;
@@ -872,7 +907,6 @@ fn splash_advance_on_any_input(
                 *step = SplashStep::Menu;
             }
         }
-
         SplashStep::Menu => {
             lock.0 = true;
             music_mode.0 = MusicModeKind::Menu;
@@ -951,7 +985,6 @@ fn splash_advance_on_any_input(
                 }
             }
         }
-
         SplashStep::EpisodeSelect => {
             lock.0 = true;
             music_mode.0 = MusicModeKind::Menu;
@@ -998,7 +1031,7 @@ fn splash_advance_on_any_input(
                 });
             }
 
-            // NOTE: this is q_episode_items (not q_episode_text_runs).
+            // Selection is indicated purely by gray vs white text runs.
             for (item, variant, mut vis) in q.q_episode_items.iter_mut() {
                 let want_selected = item.idx == episode.selection;
                 *vis = if variant.selected == want_selected {
@@ -1006,6 +1039,32 @@ fn splash_advance_on_any_input(
                 } else {
                     Visibility::Hidden
                 };
+            }
+
+            // Move + blink the episode gun cursor (so it tracks episode.selection)
+            let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
+
+            // Move the episode cursor to the newly selected row
+            let ui_scale = (w / BASE_W).round().max(1.0);
+
+            // Must match spawn_episode_select_ui() layout:
+            let panel_left = (18.0 * ui_scale).round();
+            let cursor_x = (panel_left + (6.0 * ui_scale).round()).round();
+
+            let cursor_h = (10.0 * ui_scale).round();
+            let sel_row_top = (EP_LIST_TOP + episode.selection as f32 * EP_ROW_H) * ui_scale;
+            let cursor_y = (sel_row_top + ((EP_THUMB_H * ui_scale - cursor_h) * 0.5)).round();
+
+            for mut node in q.q_node.iter_mut() {
+                node.left = Val::Px(cursor_x);
+                node.top = Val::Px(cursor_y);
+            }
+
+            for mut v in q.q_cursor_light.iter_mut() {
+                *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
+            }
+            for mut v in q.q_cursor_dark.iter_mut() {
+                *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
             }
 
             if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter) {
@@ -1040,7 +1099,6 @@ fn splash_advance_on_any_input(
                 }
             }
         }
-
         SplashStep::Done => {}
     }
 }
