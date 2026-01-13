@@ -705,10 +705,56 @@ fn spawn_menu_hint(
     let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
     let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
 
-    // Integer UI scale, same convention as Episode Select
     let ui_scale = (w / BASE_W).round().max(1.0);
 
-    // ---- Root + canvas (same structure as Episode Select) ----
+    // ---- Banner geometry ----
+    // Your updated banner asset is 152x48, but we intentionally stretch it to full width.
+    let banner_native_h = 48.0;
+
+    // Leave a bit of red above the banner like the DOS reference.
+    let top_red = (3.0 * ui_scale).round();
+
+    let banner_x = 0.0;
+    let banner_y = top_red;
+
+    let banner_w = w; // full width of the canvas
+    let banner_h = (banner_native_h * ui_scale).round();
+
+    // ---- Hint placement (match Episode Select) ----
+    let hint_native_w = 103.0;
+    let hint_native_h = 12.0;
+    let hint_bottom_pad = 6.0;
+
+    let hint_w = (hint_native_w * ui_scale).round();
+    let hint_h = (hint_native_h * ui_scale).round();
+    let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
+    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+
+    // ---- Menu panel + items ----
+    let labels: [&str; 3] = ["New Game", "View Scores", "Quit"];
+
+    let panel_left = (76.0 * ui_scale).round();
+    let panel_top = (55.0 * ui_scale).round();
+    let panel_w = (178.0 * ui_scale).round();
+
+    let cursor_w = (19.0 * ui_scale).round();
+    let cursor_h = (10.0 * ui_scale).round();
+
+    let cursor_x = (panel_left + (18.0 * ui_scale).round()).round();
+    let cursor_y0 = (MENU_CURSOR_TOP * ui_scale).round();
+
+    let text_x = (cursor_x + cursor_w + (6.0 * ui_scale).round()).round();
+    let row_h = (MENU_ITEM_H * ui_scale).round();
+    let text_y0 = (cursor_y0 - (2.0 * ui_scale).round()).round();
+
+    let pad_y = (8.0 * ui_scale).round();
+    let desired_panel_h = (pad_y * 2.0 + row_h * labels.len() as f32).round();
+
+    // Never overlap the hint (same rule as Episode Select).
+    let max_panel_h = (hint_y - (2.0 * ui_scale).round() - panel_top).max(1.0);
+    let panel_h = desired_panel_h.min(max_panel_h).max(1.0);
+
+    // ---- Root + canvas ----
     let root = commands
         .spawn((
             SplashUi,
@@ -737,48 +783,18 @@ fn spawn_menu_hint(
                 position_type: PositionType::Relative,
                 ..default()
             },
-            // Main red field (match Episode Select red)
             BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
             ChildOf(root),
         ))
         .id();
 
-    // ---- Full-width black bar behind the Options sign ----
-    // Updated banner native size (your fixed asset): 152x48
-    let banner_native_w = 152.0;
-    let banner_native_h = 48.0;
-
-    let banner_w = (banner_native_w * ui_scale).round();
-    let banner_h = (banner_native_h * ui_scale).round();
-    let banner_x = ((BASE_W - banner_native_w) * 0.5 * ui_scale).round();
-
-    // DOS-ish placement near the top.
-    let banner_y = (3.0 * ui_scale).round();
-
-    // Bar height = banner height + small top/bottom padding
-    let bar_pad_y = (4.0 * ui_scale).round();
-    let bar_h = (banner_h + bar_pad_y * 2.0).round();
-
-    commands.spawn((
-        SplashUi,
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(0.0),
-            top: Val::Px(0.0),
-            width: Val::Px(w),
-            height: Val::Px(bar_h),
-            ..default()
-        },
-        BackgroundColor(Color::BLACK),
-        ChildOf(canvas),
-    ));
-
+    // ---- Full-width banner (replaces the separate black bar) ----
     commands.spawn((
         ImageNode::new(banner),
         Node {
             position_type: PositionType::Absolute,
             left: Val::Px(banner_x),
-            top: Val::Px((banner_y + bar_pad_y).round()),
+            top: Val::Px(banner_y),
             width: Val::Px(banner_w),
             height: Val::Px(banner_h),
             ..default()
@@ -786,72 +802,23 @@ fn spawn_menu_hint(
         ChildOf(canvas),
     ));
 
-    // ---- Bottom hint ----
-    let hint_native_w = 103.0;
-    let hint_native_h = 12.0;
-    let hint_bottom_pad = 6.0;
-
-    let hint_w = (hint_native_w * ui_scale).round();
-    let hint_h = (hint_native_h * ui_scale).round();
-    let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
-    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
-
+    // ---- Darker-red menu panel ----
     commands.spawn((
-        ImageNode::new(hint),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(hint_x),
-            top: Val::Px(hint_y),
-            width: Val::Px(hint_w),
-            height: Val::Px(hint_h),
-            ..default()
-        },
-        ChildOf(canvas),
-    ));
-
-    // ---- Menu panel (sunken darker-red box, like Episode Select) ----
-    // Authentic-ish DOS constants for box placement.
-    let panel_left = (76.0 * ui_scale).round();
-    let panel_top = (55.0 * ui_scale).round();
-    let panel_w = (178.0 * ui_scale).round();
-
-    // Items (boot menu): New Game, View Scores, Quit
-    let labels: [&str; 3] = ["New Game", "View Scores", "Quit"];
-
-    // Cursor + text layout inside the panel
-    let cursor_w = (19.0 * ui_scale).round();
-    let cursor_h = (10.0 * ui_scale).round();
-
-    let cursor_x = (panel_left + (18.0 * ui_scale).round()).round();
-    let cursor_y0 = (MENU_CURSOR_TOP * ui_scale).round();
-
-    // Text is aligned to the right of the gun with a small gap.
-    let text_x = (cursor_x + cursor_w + (6.0 * ui_scale).round()).round();
-    let text_y0 = (cursor_y0 - (2.0 * ui_scale).round()).round();
-
-    let row_h = (MENU_ITEM_H * ui_scale).round();
-    let pad_y = (8.0 * ui_scale).round();
-    let panel_h = (pad_y * 2.0 + (row_h * labels.len() as f32)).round();
-
-    commands.spawn((
-        SplashUi,
         Node {
             position_type: PositionType::Absolute,
             left: Val::Px(panel_left),
             top: Val::Px(panel_top),
-            width: Val::Px(panel_w.max(1.0)),
-            height: Val::Px(panel_h.max(1.0)),
+            width: Val::Px(panel_w),
+            height: Val::Px(panel_h),
             ..default()
         },
         BackgroundColor(Color::srgb(0.40, 0.0, 0.0)),
         ChildOf(canvas),
     ));
 
-    // ---- Menu item text (gray/white dual runs, like Episode Select) ----
-    // selection starts at 0 (New Game)
+    // ---- Menu text (gray/white dual-runs) ----
     for (idx, &label) in labels.iter().enumerate() {
-        let y = (text_y0 + (idx as f32 * row_h)).round();
-
+        let y = (text_y0 + idx as f32 * row_h).round();
         let is_selected = idx == 0;
 
         let gray_run = spawn_menu_bitmap_text(
@@ -883,7 +850,7 @@ fn spawn_menu_hint(
             .insert((EpisodeItem { idx }, EpisodeTextVariant { selected: true }));
     }
 
-    // ---- Gun cursor (menu) ----
+    // ---- Gun cursor ----
     commands.spawn((
         MenuCursor,
         MenuCursorLight,
@@ -910,6 +877,20 @@ fn spawn_menu_hint(
             top: Val::Px(cursor_y0),
             width: Val::Px(cursor_w),
             height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    // ---- Bottom hint ----
+    commands.spawn((
+        ImageNode::new(hint),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(hint_x),
+            top: Val::Px(hint_y),
+            width: Val::Px(hint_w),
+            height: Val::Px(hint_h),
             ..default()
         },
         ChildOf(canvas),
