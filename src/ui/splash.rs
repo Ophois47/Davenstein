@@ -58,8 +58,198 @@ const MENU_FONT_HEIGHT: f32 = 20.0;
 const MENU_FONT_MAP_PATH: &str = "textures/ui/menu_font_packed_map.json";
 const MENU_FONT_SPACE_W: f32 = 8.0;
 
-const ROW0_Y: f32 = 2.0;
-const ROW1_Y: f32 = 24.0;
+// Adjust these if you want tighter/looser spacing
+const MENU_FONT_TRACKING_PX: f32 = 1.0;
+const MENU_FONT_SPACE_ADV_PX: f32 = 8.0;
+
+// Optional knob if you want the font smaller without touching UI scaling
+const MENU_FONT_DRAW_SCALE: f32 = 0.5;
+
+#[derive(Deserialize)]
+struct PackedFontMap {
+    chars: HashMap<String, PackedGlyph>,
+    // (other fields exist in the file, but we only need these)
+}
+
+#[derive(Deserialize)]
+struct PackedGlyph {
+    #[allow(dead_code)]
+    rect: [u32; 4],
+    glyph_bbox_in_atlas: [u32; 4],
+    baseline_pos_in_row: u32,
+    baseline_in_glyph: u32,
+}
+
+static MENU_FONT_MAP: OnceLock<PackedFontMap> = OnceLock::new();
+
+fn menu_font_map() -> &'static PackedFontMap {
+    MENU_FONT_MAP.get_or_init(|| {
+        let fs_path = std::path::Path::new("assets").join(MENU_FONT_MAP_PATH);
+        let txt = std::fs::read_to_string(&fs_path).unwrap_or_else(|e| {
+            eprintln!("[menu_font] failed to read {}: {}", fs_path.display(), e);
+            String::from(r#"{"chars":{}}"#)
+        });
+
+        serde_json::from_str::<PackedFontMap>(&txt).unwrap_or_else(|e| {
+            eprintln!("[menu_font] failed to parse {}: {}", fs_path.display(), e);
+            PackedFontMap { chars: HashMap::new() }
+        })
+    })
+}
+
+struct MenuGlyph {
+    rect: Rect,      // pixel rect in atlas (we use bbox)
+    w: f32,
+    h: f32,
+    advance: f32,
+    top_from_line_top: f32, // baseline alignment
+}
+
+fn menu_glyph(ch: char) -> Option<MenuGlyph> {
+    // Space: advance only
+    if ch == ' ' {
+        return Some(MenuGlyph {
+            rect: Rect::from_corners(Vec2::ZERO, Vec2::ZERO),
+            w: 0.0,
+            h: 0.0,
+            advance: MENU_FONT_SPACE_ADV_PX,
+            top_from_line_top: 0.0,
+        });
+    }
+
+    let map = menu_font_map();
+    let key = ch.to_string();
+
+    // Fallback to '?' if unknown
+    let g = map
+        .chars
+        .get(&key)
+        .or_else(|| if ch != '?' { map.chars.get("?") } else { None })?;
+
+    let [bx, by, bw, bh] = g.glyph_bbox_in_atlas;
+    let bwf = bw as f32;
+    let bhf = bh as f32;
+
+    // Half-texel inset to avoid sampling borders.
+    let x0 = bx as f32 + 0.5;
+    let y0 = by as f32 + 0.5;
+    let x1 = (bx as f32 + bwf - 0.5).max(x0 + 0.01);
+    let y1 = (by as f32 + bhf - 0.5).max(y0 + 0.01);
+
+    let top_from_line_top = (g.baseline_pos_in_row as f32) - (g.baseline_in_glyph as f32);
+
+    Some(MenuGlyph {
+        rect: Rect::from_corners(Vec2::new(x0, y0), Vec2::new(x1, y1)),
+        w: bwf,
+        h: bhf,
+        advance: bwf + MENU_FONT_TRACKING_PX,
+        top_from_line_top,
+    })
+}
+
+fn spawn_menu_bitmap_text(
+    commands: &mut Commands,
+    parent: Entity,
+    font_img: Handle<Image>,
+    left: f32,
+    top: f32,
+    ui_scale: f32,
+    text: &str,
+    visibility: Visibility,
+) -> Entity {
+    let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+
+    // Keep line step based on the row height (not bbox), so multi-line stays stable.
+    let line_h = ((MENU_FONT_HEIGHT * s) + s).round().max(1.0);
+
+    // Measure: compute total width/height using glyph advances.
+    let mut max_line_w = 0.0f32;
+    let mut cur_line_w = 0.0f32;
+    let mut line_count = 1;
+
+    for ch in text.chars() {
+        if ch == '\n' {
+            max_line_w = max_line_w.max(cur_line_w);
+            cur_line_w = 0.0;
+            line_count += 1;
+            continue;
+        }
+
+        if ch == ' ' {
+            cur_line_w += (MENU_FONT_SPACE_W * s).round();
+            continue;
+        }
+
+        if let Some(g) = menu_glyph(ch) {
+            cur_line_w += (g.advance * s).round();
+        }
+    }
+
+    max_line_w = max_line_w.max(cur_line_w);
+
+    let total_w = max_line_w.max(1.0);
+    let total_h = ((line_count as f32) * line_h).max(1.0);
+
+    let run = commands
+        .spawn((
+            visibility,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(left.round()),
+                top: Val::Px(top.round()),
+                width: Val::Px(total_w.round()),
+                height: Val::Px(total_h.round()),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            ChildOf(parent),
+        ))
+        .id();
+
+    // Draw pass.
+    let mut pen_x: f32 = 0.0;
+    let mut pen_y: f32 = 0.0;
+
+    for ch in text.chars() {
+        if ch == '\n' {
+            pen_x = 0.0;
+            pen_y += line_h;
+            continue;
+        }
+
+        if ch == ' ' {
+            pen_x += (MENU_FONT_SPACE_W * s).round();
+            continue;
+        }
+
+        let Some(g) = menu_glyph(ch) else {
+            continue;
+        };
+
+        let draw_w = (g.w * s).round().max(1.0);
+        let draw_h = (g.h * s).round().max(1.0);
+
+        let mut img = ImageNode::new(font_img.clone());
+        img.rect = Some(g.rect);
+
+        commands.spawn((
+            img,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(pen_x.round()),
+                top: Val::Px((pen_y + g.top_from_line_top * s).round()),
+                width: Val::Px(draw_w),
+                height: Val::Px(draw_h),
+                ..default()
+            },
+            ChildOf(run),
+        ));
+
+        pen_x += (g.advance * s).round();
+    }
+
+    run
+}
 
 #[derive(SystemParam)]
 struct SplashAdvanceQueries<'w, 's> {
@@ -90,50 +280,6 @@ struct SplashAdvanceQueries<'w, 's> {
         &'static mut Node,
         (With<EpisodeHighlight>, Without<MenuCursor>),
     >,
-}
-
-#[derive(Deserialize)]
-struct RawMenuFontMap {
-    chars: HashMap<String, RawGlyph>,
-}
-
-#[derive(Deserialize)]
-struct RawGlyph {
-    rect: [u32; 4], // [x, y, w, h] in pixels
-    row: u32,       // 0 or 1
-}
-
-static MENU_FONT_MAP: OnceLock<RawMenuFontMap> = OnceLock::new();
-
-fn menu_font_map() -> &'static RawMenuFontMap {
-    MENU_FONT_MAP.get_or_init(|| {
-        let fs_path = std::path::Path::new("assets").join(MENU_FONT_MAP_PATH);
-        let txt = match std::fs::read_to_string(&fs_path) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!(
-                    "[menu_font] failed to read {}: {}",
-                    fs_path.display(),
-                    e
-                );
-                r#"{"chars":{}}"#.to_string()
-            }
-        };
-
-        match serde_json::from_str::<RawMenuFontMap>(&txt) {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!(
-                    "[menu_font] failed to parse {}: {}",
-                    fs_path.display(),
-                    e
-                );
-                RawMenuFontMap {
-                    chars: HashMap::new(),
-                }
-            }
-        }
-    })
 }
 
 #[derive(Component)]
@@ -259,139 +405,6 @@ impl Plugin for SplashPlugin {
 fn compute_scaled_size(win_w: f32, win_h: f32) -> (f32, f32) {
     let scale = (win_w / BASE_W).min(win_h / BASE_H).floor().max(1.0);
     (BASE_W * scale, BASE_H * scale)
-}
-
-// Character widths measured from atlas (in pixels)
-fn get_char_info(ch: char) -> Option<(f32, f32, u32)> {
-    // Space: advance only (we "draw" an empty rect area like before)
-    if ch == ' ' {
-        return Some((0.0, MENU_FONT_SPACE_W, 0));
-    }
-
-    let map = menu_font_map();
-
-    if let Some(g) = map.chars.get(&ch.to_string()) {
-        return Some((g.rect[0] as f32, g.rect[2] as f32, g.row));
-    }
-
-    // Fallback to '?' if present (avoids silently dropping unknown chars)
-    if ch != '?' {
-        if let Some(g) = map.chars.get("?") {
-            return Some((g.rect[0] as f32, g.rect[2] as f32, g.row));
-        }
-    }
-
-    None
-}
-
-fn menu_font_char_rect(ch: char) -> Option<Rect> {
-    let (x_start, width, row) = get_char_info(ch)?;
-    let y_pos = if row == 0 { ROW0_Y } else { ROW1_Y };
-
-    // half-texel inset helps avoid sampling neighbors if filtering ever changes
-    let x0 = x_start + 0.5;
-    let y0 = y_pos + 0.5;
-    let x1 = (x_start + width - 0.5).max(x0 + 0.01);
-    let y1 = (y_pos + MENU_FONT_HEIGHT - 0.5).max(y0 + 0.01);
-
-    Some(Rect::from_corners(Vec2::new(x0, y0), Vec2::new(x1, y1)))
-}
-
-fn spawn_menu_bitmap_text(
-    commands: &mut Commands,
-    parent: Entity,
-    font_img: Handle<Image>,
-    left: f32,
-    top: f32,
-    ui_scale: f32,
-    text: &str,
-    visibility: Visibility,
-) -> Entity {
-    let line_h = (MENU_FONT_HEIGHT * ui_scale + ui_scale).round().max(1.0);
-
-    // Calculate total dimensions
-    let mut max_line_width = 0.0f32;
-    let mut current_line_width = 0.0f32;
-    let mut line_count = 1;
-
-    for ch in text.chars() {
-        if ch == '\n' {
-            max_line_width = max_line_width.max(current_line_width);
-            current_line_width = 0.0;
-            line_count += 1;
-            continue;
-        }
-
-        if let Some((_, width, _)) = get_char_info(ch) {
-            current_line_width += width * ui_scale;
-        }
-    }
-    max_line_width = max_line_width.max(current_line_width);
-
-    let total_w = max_line_width.max(1.0);
-    let total_h = (line_count as f32 * line_h).max(1.0);
-
-    let run = commands
-        .spawn((
-            visibility,
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(left.round()),
-                top: Val::Px(top.round()),
-                width: Val::Px(total_w.round()),
-                height: Val::Px(total_h.round()),
-                ..default()
-            },
-            BackgroundColor(Color::NONE),
-            ChildOf(parent),
-        ))
-        .id();
-
-    let mut x: f32 = 0.0;
-    let mut y: f32 = 0.0;
-
-    for ch in text.chars() {
-        if ch == '\n' {
-            x = 0.0;
-            y += line_h;
-            continue;
-        }
-
-        // Advance spaces but do NOT draw
-        if ch == ' ' {
-            if let Some((_, width, _)) = get_char_info(' ') {
-                x += (width * ui_scale).round();
-            }
-            continue;
-        }
-
-        if let Some(rect) = menu_font_char_rect(ch) {
-            if let Some((_, width, _)) = get_char_info(ch) {
-                let draw_w = (width * ui_scale).round();
-                let draw_h = (MENU_FONT_HEIGHT * ui_scale).round();
-
-                let mut img = ImageNode::new(font_img.clone());
-                img.rect = Some(rect);
-
-                commands.spawn((
-                    img,
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(x.round()),
-                        top: Val::Px(y.round()),
-                        width: Val::Px(draw_w),
-                        height: Val::Px(draw_h),
-                        ..default()
-                    },
-                    ChildOf(run),
-                ));
-
-                x += draw_w;
-            }
-        }
-    }
-
-    run
 }
 
 fn spawn_episode_select_ui(
