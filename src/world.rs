@@ -1,49 +1,6 @@
 /*
 Davenstein - by David Petnick
 */
-// Wolf3D E1M1 wall textures + door jambs — what actually worked
-//
-// Problem:
-// - E1M1 walls showed wrong textures (often door/jamb-looking tiles).
-// - Once walls became correct, door jambs were missing around doors.
-// Goal: Map Wolf plane0 wall IDs to the *correct* original textures and restore jambs.
-//
-// What worked (final solution):
-//
-// 1) Use a VSWAP-ordered wall atlas and index it by chunk number (0..105).
-//    - Atlas layout: walls 0..105 packed as 16x7 tiles, each 64x64.
-//    - UV mapping must respect Bevy’s UV convention: (0,0) is top-left.
-//      => DO NOT flip V for the wall atlas.
-//    - Add half-texel inset in UVs to reduce bleeding between tiles.
-//
-// 2) Apply Wolf-style light/dark pairing stored as adjacent atlas chunks.
-//    - In this atlas, wall “types” are stored as pairs:
-//        type 0 => chunks (0 light, 1 dark)
-//        type 1 => chunks (2 light, 3 dark)
-//        ...
-//    - Map plane0 wall_id (1..63) to 0-based wall_type:
-//        wall_type = wall_id - 1
-//      then:
-//        pair_base = wall_type * 2
-//        light_idx = pair_base
-//        dark_idx  = pair_base + 1
-//    - Render Z faces (north/south) with the LIGHT chunk,
-//      and X faces (west/east) with the DARK chunk (classic Wolf directional shading).
-//
-// 3) Door jambs were “missing” due to spawn logic (jamb faces were impossible to spawn).
-//    - Old face condition blocked doors:
-//        if !is_wall(neighbor) && !is_door(neighbor) { spawn_face(...) }
-//      This prevents wall faces adjacent to doors from spawning, so jambs can’t appear.
-//    - Minimal fix:
-//        Spawn a wall face whenever the neighbor is NOT a wall (including doors),
-//        then choose mesh/material based on whether the neighbor is a door:
-//          neighbor is Door  => jamb_panel + jamb_mat
-//          neighbor is Empty => wall mesh + wall material
-//
-// Result:
-// - Walls now match correct E1M1 textures.
-// - Door jambs appear correctly around door openings.
-// - No hacks beyond correct atlas order + UV mapping + correct door-adjacent face spawning.
 use bevy::audio::SpatialListener;
 use bevy::prelude::*;
 use bevy::ui::prelude::IsDefaultUiCamera;
@@ -325,7 +282,7 @@ pub fn setup(
     current_level: Res<crate::level::CurrentLevel>,
     mut level_score: ResMut<crate::level_score::LevelScore>,
 ) {
-    // --- Map load (Wolf planes) ---
+    // --- Map Load (Wolf Planes) ---
     const E1M1_PLANE0: &str = include_str!("../assets/maps/e1m1_plane0_u16.txt");
     const E1M1_PLANE1: &str = include_str!("../assets/maps/e1m1_plane1_u16.txt");
     const E1M2_PLANE0: &str = include_str!("../assets/maps/e1m2_plane0_u16.txt");
@@ -598,16 +555,10 @@ pub fn setup(
     };
 
     let elev102_front = atlas_panels[DOOR_ELEV_LIGHT].clone();
-    let elev102_back = {
-        let (u0, u1, v0, v1) = atlas_uv(DOOR_ELEV_LIGHT);
-        build_atlas_panel(&mut meshes, u0, u1, v0, v1, true)
-    };
+    let elev102_back = atlas_panels[DOOR_ELEV_LIGHT].clone();
 
     let elev103_front = atlas_panels[DOOR_ELEV_DARK].clone();
-    let elev103_back = {
-        let (u0, u1, v0, v1) = atlas_uv(DOOR_ELEV_DARK);
-        build_atlas_panel(&mut meshes, u0, u1, v0, v1, true)
-    };
+    let elev103_back = atlas_panels[DOOR_ELEV_DARK].clone();
 
     let silver_front = atlas_panels[DOOR_SILVER].clone();
     let silver_back = {
@@ -658,9 +609,9 @@ pub fn setup(
             let walls_x = (left_wall as u8) + (right_wall as u8);
             let walls_z = (up_wall as u8) + (down_wall as u8);
 
-            // If walls are more above/below, corridor runs E/W => door plane faces +/-X => yaw 90°
-            // Otherwise corridor runs N/S => yaw 0°
-            let yaw = if walls_z > walls_x { FRAC_PI_2 } else { 0.0 };
+            let yaw = if walls_z > walls_x { FRAC_PI_2 } else { 0.0 } + PI;
+            let eps = 0.001;
+            let yaw_n = yaw.rem_euclid(PI);
 
             if walls_x == 0 && walls_z == 0 {
                 bevy::log::warn!("Door at ({},{}) has no adjacent walls?", x, z);
@@ -697,7 +648,9 @@ pub fn setup(
             //   94/95 silver key
             //   100/101 elevator door
             let code = grid.plane0_code(x, z);
-            let is_z_axis = yaw.abs() < 0.001;
+            let eps = 0.001;
+            let yaw_n = yaw.rem_euclid(PI);
+            let is_z_axis = yaw_n.abs() < eps;
 
             let (front_panel, back_panel) = match code {
                 100 | 101 => {

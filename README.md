@@ -35,6 +35,7 @@ FEATURES TO BE DONE:
 BUGS:
 **********************************************
 - Enemy death sounds need to cut off enemy alert sounds for guard
+- Border between deep red menu UI and ligher red background
 - Enemies sometimes sidestep and walk backwards in a strange way
 - Cannot pickup chaingun for ammo if it is already owned
 - Hans needs to do damage in line with Wolfenstein 3-D
@@ -42,3 +43,4 @@ BUGS:
 - HUD face sprite seems to look only in one direction
 - Dog alert sound doesnt always play, something takes precedence
 - Elevator door texture facing wrong way
+- Dogs should move more quickly
