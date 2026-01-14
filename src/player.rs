@@ -2,7 +2,11 @@
 Davenstein - by David Petnick
 */
 use bevy::prelude::*;
-use bevy::window::{CursorGrabMode, CursorOptions};
+use bevy::window::{
+    CursorGrabMode,
+    CursorOptions,
+    PrimaryWindow,
+};
 use bevy::input::mouse::AccumulatedMouseMotion;
 
 use crate::actors::{Dead, OccupiesTile};
@@ -71,7 +75,7 @@ impl Default for PlayerVitals {
 pub struct PlayerControlLock(pub bool);
 
 /// Prevents Decrementing Lives Every Frame While hp == 0
-/// false = Alive (or not yet processed), true = Death Handled
+/// False = Alive (or not yet processed), True = Death Handled
 #[derive(Resource, Default)]
 pub struct PlayerDeathLatch(pub bool);
 
@@ -91,24 +95,35 @@ pub fn toggle_god_mode(keys: Res<ButtonInput<KeyCode>>, mut god: ResMut<GodMode>
     }
 }
 
-// Left Click to Lock/Hide Cursor, Esc to Release
 pub fn grab_mouse(
-    mut cursor_options: Single<&mut CursorOptions>,
     mouse: Res<ButtonInput<MouseButton>>,
-    key: Res<ButtonInput<KeyCode>>,
+    keys: Res<ButtonInput<KeyCode>>,
     lock: Res<PlayerControlLock>,
+    mut q_cursor: Query<&mut CursorOptions, With<PrimaryWindow>>,
 ) {
+    // If player controls are locked (menus), force cursor free/visible.
+    // This prevents "stuck grabbed in menu" and makes recovery reliable.
+    let Some(mut cursor) = q_cursor.iter_mut().next() else {
+        return;
+    };
+
     if lock.0 {
+        cursor.visible = true;
+        cursor.grab_mode = CursorGrabMode::None;
         return;
     }
 
-    if mouse.just_pressed(MouseButton::Left) {
-        cursor_options.visible = false;
-        cursor_options.grab_mode = CursorGrabMode::Locked;
+    // Release: LAlt
+    if keys.just_pressed(KeyCode::AltLeft) {
+        cursor.visible = true;
+        cursor.grab_mode = CursorGrabMode::None;
+        return;
     }
-    if key.just_pressed(KeyCode::Escape) {
-        cursor_options.visible = true;
-        cursor_options.grab_mode = CursorGrabMode::None;
+
+    // Grab: click in window (either button works; pick one if you prefer)
+    if mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Right) {
+        cursor.visible = false;
+        cursor.grab_mode = CursorGrabMode::Locked; // IMPORTANT: matches mouse_look()
     }
 }
 

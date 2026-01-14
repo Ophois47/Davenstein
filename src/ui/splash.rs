@@ -50,11 +50,6 @@ const BASE_H: f32 = 200.0;
 
 const MENU_CURSOR_TOP: f32 = 64.0;
 const MENU_ITEM_H: f32 = 13.0;
-const MENU_ACTIONS: [MenuAction; 3] = [
-    MenuAction::NewGame,
-    MenuAction::ViewScores,
-    MenuAction::Quit,
-];
 const MENU_FONT_HEIGHT: f32 = 20.0;
 const MENU_FONT_SPACE_W: f32 = 8.0;
 
@@ -290,9 +285,39 @@ pub enum SplashStep {
     Splash0,
     Splash1,
     Menu,
+    PauseMenu,     // <-- ADD
     EpisodeSelect,
     Done,
 }
+
+#[derive(Default)]
+struct EpisodeLocalState {
+    selection: usize,
+    from_pause: bool, // <-- ADD
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuAction {
+    BackToGame,  // <-- ADD
+    NewGame,
+    ViewScores,
+    Quit,
+}
+
+const MENU_ACTIONS_MAIN: [MenuAction; 3] = [
+    MenuAction::NewGame,
+    MenuAction::ViewScores,
+    MenuAction::Quit,
+];
+const MENU_ACTIONS_PAUSE: [MenuAction; 4] = [
+    MenuAction::NewGame,
+    MenuAction::ViewScores,
+    MenuAction::BackToGame,
+    MenuAction::Quit,
+];
+const MENU_LABELS_MAIN: [&str; 3] = ["New Game", "View Scores", "Quit"];
+const MENU_LABELS_PAUSE: [&str; 4] = ["New Game", "View Scores", "Return to Game", "Quit"];
+
 
 #[derive(Resource)]
 struct SplashImages {
@@ -302,11 +327,6 @@ struct SplashImages {
     menu_font_white: Handle<Image>,
     menu_font_gray: Handle<Image>,
     menu_font_yellow: Handle<Image>,
-}
-
-#[derive(Default)]
-struct EpisodeLocalState {
-    selection: usize,
 }
 
 #[derive(Component)]
@@ -336,13 +356,6 @@ struct MenuCursorLight;
 
 #[derive(Component)]
 struct MenuCursorDark;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MenuAction {
-    NewGame,
-    ViewScores,
-    Quit,
-}
 
 #[derive(Component)]
 struct PsychedBar {
@@ -391,7 +404,10 @@ impl Plugin for SplashPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SplashStep>();
         app.init_resource::<PsychedLoad>();
-        app.add_systems(Update, splash_advance_on_any_input);
+
+        // Make sure ESC->pause happens before grab_mouse sees ESC
+        app.add_systems(Update, splash_advance_on_any_input.before(davelib::player::grab_mouse));
+
         app.add_systems(Update, auto_get_psyched_on_level_start);
         app.add_systems(Update, tick_get_psyched_loading);
         app.add_systems(Update, splash_resize_on_window_change);
@@ -444,7 +460,7 @@ fn spawn_episode_select_ui(
         ))
         .id();
 
-    // ---- Title (centered like DOS Wolf3D) ----
+    // ---- Title ----
     let title = "Which episode to play?";
 
     let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
@@ -488,7 +504,7 @@ fn spawn_episode_select_ui(
         Visibility::Visible,
     );
 
-    // ---- Hint placement (so panel doesn't cover it) ----
+    // ---- Hint Placement (so panel doesn't cover it) ----
     let hint_native_w = 103.0;
     let hint_native_h = 12.0;
     let hint_bottom_pad = 6.0;
@@ -499,22 +515,22 @@ fn spawn_episode_select_ui(
     let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
     let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
 
-    // ---- Cursor + gutter column (so gun never overlaps thumbs) ----
+    // ---- Cursor + Gutter Column (so gun never overlaps thumbs) ----
     let cursor_w = (19.0 * ui_scale).round();
     let cursor_h = (10.0 * ui_scale).round();
 
-    // Space reserved to the left of the thumbnail column:
-    // cursor width + a little breathing room.
+    // Space Reserved to Left of Thumbnail Column:
+    // Cursor Width + Little Breathing Room
     let gutter_x = cursor_w + (10.0 * ui_scale).round();
 
-    // Thumbnails + text start after the gutter.
+    // Thumbnails + Text Start After Gutter
     let thumb_x = (EP_THUMB_X * ui_scale).round() + gutter_x;
     let text_x = (EP_TEXT_X * ui_scale).round() + gutter_x;
 
-    // Cursor sits just left of the thumbnail column.
+    // Cursor Sits Just Left of Thumbnail Column
     let cursor_x = (thumb_x - cursor_w - (8.0 * ui_scale).round()).max(0.0);
 
-    // ---- Sunken darker-red panel behind ONLY the episode thumbs+text+cursor ----
+    // ---- Sunken Darker-Red Panel Behind Episode Thumbs + Text + Cursor ----
     let panel_left = (cursor_x - (8.0 * ui_scale).round()).max(0.0);
     let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
 
@@ -607,7 +623,7 @@ fn spawn_episode_select_ui(
             .insert((EpisodeItem { idx }, EpisodeTextVariant { selected: true }));
     }
 
-    // ---- Gun cursor (episode menu) ----
+    // ---- Gun Cursor ----
     let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
     let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
 
@@ -647,7 +663,7 @@ fn spawn_episode_select_ui(
         ChildOf(canvas),
     ));
 
-    // ---- Bottom hint ----
+    // ---- Bottom Hint ----
     let hint = asset_server.load(MENU_HINT_PATH);
     commands.spawn((
         ImageNode::new(hint),
@@ -699,6 +715,7 @@ fn spawn_menu_hint(
     w: f32,
     h: f32,
     imgs: &SplashImages,
+    from_pause: bool,
 ) {
     let banner = asset_server.load(MENU_BANNER_PATH);
     let hint = asset_server.load(MENU_HINT_PATH);
@@ -707,20 +724,16 @@ fn spawn_menu_hint(
 
     let ui_scale = (w / BASE_W).round().max(1.0);
 
-    // ---- Banner geometry ----
-    // Your updated banner asset is 152x48, but we intentionally stretch it to full width.
+    // ---- Banner Geometry ----
     let banner_native_h = 48.0;
-
-    // Leave a bit of red above the banner like the DOS reference.
     let top_red = (3.0 * ui_scale).round();
 
     let banner_x = 0.0;
     let banner_y = top_red;
-
-    let banner_w = w; // full width of the canvas
+    let banner_w = w;
     let banner_h = (banner_native_h * ui_scale).round();
 
-    // ---- Hint placement (match Episode Select) ----
+    // ---- Hint Placement ----
     let hint_native_w = 103.0;
     let hint_native_h = 12.0;
     let hint_bottom_pad = 6.0;
@@ -730,8 +743,14 @@ fn spawn_menu_hint(
     let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
     let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
 
-    // ---- Menu panel + items ----
-    let labels: [&str; 3] = ["New Game", "View Scores", "Quit"];
+    // ---- Menu Panel + Items ----
+    let labels: &[&str] = if from_pause {
+        &MENU_LABELS_PAUSE
+    } else {
+        &MENU_LABELS_MAIN
+    };
+
+    let row_count = labels.len();
 
     let panel_left = (76.0 * ui_scale).round();
     let panel_top = (55.0 * ui_scale).round();
@@ -748,13 +767,13 @@ fn spawn_menu_hint(
     let text_y0 = (cursor_y0 - (2.0 * ui_scale).round()).round();
 
     let pad_y = (8.0 * ui_scale).round();
-    let desired_panel_h = (pad_y * 2.0 + row_h * labels.len() as f32).round();
+    let desired_panel_h = (pad_y * 2.0 + row_h * row_count as f32).round();
 
-    // Never overlap the hint (same rule as Episode Select).
+    // Never Overlap Hint
     let max_panel_h = (hint_y - (2.0 * ui_scale).round() - panel_top).max(1.0);
     let panel_h = desired_panel_h.min(max_panel_h).max(1.0);
 
-    // ---- Root + canvas ----
+    // ---- Root + Canvas ----
     let root = commands
         .spawn((
             SplashUi,
@@ -788,7 +807,7 @@ fn spawn_menu_hint(
         ))
         .id();
 
-    // ---- Full-width banner (replaces the separate black bar) ----
+    // ---- Full-Width Banner ----
     commands.spawn((
         ImageNode::new(banner),
         Node {
@@ -802,7 +821,7 @@ fn spawn_menu_hint(
         ChildOf(canvas),
     ));
 
-    // ---- Darker-red menu panel ----
+    // ---- Darker-Red Background Menu Panel ----
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -816,10 +835,27 @@ fn spawn_menu_hint(
         ChildOf(canvas),
     ));
 
-    // ---- Menu text (gray/white dual-runs) ----
-    for (idx, &label) in labels.iter().enumerate() {
-        let y = (text_y0 + idx as f32 * row_h).round();
-        let is_selected = idx == 0;
+    // ---- Menu Text ----
+    for (row_idx, &label) in labels.iter().enumerate() {
+        let y = (text_y0 + row_idx as f32 * row_h).round();
+
+        // Pause menu: "Return to Game" Always Yellow
+        if from_pause && label == "Return to Game" {
+            spawn_menu_bitmap_text(
+                commands,
+                canvas,
+                imgs.menu_font_yellow.clone(),
+                text_x,
+                y,
+                ui_scale,
+                label,
+                Visibility::Visible,
+            );
+            continue;
+        }
+
+        // Default Cursor Starts at Top
+        let is_selected = row_idx == 0;
 
         let gray_run = spawn_menu_bitmap_text(
             commands,
@@ -833,7 +869,7 @@ fn spawn_menu_hint(
         );
         commands
             .entity(gray_run)
-            .insert((EpisodeItem { idx }, EpisodeTextVariant { selected: false }));
+            .insert((EpisodeItem { idx: row_idx }, EpisodeTextVariant { selected: false }));
 
         let white_run = spawn_menu_bitmap_text(
             commands,
@@ -847,10 +883,10 @@ fn spawn_menu_hint(
         );
         commands
             .entity(white_run)
-            .insert((EpisodeItem { idx }, EpisodeTextVariant { selected: true }));
+            .insert((EpisodeItem { idx: row_idx }, EpisodeTextVariant { selected: true }));
     }
 
-    // ---- Gun cursor ----
+    // ---- Gun Cursor ----
     commands.spawn((
         MenuCursor,
         MenuCursorLight,
@@ -882,7 +918,7 @@ fn spawn_menu_hint(
         ChildOf(canvas),
     ));
 
-    // ---- Bottom hint ----
+    // ---- Bottom Hint ----
     commands.spawn((
         ImageNode::new(hint),
         Node {
@@ -914,9 +950,7 @@ fn splash_advance_on_any_input(
     mut app_exit: MessageWriter<bevy::app::AppExit>,
     mut q: SplashAdvanceQueries,
 ) {
-    let Some(win) = q.q_win.iter().next() else {
-        return;
-    };
+    let Some(win) = q.q_win.iter().next() else { return; };
 
     let (w, h) = compute_scaled_size(win.width(), win.height());
     let scale = w / BASE_W;
@@ -928,55 +962,61 @@ fn splash_advance_on_any_input(
             lock.0 = true;
             music_mode.0 = MusicModeKind::Splash;
 
-            let Some(imgs) = imgs.as_ref() else {
-                return;
-            };
+            let Some(imgs) = imgs.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
                 spawn_splash_ui(&mut commands, imgs.splash0.clone(), w, h);
             }
 
             if any_key {
-                for e in q.q_splash_roots.iter() {
-                    commands.entity(e).despawn();
-                }
+                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
                 spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
                 *step = SplashStep::Splash1;
             }
         }
+
         SplashStep::Splash1 => {
             lock.0 = true;
             music_mode.0 = MusicModeKind::Splash;
 
-            let Some(imgs) = imgs.as_ref() else {
-                return;
-            };
+            let Some(imgs) = imgs.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
                 spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
             }
 
             if any_key {
-                for e in q.q_splash_roots.iter() {
-                    commands.entity(e).despawn();
-                }
-
-                // Menu is now built from UI nodes (not main_menu.png)
-                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs);
+                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, false);
                 menu.reset();
                 *step = SplashStep::Menu;
             }
         }
-        SplashStep::Menu => {
+
+        SplashStep::Menu | SplashStep::PauseMenu => {
+            let is_pause = *step == SplashStep::PauseMenu;
+
             lock.0 = true;
             music_mode.0 = MusicModeKind::Menu;
+
+            let actions: &[MenuAction] = if is_pause { &MENU_ACTIONS_PAUSE } else { &MENU_ACTIONS_MAIN };
 
             // If something ever nuked the menu roots, recreate.
             if q.q_splash_roots.iter().next().is_none() {
                 if let Some(imgs) = imgs.as_ref() {
-                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs);
+                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, is_pause);
                     menu.reset();
                 }
+                return;
+            }
+
+            // ESC in pause menu resumes (DOS-ish).
+            if is_pause && keyboard.just_pressed(KeyCode::Escape) {
+                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                lock.0 = false;
+                music_mode.0 = MusicModeKind::Gameplay;
+                *step = SplashStep::Done;
                 return;
             }
 
@@ -986,109 +1026,86 @@ fn splash_advance_on_any_input(
             for mut node in q.q_node.iter_mut() {
                 node.top = Val::Px(top);
             }
-
             for mut v in q.q_cursor_light.iter_mut() {
-                *v = if blink_on {
-                    Visibility::Visible
-                } else {
-                    Visibility::Hidden
-                };
+                *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
             }
             for mut v in q.q_cursor_dark.iter_mut() {
-                *v = if blink_on {
-                    Visibility::Hidden
-                } else {
-                    Visibility::Visible
-                };
+                *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
             }
 
-            // Gray/white dual-run selection (same mechanism as Episode Select)
             for (item, variant, mut vis) in q.q_episode_items.iter_mut() {
                 let want_selected = item.idx == menu.selection;
-                *vis = if variant.selected == want_selected {
-                    Visibility::Visible
-                } else {
-                    Visibility::Hidden
-                };
+                *vis = if variant.selected == want_selected { Visibility::Visible } else { Visibility::Hidden };
             }
 
             if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
-                if menu.selection > 0 {
-                    menu.selection -= 1;
-                } else {
-                    menu.selection = MENU_ACTIONS.len() - 1;
-                }
-                sfx.write(PlaySfx {
-                    kind: SfxKind::MenuMove,
-                    pos: Vec3::ZERO,
-                });
+                if menu.selection > 0 { menu.selection -= 1; } else { menu.selection = actions.len() - 1; }
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
             }
-
             if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
-                menu.selection = (menu.selection + 1) % MENU_ACTIONS.len();
-                sfx.write(PlaySfx {
-                    kind: SfxKind::MenuMove,
-                    pos: Vec3::ZERO,
-                });
+                menu.selection = (menu.selection + 1) % actions.len();
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
             }
 
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
             {
-                sfx.write(PlaySfx {
-                    kind: SfxKind::MenuSelect,
-                    pos: Vec3::ZERO,
-                });
+                sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
-                match MENU_ACTIONS[menu.selection] {
+                match actions[menu.selection] {
+                    MenuAction::BackToGame => {
+                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        lock.0 = false;
+                        music_mode.0 = MusicModeKind::Gameplay;
+                        *step = SplashStep::Done;
+                    }
+
                     MenuAction::NewGame => {
-                        for e in q.q_splash_roots.iter() {
-                            commands.entity(e).despawn();
-                        }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
                         episode.selection = 0;
+                        episode.from_pause = is_pause;
+
                         if let Some(imgs) = imgs.as_ref() {
                             spawn_episode_select_ui(
                                 &mut commands,
                                 &asset_server,
-                                w,
-                                h,
-                                scale,
+                                w, h, scale,
                                 imgs,
                                 episode.selection,
                             );
                             *step = SplashStep::EpisodeSelect;
                         }
                     }
+
                     MenuAction::ViewScores => {
-                        // Out of scope for now: do nothing (no fancy behavior)
+                        // TODO later
                     }
+
                     MenuAction::Quit => {
                         app_exit.write(bevy::app::AppExit::Success);
                     }
                 }
             }
         }
+
         SplashStep::EpisodeSelect => {
             lock.0 = true;
             music_mode.0 = MusicModeKind::Menu;
 
             if keyboard.just_pressed(KeyCode::Escape) {
-                sfx.write(PlaySfx {
-                    kind: SfxKind::MenuBack,
-                    pos: Vec3::ZERO,
-                });
+                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
-                for e in q.q_splash_roots.iter() {
-                    commands.entity(e).despawn();
-                }
+                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
                 if let Some(imgs) = imgs.as_ref() {
-                    // Menu is now built from UI nodes (not main_menu.png)
-                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs);
+                    let back_to_pause = episode.from_pause;
+                    episode.from_pause = false;
+
+                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
                     menu.reset();
-                    *step = SplashStep::Menu;
+                    *step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                 }
                 return;
             }
@@ -1096,43 +1113,25 @@ fn splash_advance_on_any_input(
             let mut moved = false;
 
             if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
-                if episode.selection > 0 {
-                    episode.selection -= 1;
-                } else {
-                    episode.selection = 5;
-                }
+                if episode.selection > 0 { episode.selection -= 1; } else { episode.selection = 5; }
                 moved = true;
             }
-
             if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
                 episode.selection = (episode.selection + 1) % 6;
                 moved = true;
             }
-
             if moved {
-                sfx.write(PlaySfx {
-                    kind: SfxKind::MenuMove,
-                    pos: Vec3::ZERO,
-                });
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
             }
 
-            // Selection is indicated purely by gray vs white text runs.
             for (item, variant, mut vis) in q.q_episode_items.iter_mut() {
                 let want_selected = item.idx == episode.selection;
-                *vis = if variant.selected == want_selected {
-                    Visibility::Visible
-                } else {
-                    Visibility::Hidden
-                };
+                *vis = if variant.selected == want_selected { Visibility::Visible } else { Visibility::Hidden };
             }
 
-            // Move + blink the episode gun cursor (so it tracks episode.selection)
             let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
 
-            // Move the episode cursor to the newly selected row
             let ui_scale = (w / BASE_W).round().max(1.0);
-
-            // Must match spawn_episode_select_ui() layout:
             let panel_left = (18.0 * ui_scale).round();
             let cursor_x = (panel_left + (6.0 * ui_scale).round()).round();
 
@@ -1144,7 +1143,6 @@ fn splash_advance_on_any_input(
                 node.left = Val::Px(cursor_x);
                 node.top = Val::Px(cursor_y);
             }
-
             for mut v in q.q_cursor_light.iter_mut() {
                 *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
             }
@@ -1157,14 +1155,14 @@ fn splash_advance_on_any_input(
                 || keyboard.just_pressed(KeyCode::Space)
             {
                 if episode.selection == 0 {
-                    sfx.write(PlaySfx {
-                        kind: SfxKind::MenuSelect,
-                        pos: Vec3::ZERO,
-                    });
+                    sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
-                    for e in q.q_splash_roots.iter() {
-                        commands.entity(e).despawn();
-                    }
+                    for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+
+                    // IMPORTANT: only request New Game *after* episode confirm.
+                    // Use commands.insert_resource to avoid adding more system params.
+                    commands.insert_resource(crate::ui::sync::NewGameRequested(true));
+                    commands.insert_resource(davelib::level::CurrentLevel(davelib::level::LevelId::E1M1));
 
                     begin_get_psyched_loading(
                         &mut commands,
@@ -1175,19 +1173,36 @@ fn splash_advance_on_any_input(
                         &mut *music_mode,
                     );
 
+                    // Keep your existing behavior (no regressions).
                     lock.0 = false;
                     music_mode.0 = MusicModeKind::Gameplay;
 
+                    episode.from_pause = false;
                     *step = SplashStep::Done;
                 } else {
-                    sfx.write(PlaySfx {
-                        kind: SfxKind::NoWay,
-                        pos: Vec3::ZERO,
-                    });
+                    sfx.write(PlaySfx { kind: SfxKind::NoWay, pos: Vec3::ZERO });
                 }
             }
         }
-        SplashStep::Done => {}
+
+        SplashStep::Done => {
+            // Gameplay -> Pause menu on ESC (DOS behavior)
+            if keyboard.just_pressed(KeyCode::Escape) {
+                let Some(imgs) = imgs.as_ref() else { return; };
+
+                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+
+                lock.0 = true;
+                music_mode.0 = MusicModeKind::Menu;
+
+                // safety: if any stray splash roots exist, clear them
+                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+
+                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, true);
+                menu.reset();
+                *step = SplashStep::PauseMenu;
+            }
+        }
     }
 }
 

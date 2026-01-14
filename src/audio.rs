@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use bevy::audio::{
 	AudioPlayer,
 	AudioSource,
+    PlaybackMode,
 	PlaybackSettings,
     SpatialScale,
     Volume,
@@ -410,38 +411,51 @@ pub fn sync_boot_music(
 pub fn sync_level_music(
     mut commands: Commands,
     audio: Res<GameAudio>,
-    level: Res<CurrentLevel>,
     mode: Res<MusicMode>,
-    q_music: Query<Entity, With<Music>>,
+    level: Res<CurrentLevel>,
+    music: Query<Entity, With<Music>>,
     mut last: Local<Option<LevelId>>,
 ) {
+    // If we're not in gameplay, clear the cached gameplay-level marker.
+    // Otherwise returning to gameplay on the same level won't restart the level music.
     if mode.0 != MusicModeKind::Gameplay {
+        *last = None;
         return;
     }
 
-    if *last == Some(level.0) {
+    // If we're already on this level and we have music, do nothing.
+    if *last == Some(level.0) && !music.is_empty() {
         return;
     }
 
-    for e in q_music.iter() {
-        commands.entity(e).try_despawn();
+    // Always remove whatever "Music" is currently playing (menu/levelend/etc).
+    for e in music.iter() {
+        commands.entity(e).despawn();
     }
 
-    let floor = level.0.floor_number();
-    let clamped = floor.clamp(1, 10);
-    let idx = (clamped - 1) as usize;
+    let idx = match level.0 {
+        LevelId::E1M1 => 0,
+        LevelId::E1M2 => 1,
+        LevelId::E1M3 => 2,
+        LevelId::E1M4 => 3,
+        LevelId::E1M5 => 4,
+        LevelId::E1M6 => 5,
+        LevelId::E1M7 => 6,
+        LevelId::E1M8 => 7,
+        LevelId::E1M9 => 8,
+        LevelId::E1M10 => 9,
+    };
 
-    let clip = audio
-        .music_levels
-        .get(idx)
-        .cloned()
-        .unwrap_or_else(|| audio.music_levels.get(0).cloned().unwrap_or_default());
-
-    commands.spawn((
-        Music,
-        AudioPlayer::new(clip),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(1.4)),
-    ));
+    if let Some(handle) = audio.music_levels.get(idx).cloned() {
+        commands.spawn((
+            Music,
+            AudioPlayer(handle),
+            PlaybackSettings {
+                mode: PlaybackMode::Loop,
+                ..default()
+            },
+        ));
+    }
 
     *last = Some(level.0);
 }
