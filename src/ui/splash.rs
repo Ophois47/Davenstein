@@ -409,7 +409,14 @@ impl Plugin for SplashPlugin {
         app.add_systems(Update, splash_advance_on_any_input.before(davelib::player::grab_mouse));
 
         app.add_systems(Update, auto_get_psyched_on_level_start);
-        app.add_systems(Update, tick_get_psyched_loading);
+        app.add_systems(
+            Update,
+            tick_get_psyched_loading
+                .after(splash_advance_on_any_input)
+                .before(davelib::player::grab_mouse)
+                .before(davelib::player::use_doors)
+                .before(super::hud::weapon_fire_and_viewmodel),
+        );
         app.add_systems(Update, splash_resize_on_window_change);
     }
 }
@@ -1001,7 +1008,7 @@ fn splash_advance_on_any_input(
 
             let actions: &[MenuAction] = if is_pause { &MENU_ACTIONS_PAUSE } else { &MENU_ACTIONS_MAIN };
 
-            // If something ever nuked the menu roots, recreate.
+            // If something ever nuked the menu roots, recreate
             if q.q_splash_roots.iter().next().is_none() {
                 if let Some(imgs) = imgs.as_ref() {
                     spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, is_pause);
@@ -1159,8 +1166,8 @@ fn splash_advance_on_any_input(
 
                     for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
-                    // IMPORTANT: only request New Game *after* episode confirm.
-                    // Use commands.insert_resource to avoid adding more system params.
+                    // IMPORTANT: only request New Game *after* episode confirm
+                    // Use commands.insert_resource to avoid adding more system params
                     commands.insert_resource(crate::ui::sync::NewGameRequested(true));
                     commands.insert_resource(davelib::level::CurrentLevel(davelib::level::LevelId::E1M1));
 
@@ -1173,7 +1180,6 @@ fn splash_advance_on_any_input(
                         &mut *music_mode,
                     );
 
-                    // Keep your existing behavior (no regressions).
                     lock.0 = false;
                     music_mode.0 = MusicModeKind::Gameplay;
 
@@ -1186,7 +1192,7 @@ fn splash_advance_on_any_input(
         }
 
         SplashStep::Done => {
-            // Gameplay -> Pause menu on ESC (DOS behavior)
+            // Gameplay -> Pause Menu ESC
             if keyboard.just_pressed(KeyCode::Escape) {
                 let Some(imgs) = imgs.as_ref() else { return; };
 
@@ -1195,7 +1201,7 @@ fn splash_advance_on_any_input(
                 lock.0 = true;
                 music_mode.0 = MusicModeKind::Menu;
 
-                // safety: if any stray splash roots exist, clear them
+                // If Stray Splash Roots Exist, Clear Them
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
                 spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, true);
@@ -1338,6 +1344,10 @@ fn tick_get_psyched_loading(
     if !psyched.active {
         return;
     }
+
+    // While GET PSYCHED is up, force controls locked (prevents mouse clicks from acting
+    // on gameplay or UI underneath), even if other systems temporarily unlock
+    lock.0 = true;
 
     psyched.timer.tick(time.delta());
 

@@ -2,8 +2,10 @@
 
 This is an attempt to recreate Wolfenstein 3-D written entirely in Rust, using the Bevy engine.
 
+NOTE! Left Control (LCtrl) releases the mouse from the window.
 
---Build on Linux with: 
+
+-- Build on Linux with: 
 - $ cargo update && cargo build && cargo build --release
 
 
@@ -19,7 +21,7 @@ This is an attempt to recreate Wolfenstein 3-D written entirely in Rust, using t
 **********************************************
 FEATURES TO BE DONE:
 **********************************************
-- Ceilings need to be their respective colors per level
+- Ceilings need to be respective colors per level
 - Game difficulty levels
 - High scores and associated menu screen
 - E1M10 the secret level
@@ -40,4 +42,3 @@ BUGS:
 - HUD face sprite seems to look only in one direction
 - Dog alert sound doesnt always play, something takes precedence
 - Elevator door texture facing wrong way
-- Player can close already open doors
