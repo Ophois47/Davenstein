@@ -101,29 +101,28 @@ pub fn grab_mouse(
     lock: Res<PlayerControlLock>,
     mut q_cursor: Query<&mut CursorOptions, With<PrimaryWindow>>,
 ) {
-    // If player controls are locked (menus), force cursor free/visible.
-    // This prevents "stuck grabbed in menu" and makes recovery reliable.
     let Some(mut cursor) = q_cursor.iter_mut().next() else {
         return;
     };
 
-    if lock.0 {
-        cursor.visible = true;
-        cursor.grab_mode = CursorGrabMode::None;
-        return;
-    }
-
     // Release: LAlt
+    // Works Even While Menus Up / Controls Locked
     if keys.just_pressed(KeyCode::AltLeft) {
         cursor.visible = true;
         cursor.grab_mode = CursorGrabMode::None;
         return;
     }
 
-    // Grab: click in window (either button works; pick one if you prefer)
+    // Do NOT Auto-Release Just Because in Menu / Locked
+    // Menus Keyboard Only
+    if lock.0 {
+        return;
+    }
+
+    // Grab: Click Window
     if mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Right) {
         cursor.visible = false;
-        cursor.grab_mode = CursorGrabMode::Locked; // IMPORTANT: matches mouse_look()
+        cursor.grab_mode = CursorGrabMode::Locked;
     }
 }
 
