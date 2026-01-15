@@ -98,7 +98,7 @@ impl EnemyTunings {
                 wander_speed_tps: 0.0,
                 chase_speed_tps: 1.3,
                 can_shoot: true,
-                attack_damage: 10,
+                attack_damage: 30,
                 attack_cooldown_secs: 0.35,
                 attack_range_tiles: 8.0,
                 reaction_time_secs: 0.30,

@@ -475,6 +475,20 @@ fn wolf_far_miss_gate(dist_tiles: i32) -> bool {
     }
 }
 
+fn wolf_boss_damage(dist_tiles: i32) -> i32 {
+    // Bosses are better shots: effective distance reduced by 1/3
+    let effective_dist = (dist_tiles / 3).max(0);
+    let r = rand::random::<u8>() as i32; // 0..255
+    
+    if effective_dist < 2 {
+        r / 4  // 0..63
+    } else if effective_dist < 4 {
+        r / 8  // 0..31
+    } else {
+        r / 16 // 0..15
+    }
+}
+
 pub fn enemy_ai_tick(
     mut commands: Commands,
     time: Res<Time>,
@@ -831,7 +845,14 @@ pub fn enemy_ai_tick(
                         shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
                         let hits = wolf_far_miss_gate(shoot_dist);
-                        let damage = if hits { wolf_hitscan_damage(shoot_dist) } else { 0 };
+                        let damage = if hits {
+                            match kind {
+                                EnemyKind::Hans => wolf_boss_damage(shoot_dist),
+                                _ => wolf_hitscan_damage(shoot_dist),
+                            }
+                        } else {
+                            0
+                        };
 
                         enemy_fire.write(EnemyFire { kind: *kind, damage });
 
