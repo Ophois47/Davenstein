@@ -85,7 +85,7 @@ impl EnemyTunings {
             dog: EnemyTuning {
                 max_hp: 1,
                 wander_speed_tps: 1.2,
-                chase_speed_tps: 2.2,
+                chase_speed_tps: 2.8,
                 can_shoot: false,
                 attack_damage: 8,
                 attack_cooldown_secs: 0.35,
