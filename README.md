@@ -34,4 +34,4 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
-- Enemies sometimes sidestep and walk backwards in a strange way
+- Time and Par digits need to be aligned with right column

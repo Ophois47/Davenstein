@@ -528,7 +528,7 @@ pub fn enemy_ai_tick(
 ) {
     // Tunables (Later Move These Into Options / Difficulty Resource)
     const GUARD_SHOOT_MAX_DIST_TILES: i32 = 7;
-    
+
     const GUARD_SHOOT_PAUSE_SECS: f32 = 0.25;
     const LOS_FIRST_SHOT_DELAY_SECS: f32 = 0.02;
 
@@ -546,6 +546,11 @@ pub fn enemy_ai_tick(
     for ot in q.p0().iter() {
         occupied.insert(ot.0);
     }
+
+    // Moves Scheduled This Frame
+    // Commands Are Deferred, So Within This Function A Newly Inserted EnemyMove Will Not Be Visible Yet
+    // Track Those Inserts So The 70hz AI Loop Does Not Double-Schedule Or Turn To Face While Still Walking Away
+    let mut scheduled_move: HashSet<Entity> = HashSet::new();
 
     // Cooldowns Tick Down Every Frame
     let dt = time.delta_secs();
@@ -637,6 +642,7 @@ pub fn enemy_ai_tick(
             let t = tunings.for_kind(*kind);
             let speed = t.chase_speed_tps;
             let my_tile = occ.0;
+            let moving_now = moving.is_some() || scheduled_move.contains(&e);
 
             // Acquire -> Chase (Activation Gated by Same Area + LOS)
             if matches!(ai.state, EnemyAiState::Stand | EnemyAiState::Patrol) {
@@ -677,7 +683,7 @@ pub fn enemy_ai_tick(
                     continue;
                 }
                 EnemyAiState::Patrol => {
-                    if moving.is_some() {
+                    if moving_now {
                         continue;
                     }
 
@@ -759,6 +765,8 @@ pub fn enemy_ai_tick(
                                 speed_tps: patrol_speed,
                             });
 
+                            scheduled_move.insert(e);
+
                             occupied.insert(dest);
                             if CLAIM_TILE_EARLY {
                                 occupied.remove(&my_tile);
@@ -768,8 +776,7 @@ pub fn enemy_ai_tick(
                         }
                     }
                 }
-                EnemyAiState::Chase => {
-                }
+                EnemyAiState::Chase => {}
             }
 
             // Current Shooting Cooldown Remaining (0 => Ready)
@@ -784,7 +791,7 @@ pub fn enemy_ai_tick(
 
             // If Already Moving, Don't Shoot Mid Step,
             // Don't Pick New Chase Step This Tic
-            if moving.is_some() {
+            if moving_now {
                 continue;
             }
 
@@ -970,6 +977,8 @@ pub fn enemy_ai_tick(
                                 speed_tps: speed,
                             });
 
+                            scheduled_move.insert(e);
+
                             occupied.insert(dest);
                             if CLAIM_TILE_EARLY {
                                 occupied.remove(&my_tile);
@@ -1001,6 +1010,8 @@ pub fn enemy_ai_tick(
                                 target,
                                 speed_tps: speed,
                             });
+
+                            scheduled_move.insert(e);
 
                             occupied.insert(dest);
                             if CLAIM_TILE_EARLY {
