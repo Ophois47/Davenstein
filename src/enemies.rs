@@ -10,7 +10,11 @@ use crate::actors::{
     OccupiesTile,
 };
 use crate::ai::EnemyMove;
-use crate::audio::{PlaySfx, SfxKind};
+use crate::audio::{
+    PlaySfx,
+    SfxKind,
+    ActiveEnemyVoiceSfx,
+};
 use crate::player::Player;
 
 const GUARD_MAX_HP: i32 = 25;
@@ -796,9 +800,16 @@ pub struct GuardDying {
 }
 
 pub fn play_enemy_death_sfx(
+    mut commands: Commands,
     mut sfx: MessageWriter<PlaySfx>,
+    q_active_voice: Query<Entity, With<ActiveEnemyVoiceSfx>>,
     q: Query<(&GlobalTransform, &EnemyKind), Added<Dead>>,
 ) {
+    // Immediately kill all enemy voice SFX when ANY enemy dies
+    for e in q_active_voice.iter() {
+        commands.entity(e).despawn();
+    }
+    
     for (gt, kind) in q.iter() {
         let p = gt.translation();
         let pos = Vec3::new(p.x, 0.6, p.z);
