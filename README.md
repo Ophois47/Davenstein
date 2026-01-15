@@ -37,5 +37,4 @@ BUGS:
 - Border between deep red menu UI and ligher red background
 - Enemies sometimes sidestep and walk backwards in a strange way
 - Hans needs to do damage in line with Wolfenstein 3-D
-- HUD face sprites need to be just a little bigger
 - HUD face sprite seems to look only in one direction
