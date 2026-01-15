@@ -42,5 +42,4 @@ BUGS:
 - HUD face sprites need to be just a little bigger
 - HUD face sprite seems to look only in one direction
 - Dog alert sound doesnt always play, something takes precedence
-- Elevator door texture facing wrong way
 - Dogs should move more quickly
