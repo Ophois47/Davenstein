@@ -898,7 +898,7 @@ pub fn tick_hud_face_timers(
     mut look: ResMut<HudFaceLook>,
     mut face_ov: ResMut<HudFaceOverride>,
 ) {
-    // Timed grin override (separate from "stone" god-mode face).
+    // Timed grin override (separate from "stone" god-mode face)
     if face_ov.active {
         face_ov.timer.tick(time.delta());
         if face_ov.timer.is_finished() {
@@ -910,7 +910,7 @@ pub fn tick_hud_face_timers(
     let dropped = hp < prev_hp.0;
 
     if dropped {
-        // On damage, cancel any "grin" and reset look to forward.
+        // On damage, cancel any "grin" and reset look to forward
         face_ov.active = false;
         look.dir = FaceDir::Forward;
         look.timer.reset();
@@ -919,25 +919,20 @@ pub fn tick_hud_face_timers(
 
     prev_hp.0 = hp;
 
-    // Re-drive the classic "look left/right" behavior.
-    //
-    // Simple rule:
-    // - Every FACE_LOOK_PERIOD_SECS, BJ alternates: Forward -> (Right/Left) -> Forward -> ...
-    // - Damage resets to Forward immediately (handled above).
+    // Classic look behavior
+    // Every period: Forward -> (Left/Right) -> Forward -> ...
     look.timer.tick(time.delta());
     if look.timer.just_finished() {
-        look.tick = look.tick.wrapping_add(1);
-
         look.dir = match look.dir {
             FaceDir::Forward => {
-                // Alternate which side we glance toward.
-                if (look.tick & 1) == 0 { FaceDir::Right } else { FaceDir::Left }
+                let next = if (look.tick & 1) == 0 { FaceDir::Right } else { FaceDir::Left };
+                look.tick = look.tick.wrapping_add(1);
+                next
             }
             FaceDir::Right | FaceDir::Left => FaceDir::Forward,
         };
     }
 }
-
 
 pub fn sync_hud_face(
     faces: Res<HudFaceSprites>,
@@ -1158,7 +1153,7 @@ fn stage_from_hp(hp: i32) -> usize {
 }
 
 /// Returns (Row, Col) for Base Face Given HP + Dir
-/// Column Order Within a Group Matches Sprite Sheet: Forward, Right, Left
+/// Column order within a group matches sprite sheet: Forward, Left, Right
 fn coords_for(hp: i32, dir: FaceDir) -> (usize, usize) {
     if hp <= 0 {
         return (1, 10); // Dead (r1_c10)
@@ -1168,15 +1163,13 @@ fn coords_for(hp: i32, dir: FaceDir) -> (usize, usize) {
 
     let dir_off = match dir {
         FaceDir::Forward => 0,
-        FaceDir::Right => 1,
-        FaceDir::Left => 2,
+        FaceDir::Left => 1,
+        FaceDir::Right => 2,
     };
 
     if stage < 4 {
-        // Row 0 has Stages 0..3
         (0, stage * 3 + dir_off)
     } else {
-        // Row 1 has Stages 4..6 (0..2 in That Row)
         let s = stage - 4;
         (1, s * 3 + dir_off)
     }
