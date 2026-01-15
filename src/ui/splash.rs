@@ -1283,33 +1283,34 @@ fn splash_advance_on_any_input(
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
             {
-                if episode.selection == 0 {
-                    sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+                // Allow any episode to be selected (0-5 maps to episodes 1-6)
+                let episode_num = (episode.selection + 1) as u8;
 
-                    for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
-                    // IMPORTANT: only request New Game *after* episode confirm
-                    // Use commands.insert_resource to avoid adding more system params
-                    commands.insert_resource(crate::ui::sync::NewGameRequested(true));
-                    commands.insert_resource(davelib::level::CurrentLevel(davelib::level::LevelId::E1M1));
+                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
-                    begin_get_psyched_loading(
-                        &mut commands,
-                        &asset_server,
-                        win,
-                        &mut *psyched,
-                        &mut *lock,
-                        &mut *music_mode,
-                    );
+                // IMPORTANT: only request New Game *after* episode confirm
+                // Use commands.insert_resource to avoid adding more system params
+                commands.insert_resource(crate::ui::sync::NewGameRequested(true));
+                commands.insert_resource(davelib::level::CurrentLevel(
+                    davelib::level::LevelId::first_level_of_episode(episode_num)
+                ));
 
-                    lock.0 = false;
-                    music_mode.0 = MusicModeKind::Gameplay;
+                begin_get_psyched_loading(
+                    &mut commands,
+                    &asset_server,
+                    win,
+                    &mut *psyched,
+                    &mut *lock,
+                    &mut *music_mode,
+                );
 
-                    episode.from_pause = false;
-                    *step = SplashStep::Done;
-                } else {
-                    sfx.write(PlaySfx { kind: SfxKind::NoWay, pos: Vec3::ZERO });
-                }
+                lock.0 = false;
+                music_mode.0 = MusicModeKind::Gameplay;
+
+                episode.from_pause = false;
+                *step = SplashStep::Done;
             }
         }
 

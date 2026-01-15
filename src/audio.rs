@@ -69,6 +69,81 @@ pub enum SfxKind {
     EnemyDeath(EnemyKind),
 }
 
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LevelTrack {
+    GETTHEM_MUS,
+    SEARCHN_MUS,
+    POW_MUS,
+    SUSPENSE_MUS,
+    WARMARCH_MUS,
+    CORNER_MUS,
+
+    NAZI_OMI_MUS,
+    PREGNANT_MUS,
+    GOINGAFT_MUS,
+    HEADACHE_MUS,
+    DUNGEON_MUS,
+
+    INTROCW3_MUS,
+    NAZIRAP_MUS,
+    TWELFTH_MUS,
+    ZEROHOUR_MUS,
+    ULTIMATE_MUS,
+    PACMAN_MUS,
+    FUNKYOU_MUS,
+}
+
+impl LevelTrack {
+    fn asset_path(self) -> &'static str {
+        match self {
+            LevelTrack::GETTHEM_MUS => "sounds/music/GETTHEM_MUS.ogg",
+            LevelTrack::SEARCHN_MUS => "sounds/music/SEARCHN_MUS.ogg",
+            LevelTrack::POW_MUS => "sounds/music/POW_MUS.ogg",
+            LevelTrack::SUSPENSE_MUS => "sounds/music/SUSPENSE_MUS.ogg",
+            LevelTrack::WARMARCH_MUS => "sounds/music/WARMARCH_MUS.ogg",
+            LevelTrack::CORNER_MUS => "sounds/music/CORNER_MUS.ogg",
+
+            LevelTrack::NAZI_OMI_MUS => "sounds/music/NAZI_OMI_MUS.ogg",
+            LevelTrack::PREGNANT_MUS => "sounds/music/PREGNANT_MUS.ogg",
+            LevelTrack::GOINGAFT_MUS => "sounds/music/GOINGAFT_MUS.ogg",
+            LevelTrack::HEADACHE_MUS => "sounds/music/HEADACHE_MUS.ogg",
+            LevelTrack::DUNGEON_MUS => "sounds/music/DUNGEON_MUS.ogg",
+
+            LevelTrack::INTROCW3_MUS => "sounds/music/INTROCW3_MUS.ogg",
+            LevelTrack::NAZIRAP_MUS => "sounds/music/NAZIRAP_MUS.ogg",
+            LevelTrack::TWELFTH_MUS => "sounds/music/TWELFTH_MUS.ogg",
+            LevelTrack::ZEROHOUR_MUS => "sounds/music/ZEROHOUR_MUS.ogg",
+            LevelTrack::ULTIMATE_MUS => "sounds/music/ULTIMATE_MUS.ogg",
+            LevelTrack::PACMAN_MUS => "sounds/music/PACMAN_MUS.ogg",
+            LevelTrack::FUNKYOU_MUS => "sounds/music/FUNKYOU_MUS.ogg",
+        }
+    }
+}
+
+fn track_for_level(level: LevelId) -> LevelTrack {
+    match level {
+        LevelId::E1M1 | LevelId::E1M5 | LevelId::E4M1 | LevelId::E4M5 => LevelTrack::GETTHEM_MUS,
+        LevelId::E1M2 | LevelId::E1M6 | LevelId::E4M2 | LevelId::E4M6 => LevelTrack::SEARCHN_MUS,
+        LevelId::E1M3 | LevelId::E1M7 | LevelId::E4M3 | LevelId::E4M7 => LevelTrack::POW_MUS,
+        LevelId::E1M4 | LevelId::E1M8 | LevelId::E4M4 | LevelId::E4M8 => LevelTrack::SUSPENSE_MUS,
+        LevelId::E1M9 | LevelId::E2M9 | LevelId::E4M9 | LevelId::E5M9 => LevelTrack::WARMARCH_MUS,
+
+        LevelId::E1M10 => LevelTrack::CORNER_MUS,
+
+        LevelId::E2M1 | LevelId::E2M5 | LevelId::E5M1 | LevelId::E5M5 => LevelTrack::NAZI_OMI_MUS,
+        LevelId::E2M2 | LevelId::E2M6 | LevelId::E5M2 | LevelId::E5M6 => LevelTrack::PREGNANT_MUS,
+        LevelId::E2M3 | LevelId::E2M8 | LevelId::E5M3 | LevelId::E5M8 => LevelTrack::GOINGAFT_MUS,
+        LevelId::E2M4 | LevelId::E2M7 | LevelId::E5M4 | LevelId::E5M7 => LevelTrack::HEADACHE_MUS,
+
+        LevelId::E3M1 | LevelId::E3M5 | LevelId::E6M1 | LevelId::E6M5 => LevelTrack::INTROCW3_MUS,
+        LevelId::E3M2 | LevelId::E3M6 | LevelId::E6M2 | LevelId::E6M6 => LevelTrack::NAZIRAP_MUS,
+        LevelId::E3M3 | LevelId::E3M7 | LevelId::E6M3 | LevelId::E6M7 => LevelTrack::TWELFTH_MUS,
+        LevelId::E3M4 | LevelId::E3M8 | LevelId::E6M4 | LevelId::E6M8 => LevelTrack::ZEROHOUR_MUS,
+        LevelId::E3M9 | LevelId::E6M9 => LevelTrack::ULTIMATE_MUS,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Message)]
 pub struct PlaySfx {
     pub kind: SfxKind,
@@ -125,13 +200,33 @@ pub struct GameAudio {
     pub music_splash: Handle<AudioSource>,
     pub music_main_menu: Handle<AudioSource>,
     pub music_level_end: Handle<AudioSource>,
-    pub music_levels: Vec<Handle<AudioSource>>,
+    pub music_levels: HashMap<LevelTrack, Handle<AudioSource>>,
 }
 
 pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
-    let mut music_levels: Vec<Handle<AudioSource>> = Vec::new();
-    for n in 1..=10 {
-        music_levels.push(asset_server.load(format!("sounds/music/E1M{}.ogg", n)));
+    let mut music_levels: HashMap<LevelTrack, Handle<AudioSource>> = HashMap::new();
+
+    for t in [
+        LevelTrack::GETTHEM_MUS,
+        LevelTrack::SEARCHN_MUS,
+        LevelTrack::POW_MUS,
+        LevelTrack::SUSPENSE_MUS,
+        LevelTrack::WARMARCH_MUS,
+        LevelTrack::CORNER_MUS,
+        LevelTrack::NAZI_OMI_MUS,
+        LevelTrack::PREGNANT_MUS,
+        LevelTrack::GOINGAFT_MUS,
+        LevelTrack::HEADACHE_MUS,
+        LevelTrack::DUNGEON_MUS,
+        LevelTrack::INTROCW3_MUS,
+        LevelTrack::NAZIRAP_MUS,
+        LevelTrack::TWELFTH_MUS,
+        LevelTrack::ZEROHOUR_MUS,
+        LevelTrack::ULTIMATE_MUS,
+        LevelTrack::PACMAN_MUS,
+        LevelTrack::FUNKYOU_MUS,
+    ] {
+        music_levels.insert(t, asset_server.load(t.asset_path()));
     }
 
     commands.insert_resource(GameAudio {
@@ -194,41 +289,41 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     // Weapon Attack
     lib.insert_one(
-    	SfxKind::KnifeSwing,
-    	asset_server.load("sounds/sfx/weapons/knife/knife_jab.ogg"),
+        SfxKind::KnifeSwing,
+        asset_server.load("sounds/sfx/weapons/knife/knife_jab.ogg"),
     );
     lib.insert_one(
-    	SfxKind::PistolFire,
-    	asset_server.load("sounds/sfx/weapons/pistol/pistol_fire.ogg"),
+        SfxKind::PistolFire,
+        asset_server.load("sounds/sfx/weapons/pistol/pistol_fire.ogg"),
     );
     lib.insert_one(
-    	SfxKind::MachineGunFire,
-    	asset_server.load("sounds/sfx/weapons/machinegun/machinegun_fire_0.ogg"),
+        SfxKind::MachineGunFire,
+        asset_server.load("sounds/sfx/weapons/machinegun/machinegun_fire_0.ogg"),
     );
     lib.insert_one(
-    	SfxKind::ChaingunFire,
-    	asset_server.load("sounds/sfx/weapons/chaingun/chaingun_fire_0.ogg"),
+        SfxKind::ChaingunFire,
+        asset_server.load("sounds/sfx/weapons/chaingun/chaingun_fire_0.ogg"),
     );
 
     // Weapon / Ammo Pickups
     lib.insert_one(
-    	SfxKind::PickupChaingun,
-    	asset_server.load("sounds/sfx/weapons/chaingun/chaingun_pickup.ogg"),
+        SfxKind::PickupChaingun,
+        asset_server.load("sounds/sfx/weapons/chaingun/chaingun_pickup.ogg"),
     );
     lib.insert_one(
-    	SfxKind::PickupMachineGun,
-    	asset_server.load("sounds/sfx/weapons/machinegun/machinegun_pickup.ogg"),
+        SfxKind::PickupMachineGun,
+        asset_server.load("sounds/sfx/weapons/machinegun/machinegun_pickup.ogg"),
     );
     lib.insert_one(
-    	SfxKind::PickupAmmo,
-    	asset_server.load("sounds/sfx/weapons/ammo/ammo_pickup.ogg"),
+        SfxKind::PickupAmmo,
+        asset_server.load("sounds/sfx/weapons/ammo/ammo_pickup.ogg"),
     );
 
-	// Health Pickups
-	lib.insert_one(SfxKind::PickupHealthFirstAid, asset_server.load("sounds/sfx/health/first_aid.ogg"));
-	lib.insert_one(SfxKind::PickupHealthDinner, asset_server.load("sounds/sfx/health/dinner.ogg"));
-	lib.insert_one(SfxKind::PickupHealthDogFood, asset_server.load("sounds/sfx/health/dog_food.ogg"));
-	lib.insert_one(SfxKind::PickupOneUp, asset_server.load("sounds/sfx/health/oneup.ogg"));
+    // Health Pickups
+    lib.insert_one(SfxKind::PickupHealthFirstAid, asset_server.load("sounds/sfx/health/first_aid.ogg"));
+    lib.insert_one(SfxKind::PickupHealthDinner, asset_server.load("sounds/sfx/health/dinner.ogg"));
+    lib.insert_one(SfxKind::PickupHealthDogFood, asset_server.load("sounds/sfx/health/dog_food.ogg"));
+    lib.insert_one(SfxKind::PickupOneUp, asset_server.load("sounds/sfx/health/oneup.ogg"));
 
     // Treasure
     lib.insert_one(
@@ -361,7 +456,11 @@ pub fn start_music(
     let clip = match mode.0 {
         MusicModeKind::Splash => audio.music_splash.clone(),
         MusicModeKind::Menu => audio.music_main_menu.clone(),
-        MusicModeKind::Gameplay => audio.music_levels.get(0).cloned().unwrap_or_default(),
+        MusicModeKind::Gameplay => audio
+            .music_levels
+            .get(&LevelTrack::GETTHEM_MUS)
+            .cloned()
+            .unwrap_or_default(),
         MusicModeKind::LevelEnd => audio.music_level_end.clone(),
     };
 
@@ -416,40 +515,29 @@ pub fn sync_level_music(
     music: Query<Entity, With<Music>>,
     mut last: Local<Option<LevelId>>,
 ) {
-    // If we're not in gameplay, clear the cached gameplay-level marker.
-    // Otherwise returning to gameplay on the same level won't restart the level music.
+    // If we're not in gameplay, clear the cached gameplay-level marker
+    // Otherwise returning to gameplay on the same level won't restart the level music
     if mode.0 != MusicModeKind::Gameplay {
         *last = None;
         return;
     }
 
-    // If we're already on this level and we have music, do nothing.
+    // If we're already on this level and we have music, do nothing
     if *last == Some(level.0) && !music.is_empty() {
         return;
     }
 
-    // Always remove whatever "Music" is currently playing (menu/levelend/etc).
+    // Always remove whatever "Music" is currently playing (menu/levelend/etc)
     for e in music.iter() {
         commands.entity(e).despawn();
     }
 
-    let idx = match level.0 {
-        LevelId::E1M1 => 0,
-        LevelId::E1M2 => 1,
-        LevelId::E1M3 => 2,
-        LevelId::E1M4 => 3,
-        LevelId::E1M5 => 4,
-        LevelId::E1M6 => 5,
-        LevelId::E1M7 => 6,
-        LevelId::E1M8 => 7,
-        LevelId::E1M9 => 8,
-        LevelId::E1M10 => 9,
-    };
+    let track = track_for_level(level.0);
 
-    if let Some(handle) = audio.music_levels.get(idx).cloned() {
+    if let Some(handle) = audio.music_levels.get(&track).cloned() {
         commands.spawn((
             Music,
-            AudioPlayer(handle),
+            AudioPlayer::new(handle),
             PlaybackSettings {
                 mode: PlaybackMode::Loop,
                 ..default()

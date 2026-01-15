@@ -23,13 +23,12 @@ FEATURES TO BE COMPLETED:
 **********************************************
 1. Ceilings need to be respective colors per level
 2. E1M10 the secret level
-3. Episodes 2-6
-4. Enemies for episodes 2-6 (mutant, officer)
-5. Game difficulty levels
-6. High scores and associated menu screen
-7. End of episode success logic and victory animation
-8. Save and load game functionality
-9. Options menu
+3. Enemies for episodes 2-6 (mutant, officer)
+4. Game difficulty levels
+5. High scores and associated menu screen
+6. End of episode success logic and victory animation
+7. Save and load game functionality
+8. Options menu
 
 **********************************************
 BUGS:
