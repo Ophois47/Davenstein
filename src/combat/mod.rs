@@ -20,6 +20,8 @@ use davelib::enemies::{
     GuardPain,
     SsDying,
     SsPain,
+    OfficerDying,
+    OfficerPain,
     HansDying,
     DogDying,
     DogPain,
@@ -327,6 +329,9 @@ fn process_fire_shots(
                         EnemyKind::Ss => {
                             commands.entity(e).insert(SsDying { frame: 0, tics: 0 });
                         }
+                        EnemyKind::Officer => {
+                            commands.entity(e).insert(OfficerDying { frame: 0, tics: 0 });
+                        }
                         EnemyKind::Hans => {
                             commands.entity(e).insert(HansDying { frame: 0, tics: 0 });
                         }
@@ -342,6 +347,9 @@ fn process_fire_shots(
                         }
                         EnemyKind::Ss => {
                             commands.entity(e).insert(SsPain { timer });
+                        }
+                        EnemyKind::Officer => {
+                            commands.entity(e).insert(OfficerPain { timer });
                         }
                         EnemyKind::Dog => {
                             commands.entity(e).insert(DogPain { timer });

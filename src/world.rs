@@ -277,6 +277,7 @@ pub fn setup(
 	mut materials: ResMut<Assets<StandardMaterial>>,
 	guard_sprites: Res<crate::enemies::GuardSprites>,
 	ss_sprites: Res<crate::enemies::SsSprites>,
+	officer_sprites: Res<crate::enemies::OfficerSprites>,
 	dog_sprites: Res<crate::enemies::DogSprites>,
 	hans_sprites: Res<crate::enemies::HansSprites>,
 	current_level: Res<crate::level::CurrentLevel>,
@@ -550,6 +551,14 @@ pub fn setup(
 		})
 		.collect();
 
+	let officers: Vec<IVec2> = (0..64)
+		.flat_map(|y| (0..64).map(move |x| IVec2::new(x as i32, y as i32)))
+		.filter(|&t| {
+			let code = plane1[idx(t)];
+			(116 + SKILL_OFF) <= code && code <= (123 + SKILL_OFF)
+		})
+		.collect();
+
 	let dogs: Vec<IVec2> = dogs
 		.into_iter()
 		.filter(|&t| {
@@ -567,15 +576,16 @@ pub fn setup(
 		.collect();
 
 	info!(
-		"enemy spawns (filtered): guards={}, ss={}, dogs={}, hans={}",
+		"enemy spawns (filtered): guards={}, ss={}, officers={}, dogs={}, hans={}",
 		guards.len(),
 		ss.len(),
+		officers.len(),
 		dogs.len(),
 		hans.len(),
 	);
 
 	// Totals for intermission screen
-	let kills_total = guards.len() + ss.len() + dogs.len();
+	let kills_total = guards.len() + ss.len() + officers.len() + dogs.len();
 	let secrets_total = plane1.iter().filter(|&&c| c == 98).count();
 	let treasure_total = plane1
 		.iter()
@@ -955,6 +965,10 @@ pub fn setup(
 
 	for s in ss {
 		crate::enemies::spawn_ss(&mut commands, &mut meshes, &mut materials, &ss_sprites, s);
+	}
+
+	for o in officers {
+		crate::enemies::spawn_officer(&mut commands, &mut meshes, &mut materials, &officer_sprites, o);
 	}
 
 	for d in dogs {

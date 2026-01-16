@@ -359,6 +359,11 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::EnemyAlert(EnemyKind::Ss),
         asset_server.load("sounds/sfx/enemies/ss/ss_alert.ogg"),
     );
+    // Officer Alert
+    lib.insert_one(
+        SfxKind::EnemyAlert(EnemyKind::Officer),
+        asset_server.load("sounds/sfx/enemies/officer/officer_alert.ogg"),
+    );
     // Dog Alert
     lib.insert_one(
         SfxKind::EnemyAlert(EnemyKind::Dog),
@@ -375,6 +380,16 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::EnemyShoot(EnemyKind::Ss),
         asset_server.load("sounds/sfx/enemies/ss/ss_shoot.ogg"),
     );
+    // Officer Shoot
+    lib.insert_one(
+        SfxKind::EnemyShoot(EnemyKind::Officer),
+        asset_server.load("sounds/sfx/enemies/officer/officer_shoot.ogg"),
+    );
+    // Mutant Shoot
+    // lib.insert_one(
+    //     SfxKind::EnemyShoot(EnemyKind::Ss),
+    //     asset_server.load("sounds/sfx/enemies/mutant/mutant_shoot.ogg"),
+    // );
     // Dog Bite
     lib.insert_one(
         SfxKind::EnemyShoot(EnemyKind::Dog),
@@ -413,12 +428,22 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     // SS Death
     lib.insert_one(
         SfxKind::EnemyDeath(EnemyKind::Ss),
-        asset_server.load("sounds/sfx/enemies/ss/ss_death_0.ogg"),
+        asset_server.load("sounds/sfx/enemies/ss/ss_death.ogg"),
     );
+    // Officer Death
+    lib.insert_one(
+        SfxKind::EnemyDeath(EnemyKind::Officer),
+        asset_server.load("sounds/sfx/enemies/officer/officer_death.ogg"),
+    );
+    // Mutant Death
+    // lib.insert_one(
+    //     SfxKind::EnemyDeath(EnemyKind::Ss),
+    //     asset_server.load("sounds/sfx/enemies/mutant/mutant_death.ogg"),
+    // );
     // Dog Death
     lib.insert_one(
         SfxKind::EnemyDeath(EnemyKind::Dog),
-        asset_server.load("sounds/sfx/enemies/dog/dog_death_0.ogg"),
+        asset_server.load("sounds/sfx/enemies/dog/dog_death.ogg"),
     );
 
     // Bosses

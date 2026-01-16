@@ -875,6 +875,11 @@ pub fn enemy_ai_tick(
                                     t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
                                 });
                             }
+                            EnemyKind::Officer => {
+                                commands.entity(e).insert(crate::enemies::OfficerShoot {
+                                    t: Timer::from_seconds(crate::enemies::OFFICER_SHOOT_SECS, TimerMode::Once),
+                                });
+                            }
                             EnemyKind::Hans => {
                                 commands.entity(e).insert(crate::enemies::HansShoot {
                                     t: Timer::from_seconds(crate::enemies::HANS_SHOOT_SECS, TimerMode::Once),
