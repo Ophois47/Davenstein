@@ -693,14 +693,6 @@ pub fn enemy_ai_tick(
                 continue;
             }
 
-            // Mutants Ignore Alert Sound
-            if alerted.insert(e) && !matches!(*kind, EnemyKind::Mutant) {
-                sfx.write(PlaySfx {
-                    kind: SfxKind::EnemyAlert(*kind),
-                    pos: tf.translation,
-                });
-            }
-
             // Guard Patrol
             match ai.state {
                 EnemyAiState::Stand => {
