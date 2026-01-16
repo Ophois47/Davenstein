@@ -32,5 +32,3 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
-- Officers + dogs sometimes do not play alert sound when reacting to player
-- Enemy LOS regarding alert sound and walls

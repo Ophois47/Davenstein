@@ -662,7 +662,7 @@ pub fn enemy_ai_tick(
                     ai.state = EnemyAiState::Chase;
 
                     // One Time Alert Per Enemy
-                    if alerted.insert(e) {
+                    if alerted.insert(e) && !matches!(*kind, EnemyKind::Mutant) {
                         sfx.write(PlaySfx {
                             kind: SfxKind::EnemyAlert(*kind),
                             pos: tf.translation,
