@@ -1948,7 +1948,7 @@ fn spawn_mission_success_overlay(
                 spawn_bt(c, "TIME", TEXT_SCALE, overlay_scale, bt_mul, x_label, y_time);
                 let time_text = "0:30";
                 let x_time_val = right_align_x_native(time_text, x_right);
-                spawn_bt_tagged(
+                spawn_bt_tagged_right_aligned(
                     c,
                     MissionStatKind::Time,
                     time_text,
@@ -1957,12 +1957,13 @@ fn spawn_mission_success_overlay(
                     bt_mul,
                     x_time_val,
                     y_time,
+                    x_right,
                 );
 
                 spawn_bt(c, "PAR", TEXT_SCALE, overlay_scale, bt_mul, x_label, y_par);
                 let par_text = "0:00";
                 let x_par_val = right_align_x_native(par_text, x_right);
-                spawn_bt_tagged(
+                spawn_bt_tagged_right_aligned(
                     c,
                     MissionStatKind::Par,
                     par_text,
@@ -1971,6 +1972,7 @@ fn spawn_mission_success_overlay(
                     bt_mul,
                     x_par_val,
                     y_par,
+                    x_right,
                 );
                 
                 spawn_bt(c, "KILL", TEXT_SCALE, overlay_scale, bt_mul, x_ratio_left, y_kill);

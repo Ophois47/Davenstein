@@ -33,6 +33,5 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
-- Time and Par digits need to be aligned with right column
 - Enemies can walk through blocking decorations
-- Officers do not drop ammo
+- Officers and mutants do not drop ammo
