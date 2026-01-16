@@ -34,3 +34,4 @@ BUGS:
 **********************************************
 - Enemies can walk through blocking decorations
 - Officers and mutants do not drop ammo
+- Fix enemy LOS regarding alert sound and walls

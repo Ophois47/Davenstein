@@ -112,6 +112,7 @@ fn main() {
         .init_resource::<PlayerControlLock>()
         .init_resource::<PlayerDeathLatch>()
         .init_resource::<davelib::player::GodMode>()
+        .init_resource::<davelib::skill::SkillLevel>()
         .init_resource::<ui::sync::DeathDelay>()
         .init_resource::<ui::sync::RestartRequested>()
         .init_resource::<ui::sync::NewGameRequested>()

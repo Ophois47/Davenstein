@@ -283,6 +283,7 @@ pub fn setup(
 	hans_sprites: Res<crate::enemies::HansSprites>,
 	current_level: Res<crate::level::CurrentLevel>,
 	mut level_score: ResMut<crate::level_score::LevelScore>,
+	skill_level: Res<crate::skill::SkillLevel>,
 ) {
 	// --- Map Load (Wolf Planes) ---
 	let (plane0_text, plane1_text) = match current_level.0 {
@@ -529,10 +530,10 @@ pub fn setup(
 	let (grid, spawn, guards, mutants, ss, officers, dogs, hans) =
 		MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
 
-	// --- Enemy difficulty selection (TEMP: default to base set; menus later) ---
+	// --- Enemy difficulty selection ---
 	// Wolf thing codes repeat in 3 bands spaced by +36
 	// base = 0, mid = 36, hard = 72
-	const SKILL_OFF: u16 = 0;
+	let skill_off = skill_level.spawn_offset();
 
 	let idx = |t: IVec2| -> usize { (t.y as usize) * 64 + (t.x as usize) };
 
@@ -540,7 +541,7 @@ pub fn setup(
 		.into_iter()
 		.filter(|&t| {
 			let code = plane1[idx(t)];
-			(108 + SKILL_OFF) <= code && code <= (115 + SKILL_OFF)
+			(108 + skill_off) <= code && code <= (115 + skill_off)
 		})
 		.collect();
 
@@ -548,7 +549,7 @@ pub fn setup(
         .into_iter()
         .filter(|&t| {
             let code = plane1[idx(t)];
-            (216 + SKILL_OFF) <= code && code <= (223 + SKILL_OFF)
+            (216 + skill_off) <= code && code <= (223 + skill_off)
         })
         .collect();
 
@@ -556,7 +557,7 @@ pub fn setup(
 		.into_iter()
 		.filter(|&t| {
 			let code = plane1[idx(t)];
-			(126 + SKILL_OFF) <= code && code <= (133 + SKILL_OFF)
+			(126 + skill_off) <= code && code <= (133 + skill_off)
 		})
 		.collect();
 
@@ -564,7 +565,7 @@ pub fn setup(
         .into_iter()
         .filter(|&t| {
             let code = plane1[idx(t)];
-            (116 + SKILL_OFF) <= code && code <= (123 + SKILL_OFF)
+            (116 + skill_off) <= code && code <= (123 + skill_off)
         })
         .collect();
 
@@ -572,7 +573,7 @@ pub fn setup(
 		.into_iter()
 		.filter(|&t| {
 			let code = plane1[idx(t)];
-			(134 + SKILL_OFF) <= code && code <= (141 + SKILL_OFF)
+			(134 + skill_off) <= code && code <= (141 + skill_off)
 		})
 		.collect();
 
@@ -592,6 +593,12 @@ pub fn setup(
 		officers.len(),
 		dogs.len(),
 		hans.len(),
+	);
+
+	info!(
+		"Difficulty: {} (spawn_offset={})",
+		skill_level.name(),
+		skill_level.spawn_offset()
 	);
 
 	// Intermission Screen Totals

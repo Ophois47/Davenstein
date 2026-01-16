@@ -12,4 +12,5 @@ pub mod level_score;
 pub mod map;
 pub mod player;
 pub mod pushwalls;
+pub mod skill;
 pub mod world;

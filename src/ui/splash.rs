@@ -1739,6 +1739,9 @@ fn splash_advance_on_any_input(
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
+                // Set the selected difficulty level
+                commands.insert_resource(davelib::skill::SkillLevel::from_selection(skill.selection));
+
                 commands.insert_resource(crate::ui::sync::NewGameRequested(true));
                 commands.insert_resource(davelib::level::CurrentLevel(
                     davelib::level::LevelId::first_level_of_episode(episode_num)
