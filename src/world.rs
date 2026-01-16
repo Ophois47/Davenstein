@@ -594,8 +594,14 @@ pub fn setup(
 		hans.len(),
 	);
 
-	// Totals for intermission screen
-	let kills_total = guards.len() + ss.len() + officers.len() + dogs.len();
+	// Intermission Screen Totals
+	let kills_total = guards.len()
+        + mutants.len()
+        + ss.len()
+        + officers.len()
+        + dogs.len()
+        + hans.len();
+
 	let secrets_total = plane1.iter().filter(|&&c| c == 98).count();
 	let treasure_total = plane1
 		.iter()

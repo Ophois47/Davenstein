@@ -285,7 +285,7 @@ pub enum SplashStep {
     Splash0,
     Splash1,
     Menu,
-    PauseMenu,     // <-- ADD
+    PauseMenu,
     EpisodeSelect,
     Done,
 }
@@ -293,12 +293,12 @@ pub enum SplashStep {
 #[derive(Default)]
 struct EpisodeLocalState {
     selection: usize,
-    from_pause: bool, // <-- ADD
+    from_pause: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MenuAction {
-    BackToGame,  // <-- ADD
+    BackToGame,
     NewGame,
     ViewScores,
     Quit,
