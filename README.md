@@ -22,13 +22,12 @@ NOTE! Left Control (LCtrl) releases the mouse from the window.
 FEATURES TO BE COMPLETED:
 **********************************************
 1. E1M10 and the secret levels
-2. Game difficulty levels
-3. Ceilings need to be respective colors per level
-4. Bosses for episodes 2-6
-5. High scores and associated menu screen
-6. End of episode success logic and victory animation
-7. Save and load game functionality
-8. Options menu
+2. Ceilings need to be respective colors per level
+3. Bosses for episodes 2-6
+4. High scores and associated menu screen
+5. End of episode success logic and victory animation
+6. Save and load game functionality
+7. Options menu
 
 **********************************************
 BUGS:

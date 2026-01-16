@@ -23,7 +23,10 @@ pub const MENU_BANNER_PATH: &str = "textures/ui/menu_banner.png";
 pub const MENU_HINT_PATH: &str = "textures/ui/menu_hint.png";
 pub const MENU_CURSOR_LIGHT_PATH: &str = "textures/ui/menu_cursor_light.png";
 pub const MENU_CURSOR_DARK_PATH: &str = "textures/ui/menu_cursor_dark.png";
-
+pub const SKILL_FACE_0_PATH: &str = "textures/ui/skill_faces/skill_face_0.png";
+pub const SKILL_FACE_1_PATH: &str = "textures/ui/skill_faces/skill_face_1.png";
+pub const SKILL_FACE_2_PATH: &str = "textures/ui/skill_faces/skill_face_2.png";
+pub const SKILL_FACE_3_PATH: &str = "textures/ui/skill_faces/skill_face_3.png";
 pub const MENU_FONT_WHITE_PATH: &str = "textures/ui/menu_font_white.png";
 pub const MENU_FONT_GRAY_PATH: &str = "textures/ui/menu_font_gray.png";
 pub const MENU_FONT_YELLOW_PATH: &str = "textures/ui/menu_font_yellow.png";
@@ -270,8 +273,15 @@ struct SplashAdvanceQueries<'w, 's> {
         'w,
         's,
         (&'static EpisodeItem, &'static EpisodeTextVariant, &'static mut Visibility),
-        (Without<MenuCursorLight>, Without<MenuCursorDark>),
+        (Without<MenuCursorLight>, Without<MenuCursorDark>, Without<SkillItem>),
     >,
+    q_skill_items: Query<
+        'w,
+        's,
+        (&'static SkillItem, &'static SkillTextVariant, &'static mut Visibility),
+        (Without<MenuCursorLight>, Without<MenuCursorDark>, Without<EpisodeItem>),
+    >,
+    q_skill_face: Query<'w, 's, &'static mut ImageNode, With<SkillFace>>,
 }
 
 #[derive(Component)]
@@ -287,6 +297,7 @@ pub enum SplashStep {
     Menu,
     PauseMenu,
     EpisodeSelect,
+    SkillSelect,
     Done,
 }
 
@@ -294,6 +305,12 @@ pub enum SplashStep {
 struct EpisodeLocalState {
     selection: usize,
     from_pause: bool,
+}
+
+#[derive(Default)]
+struct SkillLocalState {
+    selection: usize,
+    episode_num: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -318,7 +335,6 @@ const MENU_ACTIONS_PAUSE: [MenuAction; 4] = [
 const MENU_LABELS_MAIN: [&str; 3] = ["New Game", "View Scores", "Quit"];
 const MENU_LABELS_PAUSE: [&str; 4] = ["New Game", "View Scores", "Return to Game", "Quit"];
 
-
 #[derive(Resource)]
 struct SplashImages {
     splash0: Handle<Image>,
@@ -327,6 +343,7 @@ struct SplashImages {
     menu_font_white: Handle<Image>,
     menu_font_gray: Handle<Image>,
     menu_font_yellow: Handle<Image>,
+    skill_faces: [Handle<Image>; 4],
 }
 
 #[derive(Component)]
@@ -341,6 +358,19 @@ struct EpisodeHighlight;
 struct EpisodeTextVariant {
     selected: bool,
 }
+
+#[derive(Component)]
+struct SkillItem {
+    idx: usize,
+}
+
+#[derive(Component)]
+struct SkillTextVariant {
+    selected: bool,
+}
+
+#[derive(Component)]
+struct SkillFace;
 
 #[derive(Component)]
 struct MenuHint;
@@ -749,6 +779,322 @@ fn spawn_episode_select_ui(
     ));
 }
 
+fn spawn_skill_select_ui(
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    w: f32,
+    h: f32,
+    scale: f32,
+    imgs: &SplashImages,
+    selection: usize,
+) {
+    let selection = selection.min(3);
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(1000),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
+            ChildOf(root),
+        ))
+        .id();
+
+    let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
+        let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+
+        let mut max_line_w = 0.0f32;
+        let mut cur_line_w = 0.0f32;
+
+        for ch in text.chars() {
+            if ch == '\n' {
+                max_line_w = max_line_w.max(cur_line_w);
+                cur_line_w = 0.0;
+                continue;
+            }
+
+            if ch == ' ' {
+                cur_line_w += (MENU_FONT_SPACE_W * s).round();
+                continue;
+            }
+
+            if let Some(g) = menu_glyph(ch) {
+                cur_line_w += (g.advance * s).round();
+            }
+        }
+
+        max_line_w = max_line_w.max(cur_line_w);
+        max_line_w.max(1.0)
+    };
+
+    let ui_scale = (w / BASE_W).round().max(1.0);
+
+    // Bottom hint geometry
+    let hint_native_w = 103.0;
+    let hint_native_h = 12.0;
+    let hint_bottom_pad = 6.0;
+
+    let hint_w = (hint_native_w * ui_scale).round();
+    let hint_h = (hint_native_h * ui_scale).round();
+    let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
+    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+
+    // Title
+    let title = "How tough are you?";
+    let title_w = measure_menu_text_width(scale, title);
+    let title_x = ((w - title_w) * 0.5).round().max(0.0);
+    let title_top = (40.0 * ui_scale).round();
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_yellow.clone(),
+        title_x,
+        title_top,
+        ui_scale,
+        title,
+        Visibility::Visible,
+    );
+
+    // Panel layout
+    let desired_panel_w = (236.0 * ui_scale).round().max(1.0);
+    let panel_left = ((w - desired_panel_w) * 0.5).round().max(0.0);
+    let panel_top = (58.0 * ui_scale).round();
+
+    let row_h = (MENU_ITEM_H * ui_scale).round();
+    let pad_y = (12.0 * ui_scale).round();
+    let desired_panel_h = (pad_y * 2.0 + row_h * 4.0).round();
+
+    let max_panel_h = (hint_y - (2.0 * ui_scale).round() - panel_top).max(1.0);
+    let panel_h = desired_panel_h.min(max_panel_h).max(1.0);
+    let panel_w = desired_panel_w;
+
+    let border_w = (2.0 * ui_scale).round().max(1.0);
+
+    // Main panel background
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.40, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Top shadow
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(border_w),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.20, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Left shadow
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(border_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.20, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Bottom highlight
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top + panel_h - border_w),
+            width: Val::Px(panel_w),
+            height: Val::Px(border_w),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.70, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Right highlight
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left + panel_w - border_w),
+            top: Val::Px(panel_top),
+            width: Val::Px(border_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.70, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Cursor + text layout inside panel
+    let cursor_w = (19.0 * ui_scale).round();
+    let cursor_h = (10.0 * ui_scale).round();
+
+    let cursor_x = (panel_left + (14.0 * ui_scale).round()).round();
+    let cursor_y0 = (panel_top + (14.0 * ui_scale).round()).round();
+
+    let text_x = (cursor_x + cursor_w + (6.0 * ui_scale).round()).round();
+    let text_y0 = (cursor_y0 - (2.0 * ui_scale).round()).round();
+
+    // Face portrait on the right side of the panel
+    let face_w = (24.0 * ui_scale).round().max(1.0);
+    let face_h = (32.0 * ui_scale).round().max(1.0);
+    let face_x = (panel_left + panel_w - face_w - (12.0 * ui_scale).round()).round();
+    let face_y = (panel_top + (12.0 * ui_scale).round()).round();
+
+    commands.spawn((
+        SplashUi,
+        SkillFace,
+        ImageNode::new(imgs.skill_faces[selection].clone()),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(face_x),
+            top: Val::Px(face_y),
+            width: Val::Px(face_w),
+            height: Val::Px(face_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    // Options
+    const SKILL_TEXT: [&str; 4] = [
+        "Can I play, Daddy?",
+        "Don't hurt me.",
+        "Bring 'em on!",
+        "I am Death incarnate!",
+    ];
+
+    for idx in 0..4 {
+        let y = (text_y0 + idx as f32 * row_h).round();
+        let is_selected = idx == selection;
+
+        let gray_run = spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_gray.clone(),
+            text_x,
+            y,
+            ui_scale,
+            SKILL_TEXT[idx],
+            if is_selected { Visibility::Hidden } else { Visibility::Visible },
+        );
+        commands
+            .entity(gray_run)
+            .insert((SkillItem { idx }, SkillTextVariant { selected: false }));
+
+        let white_run = spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_white.clone(),
+            text_x,
+            y,
+            ui_scale,
+            SKILL_TEXT[idx],
+            if is_selected { Visibility::Visible } else { Visibility::Hidden },
+        );
+        commands
+            .entity(white_run)
+            .insert((SkillItem { idx }, SkillTextVariant { selected: true }));
+    }
+
+    // Gun cursor
+    let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
+    let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
+
+    let cursor_y = (cursor_y0 + selection as f32 * row_h).round();
+
+    commands.spawn((
+        SplashUi,
+        MenuCursor,
+        MenuCursorLight,
+        Visibility::Visible,
+        ImageNode::new(cursor_light),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+    commands.spawn((
+        SplashUi,
+        MenuCursor,
+        MenuCursorDark,
+        Visibility::Hidden,
+        ImageNode::new(cursor_dark),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    // Bottom hint
+    let hint = asset_server.load(MENU_HINT_PATH);
+    commands.spawn((
+        ImageNode::new(hint),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(hint_x),
+            top: Val::Px(hint_y),
+            width: Val::Px(hint_w),
+            height: Val::Px(hint_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+}
+
 fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32) {
     commands
         .spawn((
@@ -1075,6 +1421,7 @@ fn splash_advance_on_any_input(
     mut psyched: ResMut<PsychedLoad>,
     mut menu: Local<MenuLocalState>,
     mut episode: Local<EpisodeLocalState>,
+    mut skill: Local<SkillLocalState>,
     mut sfx: MessageWriter<PlaySfx>,
     mut app_exit: MessageWriter<bevy::app::AppExit>,
     mut q: SplashAdvanceQueries,
@@ -1279,19 +1626,119 @@ fn splash_advance_on_any_input(
                 *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
             }
 
-            if keyboard.just_pressed(KeyCode::Enter)
+                        if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
             {
-                // Allow any episode to be selected (0-5 maps to episodes 1-6)
                 let episode_num = (episode.selection + 1) as u8;
 
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
-                // IMPORTANT: only request New Game *after* episode confirm
-                // Use commands.insert_resource to avoid adding more system params
+                skill.selection = 0;
+                skill.episode_num = episode_num;
+
+                if let Some(imgs) = imgs.as_ref() {
+                    spawn_skill_select_ui(
+                        &mut commands,
+                        &asset_server,
+                        w, h, scale,
+                        imgs,
+                        skill.selection,
+                    );
+                    *step = SplashStep::SkillSelect;
+                }
+            }
+        }
+
+        SplashStep::SkillSelect => {
+            lock.0 = true;
+            music_mode.0 = MusicModeKind::Menu;
+
+            let Some(imgs) = imgs.as_ref() else { return; };
+
+            if keyboard.just_pressed(KeyCode::Escape) {
+                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+
+                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+
+                spawn_episode_select_ui(
+                    &mut commands,
+                    &asset_server,
+                    w, h, scale,
+                    imgs,
+                    episode.selection,
+                );
+                *step = SplashStep::EpisodeSelect;
+                return;
+            }
+
+            let mut moved = false;
+
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+                if skill.selection > 0 { skill.selection -= 1; } else { skill.selection = 3; }
+                moved = true;
+            }
+
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+                skill.selection = (skill.selection + 1) % 4;
+                moved = true;
+            }
+
+            if moved {
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+            }
+
+            for (item, variant, mut vis) in q.q_skill_items.iter_mut() {
+                let want_selected = item.idx == skill.selection;
+                *vis = if variant.selected == want_selected { Visibility::Visible } else { Visibility::Hidden };
+            }
+
+            if moved {
+                for mut img in q.q_skill_face.iter_mut() {
+                    *img = ImageNode::new(imgs.skill_faces[skill.selection].clone());
+                }
+            }
+
+            let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
+
+            let ui_scale = (w / BASE_W).round().max(1.0);
+
+            let desired_panel_w = (236.0 * ui_scale).round().max(1.0);
+            let panel_left = ((w - desired_panel_w) * 0.5).round().max(0.0);
+            let panel_top = (58.0 * ui_scale).round();
+
+            let cursor_w = (19.0 * ui_scale).round();
+            let cursor_x = (panel_left + (14.0 * ui_scale).round()).round();
+
+            let row_h = (MENU_ITEM_H * ui_scale).round();
+            let cursor_y0 = (panel_top + (14.0 * ui_scale).round()).round();
+            let cursor_y = (cursor_y0 + skill.selection as f32 * row_h).round();
+
+            for mut node in q.q_node.iter_mut() {
+                node.left = Val::Px(cursor_x);
+                node.top = Val::Px(cursor_y);
+                node.width = Val::Px(cursor_w);
+            }
+
+            for mut v in q.q_cursor_light.iter_mut() {
+                *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
+            }
+            for mut v in q.q_cursor_dark.iter_mut() {
+                *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
+            }
+
+            if keyboard.just_pressed(KeyCode::Enter)
+                || keyboard.just_pressed(KeyCode::NumpadEnter)
+                || keyboard.just_pressed(KeyCode::Space)
+            {
+                let episode_num = skill.episode_num.max(1).min(6);
+
+                sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+
+                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+
                 commands.insert_resource(crate::ui::sync::NewGameRequested(true));
                 commands.insert_resource(davelib::level::CurrentLevel(
                     davelib::level::LevelId::first_level_of_episode(episode_num)
@@ -1364,6 +1811,11 @@ pub(crate) fn setup_splash(mut commands: Commands, asset_server: Res<AssetServer
     let menu_font_gray = asset_server.load(MENU_FONT_GRAY_PATH);
     let menu_font_yellow = asset_server.load(MENU_FONT_YELLOW_PATH);
 
+    let skill_face_0 = asset_server.load(SKILL_FACE_0_PATH);
+    let skill_face_1 = asset_server.load(SKILL_FACE_1_PATH);
+    let skill_face_2 = asset_server.load(SKILL_FACE_2_PATH);
+    let skill_face_3 = asset_server.load(SKILL_FACE_3_PATH);
+
     commands.insert_resource(SplashImages {
         splash0,
         splash1,
@@ -1371,6 +1823,7 @@ pub(crate) fn setup_splash(mut commands: Commands, asset_server: Res<AssetServer
         menu_font_white,
         menu_font_gray,
         menu_font_yellow,
+        skill_faces: [skill_face_0, skill_face_1, skill_face_2, skill_face_3],
     });
 }
 
