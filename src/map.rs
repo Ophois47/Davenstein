@@ -168,13 +168,17 @@ impl MapGrid {
         Vec<IVec2>,
         Vec<IVec2>,
         Vec<IVec2>,
+        Vec<IVec2>,
+        Vec<IVec2>,
     ) {
         let mut raw_plane0: Vec<u16> = Vec::with_capacity(width * height);
         let mut tiles: Vec<Tile> = Vec::with_capacity(width * height);
 
         let mut player_spawn: Option<(IVec2, f32)> = None;
         let mut guards: Vec<IVec2> = Vec::new();
+        let mut mutants: Vec<IVec2> = Vec::new();
         let mut ss: Vec<IVec2> = Vec::new();
+        let mut officers: Vec<IVec2> = Vec::new();
         let mut dogs: Vec<IVec2> = Vec::new();
         let mut hans: Vec<IVec2> = Vec::new();
 
@@ -215,11 +219,15 @@ impl MapGrid {
 
                 // Enemies: Include the any difficulty codes, plus the medium/hard ranges,
                 // because E1M2 plane1 clearly contains values outside the 108..=115 set
-                // (NOT implementing difficulty selection yet — we're just ensuring they spawn)
+                // (NOT implementing difficulty selection yet, just ensuring they spawn)
                 if (108..=115).contains(&v1) || (144..=151).contains(&v1) || (180..=187).contains(&v1) {
                     guards.push(t);
+                } else if (216..=223).contains(&v1) || (234..=241).contains(&v1) || (252..=259).contains(&v1) {
+                    mutants.push(t);
                 } else if (126..=133).contains(&v1) || (162..=169).contains(&v1) || (198..=205).contains(&v1) {
                     ss.push(t);
+                } else if (116..=123).contains(&v1) || (152..=159).contains(&v1) || (188..=195).contains(&v1) {
+                    officers.push(t);
                 } else if (134..=141).contains(&v1) || (170..=177).contains(&v1) || (206..=213).contains(&v1) {
                     dogs.push(t);
                 } else if v1 == 214 {
@@ -238,7 +246,9 @@ impl MapGrid {
             },
             player_spawn,
             guards,
+            mutants,
             ss,
+            officers,
             dogs,
             hans,
         )

@@ -276,6 +276,7 @@ pub fn setup(
 	mut meshes: ResMut<Assets<Mesh>>,
 	mut materials: ResMut<Assets<StandardMaterial>>,
 	guard_sprites: Res<crate::enemies::GuardSprites>,
+    mutant_sprites: Res<crate::enemies::MutantSprites>,
 	ss_sprites: Res<crate::enemies::SsSprites>,
 	officer_sprites: Res<crate::enemies::OfficerSprites>,
 	dog_sprites: Res<crate::enemies::DogSprites>,
@@ -525,7 +526,7 @@ pub fn setup(
 	commands.insert_resource(crate::level::WolfPlane1(plane1.clone()));
 
 	let pushwall_markers = PushwallMarkers::from_wolf_plane1(64, 64, &plane1);
-	let (grid, spawn, guards, ss, dogs, hans) =
+	let (grid, spawn, guards, mutants, ss, officers, dogs, hans) =
 		MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
 
 	// --- Enemy difficulty selection (TEMP: default to base set; menus later) ---
@@ -543,6 +544,14 @@ pub fn setup(
 		})
 		.collect();
 
+    let mutants: Vec<IVec2> = mutants
+        .into_iter()
+        .filter(|&t| {
+            let code = plane1[idx(t)];
+            (216 + SKILL_OFF) <= code && code <= (223 + SKILL_OFF)
+        })
+        .collect();
+
 	let ss: Vec<IVec2> = ss
 		.into_iter()
 		.filter(|&t| {
@@ -551,13 +560,13 @@ pub fn setup(
 		})
 		.collect();
 
-	let officers: Vec<IVec2> = (0..64)
-		.flat_map(|y| (0..64).map(move |x| IVec2::new(x as i32, y as i32)))
-		.filter(|&t| {
-			let code = plane1[idx(t)];
-			(116 + SKILL_OFF) <= code && code <= (123 + SKILL_OFF)
-		})
-		.collect();
+	let officers: Vec<IVec2> = officers
+        .into_iter()
+        .filter(|&t| {
+            let code = plane1[idx(t)];
+            (116 + SKILL_OFF) <= code && code <= (123 + SKILL_OFF)
+        })
+        .collect();
 
 	let dogs: Vec<IVec2> = dogs
 		.into_iter()
@@ -576,8 +585,9 @@ pub fn setup(
 		.collect();
 
 	info!(
-		"enemy spawns (filtered): guards={}, ss={}, officers={}, dogs={}, hans={}",
+		"enemy spawns (filtered): guards={}, mutants={}, ss={}, officers={}, dogs={}, hans={}",
 		guards.len(),
+        mutants.len(),
 		ss.len(),
 		officers.len(),
 		dogs.len(),
@@ -962,6 +972,10 @@ pub fn setup(
 	for g in guards {
 		crate::enemies::spawn_guard(&mut commands, &mut meshes, &mut materials, &guard_sprites, g);
 	}
+
+    for m in mutants {
+        crate::enemies::spawn_mutant(&mut commands, &mut meshes, &mut materials, &mutant_sprites, m);
+    }
 
 	for s in ss {
 		crate::enemies::spawn_ss(&mut commands, &mut meshes, &mut materials, &ss_sprites, s);

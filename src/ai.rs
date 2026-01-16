@@ -517,7 +517,9 @@ pub fn enemy_ai_tick(
                 Option<&EnemyMove>,
                 Option<&mut Patrol>,
                 Option<&crate::enemies::GuardPain>,
+                Option<&crate::enemies::MutantPain>,
                 Option<&crate::enemies::SsPain>,
+                Option<&crate::enemies::OfficerPain>,
                 Option<&crate::enemies::DogPain>,
                 Option<&crate::enemies::DogBite>,
                 Option<&crate::enemies::DogBiteCooldown>,
@@ -530,6 +532,7 @@ pub fn enemy_ai_tick(
     const GUARD_SHOOT_MAX_DIST_TILES: i32 = 7;
 
     const GUARD_SHOOT_PAUSE_SECS: f32 = 0.25;
+    const MUTANT_SHOOT_PAUSE_SECS: f32 = 0.15;
     const LOS_FIRST_SHOT_DELAY_SECS: f32 = 0.02;
 
     // Extra Delay After Pause Before Another Shot Can Start
@@ -633,7 +636,9 @@ pub fn enemy_ai_tick(
             moving,
             patrol,
             guard_pain,
+            mutant_pain,
             ss_pain,
+            officer_pain,
             dog_pain,
             dog_bite,
             dog_bite_cd,
@@ -663,7 +668,12 @@ pub fn enemy_ai_tick(
             // ============
             // PAIN GATING
             // ============
-            let in_pain = guard_pain.is_some() || ss_pain.is_some() || dog_pain.is_some();
+            let in_pain = guard_pain.is_some()
+                || ss_pain.is_some()
+                || dog_pain.is_some()
+                || officer_pain.is_some()
+                || mutant_pain.is_some();
+
             if in_pain {
                 los_hold.remove(&e);
                 // Face Player, Do NOT Move, Shoot, Open Doors While Flinching
@@ -675,6 +685,14 @@ pub fn enemy_ai_tick(
             if matches!(*kind, EnemyKind::Dog) && dog_bite.is_some() {
                 *dir8 = dir8_towards(my_tile, player_tile);
                 continue;
+            }
+
+            // Mutants Ignore Alert Sound
+            if alerted.insert(e) && !matches!(*kind, EnemyKind::Mutant) {
+                sfx.write(PlaySfx {
+                    kind: SfxKind::EnemyAlert(*kind),
+                    pos: tf.translation,
+                });
             }
 
             // Guard Patrol
@@ -870,6 +888,11 @@ pub fn enemy_ai_tick(
                                     timer: Timer::from_seconds(GUARD_SHOOT_PAUSE_SECS, TimerMode::Once),
                                 });
                             }
+                            EnemyKind::Mutant => {
+                                commands.entity(e).insert(crate::enemies::MutantShoot {
+                                    timer: Timer::from_seconds(MUTANT_SHOOT_PAUSE_SECS, TimerMode::Once),
+                                });
+                            }
                             EnemyKind::Ss => {
                                 commands.entity(e).insert(crate::enemies::SsShoot {
                                     t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
@@ -1049,14 +1072,21 @@ fn enemy_ai_move(
             Option<&crate::enemies::GuardPain>,
             Option<&crate::enemies::SsPain>,
             Option<&crate::enemies::DogPain>,
+            Option<&crate::enemies::OfficerPain>,
+            Option<&crate::enemies::MutantPain>,
         ),
         Without<Dead>,
     >,
 ) {
     let dt = time.delta_secs();
 
-    for (e, mv, mut tf, guard_pain, ss_pain, dog_pain) in q.iter_mut() {
-        if guard_pain.is_some() || ss_pain.is_some() || dog_pain.is_some() {
+    for (e, mv, mut tf, guard_pain, ss_pain, dog_pain, officer_pain, mutant_pain) in q.iter_mut() {
+        if guard_pain.is_some()
+            || ss_pain.is_some()
+            || dog_pain.is_some()
+            || officer_pain.is_some()
+            || mutant_pain.is_some()
+        {
             continue;
         }
 

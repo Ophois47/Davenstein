@@ -17,11 +17,11 @@ use crate::audio::{
 };
 use crate::player::Player;
 
+// TODO: Health Often Varied by Skill Level
 const GUARD_MAX_HP: i32 = 25;
 const SS_MAX_HP: i32 = 100;
 const OFFICER_MAX_HP: i32 = 50;
-// TODO: Mutant Health Varied by Skill Level
-// const MUTANT_MAX_HP: i32 = 45;
+const MUTANT_MAX_HP: i32 = 45;
 const DOG_MAX_HP: i32 = 1;
 const HANS_MAX_HP: i32 = 850;
 
@@ -30,7 +30,7 @@ pub enum EnemyKind {
     Guard,
     Ss,
     Officer,
-    // Mutant,
+    Mutant,
     Dog,
     Hans,
     // TODO: Other Bosses
@@ -59,7 +59,7 @@ pub struct EnemyTunings {
     pub guard: EnemyTuning,
     pub ss: EnemyTuning,
     pub officer: EnemyTuning,
-    // pub mutant: EnemyTuning,
+    pub mutant: EnemyTuning,
     pub dog: EnemyTuning,
     pub hans: EnemyTuning,
 }
@@ -99,16 +99,16 @@ impl EnemyTunings {
                 attack_range_tiles: 6.0,
                 reaction_time_secs: 0.30,
             },
-            // mutant: EnemyTuning {
-            //     max_hp: 45,
-            //     wander_speed_tps: 0.9,
-            //     chase_speed_tps: 1.9,
-            //     can_shoot: true,
-            //     attack_damage: 8,
-            //     attack_cooldown_secs: 0.6,
-            //     attack_range_tiles: 6.0,
-            //     reaction_time_secs: 0.30,
-            // },
+            mutant: EnemyTuning {
+                max_hp: 45,
+                wander_speed_tps: 0.9,
+                chase_speed_tps: 1.9,
+                can_shoot: true,
+                attack_damage: 8,
+                attack_cooldown_secs: 0.6,
+                attack_range_tiles: 6.0,
+                reaction_time_secs: 0.30,
+            },
             dog: EnemyTuning {
                 max_hp: 1,
                 wander_speed_tps: 1.2,
@@ -138,7 +138,7 @@ impl EnemyTunings {
             EnemyKind::Guard => self.guard,
             EnemyKind::Ss => self.ss,
             EnemyKind::Officer => self.officer,
-            // EnemyKind::Mutant => self.mutant,
+            EnemyKind::Mutant => self.mutant,
             EnemyKind::Dog => self.dog,
             EnemyKind::Hans => self.hans,
         }
@@ -149,7 +149,13 @@ impl EnemyTunings {
 pub struct Guard;
 
 #[derive(Component)]
+pub struct Mutant;
+
+#[derive(Component)]
 pub struct GuardCorpse;
+
+#[derive(Component)]
+pub struct MutantCorpse;
 
 #[derive(Component, Debug, Default)]
 pub struct GuardWalk {
@@ -158,9 +164,31 @@ pub struct GuardWalk {
     pub phase: f32,
 }
 
+#[derive(Component, Debug, Default)]
+pub struct MutantWalk {
+    pub phase: f32,
+}
+
 #[derive(Component)]
 pub struct GuardPain {
     pub timer: Timer,
+}
+
+#[derive(Component)]
+pub struct MutantPain {
+    pub timer: Timer,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct GuardDying {
+    pub frame: u8, // 0..DEATH_FRAMES-1
+    pub tics: u8,  // Fixed-Step Counter
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct MutantDying {
+    pub frame: u8,
+    pub tics: u8,
 }
 
 #[derive(Component, Debug)]
@@ -168,8 +196,27 @@ pub struct GuardShoot {
     pub timer: Timer,
 }
 
+#[derive(Component, Debug)]
+pub struct MutantShoot {
+    pub timer: Timer,
+}
+
 #[derive(Resource)]
 pub struct GuardSprites {
+    pub idle: [Handle<Image>; 8],
+    pub walk: [[Handle<Image>; 8]; 4],
+
+    pub shoot_front_aim: Handle<Image>,
+    pub shoot_front_fire: Handle<Image>,
+    pub shoot_side_fire: Handle<Image>,
+
+    pub pain: Handle<Image>,
+    pub dying: [Handle<Image>; 4],
+    pub corpse: Handle<Image>,
+}
+
+#[derive(Resource)]
+pub struct MutantSprites {
     pub idle: [Handle<Image>; 8],
     pub walk: [[Handle<Image>; 8]; 4],
 
@@ -219,6 +266,57 @@ impl FromWorld for GuardSprites {
             asset_server.load("enemies/guard/guard_shoot_front_fire.png");
         let shoot_side_fire: Handle<Image> =
             asset_server.load("enemies/guard/guard_shoot_side_fire.png");
+
+        Self {
+            idle,
+            walk,
+            shoot_front_aim,
+            shoot_front_fire,
+            shoot_side_fire,
+            pain,
+            dying,
+            corpse,
+        }
+    }
+}
+
+impl FromWorld for MutantSprites {
+    fn from_world(world: &mut World) -> Self {
+        let asset_server = world.resource::<AssetServer>();
+
+        // 8-dir idle frames (your files: guard_idle_a0..a7.png)
+        let idle: [Handle<Image>; 8] = std::array::from_fn(|dir| {
+            asset_server.load(format!("enemies/mutant/mutant_idle_a{}.png", dir))
+        });
+
+        // 4 walk frames x 8 directions (your files: guard_walk_r{row}_dir{dir}.png)
+        let walk: [[Handle<Image>; 8]; 4] = std::array::from_fn(|row| {
+            std::array::from_fn(|dir| {
+                asset_server.load(format!(
+                    "enemies/mutant/mutant_walk_r{}_dir{}.png",
+                    row,
+                    dir,
+                ))
+            })
+        });
+
+        // Single-frame states
+        let pain: Handle<Image> = asset_server.load("enemies/mutant/mutant_pain.png");
+
+        // Dying
+        let dying: [Handle<Image>; 4] = std::array::from_fn(|i| {
+            asset_server.load(format!("enemies/mutant/mutant_death_{}.png", i))
+        });
+
+        let corpse: Handle<Image> = asset_server.load("enemies/mutant/mutant_corpse.png");
+
+        // Shooting
+        let shoot_front_aim: Handle<Image> =
+            asset_server.load("enemies/mutant/mutant_shoot_front_aim.png");
+        let shoot_front_fire: Handle<Image> =
+            asset_server.load("enemies/mutant/mutant_shoot_front_fire.png");
+        let shoot_side_fire: Handle<Image> =
+            asset_server.load("enemies/mutant/mutant_shoot_side_fire.png");
 
         Self {
             idle,
@@ -835,9 +933,30 @@ fn attach_guard_walk(mut commands: Commands, q: Query<Entity, (Added<Guard>, Wit
     }
 }
 
+fn attach_mutant_walk(mut commands: Commands, q: Query<Entity, (Added<Mutant>, Without<MutantWalk>)>) {
+    for e in q.iter() {
+        commands.entity(e).insert(MutantWalk::default());
+    }
+}
+
 fn tick_guard_walk(
     time: Res<Time>,
     mut q: Query<(&mut GuardWalk, Option<&crate::ai::EnemyMove>), (With<Guard>, Without<Dead>, Without<GuardDying>)>,
+) {
+    let dt = time.delta_secs();
+    for (mut walk, mv) in q.iter_mut() {
+        if let Some(mv) = mv {
+            // 1.0 phase per tile; 4 frames per tile
+            walk.phase += dt * mv.speed_tps;
+        } else {
+            walk.phase = 0.0;
+        }
+    }
+}
+
+fn tick_mutant_walk(
+    time: Res<Time>,
+    mut q: Query<(&mut MutantWalk, Option<&crate::ai::EnemyMove>), (With<Mutant>, Without<Dead>, Without<MutantDying>)>,
 ) {
     let dt = time.delta_secs();
     for (mut walk, mv) in q.iter_mut() {
@@ -884,6 +1003,40 @@ pub fn tick_guard_pain(
     started.retain(|e, _| live.iter().any(|x| x == e));
 }
 
+pub fn tick_mutant_pain(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut MutantPain), With<Mutant>>,
+    mut started: Local<std::collections::HashMap<Entity, f32>>,
+) {
+    const PAIN_FLASH_SECS: f32 = 0.08;
+
+    let now = time.elapsed_secs();
+
+    // Track Entities Currently in Pain, Prune Stale Map Entries
+    let mut live: Vec<Entity> = Vec::new();
+
+    for (e, mut pain) in q.iter_mut() {
+        live.push(e);
+
+        // IMPORTANT: Do NOT Reset on Subsequent Hits
+        // Stops Sustained Fire From Freezing Pain Sprite
+        let start = started.entry(e).or_insert(now);
+
+        // Tick Timer in Case Anything Relies on it
+        // Clamp Visual Pain Duration Based on 'started'
+        pain.timer.tick(time.delta());
+
+        if now - *start >= PAIN_FLASH_SECS {
+            commands.entity(e).remove::<MutantPain>();
+            started.remove(&e);
+        }
+    }
+
+    // Prevent Local<HashMap> from Growing if Entities Despawn While in Pain
+    started.retain(|e, _| live.iter().any(|x| x == e));
+}
+
 fn tick_guard_shoot(
     time: Res<Time>,
     mut commands: Commands,
@@ -897,10 +1050,17 @@ fn tick_guard_shoot(
     }
 }
 
-#[derive(Component, Debug, Clone, Copy)]
-pub struct GuardDying {
-    pub frame: u8, // 0..DEATH_FRAMES-1
-    pub tics: u8,  // Fixed-Step Counter
+fn tick_mutant_shoot(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut MutantShoot), With<Mutant>>,
+) {
+    for (e, mut shoot) in q.iter_mut() {
+        shoot.timer.tick(time.delta());
+        if shoot.timer.is_finished() {
+            commands.entity(e).remove::<MutantShoot>();
+        }
+    }
 }
 
 pub fn play_enemy_death_sfx(
@@ -953,6 +1113,41 @@ pub fn spawn_guard(
         Dir8(0),
         View8(0),
         Health::new(GUARD_MAX_HP),
+        OccupiesTile(tile),
+        Mesh3d(quad),
+        MeshMaterial3d(mat),
+        Transform::from_translation(pos),
+    ));
+}
+
+pub fn spawn_mutant(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    sprites: &MutantSprites,
+    tile: IVec2,
+) {
+    const TILE_SIZE: f32 = 1.0;
+    const WALL_H: f32 = 1.0;
+
+    let pos = Vec3::new(tile.x as f32 * TILE_SIZE, WALL_H * 0.5, tile.y as f32 * TILE_SIZE);
+
+    // A Vertical Quad in XY Plane (Normal +Z), UVs "Upright"
+    let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
+    let mat = materials.add(StandardMaterial {
+        base_color_texture: Some(sprites.idle[0].clone()),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,       // No Lighting on Sprites
+        cull_mode: None,   // Safe for Billboards
+        ..default()
+    });
+
+    commands.spawn((
+        Mutant,
+        EnemyKind::Mutant,
+        Dir8(0),
+        View8(0),
+        Health::new(MUTANT_MAX_HP),
         OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
@@ -1484,6 +1679,31 @@ pub fn tick_guard_dying(
     }
 }
 
+pub fn tick_mutant_dying(
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut MutantDying), With<Mutant>>,
+) {
+    const DEATH_FRAMES: u8 = 4;
+    const TICS_PER_FRAME: u8 = 6;
+
+    for (e, mut dying) in q.iter_mut() {
+        dying.tics = dying.tics.saturating_add(1);
+
+        if dying.tics >= TICS_PER_FRAME {
+            dying.tics = 0;
+            dying.frame = dying.frame.saturating_add(1);
+
+            if dying.frame >= DEATH_FRAMES {
+                // End of Animation -> Permanent Corpse (and non-blocking)
+                commands.entity(e).remove::<MutantDying>();
+                commands.entity(e).insert(MutantCorpse);
+                // Keep OccupiesTile on corpses so doors won't close on them.
+                // Player/enemy collision queries already ignore Dead.
+            }
+        }
+    }
+}
+
 pub fn apply_guard_corpses(
     sprites: Res<GuardSprites>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -1602,54 +1822,168 @@ pub fn update_guard_views(
     }
 }
 
+pub fn update_mutant_views(
+    sprites: Res<MutantSprites>,
+    q_player: Query<&GlobalTransform, With<Player>>,
+    mut q: Query<
+        (
+            Option<&Dead>,
+            Option<&MutantCorpse>,
+            Option<&MutantDying>,
+            Option<&MutantPain>,
+            Option<&MutantWalk>,
+            Option<&MutantShoot>,
+            Option<&EnemyMove>,
+            &GlobalTransform,
+            &Dir8,
+            &mut View8,
+            &MeshMaterial3d<StandardMaterial>,
+            &mut Transform,
+        ),
+        (With<Mutant>, Without<Player>),
+    >,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(player_gt) = q_player.iter().next() else { return; };
+    let player_pos = player_gt.translation();
+
+    for (_dead, corpse, dying, pain, walk, shoot, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+        let enemy_pos = gt.translation();
+
+        // Compute View Index (0..7) Relative to Enemy's Facing + Player Position
+        let v = quantize_view8(dir8.0, enemy_pos, player_pos);
+        view.0 = v;
+
+        // Rotate Quad to Face Player
+        let to_player = player_pos - enemy_pos;
+        let flat_len2 = to_player.x * to_player.x + to_player.z * to_player.z;
+        if flat_len2 > 1e-6 {
+            let yaw = to_player.x.atan2(to_player.z);
+            tf.rotation = Quat::from_rotation_y(yaw);
+        }
+
+        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+
+        // Choose Texture in Priority Order:
+        // Corpse > Dying > Pain > Shooting > Moving (Walk) > Idle
+        let tex: Handle<Image> = if corpse.is_some() {
+            sprites.corpse.clone()
+        } else if let Some(d) = dying {
+            let i = (d.frame as usize).min(sprites.dying.len().saturating_sub(1));
+            sprites.dying[i].clone()
+        } else if pain.is_some() {
+            sprites.pain.clone()
+        } else if let Some(s) = shoot {
+            let frontish = matches!(v, 0 | 1 | 7);
+
+            // GuardShoot Has Only Timer', Pick Aim vs Fire Based on Timer Progress
+            let dur = s.timer.duration().as_secs_f32().max(1e-6);
+            let t = s.timer.elapsed().as_secs_f32();
+            let fire_phase = t >= (dur * 0.5);
+
+            if frontish {
+                if fire_phase {
+                    sprites.shoot_front_fire.clone()
+                } else {
+                    sprites.shoot_front_aim.clone()
+                }
+            } else {
+                sprites.shoot_side_fire.clone()
+            }
+        } else if mv.is_some() {
+            // Walk Frame Index From MutantWalk.phase (4 Frames Per Tile)
+            let w = walk.map(|w| w.phase).unwrap_or(0.0);
+            let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
+            sprites.walk[frame_i][v as usize].clone()
+        } else {
+            sprites.idle[v as usize].clone()
+        };
+
+        if mat.base_color_texture.as_ref() != Some(&tex) {
+            mat.base_color_texture = Some(tex);
+        }
+    }
+}
+
 pub struct EnemiesPlugin;
 
 impl Plugin for EnemiesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GuardSprites>()
+            .init_resource::<MutantSprites>()
             .init_resource::<SsSprites>()
-            .init_resource::<HansSprites>()
-            .init_resource::<DogSprites>()
             .init_resource::<OfficerSprites>()
+            .init_resource::<DogSprites>()
+            .init_resource::<HansSprites>()
             .add_systems(
                 Update,
                 (
-                    attach_guard_walk,
-                    attach_ss_walk,
-                    attach_hans_walk,
-                    attach_dog_walk,
-                    attach_officer_walk,
-                    update_guard_views,
-                    update_ss_views,
-                    update_hans_views,
-                    update_dog_views,
-                    update_officer_views,
+                    (
+                        attach_guard_walk,
+                        attach_mutant_walk,
+                        attach_ss_walk,
+                        attach_officer_walk,
+                        attach_dog_walk,
+                        attach_hans_walk,
+                    )
+                        .chain(),
+                    (
+                        update_guard_views,
+                        update_mutant_views,
+                        update_ss_views,
+                        update_officer_views,
+                        update_dog_views,
+                        update_hans_views,
+                    )
+                        .chain(),
                 )
                     .chain(),
             )
             .add_systems(
                 FixedUpdate,
                 (
-                    tick_guard_walk,
-                    tick_guard_pain,
-                    tick_guard_shoot,
-                    tick_guard_dying,
-                    tick_ss_walk,
-                    tick_ss_pain,
-                    tick_ss_shoot,
-                    tick_ss_dying,
-                    tick_hans_walk,
-                    tick_hans_shoot,
-                    tick_hans_dying,
-                    tick_dog_walk,
-                    tick_dog_pain,
-                    tick_dog_bite_cooldown,
-                    tick_dog_bite,
-                    tick_dog_dying,
-                    tick_officer_walk,
-                    tick_officer_pain,
-                    tick_officer_shoot,
-                    tick_officer_dying,
+                    (
+                        tick_guard_walk,
+                        tick_guard_pain,
+                        tick_guard_shoot,
+                        tick_guard_dying,
+                    )
+                        .chain(),
+                    (
+                        tick_mutant_walk,
+                        tick_mutant_pain,
+                        tick_mutant_shoot,
+                        tick_mutant_dying,
+                    )
+                        .chain(),
+                    (
+                        tick_ss_walk,
+                        tick_ss_pain,
+                        tick_ss_shoot,
+                        tick_ss_dying,
+                    )
+                        .chain(),
+                    (
+                        tick_officer_walk,
+                        tick_officer_pain,
+                        tick_officer_shoot,
+                        tick_officer_dying,
+                    )
+                        .chain(),
+                    (
+                        tick_dog_walk,
+                        tick_dog_pain,
+                        tick_dog_bite_cooldown,
+                        tick_dog_bite,
+                        tick_dog_dying,
+                    )
+                        .chain(),
+                    (
+                        tick_hans_walk,
+                        tick_hans_shoot,
+                        tick_hans_dying,
+                    )
+                        .chain(),
                 )
                     .chain(),
             );

@@ -18,13 +18,15 @@ use davelib::enemies::{
     EnemyKind,
     GuardDying,
     GuardPain,
+    MutantDying,
+    MutantPain,
     SsDying,
     SsPain,
     OfficerDying,
     OfficerPain,
-    HansDying,
     DogDying,
     DogPain,
+    HansDying,
 };
 use davelib::map::MapGrid;
 
@@ -326,17 +328,20 @@ fn process_fire_shots(
                         EnemyKind::Guard => {
                             commands.entity(e).insert(GuardDying { frame: 0, tics: 0 });
                         }
+                        EnemyKind::Mutant => {
+                            commands.entity(e).insert(MutantDying { frame: 0, tics: 0 });
+                        }
                         EnemyKind::Ss => {
                             commands.entity(e).insert(SsDying { frame: 0, tics: 0 });
                         }
                         EnemyKind::Officer => {
                             commands.entity(e).insert(OfficerDying { frame: 0, tics: 0 });
                         }
-                        EnemyKind::Hans => {
-                            commands.entity(e).insert(HansDying { frame: 0, tics: 0 });
-                        }
                         EnemyKind::Dog => {
                             commands.entity(e).insert(DogDying { frame: 0, tics: 0 });
+                        }
+                        EnemyKind::Hans => {
+                            commands.entity(e).insert(HansDying { frame: 0, tics: 0 });
                         }
                     }
                 } else {
@@ -344,6 +349,9 @@ fn process_fire_shots(
                     match kind {
                         EnemyKind::Guard => {
                             commands.entity(e).insert(GuardPain { timer });
+                        }
+                        EnemyKind::Mutant => {
+                            commands.entity(e).insert(MutantPain { timer });
                         }
                         EnemyKind::Ss => {
                             commands.entity(e).insert(SsPain { timer });

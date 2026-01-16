@@ -386,10 +386,10 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         asset_server.load("sounds/sfx/enemies/officer/officer_shoot.ogg"),
     );
     // Mutant Shoot
-    // lib.insert_one(
-    //     SfxKind::EnemyShoot(EnemyKind::Ss),
-    //     asset_server.load("sounds/sfx/enemies/mutant/mutant_shoot.ogg"),
-    // );
+    lib.insert_one(
+        SfxKind::EnemyShoot(EnemyKind::Mutant),
+        asset_server.load("sounds/sfx/enemies/mutant/mutant_shoot.ogg"),
+    );
     // Dog Bite
     lib.insert_one(
         SfxKind::EnemyShoot(EnemyKind::Dog),
@@ -436,10 +436,10 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         asset_server.load("sounds/sfx/enemies/officer/officer_death.ogg"),
     );
     // Mutant Death
-    // lib.insert_one(
-    //     SfxKind::EnemyDeath(EnemyKind::Ss),
-    //     asset_server.load("sounds/sfx/enemies/mutant/mutant_death.ogg"),
-    // );
+    lib.insert_one(
+        SfxKind::EnemyDeath(EnemyKind::Mutant),
+        asset_server.load("sounds/sfx/enemies/mutant/mutant_death.ogg"),
+    );
     // Dog Death
     lib.insert_one(
         SfxKind::EnemyDeath(EnemyKind::Dog),
