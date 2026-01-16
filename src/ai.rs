@@ -83,6 +83,7 @@ enum ChasePick {
 #[allow(dead_code)]
 fn pick_chase_step(
     grid: &MapGrid,
+    solid: &SolidStatics,
     occupied: &std::collections::HashSet<IVec2>,
     my_tile: IVec2,
     player_tile: IVec2,
@@ -145,6 +146,11 @@ fn pick_chase_step(
 
         let Some(t) = tile_at(grid, dest) else { continue; };
 
+        // Check for Blocking Decorations
+        if solid.is_solid(dest.x, dest.y) {
+            continue;
+        }
+
         match t {
             Tile::Empty | Tile::DoorOpen => return ChasePick::MoveTo(dest),
             Tile::DoorClosed => return ChasePick::OpenDoor(dest),
@@ -155,7 +161,7 @@ fn pick_chase_step(
     // Nothing Worked, Allow Reverse as Last Resort
     if last_step != IVec2::ZERO {
         let dest = my_tile + reverse;
-        if dest != player_tile && !occupied.contains(&dest) {
+        if dest != player_tile && !occupied.contains(&dest) && !solid.is_solid(dest.x, dest.y) {
             if let Some(t) = tile_at(grid, dest) {
                 match t {
                     Tile::Empty | Tile::DoorOpen => return ChasePick::MoveTo(dest),
@@ -1020,7 +1026,7 @@ pub fn enemy_ai_tick(
 
             // Fallback
             if !moved_or_acted {
-                match pick_chase_step(&grid, &occupied, my_tile, player_tile, ai.last_step) {
+                match pick_chase_step(&grid, &solid, &occupied, my_tile, player_tile, ai.last_step) {
                     ChasePick::MoveTo(dest) => {
                         if dest != player_tile && !occupied.contains(&dest) {
                             let step = dest - my_tile;
