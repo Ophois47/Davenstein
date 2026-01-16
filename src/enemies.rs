@@ -807,9 +807,9 @@ pub fn play_enemy_death_sfx(
 ) {
     // Immediately kill all enemy voice SFX when ANY enemy dies
     for e in q_active_voice.iter() {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
-    
+
     for (gt, kind) in q.iter() {
         let p = gt.translation();
         let pos = Vec3::new(p.x, 0.6, p.z);

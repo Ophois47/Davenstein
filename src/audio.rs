@@ -529,7 +529,7 @@ pub fn sync_level_music(
 
     // Always remove whatever "Music" is currently playing (menu/levelend/etc)
     for e in music.iter() {
-        commands.entity(e).despawn();
+        commands.entity(e).try_despawn();
     }
 
     let track = track_for_level(level.0);
@@ -556,7 +556,7 @@ fn is_pickup_kind(k: SfxKind) -> bool {
             | SfxKind::PickupMachineGun
             | SfxKind::PickupAmmo
 
-            // Pickups - Keys
+            // Pickups - Key
             | SfxKind::PickupKey
 
             // Pickups - Health
@@ -588,9 +588,9 @@ pub fn play_sfx_events(
 
     for e in ev.read() {
         if is_pickup_kind(e.kind) {
-            last_pickup = Some(e.clone());
+            last_pickup = Some(*e);
         } else {
-            non_pickups.push(e.clone());
+            non_pickups.push(*e);
         }
     }
 
@@ -668,7 +668,7 @@ pub fn play_sfx_events(
             continue;
         }
 
-        // Normal non-pickups path (unchanged)
+        // Normal non-pickups path
         let Some(list) = lib.map.get(&e.kind) else {
             warn!("Missing SFX for {:?}", e.kind);
             continue;
@@ -744,7 +744,6 @@ pub fn play_sfx_events(
                 .with_spatial_scale(SpatialScale::new(0.12))
                 .with_volume(Volume::Linear(1.15)),
 
-            // Menu/intermission generally won’t reach this match (handled above), but keep exhaustive.
             SfxKind::MenuMove
             | SfxKind::MenuSelect
             | SfxKind::MenuBack => PlaybackSettings::DESPAWN.with_spatial(false),
@@ -772,14 +771,16 @@ pub fn play_sfx_events(
         }
     }
 
-    // Pickups: ONLY last pickup (unchanged)
+    // Pickups: ONLY last pickup
     let Some(e) = last_pickup else { return; };
 
     let Some(list) = lib.map.get(&e.kind) else {
         warn!("Missing SFX for {:?}", e.kind);
         return;
     };
-    if list.is_empty() { return; }
+    if list.is_empty() {
+        return;
+    }
 
     for ent in q_active_pickup.iter() {
         commands.entity(ent).despawn();
