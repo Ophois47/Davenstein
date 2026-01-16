@@ -32,6 +32,5 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
-- Enemies can walk through blocking decorations
-- Officers and mutants do not drop ammo
-- Fix enemy LOS regarding alert sound and walls
+- Officers + dogs sometimes do not play alert sound when reacting to player
+- Enemy LOS regarding alert sound and walls

@@ -9,8 +9,10 @@ use crate::ui::HudState;
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::enemies::{
     GuardCorpse,
-    HansCorpse,
+    MutantCorpse,
     SsCorpse,
+    OfficerCorpse,
+    HansCorpse,
 };
 use davelib::level::WolfPlane1;
 use davelib::map::{MapGrid, Tile};
@@ -20,7 +22,9 @@ use davelib::player::Player;
 #[allow(dead_code)]
 const MAP_AMMO_ROUNDS: i32 = 8;
 const GUARD_DROP_AMMO_ROUNDS: i32 = 4;
-// Wolfenstein 3d 1992 MAX_AMMO = 99
+const OFFICER_DROP_AMMO_ROUNDS: i32 = 4;
+const MUTANT_DROP_AMMO_ROUNDS: i32 = 4;
+
 const AMMO_MAX: i32 = 99;
 
 // Visual Size, Height in World Units
@@ -425,6 +429,66 @@ pub fn drop_guard_ammo(
     }
 }
 
+pub fn drop_mutant_ammo(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    q_corpses: Query<(Entity, &GlobalTransform), (With<MutantCorpse>, Without<DroppedLoot>)>,
+) {
+    // Depth Tweak: with AlphaMode::Mask this Will Actually Affect Depth Testing
+    const DROP_DEPTH_BIAS: f32 = -250.0;
+
+    // Tiny Lift to Avoid Z-Fighting with Floor
+    const DROP_Y_LIFT: f32 = 0.01;
+
+    for (e, gt) in q_corpses.iter() {
+        // Drop Once per Corpse
+        commands.entity(e).insert(DroppedLoot);
+
+        // Drop at the Corpse Tile
+        let p = gt.translation();
+        let tile = world_to_tile_xz(Vec2::new(p.x, p.z));
+
+        let rounds = MUTANT_DROP_AMMO_ROUNDS;
+
+        let (w, h) = ammo_size();
+        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
+        let tex: Handle<Image> = asset_server.load(ammo_texture());
+
+        let mat = materials.add(StandardMaterial {
+            base_color_texture: Some(tex),
+
+            // Mask writes depth, so corpse can't overwrite later
+            // Choose Cutoff that Keeps Edges Crisp. Adjust to 0.25 if "holes"
+            alpha_mode: AlphaMode::Mask(0.5),
+
+            unlit: true,
+            cull_mode: None,
+
+            // Make Slightly "Closer" in Depth Than Corpse at Same Tile
+            depth_bias: DROP_DEPTH_BIAS,
+
+            ..default()
+        });
+
+        let y = (h * 0.5) + DROP_Y_LIFT;
+
+        commands.spawn((
+            Name::new("Pickup_Drop_Ammo_Mutant"),
+            Pickup {
+                tile,
+                kind: PickupKind::Ammo { rounds },
+            },
+            Mesh3d(quad),
+            MeshMaterial3d(mat),
+            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
+                .with_rotation(pickup_base_rot()),
+            GlobalTransform::default(),
+        ));
+    }
+}
+
 pub fn drop_ss_loot(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -484,6 +548,66 @@ pub fn drop_ss_loot(
         commands.spawn((
             Name::new("Pickup_Drop_SS"),
             Pickup { tile, kind },
+            Mesh3d(quad),
+            MeshMaterial3d(mat),
+            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
+                .with_rotation(pickup_base_rot()),
+            GlobalTransform::default(),
+        ));
+    }
+}
+
+pub fn drop_officer_ammo(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    q_corpses: Query<(Entity, &GlobalTransform), (With<OfficerCorpse>, Without<DroppedLoot>)>,
+) {
+    // Depth Tweak: with AlphaMode::Mask this Will Actually Affect Depth Testing
+    const DROP_DEPTH_BIAS: f32 = -250.0;
+
+    // Tiny Lift to Avoid Z-Fighting with Floor
+    const DROP_Y_LIFT: f32 = 0.01;
+
+    for (e, gt) in q_corpses.iter() {
+        // Drop Once per Corpse
+        commands.entity(e).insert(DroppedLoot);
+
+        // Drop at the Corpse Tile
+        let p = gt.translation();
+        let tile = world_to_tile_xz(Vec2::new(p.x, p.z));
+
+        let rounds = OFFICER_DROP_AMMO_ROUNDS;
+
+        let (w, h) = ammo_size();
+        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
+        let tex: Handle<Image> = asset_server.load(ammo_texture());
+
+        let mat = materials.add(StandardMaterial {
+            base_color_texture: Some(tex),
+
+            // Mask writes depth, so corpse can't overwrite later
+            // Choose Cutoff that Keeps Edges Crisp. Adjust to 0.25 if "holes"
+            alpha_mode: AlphaMode::Mask(0.5),
+
+            unlit: true,
+            cull_mode: None,
+
+            // Make Slightly "Closer" in Depth Than Corpse at Same Tile
+            depth_bias: DROP_DEPTH_BIAS,
+
+            ..default()
+        });
+
+        let y = (h * 0.5) + DROP_Y_LIFT;
+
+        commands.spawn((
+            Name::new("Pickup_Drop_Ammo_Officer"),
+            Pickup {
+                tile,
+                kind: PickupKind::Ammo { rounds },
+            },
             Mesh3d(quad),
             MeshMaterial3d(mat),
             Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
@@ -561,7 +685,9 @@ pub fn billboard_pickups(
 
         if let PickupKind::Ammo { rounds } = p.kind {
             // For Dropped Loot
-            if rounds == GUARD_DROP_AMMO_ROUNDS {
+            if rounds == GUARD_DROP_AMMO_ROUNDS 
+                || rounds == OFFICER_DROP_AMMO_ROUNDS 
+                || rounds == MUTANT_DROP_AMMO_ROUNDS {
                 // Anchor to Tile Center, Preserve Y From Spawn
                 pos.x = p.tile.x as f32;
                 pos.z = p.tile.y as f32;

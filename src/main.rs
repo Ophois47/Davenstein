@@ -256,7 +256,9 @@ fn main() {
                 door_animate,
                 player_move,
                 pickups::drop_guard_ammo,
+                pickups::drop_mutant_ammo,
                 pickups::drop_ss_loot,
+                pickups::drop_officer_ammo,
                 pickups::drop_hans_key,
                 pickups::collect_pickups,
             )
