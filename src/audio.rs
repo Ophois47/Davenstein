@@ -129,18 +129,21 @@ fn track_for_level(level: LevelId) -> LevelTrack {
         LevelId::E1M4 | LevelId::E1M8 | LevelId::E4M4 | LevelId::E4M8 => LevelTrack::SUSPENSE_MUS,
         LevelId::E1M9 | LevelId::E2M9 | LevelId::E4M9 | LevelId::E5M9 => LevelTrack::WARMARCH_MUS,
 
-        LevelId::E1M10 => LevelTrack::CORNER_MUS,
-
         LevelId::E2M1 | LevelId::E2M5 | LevelId::E5M1 | LevelId::E5M5 => LevelTrack::NAZI_OMI_MUS,
         LevelId::E2M2 | LevelId::E2M6 | LevelId::E5M2 | LevelId::E5M6 => LevelTrack::PREGNANT_MUS,
         LevelId::E2M3 | LevelId::E2M8 | LevelId::E5M3 | LevelId::E5M8 => LevelTrack::GOINGAFT_MUS,
         LevelId::E2M4 | LevelId::E2M7 | LevelId::E5M4 | LevelId::E5M7 => LevelTrack::HEADACHE_MUS,
-
+        
         LevelId::E3M1 | LevelId::E3M5 | LevelId::E6M1 | LevelId::E6M5 => LevelTrack::INTROCW3_MUS,
         LevelId::E3M2 | LevelId::E3M6 | LevelId::E6M2 | LevelId::E6M6 => LevelTrack::NAZIRAP_MUS,
         LevelId::E3M3 | LevelId::E3M7 | LevelId::E6M3 | LevelId::E6M7 => LevelTrack::TWELFTH_MUS,
         LevelId::E3M4 | LevelId::E3M8 | LevelId::E6M4 | LevelId::E6M8 => LevelTrack::ZEROHOUR_MUS,
         LevelId::E3M9 | LevelId::E6M9 => LevelTrack::ULTIMATE_MUS,
+
+        LevelId::E1M10 | LevelId::E4M10 => LevelTrack::CORNER_MUS,
+        LevelId::E2M10 | LevelId::E5M10 => LevelTrack::DUNGEON_MUS,
+        LevelId::E3M10 => LevelTrack::PACMAN_MUS,
+        LevelId::E6M10 => LevelTrack::FUNKYOU_MUS,
     }
 }
 

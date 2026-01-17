@@ -126,6 +126,7 @@ fn main() {
         .init_resource::<davelib::level_score::LevelScore>()
         .init_resource::<level_complete::MissionSuccessTally>()
         .init_resource::<level_complete::ElevatorExitDelay>()
+        .init_resource::<level_complete::PendingLevelExit>()
         // -----------------------------
         // Messages / Events
         // -----------------------------

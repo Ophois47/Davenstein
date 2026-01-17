@@ -17,6 +17,24 @@ const ELEV_SWITCH_UP_WALL_ID: u16 = 22;
 #[derive(Resource, Debug, Clone, Default)]
 pub struct LevelComplete(pub bool);
 
+/// Plane0 code under the player that marks a secret elevator exit
+const ALT_ELEVATOR_FLOOR_CODE: u16 = 107;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LevelExitKind {
+    Normal,
+    Secret,
+}
+
+#[derive(Resource, Debug, Clone, Copy)]
+pub(crate) struct PendingLevelExit(pub LevelExitKind);
+
+impl Default for PendingLevelExit {
+    fn default() -> Self {
+        Self(LevelExitKind::Normal)
+    }
+}
+
 /// Marker for Full Screen "MISSION SUCCESS" UI Overlay
 #[derive(Component)]
 pub struct MissionSuccessOverlay;
@@ -162,8 +180,9 @@ pub fn use_elevator_exit(
     mut rebuild: MessageWriter<RebuildWalls>,
     mut music_mode: ResMut<davelib::audio::MusicMode>,
     mut exit_delay: ResMut<ElevatorExitDelay>,
+    mut pending_exit: ResMut<PendingLevelExit>,
 ) {
-    // If gameplay is already locked, or win screen already up, or we're already delaying, do nothing.
+    // If gameplay is already locked, or win screen already up, or we're already delaying, do nothing
     if lock.0 || win.0 || exit_delay.active {
         return;
     }
@@ -178,6 +197,13 @@ pub fn use_elevator_exit(
     }
 
     let player_tile = world_to_tile(Vec2::new(player_tf.translation.x, player_tf.translation.z));
+    if player_tile.x < 0
+        || player_tile.y < 0
+        || player_tile.x >= grid.width as i32
+        || player_tile.y >= grid.height as i32
+    {
+        return;
+    }
 
     // 4-way Facing (Same as Doors)
     let mut fwd = player_tf.rotation * Vec3::NEG_Z;
@@ -212,6 +238,15 @@ pub fn use_elevator_exit(
     if wall_id != ELEV_SWITCH_DOWN_WALL_ID {
         return;
     }
+
+    // Latch whether this is a secret exit based on the tile under the player
+    let (px, pz) = (player_tile.x as usize, player_tile.y as usize);
+    let under_player = grid.plane0_code(px, pz);
+    pending_exit.0 = if under_player == ALT_ELEVATOR_FLOOR_CODE {
+        LevelExitKind::Secret
+    } else {
+        LevelExitKind::Normal
+    };
 
     // Flip Switch Texture
     grid.set_plane0_code(tx, tz, ELEV_SWITCH_UP_WALL_ID);
@@ -427,6 +462,7 @@ pub fn mission_success_input(
     mut advance: ResMut<crate::ui::sync::AdvanceLevelRequested>,
     mut current_level: ResMut<davelib::level::CurrentLevel>,
     mut music_mode: ResMut<davelib::audio::MusicMode>,
+    mut pending_exit: ResMut<PendingLevelExit>,
 ) {
     if !win.0 || advance.0 {
         return;
@@ -455,13 +491,21 @@ pub fn mission_success_input(
         return;
     }
 
+    let from = current_level.0;
+    let to = match pending_exit.0 {
+        LevelExitKind::Secret => davelib::level::next_secret(from),
+        LevelExitKind::Normal => from.next_normal(),
+    };
+
+    pending_exit.0 = LevelExitKind::Normal;
+
     music_mode.0 = davelib::audio::MusicModeKind::Gameplay;
-    current_level.0 = current_level.0.next_e1_normal();
+    current_level.0 = to;
     advance.0 = true;
 
     info!(
-        "Mission Success: advancing to {:?} -> advance level requested",
-        current_level.0
+        "Mission Success: advancing {:?} -> {:?} -> advance level requested",
+        from, to
     );
 }
 

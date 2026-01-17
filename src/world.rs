@@ -366,6 +366,10 @@ pub fn setup(
 			include_str!("../assets/maps/episode2/e2m9_plane0_u16.txt"),
 			include_str!("../assets/maps/episode2/e2m9_plane1_u16.txt"),
 		),
+		crate::level::LevelId::E2M10 => (
+			include_str!("../assets/maps/episode2/e2m10_plane0_u16.txt"),
+			include_str!("../assets/maps/episode2/e2m10_plane1_u16.txt"),
+		),
 
 		// Episode 3
 		crate::level::LevelId::E3M1 => (
@@ -404,6 +408,10 @@ pub fn setup(
 			include_str!("../assets/maps/episode3/e3m9_plane0_u16.txt"),
 			include_str!("../assets/maps/episode3/e3m9_plane1_u16.txt"),
 		),
+		crate::level::LevelId::E3M10 => (
+			include_str!("../assets/maps/episode3/e3m10_plane0_u16.txt"),
+			include_str!("../assets/maps/episode3/e3m10_plane1_u16.txt"),
+		),
 
 		// Episode 4
 		crate::level::LevelId::E4M1 => (
@@ -441,6 +449,10 @@ pub fn setup(
 		crate::level::LevelId::E4M9 => (
 			include_str!("../assets/maps/episode4/e4m9_plane0_u16.txt"),
 			include_str!("../assets/maps/episode4/e4m9_plane1_u16.txt"),
+		),
+		crate::level::LevelId::E4M10 => (
+			include_str!("../assets/maps/episode4/e4m10_plane0_u16.txt"),
+			include_str!("../assets/maps/episode4/e4m10_plane1_u16.txt"),
 		),
 
 		// Episode 5
@@ -481,6 +493,11 @@ pub fn setup(
 			include_str!("../assets/maps/episode5/e5m9_plane1_u16.txt"),
 		),
 
+		crate::level::LevelId::E5M10 => (
+			include_str!("../assets/maps/episode5/e5m10_plane0_u16.txt"),
+			include_str!("../assets/maps/episode5/e5m10_plane1_u16.txt"),
+		),
+
 		// Episode 6
 		crate::level::LevelId::E6M1 => (
 			include_str!("../assets/maps/episode6/e6m1_plane0_u16.txt"),
@@ -517,6 +534,10 @@ pub fn setup(
 		crate::level::LevelId::E6M9 => (
 			include_str!("../assets/maps/episode6/e6m9_plane0_u16.txt"),
 			include_str!("../assets/maps/episode6/e6m9_plane1_u16.txt"),
+		),
+		crate::level::LevelId::E6M10 => (
+			include_str!("../assets/maps/episode6/e6m10_plane0_u16.txt"),
+			include_str!("../assets/maps/episode6/e6m10_plane1_u16.txt"),
 		),
 	};
 
