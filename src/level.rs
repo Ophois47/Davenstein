@@ -164,6 +164,68 @@ pub const fn next_secret(from: LevelId) -> LevelId {
     }
 }
 
+// Wolf3D MS-DOS ceiling colors per level (Episodes 1-6, Floors 1-10)
+// Each entry is (r,g,b) in 8-bit RGB, derived from Wolf3D's vgaCeiling + GAMEPAL
+// Wolf3D WL6 ceiling palette indices (vgaCeiling) by episode and floor
+// Source is Wolf4SDL's vgaCeiling table for Wolf3D (not Spear)
+const VGA_CEILING_PAL: [u8; 60] = [
+    // Episode 1 floors 1-10
+    0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0xbf,
+    // Episode 2 floors 1-10
+    0x4e, 0x4e, 0x4e, 0x1d, 0x8d, 0x4e, 0x1d, 0x2d, 0x1d, 0x8d,
+    // Episode 3 floors 1-10
+    0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x2d, 0xdd, 0x1d, 0x1d, 0x98,
+    // Episode 4 floors 1-10
+    0x1d, 0x9d, 0x2d, 0xdd, 0xdd, 0x9d, 0x2d, 0x4d, 0x1d, 0xdd,
+    // Episode 5 floors 1-10
+    0x7d, 0x1d, 0x2d, 0x2d, 0xdd, 0xd7, 0x1d, 0x1d, 0x1d, 0x2d,
+    // Episode 6 floors 1-10
+    0x1d, 0x1d, 0x1d, 0x1d, 0xdd, 0xdd, 0x7d, 0xdd, 0xdd, 0xdd,
+];
+
+const fn pal6_to_u8(v: u8) -> u8 {
+    v.saturating_mul(4)
+}
+
+const fn gamepal_rgb_u8(idx: u8) -> (u8, u8, u8) {
+    match idx {
+        // Index -> (r,g,b) in Wolf3D GAMEPAL 6-bit, scaled to 8-bit by *4
+        0x00 => (0, 0, 0),
+
+        0x1d => (pal6_to_u8(14), pal6_to_u8(14), pal6_to_u8(14)),
+        0x2d => (pal6_to_u8(22), 0, 0),
+        0x4d => (pal6_to_u8(28), pal6_to_u8(27), 0),
+        0x4e => (pal6_to_u8(22), pal6_to_u8(21), 0),
+
+        0x7d => (0, pal6_to_u8(28), pal6_to_u8(28)),
+        0x8d => (pal6_to_u8(16), pal6_to_u8(16), pal6_to_u8(63)),
+        0x98 => (0, 0, pal6_to_u8(38)),
+        0x9d => (0, 0, pal6_to_u8(22)),
+
+        0xbf => (pal6_to_u8(16), 0, pal6_to_u8(16)),
+        0xd7 => (pal6_to_u8(32), pal6_to_u8(20), pal6_to_u8(11)),
+        0xdd => (pal6_to_u8(16), pal6_to_u8(12), pal6_to_u8(6)),
+
+        _ => (0, 0, 0),
+    }
+}
+
+impl LevelId {
+    pub fn ceiling_color(self) -> Color {
+        let ep0 = self.episode().saturating_sub(1) as usize;
+        let floor0 = (self.floor_number().clamp(1, 10) - 1) as usize;
+
+        let pal_idx = VGA_CEILING_PAL[ep0 * 10 + floor0];
+        let (r8, g8, b8) = gamepal_rgb_u8(pal_idx);
+
+        Color::srgb(
+            r8 as f32 / 255.0,
+            g8 as f32 / 255.0,
+            b8 as f32 / 255.0,
+        )
+    }
+}
+
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct CurrentLevel(pub LevelId);
 

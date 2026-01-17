@@ -712,19 +712,39 @@ pub fn setup(
 		Transform::from_translation(room_center + Vec3::new(0.0, 6.0, 0.0)),
 	));
 
-	// Floor
-	commands.spawn((
-		Mesh3d(meshes.add(
-			Plane3d::default()
-				.mesh()
-				.size(
-					grid.width as f32 * TILE_SIZE,
-					grid.height as f32 * TILE_SIZE,
-				),
-		)),
-		MeshMaterial3d(floor_mat),
-		Transform::from_translation(room_center),
-	));
+	    // Floor + ceiling share the same mesh handle
+    let floor_mesh = meshes.add(
+        Plane3d::default()
+            .mesh()
+            .size(
+                grid.width as f32 * TILE_SIZE,
+                grid.height as f32 * TILE_SIZE,
+            ),
+    );
+
+    // Floor
+    commands.spawn((
+        Name::new("floor"),
+        Mesh3d(floor_mesh.clone()),
+        MeshMaterial3d(floor_mat),
+        Transform::from_translation(room_center),
+    ));
+
+    // Ceiling Plane Tinted per Level
+    let ceiling_mat = materials.add(StandardMaterial {
+        base_color: current_level.0.ceiling_color(),
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    commands.spawn((
+        Name::new("ceiling"),
+        Mesh3d(floor_mesh),
+        MeshMaterial3d(ceiling_mat),
+        Transform::from_translation(room_center + Vec3::new(0.0, WALL_H, 0.0))
+            .with_rotation(Quat::from_rotation_x(PI)),
+    ));
 
 	// --- Wall atlas mapping (WL6 VSWAP walls 0..105 packed 16x7, 64x64 each) ---
 	const VSWAP_WALL_CHUNKS: usize = 106;
