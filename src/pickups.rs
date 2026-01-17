@@ -775,6 +775,9 @@ pub fn billboard_pickups(
 }
 
 pub fn collect_pickups(
+    time: Res<Time>,
+    mut key_sfx_block_secs: Local<f32>,
+    mut queued_pickup_sfx: Local<Option<PlaySfx>>,
     mut commands: Commands,
     q_player: Query<(Entity, &Transform), With<Player>>,
     mut q_vitals: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
@@ -786,7 +789,21 @@ pub fn collect_pickups(
     mut sfx: MessageWriter<PlaySfx>,
     mut level_score: ResMut<davelib::level_score::LevelScore>,
 ) {
-    const WEAPON_PICKUP_BULLETS: i32 = 6; // Wolf-like: MG/Chaingun give 6 bullets
+    const WEAPON_PICKUP_BULLETS: i32 = 6; // MG/Chaingun give 6 bullets
+
+    // Tune this to match your key pickup wav length so the key sound stays dominant
+    const KEY_PICKUP_SFX_BLOCK_SECS: f32 = 0.75;
+
+    // Tick down the block timer and flush one queued pickup SFX when it expires
+    let dt = time.delta_secs();
+    if *key_sfx_block_secs > 0.0 {
+        *key_sfx_block_secs = (*key_sfx_block_secs - dt).max(0.0);
+        if *key_sfx_block_secs == 0.0 {
+            if let Some(msg) = queued_pickup_sfx.take() {
+                sfx.write(msg);
+            }
+        }
+    }
 
     let Some((player_e, player_tf)) = q_player.iter().next() else {
         return;
@@ -799,6 +816,27 @@ pub fn collect_pickups(
 
     let Some(mut vitals) = q_vitals.iter_mut().next() else {
         return;
+    };
+
+    let mut emit_pickup_sfx = |kind: SfxKind| {
+        let msg = PlaySfx {
+            kind,
+            pos: player_tf.translation,
+        };
+
+        if kind == SfxKind::PickupKey {
+            sfx.write(msg);
+            *key_sfx_block_secs = KEY_PICKUP_SFX_BLOCK_SECS;
+            *queued_pickup_sfx = None;
+            return;
+        }
+
+        if *key_sfx_block_secs > 0.0 {
+            *queued_pickup_sfx = Some(msg);
+            return;
+        }
+
+        sfx.write(msg);
     };
 
     for (e, p) in q_pickups.iter() {
@@ -816,11 +854,9 @@ pub fn collect_pickups(
                     _ => None,
                 };
 
-                // Simple + correct: only treat the weapon as owned if that exact slot is owned
                 let already_owns = hud.owns(w);
 
                 if already_owns {
-                    // Already own weapon => ammo-only
                     if hud.ammo >= AMMO_MAX {
                         consumed = false;
                     } else {
@@ -828,31 +864,22 @@ pub fn collect_pickups(
                         hud.ammo += gain;
 
                         if let Some(kind) = pickup_sfx {
-                            sfx.write(PlaySfx {
-                                kind,
-                                pos: player_tf.translation,
-                            });
+                            emit_pickup_sfx(kind);
                         }
                     }
                 } else {
-                    // New weapon pickup
                     if let Some(kind) = pickup_sfx {
-                        sfx.write(PlaySfx {
-                            kind,
-                            pos: player_tf.translation,
-                        });
+                        emit_pickup_sfx(kind);
                     }
 
                     hud.grant(w);
                     hud.selected = w;
 
-                    // Weapon pickup also grants bullets
                     if hud.ammo < AMMO_MAX {
                         let gain = WEAPON_PICKUP_BULLETS.min(AMMO_MAX - hud.ammo);
                         hud.ammo += gain;
                     }
 
-                    // Only grin on actual chaingun pickup (not ammo-only)
                     if w == WeaponSlot::Chaingun {
                         face_ov.active = true;
                         face_ov.timer.reset();
@@ -867,10 +894,7 @@ pub fn collect_pickups(
                     let gain = rounds.min(AMMO_MAX - hud.ammo);
                     hud.ammo += gain;
 
-                    sfx.write(PlaySfx {
-                        kind: SfxKind::PickupAmmo,
-                        pos: player_tf.translation,
-                    });
+                    emit_pickup_sfx(SfxKind::PickupAmmo);
                 }
             }
 
@@ -882,10 +906,7 @@ pub fn collect_pickups(
                     TreasureKind::Crown => SfxKind::PickupTreasureCrown,
                 };
 
-                sfx.write(PlaySfx {
-                    kind,
-                    pos: player_tf.translation,
-                });
+                emit_pickup_sfx(kind);
 
                 hud.score += t.points();
                 level_score.treasure_found += 1; // Intermission tally
@@ -904,10 +925,7 @@ pub fn collect_pickups(
                         HealthKind::DogFood => SfxKind::PickupHealthDogFood,
                     };
 
-                    sfx.write(PlaySfx {
-                        kind,
-                        pos: player_tf.translation,
-                    });
+                    emit_pickup_sfx(kind);
                 }
             }
 
@@ -916,14 +934,10 @@ pub fn collect_pickups(
                 vitals.hp = vitals.hp_max;
                 hud.ammo = (hud.ammo + 25).min(AMMO_MAX);
 
-                sfx.write(PlaySfx {
-                    kind: SfxKind::PickupOneUp,
-                    pos: player_tf.translation,
-                });
+                emit_pickup_sfx(SfxKind::PickupOneUp);
             }
 
             PickupKind::Key(k) => {
-                // Use PlayerKeys as gameplay truth, keep HUD mirrored
                 match q_pkeys.get_mut(player_e) {
                     Ok(mut pk) => {
                         let already = match k {
@@ -945,10 +959,7 @@ pub fn collect_pickups(
                                 }
                             }
 
-                            sfx.write(PlaySfx {
-                                kind: SfxKind::PickupKey,
-                                pos: player_tf.translation,
-                            });
+                            emit_pickup_sfx(SfxKind::PickupKey);
                         }
                     }
                     Err(_) => {
@@ -976,10 +987,7 @@ pub fn collect_pickups(
                                 },
                             });
 
-                            sfx.write(PlaySfx {
-                                kind: SfxKind::PickupKey,
-                                pos: player_tf.translation,
-                            });
+                            emit_pickup_sfx(SfxKind::PickupKey);
                         }
                     }
                 }

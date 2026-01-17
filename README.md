@@ -30,5 +30,4 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
-- Key pickup noise should take precedence over other pickup sounds
 - E5M7 has a pushwall that can be opened from the wrong direction
