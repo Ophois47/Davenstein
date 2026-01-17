@@ -170,6 +170,7 @@ impl MapGrid {
         Vec<IVec2>,
         Vec<IVec2>,
         Vec<IVec2>,
+        Vec<IVec2>,
     ) {
         let mut raw_plane0: Vec<u16> = Vec::with_capacity(width * height);
         let mut tiles: Vec<Tile> = Vec::with_capacity(width * height);
@@ -181,6 +182,7 @@ impl MapGrid {
         let mut officers: Vec<IVec2> = Vec::new();
         let mut dogs: Vec<IVec2> = Vec::new();
         let mut hans: Vec<IVec2> = Vec::new();
+        let mut gretel: Vec<IVec2> = Vec::new();
 
         let idx = |x: usize, z: usize| -> usize { z * width + x };
 
@@ -231,8 +233,9 @@ impl MapGrid {
                 } else if (134..=141).contains(&v1) || (170..=177).contains(&v1) || (206..=213).contains(&v1) {
                     dogs.push(t);
                 } else if v1 == 214 {
-                    // Boss Hans Grosse in E1M9
                     hans.push(t);
+                } else if v1 == 197 {
+                    gretel.push(t);
                 }
             }
         }
@@ -251,6 +254,7 @@ impl MapGrid {
             officers,
             dogs,
             hans,
+            gretel,
         )
     }
 }

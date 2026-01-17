@@ -871,6 +871,7 @@ pub fn enemy_ai_tick(
                         let damage = if hits {
                             match kind {
                                 EnemyKind::Hans => wolf_boss_damage(shoot_dist),
+                                EnemyKind::Gretel => wolf_boss_damage(shoot_dist),
                                 _ => wolf_hitscan_damage(shoot_dist),
                             }
                         } else {
@@ -904,6 +905,11 @@ pub fn enemy_ai_tick(
                             EnemyKind::Hans => {
                                 commands.entity(e).insert(crate::enemies::HansShoot {
                                     t: Timer::from_seconds(crate::enemies::HANS_SHOOT_SECS, TimerMode::Once),
+                                });
+                            }
+                            EnemyKind::Gretel => {
+                                commands.entity(e).insert(crate::enemies::GretelShoot {
+                                    t: Timer::from_seconds(crate::enemies::GRETEL_SHOOT_SECS, TimerMode::Once),
                                 });
                             }
                             EnemyKind::Dog => {}

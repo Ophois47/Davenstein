@@ -17,13 +17,30 @@ use crate::audio::{
 };
 use crate::player::Player;
 
-// TODO: Health Often Varied by Skill Level
 const GUARD_MAX_HP: i32 = 25;
+const MUTANT_MAX_HP: i32 = 45;
 const SS_MAX_HP: i32 = 100;
 const OFFICER_MAX_HP: i32 = 50;
-const MUTANT_MAX_HP: i32 = 45;
 const DOG_MAX_HP: i32 = 1;
 const HANS_MAX_HP: i32 = 850;
+const GRETEL_MAX_HP: i32 = 850;
+
+pub(crate) const SS_SHOOT_SECS: f32 = 0.35;
+pub(crate) const OFFICER_SHOOT_SECS: f32 = 0.35;
+pub(crate) const DOG_BITE_SECS: f32 = 0.35;
+
+#[derive(Component, Clone, Copy)]
+pub struct Dir8(pub u8);
+
+// Cached to Avoid Redundant Texture Swaps
+#[derive(Component, Clone, Copy)]
+pub struct View8(pub u8);
+
+#[derive(Clone, Copy, Debug)]
+pub enum AttackMode {
+    Hitscan,
+    Melee,
+}
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EnemyKind {
@@ -33,13 +50,8 @@ pub enum EnemyKind {
     Mutant,
     Dog,
     Hans,
+    Gretel,
     // TODO: Other Bosses
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum AttackMode {
-    Hitscan,
-    Melee,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -62,6 +74,7 @@ pub struct EnemyTunings {
     pub mutant: EnemyTuning,
     pub dog: EnemyTuning,
     pub hans: EnemyTuning,
+    pub gretel: EnemyTuning,
 }
 
 impl EnemyTunings {
@@ -130,6 +143,17 @@ impl EnemyTunings {
                 attack_range_tiles: 8.0,
                 reaction_time_secs: 0.30,
             },
+            gretel: EnemyTuning {
+                max_hp: GRETEL_MAX_HP,
+                // Wolfenstein 3-D Bosses Typically Stand Still Until Alerted
+                wander_speed_tps: 0.0,
+                chase_speed_tps: 1.3,
+                can_shoot: true,
+                attack_damage: 30,
+                attack_cooldown_secs: 0.35,
+                attack_range_tiles: 8.0,
+                reaction_time_secs: 0.30,
+            },
         }
     }
 
@@ -141,6 +165,7 @@ impl EnemyTunings {
             EnemyKind::Mutant => self.mutant,
             EnemyKind::Dog => self.dog,
             EnemyKind::Hans => self.hans,
+            EnemyKind::Gretel => self.gretel,
         }
     }
 }
@@ -331,8 +356,6 @@ impl FromWorld for MutantSprites {
     }
 }
 
-pub(crate) const OFFICER_SHOOT_SECS: f32 = 0.35;
-
 #[derive(Component)]
 pub struct Officer;
 
@@ -373,12 +396,6 @@ pub struct SsCorpse;
 pub struct DogCorpse;
 
 #[derive(Component)]
-pub struct Hans;
-
-#[derive(Component)]
-pub struct HansCorpse;
-
-#[derive(Component)]
 pub struct SsPain {
     pub timer: Timer,
 }
@@ -390,12 +407,6 @@ pub struct DogPain {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct SsDying {
-    pub frame: u8, // 0..DEATH_FRAMES-1
-    pub tics: u8,  // Fixed-Step Counter
-}
-
-#[derive(Component, Debug, Clone, Copy)]
-pub struct HansDying {
     pub frame: u8, // 0..DEATH_FRAMES-1
     pub tics: u8,  // Fixed-Step Counter
 }
@@ -413,16 +424,6 @@ pub struct SsWalk {
 
 #[derive(Component)]
 pub struct SsShoot {
-    pub t: Timer,
-}
-
-#[derive(Component, Default)]
-pub struct HansWalk {
-    pub phase: f32,
-}
-
-#[derive(Component)]
-pub struct HansShoot {
     pub t: Timer,
 }
 
@@ -503,13 +504,240 @@ impl FromWorld for OfficerSprites {
     }
 }
 
-pub(crate) const SS_SHOOT_SECS: f32 = 0.35;
-pub(crate) const HANS_SHOOT_SECS: f32 = 0.35;
-const DOG_BITE_SECS: f32 = 0.35;
+#[derive(Resource)]
+pub struct SsSprites {
+    pub idle: [Handle<Image>; 8],
+    pub walk: [[Handle<Image>; 8]; 4],
+    pub shoot: [Handle<Image>; 3],
+    pub pain: [[Handle<Image>; 8]; 2],
+    pub dying: [[Handle<Image>; 8]; 4],
+    pub corpse: [Handle<Image>; 8],
+}
 
-fn attach_ss_walk(mut commands: Commands, q: Query<Entity, Added<Ss>>) {
-    for e in q.iter() {
-        commands.entity(e).insert(SsWalk::default());
+#[derive(Resource)]
+pub struct DogSprites {
+    pub idle: [Handle<Image>; 8],
+    pub walk: [[Handle<Image>; 8]; 4],
+    pub bite: [Handle<Image>; 3],
+    pub dying: [[Handle<Image>; 8]; 3],
+    pub corpse: [Handle<Image>; 8],
+}
+
+impl FromWorld for SsSprites {
+    fn from_world(world: &mut World) -> Self {
+        let server = world.resource::<AssetServer>();
+
+        const SS_PAIN_FILES: [&str; 2] = [
+            "enemies/ss/ss_pain.png",
+            "enemies/ss/ss_pain.png",
+        ];
+
+        const SS_DYING_FILES: [&str; 4] = [
+            "enemies/ss/ss_death_0.png",
+            "enemies/ss/ss_death_1.png",
+            "enemies/ss/ss_death_2.png",
+            "enemies/ss/ss_death_3.png",
+        ];
+
+        let idle = std::array::from_fn(|i| server.load(format!("enemies/ss/ss_idle_a{i}.png")));
+        let walk = std::array::from_fn(|row| {
+            std::array::from_fn(|dir| server.load(format!("enemies/ss/ss_walk_r{row}_dir{dir}.png")))
+        });
+
+        let shoot: [Handle<Image>; 3] =
+            std::array::from_fn(|f| server.load(format!("enemies/ss/ss_shoot_{f}.png")));
+
+        // Pain: load exactly what we want, duplicated across dirs
+        let pain0: Handle<Image> = server.load(SS_PAIN_FILES[0]);
+        let pain1: Handle<Image> = server.load(SS_PAIN_FILES[1]);
+        let pain = [
+            std::array::from_fn(|_| pain0.clone()),
+            std::array::from_fn(|_| pain1.clone()),
+        ];
+
+        // Dying: load death frames in explicit order, duplicated across dirs
+        let dying = std::array::from_fn(|i| {
+            let h: Handle<Image> = server.load(SS_DYING_FILES[i]);
+            std::array::from_fn(|_| h.clone())
+        });
+
+        let corpse_one: Handle<Image> = server.load("enemies/ss/ss_corpse.png");
+        let corpse = std::array::from_fn(|_| corpse_one.clone());
+
+        Self { idle, walk, shoot, pain, dying, corpse }
+    }
+}
+
+impl FromWorld for DogSprites {
+    fn from_world(world: &mut World) -> Self {
+        let server = world.resource::<AssetServer>();
+
+        // Walk frames (4) x directions (8)
+        // Uses your exported naming: dog_walk_d{dir}_f{frame}.png
+        let walk: [[Handle<Image>; 8]; 4] = std::array::from_fn(|frame| {
+            std::array::from_fn(|dir| {
+                server.load(format!("enemies/dog/dog_walk_d{dir}_f{frame}.png"))
+            })
+        });
+
+        // Idle: use the "stand-looking" walk frame f2 for each direction
+        let idle: [Handle<Image>; 8] = std::array::from_fn(|dir| walk[2][dir].clone());
+
+        // Bite: 3 frames (not directional)
+        let bite: [Handle<Image>; 3] =
+            std::array::from_fn(|f| server.load(format!("enemies/dog/dog_bite_{f}.png")));
+
+        // Dying: 3 frames (0..2), duplicated across dirs
+        let dying: [[Handle<Image>; 8]; 3] = std::array::from_fn(|f| {
+            let h: Handle<Image> = server.load(format!("enemies/dog/dog_death_{f}.png"));
+            std::array::from_fn(|_| h.clone())
+        });
+
+        // Corpse: duplicated across dirs
+        let corpse_one: Handle<Image> = server.load("enemies/dog/dog_corpse.png");
+        let corpse = std::array::from_fn(|_| corpse_one.clone());
+
+        Self { idle, walk, bite, dying, corpse }
+    }
+}
+
+// --- BOSSES ---
+pub(crate) const HANS_SHOOT_SECS: f32 = 0.35;
+pub(crate) const GRETEL_SHOOT_SECS: f32 = 0.35;
+
+#[derive(Component)]
+pub struct Hans;
+
+#[derive(Component)]
+pub struct Gretel;
+
+#[derive(Component)]
+pub struct HansCorpse;
+
+#[derive(Component)]
+pub struct GretelCorpse;
+
+#[derive(Component, Default)]
+pub struct HansWalk {
+    pub phase: f32,
+}
+
+#[derive(Component, Default)]
+pub struct GretelWalk {
+    pub phase: f32,
+}
+
+#[derive(Component)]
+pub struct HansShoot {
+    pub t: Timer,
+}
+
+#[derive(Component)]
+pub struct GretelShoot {
+    pub t: Timer,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct HansDying {
+    pub frame: u8, // 0..DEATH_FRAMES-1
+    pub tics: u8,  // Fixed-Step Counter
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct GretelDying {
+    pub frame: u8, // 0..DEATH_FRAMES-1
+    pub tics: u8,  // Fixed-Step Counter
+}
+
+#[derive(Resource)]
+pub struct HansSprites {
+    pub idle: [Handle<Image>; 8],
+    pub walk: [[Handle<Image>; 8]; 4],
+    pub shoot: [Handle<Image>; 3],
+    pub dying: [[Handle<Image>; 8]; 4],
+    pub corpse: [Handle<Image>; 8],
+}
+
+#[derive(Resource)]
+pub struct GretelSprites {
+    pub idle: [Handle<Image>; 8],
+    pub walk: [[Handle<Image>; 8]; 4],
+    pub shoot: [Handle<Image>; 3],
+    pub dying: [[Handle<Image>; 8]; 4],
+    pub corpse: [Handle<Image>; 8],
+}
+
+impl FromWorld for HansSprites {
+    fn from_world(world: &mut World) -> Self {
+        let server = world.resource::<AssetServer>();
+
+        let idle = std::array::from_fn(|i| server.load(format!("enemies/hans/hans_idle_a{i}.png")));
+        let walk = std::array::from_fn(|row| {
+            std::array::from_fn(|dir| server.load(format!("enemies/hans/hans_walk_r{row}_dir{dir}.png")))
+        });
+
+        let shoot: [Handle<Image>; 3] =
+            std::array::from_fn(|f| server.load(format!("enemies/hans/hans_shoot_{f}.png")));
+
+        let d0: Handle<Image> = server.load("enemies/hans/hans_death_0.png");
+        let d1: Handle<Image> = server.load("enemies/hans/hans_death_1.png");
+        let d2: Handle<Image> = server.load("enemies/hans/hans_death_2.png");
+        let d3: Handle<Image> = server.load("enemies/hans/hans_death_3.png");
+
+        let dying = [
+            std::array::from_fn(|_| d0.clone()),
+            std::array::from_fn(|_| d1.clone()),
+            std::array::from_fn(|_| d2.clone()),
+            std::array::from_fn(|_| d3.clone()),
+        ];
+
+        let corpse0: Handle<Image> = server.load("enemies/hans/hans_corpse.png");
+        let corpse = std::array::from_fn(|_| corpse0.clone());
+
+        Self {
+            idle,
+            walk,
+            shoot,
+            dying,
+            corpse,
+        }
+    }
+}
+
+impl FromWorld for GretelSprites {
+    fn from_world(world: &mut World) -> Self {
+        let server = world.resource::<AssetServer>();
+
+        let idle = std::array::from_fn(|i| server.load(format!("enemies/gretel/gretel_idle_a{i}.png")));
+        let walk = std::array::from_fn(|row| {
+            std::array::from_fn(|dir| server.load(format!("enemies/gretel/gretel_walk_r{row}_dir{dir}.png")))
+        });
+
+        let shoot: [Handle<Image>; 3] =
+            std::array::from_fn(|f| server.load(format!("enemies/gretel/gretel_shoot_{f}.png")));
+
+        let d0: Handle<Image> = server.load("enemies/gretel/gretel_death_0.png");
+        let d1: Handle<Image> = server.load("enemies/gretel/gretel_death_1.png");
+        let d2: Handle<Image> = server.load("enemies/gretel/gretel_death_2.png");
+        let d3: Handle<Image> = server.load("enemies/gretel/gretel_death_3.png");
+
+        let dying = [
+            std::array::from_fn(|_| d0.clone()),
+            std::array::from_fn(|_| d1.clone()),
+            std::array::from_fn(|_| d2.clone()),
+            std::array::from_fn(|_| d3.clone()),
+        ];
+
+        let corpse0: Handle<Image> = server.load("enemies/gretel/gretel_corpse.png");
+        let corpse = std::array::from_fn(|_| corpse0.clone());
+
+        Self {
+            idle,
+            walk,
+            shoot,
+            dying,
+            corpse,
+        }
     }
 }
 
@@ -519,15 +747,15 @@ fn attach_hans_walk(mut commands: Commands, q: Query<Entity, Added<Hans>>) {
     }
 }
 
-fn attach_dog_walk(mut commands: Commands, q: Query<Entity, Added<Dog>>) {
+fn attach_gretel_walk(mut commands: Commands, q: Query<Entity, Added<Gretel>>) {
     for e in q.iter() {
-        commands.entity(e).insert(DogWalk::default());
+        commands.entity(e).insert(GretelWalk::default());
     }
 }
 
-fn tick_ss_walk(
+fn tick_hans_walk(
     time: Res<Time>,
-    mut q: Query<(&mut SsWalk, Option<&EnemyMove>), (With<Ss>, Without<SsDying>)>,
+    mut q: Query<(&mut HansWalk, Option<&EnemyMove>), (With<Hans>, Without<HansDying>)>,
 ) {
     let dt = time.delta_secs();
     for (mut w, moving) in q.iter_mut() {
@@ -540,9 +768,315 @@ fn tick_ss_walk(
     }
 }
 
-fn tick_hans_walk(
+fn tick_gretel_walk(
     time: Res<Time>,
-    mut q: Query<(&mut HansWalk, Option<&EnemyMove>), (With<Hans>, Without<HansDying>)>,
+    mut q: Query<(&mut GretelWalk, Option<&EnemyMove>), (With<Gretel>, Without<GretelDying>)>,
+) {
+    let dt = time.delta_secs();
+    for (mut w, moving) in q.iter_mut() {
+        if let Some(m) = moving {
+            // Drive Animation by Distance Traveled (Tiles)
+            w.phase += m.speed_tps * dt;
+        } else {
+            w.phase = 0.0;
+        }
+    }
+}
+
+fn tick_hans_shoot(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut HansShoot), With<Hans>>,
+) {
+    for (e, mut s) in q.iter_mut() {
+        s.t.tick(time.delta());
+        if s.t.is_finished() {
+            commands.entity(e).remove::<HansShoot>();
+        }
+    }
+}
+
+fn tick_gretel_shoot(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut GretelShoot), With<Gretel>>,
+) {
+    for (e, mut s) in q.iter_mut() {
+        s.t.tick(time.delta());
+        if s.t.is_finished() {
+            commands.entity(e).remove::<GretelShoot>();
+        }
+    }
+}
+
+pub fn spawn_hans(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    sprites: &HansSprites,
+    tile: IVec2,
+) {
+    const TILE_SIZE: f32 = 1.0;
+    const WALL_H: f32 = 1.0;
+
+    let pos = Vec3::new(tile.x as f32 * TILE_SIZE, WALL_H * 0.5, tile.y as f32 * TILE_SIZE);
+
+    let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
+    let mat = materials.add(StandardMaterial {
+        base_color_texture: Some(sprites.idle[0].clone()),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    commands.spawn((
+        Hans,
+        EnemyKind::Hans,
+        Dir8(0),
+        View8(0),
+        Health::new(HANS_MAX_HP),
+        OccupiesTile(tile),
+        Mesh3d(quad),
+        MeshMaterial3d(mat),
+        Transform::from_translation(pos),
+    ));
+}
+
+pub fn spawn_gretel(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    sprites: &GretelSprites,
+    tile: IVec2,
+) {
+    const TILE_SIZE: f32 = 1.0;
+    const WALL_H: f32 = 1.0;
+
+    let pos = Vec3::new(tile.x as f32 * TILE_SIZE, WALL_H * 0.5, tile.y as f32 * TILE_SIZE);
+
+    let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
+    let mat = materials.add(StandardMaterial {
+        base_color_texture: Some(sprites.idle[0].clone()),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    commands.spawn((
+        Gretel,
+        EnemyKind::Gretel,
+        Dir8(0),
+        View8(0),
+        Health::new(GRETEL_MAX_HP),
+        OccupiesTile(tile),
+        Mesh3d(quad),
+        MeshMaterial3d(mat),
+        Transform::from_translation(pos),
+    ));
+}
+
+pub fn update_hans_views(
+    sprites: Res<HansSprites>,
+    q_player: Query<&GlobalTransform, With<Player>>,
+    mut q: Query<
+        (
+            Option<&HansCorpse>,
+            Option<&HansDying>,
+            Option<&HansShoot>,
+            Option<&HansWalk>,
+            Option<&EnemyMove>,
+            &GlobalTransform,
+            &Dir8,
+            &mut View8,
+            &MeshMaterial3d<StandardMaterial>,
+            &mut Transform,
+        ),
+        (With<Hans>, Without<Player>),
+    >,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(player_gt) = q_player.iter().next() else { return; };
+    let player_pos = player_gt.translation();
+
+    for (corpse, dying, shoot, walk, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+        let enemy_pos = gt.translation();
+
+        let v = quantize_view8(dir8.0, enemy_pos, player_pos);
+        view.0 = v;
+
+        let to_player = player_pos - enemy_pos;
+        let flat_len2 = to_player.x * to_player.x + to_player.z * to_player.z;
+        if flat_len2 > 1e-6 {
+            let yaw = to_player.x.atan2(to_player.z);
+            tf.rotation = Quat::from_rotation_y(yaw);
+        }
+
+        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+
+        let tex: Handle<Image> = if corpse.is_some() {
+            sprites.corpse[v as usize].clone()
+        } else if let Some(d) = dying {
+            let f = (d.frame as usize).min(3);
+            sprites.dying[f][v as usize].clone()
+        } else if let Some(s) = shoot {
+            let dur = s.t.duration().as_secs_f32().max(1e-6);
+            let t = s.t.elapsed().as_secs_f32();
+            let fi = ((t / dur) * 3.0).floor() as usize;
+            let fi = fi.min(2);
+            sprites.shoot[fi].clone()
+        } else if mv.is_some() {
+            let w = walk.map(|w| w.phase).unwrap_or(0.0);
+            let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
+            sprites.walk[frame_i][v as usize].clone()
+        } else {
+            sprites.idle[v as usize].clone()
+        };
+
+        if mat.base_color_texture.as_ref() != Some(&tex) {
+            mat.base_color_texture = Some(tex);
+        }
+    }
+}
+
+pub fn update_gretel_views(
+    sprites: Res<GretelSprites>,
+    q_player: Query<&GlobalTransform, With<Player>>,
+    mut q: Query<
+        (
+            Option<&GretelCorpse>,
+            Option<&GretelDying>,
+            Option<&GretelShoot>,
+            Option<&GretelWalk>,
+            Option<&EnemyMove>,
+            &GlobalTransform,
+            &Dir8,
+            &mut View8,
+            &MeshMaterial3d<StandardMaterial>,
+            &mut Transform,
+        ),
+        (With<Gretel>, Without<Player>),
+    >,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(player_gt) = q_player.iter().next() else { return; };
+    let player_pos = player_gt.translation();
+
+    for (corpse, dying, shoot, walk, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+        let enemy_pos = gt.translation();
+
+        let v = quantize_view8(dir8.0, enemy_pos, player_pos);
+        view.0 = v;
+
+        let to_player = player_pos - enemy_pos;
+        let flat_len2 = to_player.x * to_player.x + to_player.z * to_player.z;
+        if flat_len2 > 1e-6 {
+            let yaw = to_player.x.atan2(to_player.z);
+            tf.rotation = Quat::from_rotation_y(yaw);
+        }
+
+        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+
+        let tex: Handle<Image> = if corpse.is_some() {
+            sprites.corpse[v as usize].clone()
+        } else if let Some(d) = dying {
+            let f = (d.frame as usize).min(3);
+            sprites.dying[f][v as usize].clone()
+        } else if let Some(s) = shoot {
+            let dur = s.t.duration().as_secs_f32().max(1e-6);
+            let t = s.t.elapsed().as_secs_f32();
+            let fi = ((t / dur) * 3.0).floor() as usize;
+            let fi = fi.min(2);
+            sprites.shoot[fi].clone()
+        } else if mv.is_some() {
+            let w = walk.map(|w| w.phase).unwrap_or(0.0);
+            let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
+            sprites.walk[frame_i][v as usize].clone()
+        } else {
+            sprites.idle[v as usize].clone()
+        };
+
+        if mat.base_color_texture.as_ref() != Some(&tex) {
+            mat.base_color_texture = Some(tex);
+        }
+    }
+}
+
+fn tick_hans_dying(
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut HansDying)>,
+) {
+    for (e, mut d) in q.iter_mut() {
+        // Advance animation by tics, not by a Timer
+        d.tics = d.tics.saturating_add(1);
+
+        if d.tics >= 8 {
+            d.tics = 0;
+            d.frame = d.frame.saturating_add(1);
+
+            if d.frame >= 4 {
+                commands.entity(e).remove::<HansDying>();
+                commands.entity(e).insert(HansCorpse);
+            }
+        }
+    }
+}
+
+fn tick_gretel_dying(
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut GretelDying)>,
+) {
+    for (e, mut d) in q.iter_mut() {
+        // Advance animation by tics, not by a Timer
+        d.tics = d.tics.saturating_add(1);
+
+        if d.tics >= 8 {
+            d.tics = 0;
+            d.frame = d.frame.saturating_add(1);
+
+            if d.frame >= 4 {
+                commands.entity(e).remove::<GretelDying>();
+                commands.entity(e).insert(GretelCorpse);
+            }
+        }
+    }
+}
+
+// --- FUNCTIONS ---
+fn quantize_view8(enemy_dir8: u8, enemy_pos: Vec3, player_pos: Vec3) -> u8 {
+    use std::f32::consts::TAU;
+
+    let to_player = player_pos - enemy_pos;
+    let flat = Vec3::new(to_player.x, 0.0, to_player.z);
+    if flat.length_squared() < 1e-6 {
+        return 0;
+    }
+
+    let step = TAU / 8.0;
+    let angle_to_player = flat.x.atan2(flat.z).rem_euclid(TAU);
+    // Define Dir8(0) as Facing +Z, Dir8(2)=+X, Dir8(4)=-Z, Dir8(6)=-X
+    let enemy_yaw = (enemy_dir8 as f32) * step;
+    let rel = (angle_to_player - enemy_yaw).rem_euclid(TAU);
+
+    (((rel + step * 0.5) / step).floor() as i32 & 7) as u8
+}
+
+fn attach_ss_walk(mut commands: Commands, q: Query<Entity, Added<Ss>>) {
+    for e in q.iter() {
+        commands.entity(e).insert(SsWalk::default());
+    }
+}
+
+fn attach_dog_walk(mut commands: Commands, q: Query<Entity, Added<Dog>>) {
+    for e in q.iter() {
+        commands.entity(e).insert(DogWalk::default());
+    }
+}
+
+fn tick_ss_walk(
+    time: Res<Time>,
+    mut q: Query<(&mut SsWalk, Option<&EnemyMove>), (With<Ss>, Without<SsDying>)>,
 ) {
     let dt = time.delta_secs();
     for (mut w, moving) in q.iter_mut() {
@@ -575,19 +1109,6 @@ fn tick_ss_shoot(time: Res<Time>, mut commands: Commands, mut q: Query<(Entity, 
         s.t.tick(time.delta());
         if s.t.is_finished() {
             commands.entity(e).remove::<SsShoot>();
-        }
-    }
-}
-
-fn tick_hans_shoot(
-    time: Res<Time>,
-    mut commands: Commands,
-    mut q: Query<(Entity, &mut HansShoot), With<Hans>>,
-) {
-    for (e, mut s) in q.iter_mut() {
-        s.t.tick(time.delta());
-        if s.t.is_finished() {
-            commands.entity(e).remove::<HansShoot>();
         }
     }
 }
@@ -734,26 +1255,6 @@ fn tick_ss_dying(
     }
 }
 
-fn tick_hans_dying(
-    mut commands: Commands,
-    mut q: Query<(Entity, &mut HansDying)>,
-) {
-    for (e, mut d) in q.iter_mut() {
-        // Advance animation by tics, not by a Timer
-        d.tics = d.tics.saturating_add(1);
-
-        if d.tics >= 8 {
-            d.tics = 0;
-            d.frame = d.frame.saturating_add(1);
-
-            if d.frame >= 4 {
-                commands.entity(e).remove::<HansDying>();
-                commands.entity(e).insert(HansCorpse);
-            }
-        }
-    }
-}
-
 fn tick_dog_dying(
     mut commands: Commands,
     mut q: Query<(Entity, &mut DogDying)>,
@@ -774,156 +1275,6 @@ fn tick_dog_dying(
                 // Player/enemy collision queries already ignore Dead
             }
         }
-    }
-}
-
-#[derive(Component, Clone, Copy)]
-pub struct Dir8(pub u8);
-
-// Cached to Avoid Redundant Texture Swaps
-#[derive(Component, Clone, Copy)]
-pub struct View8(pub u8);
-
-#[derive(Resource)]
-pub struct SsSprites {
-    pub idle: [Handle<Image>; 8],
-    pub walk: [[Handle<Image>; 8]; 4],
-    pub shoot: [Handle<Image>; 3],
-    pub pain: [[Handle<Image>; 8]; 2],
-    pub dying: [[Handle<Image>; 8]; 4],
-    pub corpse: [Handle<Image>; 8],
-}
-
-#[derive(Resource)]
-pub struct DogSprites {
-    pub idle: [Handle<Image>; 8],
-    pub walk: [[Handle<Image>; 8]; 4],
-    pub bite: [Handle<Image>; 3],
-    pub dying: [[Handle<Image>; 8]; 3],
-    pub corpse: [Handle<Image>; 8],
-}
-
-#[derive(Resource)]
-pub struct HansSprites {
-    pub idle: [Handle<Image>; 8],
-    pub walk: [[Handle<Image>; 8]; 4],
-    pub shoot: [Handle<Image>; 3],
-    pub dying: [[Handle<Image>; 8]; 4],
-    pub corpse: [Handle<Image>; 8],
-}
-
-impl FromWorld for SsSprites {
-    fn from_world(world: &mut World) -> Self {
-        let server = world.resource::<AssetServer>();
-
-        const SS_PAIN_FILES: [&str; 2] = [
-            "enemies/ss/ss_pain.png",
-            "enemies/ss/ss_pain.png",
-        ];
-
-        const SS_DYING_FILES: [&str; 4] = [
-            "enemies/ss/ss_death_0.png",
-            "enemies/ss/ss_death_1.png",
-            "enemies/ss/ss_death_2.png",
-            "enemies/ss/ss_death_3.png",
-        ];
-
-        let idle = std::array::from_fn(|i| server.load(format!("enemies/ss/ss_idle_a{i}.png")));
-        let walk = std::array::from_fn(|row| {
-            std::array::from_fn(|dir| server.load(format!("enemies/ss/ss_walk_r{row}_dir{dir}.png")))
-        });
-
-        let shoot: [Handle<Image>; 3] =
-            std::array::from_fn(|f| server.load(format!("enemies/ss/ss_shoot_{f}.png")));
-
-        // Pain: load exactly what we want, duplicated across dirs
-        let pain0: Handle<Image> = server.load(SS_PAIN_FILES[0]);
-        let pain1: Handle<Image> = server.load(SS_PAIN_FILES[1]);
-        let pain = [
-            std::array::from_fn(|_| pain0.clone()),
-            std::array::from_fn(|_| pain1.clone()),
-        ];
-
-        // Dying: load death frames in explicit order, duplicated across dirs
-        let dying = std::array::from_fn(|i| {
-            let h: Handle<Image> = server.load(SS_DYING_FILES[i]);
-            std::array::from_fn(|_| h.clone())
-        });
-
-        let corpse_one: Handle<Image> = server.load("enemies/ss/ss_corpse.png");
-        let corpse = std::array::from_fn(|_| corpse_one.clone());
-
-        Self { idle, walk, shoot, pain, dying, corpse }
-    }
-}
-
-impl FromWorld for HansSprites {
-    fn from_world(world: &mut World) -> Self {
-        let server = world.resource::<AssetServer>();
-
-        let idle = std::array::from_fn(|i| server.load(format!("enemies/hans/hans_idle_a{i}.png")));
-        let walk = std::array::from_fn(|row| {
-            std::array::from_fn(|dir| server.load(format!("enemies/hans/hans_walk_r{row}_dir{dir}.png")))
-        });
-
-        let shoot: [Handle<Image>; 3] =
-            std::array::from_fn(|f| server.load(format!("enemies/hans/hans_shoot_{f}.png")));
-
-        let d0: Handle<Image> = server.load("enemies/hans/hans_death_0.png");
-        let d1: Handle<Image> = server.load("enemies/hans/hans_death_1.png");
-        let d2: Handle<Image> = server.load("enemies/hans/hans_death_2.png");
-        let d3: Handle<Image> = server.load("enemies/hans/hans_death_3.png");
-
-        let dying = [
-            std::array::from_fn(|_| d0.clone()),
-            std::array::from_fn(|_| d1.clone()),
-            std::array::from_fn(|_| d2.clone()),
-            std::array::from_fn(|_| d3.clone()),
-        ];
-
-        let corpse0: Handle<Image> = server.load("enemies/hans/hans_corpse.png");
-        let corpse = std::array::from_fn(|_| corpse0.clone());
-
-        Self {
-            idle,
-            walk,
-            shoot,
-            dying,
-            corpse,
-        }
-    }
-}
-
-impl FromWorld for DogSprites {
-    fn from_world(world: &mut World) -> Self {
-        let server = world.resource::<AssetServer>();
-
-        // Walk frames (4) x directions (8)
-        // Uses your exported naming: dog_walk_d{dir}_f{frame}.png
-        let walk: [[Handle<Image>; 8]; 4] = std::array::from_fn(|frame| {
-            std::array::from_fn(|dir| {
-                server.load(format!("enemies/dog/dog_walk_d{dir}_f{frame}.png"))
-            })
-        });
-
-        // Idle: use the "stand-looking" walk frame f2 for each direction
-        let idle: [Handle<Image>; 8] = std::array::from_fn(|dir| walk[2][dir].clone());
-
-        // Bite: 3 frames (not directional)
-        let bite: [Handle<Image>; 3] =
-            std::array::from_fn(|f| server.load(format!("enemies/dog/dog_bite_{f}.png")));
-
-        // Dying: 3 frames (0..2), duplicated across dirs
-        let dying: [[Handle<Image>; 8]; 3] = std::array::from_fn(|f| {
-            let h: Handle<Image> = server.load(format!("enemies/dog/dog_death_{f}.png"));
-            std::array::from_fn(|_| h.clone())
-        });
-
-        // Corpse: duplicated across dirs
-        let corpse_one: Handle<Image> = server.load("enemies/dog/dog_corpse.png");
-        let corpse = std::array::from_fn(|_| corpse_one.clone());
-
-        Self { idle, walk, bite, dying, corpse }
     }
 }
 
@@ -1367,40 +1718,6 @@ pub fn update_officer_views(
     }
 }
 
-pub fn spawn_hans(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    sprites: &HansSprites,
-    tile: IVec2,
-) {
-    const TILE_SIZE: f32 = 1.0;
-    const WALL_H: f32 = 1.0;
-
-    let pos = Vec3::new(tile.x as f32 * TILE_SIZE, WALL_H * 0.5, tile.y as f32 * TILE_SIZE);
-
-    let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
-    let mat = materials.add(StandardMaterial {
-        base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
-        unlit: true,
-        cull_mode: None,
-        ..default()
-    });
-
-    commands.spawn((
-        Hans,
-        EnemyKind::Hans,
-        Dir8(0),
-        View8(0),
-        Health::new(HANS_MAX_HP),
-        OccupiesTile(tile),
-        Mesh3d(quad),
-        MeshMaterial3d(mat),
-        Transform::from_translation(pos),
-    ));
-}
-
 pub fn spawn_dog(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
@@ -1505,69 +1822,6 @@ pub fn update_ss_views(
     }
 }
 
-pub fn update_hans_views(
-    sprites: Res<HansSprites>,
-    q_player: Query<&GlobalTransform, With<Player>>,
-    mut q: Query<
-        (
-            Option<&HansCorpse>,
-            Option<&HansDying>,
-            Option<&HansShoot>,
-            Option<&HansWalk>,
-            Option<&EnemyMove>,
-            &GlobalTransform,
-            &Dir8,
-            &mut View8,
-            &MeshMaterial3d<StandardMaterial>,
-            &mut Transform,
-        ),
-        (With<Hans>, Without<Player>),
-    >,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let Some(player_gt) = q_player.iter().next() else { return; };
-    let player_pos = player_gt.translation();
-
-    for (corpse, dying, shoot, walk, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
-        let enemy_pos = gt.translation();
-
-        let v = quantize_view8(dir8.0, enemy_pos, player_pos);
-        view.0 = v;
-
-        let to_player = player_pos - enemy_pos;
-        let flat_len2 = to_player.x * to_player.x + to_player.z * to_player.z;
-        if flat_len2 > 1e-6 {
-            let yaw = to_player.x.atan2(to_player.z);
-            tf.rotation = Quat::from_rotation_y(yaw);
-        }
-
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
-
-        let tex: Handle<Image> = if corpse.is_some() {
-            sprites.corpse[v as usize].clone()
-        } else if let Some(d) = dying {
-            let f = (d.frame as usize).min(3);
-            sprites.dying[f][v as usize].clone()
-        } else if let Some(s) = shoot {
-            let dur = s.t.duration().as_secs_f32().max(1e-6);
-            let t = s.t.elapsed().as_secs_f32();
-            let fi = ((t / dur) * 3.0).floor() as usize;
-            let fi = fi.min(2);
-            sprites.shoot[fi].clone()
-        } else if mv.is_some() {
-            let w = walk.map(|w| w.phase).unwrap_or(0.0);
-            let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
-            sprites.walk[frame_i][v as usize].clone()
-        } else {
-            sprites.idle[v as usize].clone()
-        };
-
-        if mat.base_color_texture.as_ref() != Some(&tex) {
-            mat.base_color_texture = Some(tex);
-        }
-    }
-}
-
 pub fn update_dog_views(
     sprites: Res<DogSprites>,
     q_player: Query<&GlobalTransform, With<Player>>,
@@ -1634,24 +1888,6 @@ pub fn update_dog_views(
             mat.base_color_texture = Some(tex);
         }
     }
-}
-
-fn quantize_view8(enemy_dir8: u8, enemy_pos: Vec3, player_pos: Vec3) -> u8 {
-    use std::f32::consts::TAU;
-
-    let to_player = player_pos - enemy_pos;
-    let flat = Vec3::new(to_player.x, 0.0, to_player.z);
-    if flat.length_squared() < 1e-6 {
-        return 0;
-    }
-
-    let step = TAU / 8.0;
-    let angle_to_player = flat.x.atan2(flat.z).rem_euclid(TAU);
-    // Define Dir8(0) as Facing +Z, Dir8(2)=+X, Dir8(4)=-Z, Dir8(6)=-X
-    let enemy_yaw = (enemy_dir8 as f32) * step;
-    let rel = (angle_to_player - enemy_yaw).rem_euclid(TAU);
-
-    (((rel + step * 0.5) / step).floor() as i32 & 7) as u8
 }
 
 pub fn tick_guard_dying(
@@ -1915,6 +2151,7 @@ impl Plugin for EnemiesPlugin {
             .init_resource::<OfficerSprites>()
             .init_resource::<DogSprites>()
             .init_resource::<HansSprites>()
+            .init_resource::<GretelSprites>()
             .add_systems(
                 Update,
                 (
@@ -1925,6 +2162,7 @@ impl Plugin for EnemiesPlugin {
                         attach_officer_walk,
                         attach_dog_walk,
                         attach_hans_walk,
+                        attach_gretel_walk,
                     )
                         .chain(),
                     (
@@ -1934,6 +2172,7 @@ impl Plugin for EnemiesPlugin {
                         update_officer_views,
                         update_dog_views,
                         update_hans_views,
+                        update_gretel_views,
                     )
                         .chain(),
                 )
@@ -1982,6 +2221,12 @@ impl Plugin for EnemiesPlugin {
                         tick_hans_walk,
                         tick_hans_shoot,
                         tick_hans_dying,
+                    )
+                        .chain(),
+                    (
+                        tick_gretel_walk,
+                        tick_gretel_shoot,
+                        tick_gretel_dying,
                     )
                         .chain(),
                 )

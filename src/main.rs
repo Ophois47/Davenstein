@@ -261,6 +261,7 @@ fn main() {
                 pickups::drop_ss_loot,
                 pickups::drop_officer_ammo,
                 pickups::drop_hans_key,
+                pickups::drop_gretel_key,
                 pickups::collect_pickups,
             )
                 .chain()

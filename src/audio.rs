@@ -455,17 +455,32 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::EnemyAlert(EnemyKind::Hans),
         asset_server.load("sounds/sfx/enemies/hans/hans_alert.ogg"),
     );
+    // Gretel Alert
+    lib.insert_one(
+        SfxKind::EnemyAlert(EnemyKind::Gretel),
+        asset_server.load("sounds/sfx/enemies/gretel/gretel_alert.ogg"),
+    );
 
     // Hans Shoot
     lib.insert_one(
         SfxKind::EnemyShoot(EnemyKind::Hans),
         asset_server.load("sounds/sfx/enemies/hans/hans_shoot.ogg"),
     );
+    // Gretel Shoot
+    lib.insert_one(
+        SfxKind::EnemyShoot(EnemyKind::Gretel),
+        asset_server.load("sounds/sfx/enemies/gretel/gretel_shoot.ogg"),
+    );
 
     // Hans Death
     lib.insert_one(
         SfxKind::EnemyDeath(EnemyKind::Hans),
         asset_server.load("sounds/sfx/enemies/hans/hans_death.ogg"),
+    );
+    // Gretel Death
+    lib.insert_one(
+        SfxKind::EnemyDeath(EnemyKind::Gretel),
+        asset_server.load("sounds/sfx/enemies/gretel/gretel_death.ogg"),
     );
 
     commands.insert_resource(lib);

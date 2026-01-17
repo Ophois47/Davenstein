@@ -22,7 +22,7 @@ NOTE! Left Control (LCtrl) releases the mouse from the window.
 FEATURES TO BE COMPLETED:
 **********************************************
 1. Ceilings need to be respective colors per level
-2. Bosses for episodes 2-6
+2. Bosses for episodes 2, 3, 4 and 6
 3. High scores and associated menu screen
 4. End of episode success logic and victory animation
 5. Save and load game functionality
@@ -31,3 +31,5 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
+- Key pickup noise should take precedence over other pickup sounds
+- E5M7 has a pushwall that can be opened from the wrong direction
