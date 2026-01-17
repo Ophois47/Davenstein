@@ -30,4 +30,4 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
-- E5M7 has a pushwall that can be opened from the wrong direction
+- SS guards need to fire weapons for longer bursts

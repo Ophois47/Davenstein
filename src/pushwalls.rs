@@ -178,21 +178,25 @@ fn is_blocked_for_push(
     if !in_bounds(grid, t) {
         return true;
     }
-    // Walls and closed doors are hard blockers.
+
+    // Walls and Doors Hard Blockers
     match grid.tile(t.x as usize, t.y as usize) {
-        Tile::Wall | Tile::DoorClosed => return true,
+        Tile::Wall | Tile::DoorClosed | Tile::DoorOpen => return true,
         _ => {}
     }
-    // Blocking statics
+
+    // Blocking Statics
     if solid.is_solid(t.x, t.y) {
         return true;
     }
-    // Living actors
+
+    // Living Actors
     for ot in q_enemies.iter() {
         if ot.0 == t {
             return true;
         }
     }
+
     false
 }
 
