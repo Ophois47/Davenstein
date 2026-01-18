@@ -183,6 +183,7 @@ pub struct Music;
 pub enum MusicModeKind {
     Splash,
     Menu,
+    Scores,
     Gameplay,
     LevelEnd,
 }
@@ -202,6 +203,7 @@ pub struct GameAudio {
     pub door_close: Handle<AudioSource>,
     pub music_splash: Handle<AudioSource>,
     pub music_main_menu: Handle<AudioSource>,
+    pub music_scores_menu: Handle<AudioSource>,
     pub music_level_end: Handle<AudioSource>,
     pub music_levels: HashMap<LevelTrack, Handle<AudioSource>>,
 }
@@ -237,6 +239,7 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         door_close: asset_server.load("sounds/sfx/door_close.ogg"),
         music_splash: asset_server.load("sounds/music/splash.ogg"),
         music_main_menu: asset_server.load("sounds/music/main_menu.ogg"),
+        music_scores_menu: asset_server.load("sounds/music/scores.ogg"),
         music_level_end: asset_server.load("sounds/music/level_end.ogg"),
         music_levels,
     });
@@ -288,7 +291,7 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     lib.insert_one(SfxKind::DoorClose, asset_server.load("sounds/sfx/door_close.ogg"));
     lib.insert_one(SfxKind::NoWay, asset_server.load("sounds/sfx/no_way.ogg"));
     lib.insert_one(SfxKind::Pushwall, asset_server.load("sounds/sfx/pushwall.ogg"));
-    lib.insert_one(SfxKind::ElevatorSwitch, asset_server.load("sounds/sfx/elevator_switch.ogg"));
+    lib.insert_one(SfxKind::ElevatorSwitch, asset_server.load("sounds/sfx/elevator_switch.wav"));
 
     // Weapon Attack
     lib.insert_one(
@@ -297,15 +300,15 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     );
     lib.insert_one(
         SfxKind::PistolFire,
-        asset_server.load("sounds/sfx/weapons/pistol/pistol_fire.ogg"),
+        asset_server.load("sounds/sfx/weapons/pistol/pistol_fire.wav"),
     );
     lib.insert_one(
         SfxKind::MachineGunFire,
-        asset_server.load("sounds/sfx/weapons/machinegun/machinegun_fire_0.ogg"),
+        asset_server.load("sounds/sfx/weapons/machinegun/machinegun_fire.wav"),
     );
     lib.insert_one(
         SfxKind::ChaingunFire,
-        asset_server.load("sounds/sfx/weapons/chaingun/chaingun_fire_0.ogg"),
+        asset_server.load("sounds/sfx/weapons/chaingun/chaingun_fire.wav"),
     );
 
     // Weapon / Ammo Pickups
@@ -499,6 +502,7 @@ pub fn start_music(
     let clip = match mode.0 {
         MusicModeKind::Splash => audio.music_splash.clone(),
         MusicModeKind::Menu => audio.music_main_menu.clone(),
+        MusicModeKind::Scores => audio.music_scores_menu.clone(),
         MusicModeKind::Gameplay => audio
             .music_levels
             .get(&LevelTrack::GETTHEM_MUS)
@@ -537,6 +541,7 @@ pub fn sync_boot_music(
     let clip = match mode.0 {
         MusicModeKind::Splash => audio.music_splash.clone(),
         MusicModeKind::Menu => audio.music_main_menu.clone(),
+        MusicModeKind::Scores => audio.music_scores_menu.clone(),
         MusicModeKind::LevelEnd => audio.music_level_end.clone(),
         MusicModeKind::Gameplay => unreachable!(),
     };

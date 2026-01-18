@@ -20,6 +20,7 @@ pub const SPLASH_0_PATH: &str = "textures/ui/splash0.png";
 pub const SPLASH_1_PATH: &str = "textures/ui/splash1.png";
 pub const GET_PSYCHED_PATH: &str = "textures/ui/get_psyched.png";
 pub const MENU_BANNER_PATH: &str = "textures/ui/menu_banner.png";
+pub const SCORE_BANNER_PATH: &str = "textures/ui/score_banner.png";
 pub const MENU_HINT_PATH: &str = "textures/ui/menu_hint.png";
 pub const MENU_CURSOR_LIGHT_PATH: &str = "textures/ui/menu_cursor_light.png";
 pub const MENU_CURSOR_DARK_PATH: &str = "textures/ui/menu_cursor_dark.png";
@@ -298,6 +299,7 @@ pub enum SplashStep {
     PauseMenu,
     EpisodeSelect,
     SkillSelect,
+    Scores,
     Done,
 }
 
@@ -1125,6 +1127,204 @@ fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32
         });
 }
 
+fn spawn_scores_ui(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    w: f32,
+    h: f32,
+    imgs: &SplashImages,
+) {
+    let banner = asset_server.load(SCORE_BANNER_PATH);
+
+    let ui_scale = (w / BASE_W).round().max(1.0);
+
+    // Match the menu/header treatment
+    let top_red_h = (3.0 * ui_scale).round().max(1.0);
+    let header_bar_h = (48.0 * ui_scale).round().max(1.0);
+
+    // score_banner.png is 224x56 native, scale it to fit inside a 48px-tall header bar
+    let banner_native_w = 224.0;
+    let banner_native_h = 56.0;
+    let banner_fit = 48.0 / banner_native_h;
+    let banner_w = (banner_native_w * ui_scale * banner_fit).round().max(1.0);
+    let banner_h = header_bar_h;
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(1000),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
+            ChildOf(root),
+        ))
+        .id();
+
+    // Top red strip
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(0.0),
+            width: Val::Px(w),
+            height: Val::Px(top_red_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.60, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Black header bar
+    let header = commands
+        .spawn((
+            SplashUi,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(top_red_h),
+                width: Val::Px(w),
+                height: Val::Px(header_bar_h),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+            ChildOf(canvas),
+        ))
+        .id();
+
+    // Banner centered in header bar
+    commands.spawn((
+        SplashUi,
+        ImageNode::new(banner),
+        Node {
+            width: Val::Px(banner_w),
+            height: Val::Px(banner_h),
+            ..default()
+        },
+        ChildOf(header),
+    ));
+
+    // Measure helper so we can right-align the score column
+    let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
+        let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+
+        let mut max_line_w = 0.0f32;
+        let mut cur_line_w = 0.0f32;
+
+        for ch in text.chars() {
+            if ch == '\n' {
+                max_line_w = max_line_w.max(cur_line_w);
+                cur_line_w = 0.0;
+                continue;
+            }
+
+            if ch == ' ' {
+                cur_line_w += (MENU_FONT_SPACE_W * s).round();
+                continue;
+            }
+
+            if let Some(g) = menu_glyph(ch) {
+                cur_line_w += (g.advance * s).round();
+            }
+        }
+
+        max_line_w = max_line_w.max(cur_line_w);
+        max_line_w.max(1.0)
+    };
+
+    // Placeholder data until save/load exists
+    let rows: [(&str, u32); 10] = [
+        ("DAVID", 100000),
+        ("ASS", 50000),
+        ("BBB", 40000),
+        ("CCC", 30000),
+        ("DDD", 20000),
+        ("EEE", 10000),
+        ("FFF", 5000),
+        ("GGG", 2000),
+        ("HHH", 1000),
+        ("III", 500),
+    ];
+
+    // Table layout (native-ish anchors, scaled)
+    let list_top = (top_red_h + header_bar_h + (18.0 * ui_scale)).round();
+    let row_step = (14.0 * ui_scale).round().max(1.0);
+
+    // Columns: rank (right-aligned), name (left-aligned), score (right-aligned)
+    let name_x = (96.0 * ui_scale).round();
+    let score_right_x = (272.0 * ui_scale).round();
+    let rank_gap = (10.0 * ui_scale).round();
+
+    for (i, (name, score)) in rows.iter().enumerate() {
+        let y = (list_top + (i as f32) * row_step).round();
+
+        let rank = format!("{}", i + 1);
+        let score_txt = format!("{}", score);
+
+        let rank_w = measure_menu_text_width(ui_scale, &rank);
+        let score_w = measure_menu_text_width(ui_scale, &score_txt);
+
+        let rank_x = (name_x - rank_gap - rank_w).max(0.0);
+        let score_x = (score_right_x - score_w).max(0.0);
+
+        spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_yellow.clone(),
+            rank_x,
+            y,
+            ui_scale,
+            &rank,
+            Visibility::Visible,
+        );
+
+        spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_yellow.clone(),
+            name_x,
+            y,
+            ui_scale,
+            name,
+            Visibility::Visible,
+        );
+
+        spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_yellow.clone(),
+            score_x,
+            y,
+            ui_scale,
+            &score_txt,
+            Visibility::Visible,
+        );
+    }
+}
+
 fn spawn_menu_hint(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -1556,7 +1756,18 @@ fn splash_advance_on_any_input(
                     }
 
                     MenuAction::ViewScores => {
-                        // TODO later
+                        let Some(imgs) = imgs.as_ref() else { return; };
+
+                        episode.from_pause = is_pause;
+                        for e in q.q_splash_roots.iter() {
+                            commands.entity(e).despawn();
+                        }
+
+                        spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs);
+
+                        menu.reset();
+                        *step = SplashStep::Scores;
+                        music_mode.0 = MusicModeKind::Scores;
                     }
 
                     MenuAction::Quit => {
@@ -1626,7 +1837,7 @@ fn splash_advance_on_any_input(
                 *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
             }
 
-                        if keyboard.just_pressed(KeyCode::Enter)
+            if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
             {
@@ -1762,6 +1973,30 @@ fn splash_advance_on_any_input(
                 episode.from_pause = false;
                 *step = SplashStep::Done;
             }
+        }
+
+        SplashStep::Scores => {
+            lock.0 = true;
+            music_mode.0 = MusicModeKind::Scores;
+
+            if !any_key {
+                return;
+            }
+
+            for e in q.q_splash_roots.iter() {
+                commands.entity(e).despawn();
+            }
+
+            let Some(imgs) = imgs.as_ref() else { return; };
+
+            let back_to_pause = episode.from_pause;
+            episode.from_pause = false;
+
+            spawn_menu_hint(&mut commands, asset_server.as_ref(), w, h, imgs, back_to_pause);
+            menu.reset();
+
+            music_mode.0 = MusicModeKind::Menu;
+            *step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
         }
 
         SplashStep::Done => {

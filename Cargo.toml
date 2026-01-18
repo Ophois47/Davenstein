@@ -1,6 +1,6 @@
 [package]
 name = "Davenstein"
-version = "0.9.24"
+version = "0.9.25"
 edition = "2024"
 
 [lib]
@@ -13,7 +13,7 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-bevy = "0.18"
+bevy = { version = "0.18", features = ["wav"] }
 include_dir = "0.7"
 rand = "0.9"
 serde = { version = "1", features = ["derive"] }
