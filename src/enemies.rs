@@ -1104,11 +1104,31 @@ fn tick_dog_walk(
     }
 }
 
-fn tick_ss_shoot(time: Res<Time>, mut commands: Commands, mut q: Query<(Entity, &mut SsShoot)>) {
+// enemies.rs
+fn tick_ss_shoot(
+    time: Res<Time>,
+    mut commands: Commands,
+    q_active_shoot: Query<(Entity, &crate::audio::ActiveEnemyShootSfx)>,
+    mut q: Query<(Entity, &mut SsShoot)>,
+) {
+    let mut any_ss_still_shooting = false;
+    let mut any_ss_finished = false;
+
     for (e, mut s) in q.iter_mut() {
         s.t.tick(time.delta());
         if s.t.is_finished() {
+            any_ss_finished = true;
             commands.entity(e).remove::<SsShoot>();
+        } else {
+            any_ss_still_shooting = true;
+        }
+    }
+
+    if any_ss_finished && !any_ss_still_shooting {
+        for (e, a) in q_active_shoot.iter() {
+            if a.kind == EnemyKind::Ss {
+                commands.entity(e).despawn();
+            }
         }
     }
 }

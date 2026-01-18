@@ -616,231 +616,337 @@ fn is_pickup_kind(k: SfxKind) -> bool {
     )
 }
 
-pub fn play_sfx_events(
-    lib: Res<SfxLibrary>,
+#[derive(Component)]
+pub struct ActiveEnemyShootSfx {
+    pub kind: EnemyKind,
+}
+
+#[derive(Component)]
+pub struct ActiveEnemyGunSfx;
+
+#[derive(Component)]
+pub struct AutoStopSfx {
+	pub t: Timer,
+}
+
+#[derive(Component)]
+pub struct HardStopSfx {
+    pub t: Timer,
+}
+
+pub fn tick_hard_stop_sfx(
+    time: Res<Time>,
     mut commands: Commands,
-    mut ev: MessageReader<PlaySfx>,
-    q_active_pickup: Query<Entity, With<ActivePickupSfx>>,
-    q_active_enemy_voice: Query<Entity, With<ActiveEnemyVoiceSfx>>,
-    q_active_intermission: Query<Entity, With<ActiveIntermissionSfx>>,
-    q_active_menu: Query<Entity, With<ActiveMenuSfx>>,
+    mut q: Query<(Entity, &mut HardStopSfx)>,
 ) {
-    // Collect Events: Play All Non-Pickups, Only Last Pickup (No Overlap)
-    let mut last_pickup: Option<PlaySfx> = None;
-    let mut non_pickups: Vec<PlaySfx> = Vec::new();
-
-    for e in ev.read() {
-        if is_pickup_kind(e.kind) {
-            last_pickup = Some(*e);
-        } else {
-            non_pickups.push(*e);
+    for (e, mut stop) in q.iter_mut() {
+        stop.t.tick(time.delta());
+        if stop.t.is_finished() {
+            commands.entity(e).despawn();
         }
     }
+}
 
-    for e in non_pickups {
-        let is_intermission = matches!(
-            e.kind,
-            SfxKind::IntermissionTick
-                | SfxKind::IntermissionConfirm
-                | SfxKind::IntermissionNoBonus
-                | SfxKind::IntermissionPercent100
-                | SfxKind::IntermissionBonusApply
-        );
+pub fn tick_auto_stop_sfx(
+	mut commands: Commands,
+	time: Res<Time>,
+	mut q: Query<(
+		Entity,
+		&mut AutoStopSfx,
+		Option<&bevy::audio::AudioSink>,
+		Option<&bevy::audio::SpatialAudioSink>,
+	)>,
+) {
+	for (e, mut stop, sink, spatial) in q.iter_mut() {
+		stop.t.tick(time.delta());
 
-        let is_menu = matches!(e.kind, SfxKind::MenuMove | SfxKind::MenuSelect | SfxKind::MenuBack);
+		if !stop.t.is_finished() {
+			continue;
+		}
 
-        // Menu UI: single channel, hard-cut previous
-        if is_menu {
-            let Some(list) = lib.map.get(&e.kind) else {
-                warn!("Missing SFX for {:?}", e.kind);
-                continue;
-            };
-            if list.is_empty() {
-                continue;
-            }
+		if let Some(spatial) = spatial {
+			spatial.stop();
+		}
+		if let Some(sink) = sink {
+			sink.stop();
+		}
 
-            for ent in q_active_menu.iter() {
-                commands.entity(ent).despawn();
-            }
+		commands.entity(e).despawn();
+	}
+}
 
-            let i = rand::rng().random_range(0..list.len());
-            let clip = list[i].clone();
+pub fn play_sfx_events(
+	lib: Res<SfxLibrary>,
+	mut commands: Commands,
+	mut ev: MessageReader<PlaySfx>,
+	q_active_pickup: Query<Entity, With<ActivePickupSfx>>,
+	q_active_enemy_voice: Query<Entity, With<ActiveEnemyVoiceSfx>>,
+	q_active_intermission: Query<Entity, With<ActiveIntermissionSfx>>,
+	q_active_menu: Query<Entity, With<ActiveMenuSfx>>,
+	q_active_enemy_gun: Query<
+		(
+			Entity,
+			Option<&bevy::audio::AudioSink>,
+			Option<&bevy::audio::SpatialAudioSink>,
+		),
+		With<ActiveEnemyGunSfx>,
+	>,
+) {
+	let mut last_pickup: Option<PlaySfx> = None;
+	let mut non_pickups: Vec<PlaySfx> = Vec::new();
 
-            let settings = PlaybackSettings::DESPAWN
-                .with_spatial(false)
-                .with_volume(Volume::Linear(1.0));
+	for e in ev.read() {
+		if is_pickup_kind(e.kind) {
+			last_pickup = Some(*e);
+		} else {
+			non_pickups.push(*e);
+		}
+	}
 
-            commands.spawn((
-                ActiveMenuSfx,
-                Transform::from_translation(e.pos),
-                AudioPlayer::new(clip),
-                settings,
-            ));
+	for e in non_pickups {
+		let is_intermission = matches!(
+			e.kind,
+			SfxKind::IntermissionTick
+				| SfxKind::IntermissionConfirm
+				| SfxKind::IntermissionNoBonus
+				| SfxKind::IntermissionPercent100
+				| SfxKind::IntermissionBonusApply
+		);
 
-            continue;
-        }
+		let is_menu = matches!(e.kind, SfxKind::MenuMove | SfxKind::MenuSelect | SfxKind::MenuBack);
 
-        // Intermission: single channel, hard-cut previous
-        if is_intermission {
-            let Some(list) = lib.map.get(&e.kind) else {
-                warn!("Missing SFX for {:?}", e.kind);
-                continue;
-            };
-            if list.is_empty() {
-                continue;
-            }
+		if is_menu {
+			let Some(list) = lib.map.get(&e.kind) else {
+				warn!("Missing SFX for {:?}", e.kind);
+				continue;
+			};
+			if list.is_empty() {
+				continue;
+			}
 
-            for ent in q_active_intermission.iter() {
-                commands.entity(ent).despawn();
-            }
+			for ent in q_active_menu.iter() {
+				commands.entity(ent).despawn();
+			}
 
-            let i = rand::rng().random_range(0..list.len());
-            let clip = list[i].clone();
+			let i = rand::rng().random_range(0..list.len());
+			let clip = list[i].clone();
 
-            let settings = PlaybackSettings::DESPAWN
-                .with_spatial(false)
-                .with_volume(Volume::Linear(1.0));
+			let settings = PlaybackSettings::DESPAWN
+				.with_spatial(false)
+				.with_volume(Volume::Linear(1.0));
 
-            commands.spawn((
-                ActiveIntermissionSfx,
-                Transform::from_translation(e.pos),
-                AudioPlayer::new(clip),
-                settings,
-            ));
+			commands.spawn((
+				ActiveMenuSfx,
+				Transform::from_translation(e.pos),
+				AudioPlayer::new(clip),
+				settings,
+			));
 
-            continue;
-        }
+			continue;
+		}
 
-        // Normal non-pickups path
-        let Some(list) = lib.map.get(&e.kind) else {
-            warn!("Missing SFX for {:?}", e.kind);
-            continue;
-        };
-        if list.is_empty() {
-            continue;
-        }
+		if is_intermission {
+			let Some(list) = lib.map.get(&e.kind) else {
+				warn!("Missing SFX for {:?}", e.kind);
+				continue;
+			};
+			if list.is_empty() {
+				continue;
+			}
 
-        let i = rand::rng().random_range(0..list.len());
-        let clip = list[i].clone();
+			for ent in q_active_intermission.iter() {
+				commands.entity(ent).despawn();
+			}
 
-        let is_enemy_voice = matches!(e.kind, SfxKind::EnemyAlert(_) | SfxKind::EnemyDeath(_));
+			let i = rand::rng().random_range(0..list.len());
+			let clip = list[i].clone();
 
-        if is_enemy_voice {
-            for ent in q_active_enemy_voice.iter() {
-                commands.entity(ent).despawn();
-            }
-        }
+			let settings = PlaybackSettings::DESPAWN
+				.with_spatial(false)
+				.with_volume(Volume::Linear(1.0));
 
-        let settings = match e.kind {
-            SfxKind::DoorOpen
-            | SfxKind::DoorClose
-            | SfxKind::NoWay
-            | SfxKind::Pushwall
-            | SfxKind::ElevatorSwitch => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.12))
-                .with_volume(Volume::Linear(1.0)),
+			commands.spawn((
+				ActiveIntermissionSfx,
+				Transform::from_translation(e.pos),
+				AudioPlayer::new(clip),
+				settings,
+			));
 
-            SfxKind::KnifeSwing
-            | SfxKind::PistolFire
-            | SfxKind::MachineGunFire
-            | SfxKind::ChaingunFire => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.12))
-                .with_volume(Volume::Linear(1.3)),
+			continue;
+		}
 
-            SfxKind::PickupHealthFirstAid
-            | SfxKind::PickupHealthDinner
-            | SfxKind::PickupHealthDogFood
-            | SfxKind::PickupOneUp => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.10))
-                .with_volume(Volume::Linear(1.25)),
+		let Some(list) = lib.map.get(&e.kind) else {
+			warn!("Missing SFX for {:?}", e.kind);
+			continue;
+		};
+		if list.is_empty() {
+			continue;
+		}
 
-            SfxKind::PickupTreasureCross
-            | SfxKind::PickupTreasureChalice
-            | SfxKind::PickupTreasureChest
-            | SfxKind::PickupTreasureCrown => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.15))
-                .with_volume(Volume::Linear(1.5)),
+		let i = rand::rng().random_range(0..list.len());
+		let clip = list[i].clone();
 
-            SfxKind::EnemyAlert(_) => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.15)),
+		let is_enemy_voice = matches!(e.kind, SfxKind::EnemyAlert(_) | SfxKind::EnemyDeath(_));
+		let is_enemy_gun = matches!(e.kind, SfxKind::EnemyShoot(_));
 
-            SfxKind::EnemyShoot(_) => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.25))
-                .with_volume(Volume::Linear(1.4)),
+		if is_enemy_voice {
+			for ent in q_active_enemy_voice.iter() {
+				commands.entity(ent).despawn();
+			}
+		}
 
-            SfxKind::EnemyDeath(_) => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.15))
-                .with_volume(Volume::Linear(1.3)),
+		if is_enemy_gun {
+			for (ent, sink, spatial) in q_active_enemy_gun.iter() {
+				if let Some(spatial) = spatial {
+					spatial.stop();
+				}
+				if let Some(sink) = sink {
+					sink.stop();
+				}
 
-            SfxKind::PickupChaingun
-            | SfxKind::PickupMachineGun
-            | SfxKind::PickupAmmo
-            | SfxKind::PickupKey => PlaybackSettings::DESPAWN
-                .with_spatial(true)
-                .with_spatial_scale(SpatialScale::new(0.12))
-                .with_volume(Volume::Linear(1.15)),
+				commands.entity(ent).despawn();
+			}
+		}
 
-            SfxKind::MenuMove
-            | SfxKind::MenuSelect
-            | SfxKind::MenuBack => PlaybackSettings::DESPAWN.with_spatial(false),
+		let settings = match e.kind {
+			SfxKind::DoorOpen
+			| SfxKind::DoorClose
+			| SfxKind::NoWay
+			| SfxKind::Pushwall
+			| SfxKind::ElevatorSwitch => PlaybackSettings::DESPAWN
+				.with_spatial(true)
+				.with_spatial_scale(SpatialScale::new(0.12))
+				.with_volume(Volume::Linear(1.0)),
 
-            SfxKind::IntermissionTick
-            | SfxKind::IntermissionConfirm
-            | SfxKind::IntermissionNoBonus
-            | SfxKind::IntermissionPercent100
-            | SfxKind::IntermissionBonusApply => PlaybackSettings::DESPAWN.with_spatial(false),
-        };
+			SfxKind::KnifeSwing
+			| SfxKind::PistolFire
+			| SfxKind::MachineGunFire
+			| SfxKind::ChaingunFire => PlaybackSettings::DESPAWN
+				.with_spatial(true)
+				.with_spatial_scale(SpatialScale::new(0.12))
+				.with_volume(Volume::Linear(1.3)),
 
-        if is_enemy_voice {
-            commands.spawn((
-                ActiveEnemyVoiceSfx,
-                Transform::from_translation(e.pos),
-                AudioPlayer::new(clip),
-                settings,
-            ));
-        } else {
-            commands.spawn((
-                Transform::from_translation(e.pos),
-                AudioPlayer::new(clip),
-                settings,
-            ));
-        }
-    }
+			SfxKind::PickupHealthFirstAid
+			| SfxKind::PickupHealthDinner
+			| SfxKind::PickupHealthDogFood
+			| SfxKind::PickupOneUp => PlaybackSettings::DESPAWN
+				.with_spatial(true)
+				.with_spatial_scale(SpatialScale::new(0.10))
+				.with_volume(Volume::Linear(1.25)),
 
-    // Pickups: ONLY last pickup
-    let Some(e) = last_pickup else { return; };
+			SfxKind::PickupTreasureCross
+			| SfxKind::PickupTreasureChalice
+			| SfxKind::PickupTreasureChest
+			| SfxKind::PickupTreasureCrown => PlaybackSettings::DESPAWN
+				.with_spatial(true)
+				.with_spatial_scale(SpatialScale::new(0.15))
+				.with_volume(Volume::Linear(1.5)),
 
-    let Some(list) = lib.map.get(&e.kind) else {
-        warn!("Missing SFX for {:?}", e.kind);
-        return;
-    };
-    if list.is_empty() {
-        return;
-    }
+			SfxKind::EnemyAlert(_) => PlaybackSettings::DESPAWN
+				.with_spatial(true)
+				.with_spatial_scale(SpatialScale::new(0.15)),
 
-    for ent in q_active_pickup.iter() {
-        commands.entity(ent).despawn();
-    }
+			SfxKind::EnemyShoot(_) => PlaybackSettings::DESPAWN
+				.with_spatial(true)
+				.with_spatial_scale(SpatialScale::new(0.25))
+				.with_volume(Volume::Linear(1.4)),
 
-    let i = rand::rng().random_range(0..list.len());
-    let clip = list[i].clone();
+			SfxKind::EnemyDeath(_) => PlaybackSettings::DESPAWN
+				.with_spatial(true)
+				.with_spatial_scale(SpatialScale::new(0.15))
+				.with_volume(Volume::Linear(1.3)),
 
-    let settings = PlaybackSettings::DESPAWN
-        .with_spatial(true)
-        .with_spatial_scale(SpatialScale::new(0.12))
-        .with_volume(Volume::Linear(1.15));
+			SfxKind::PickupChaingun
+			| SfxKind::PickupMachineGun
+			| SfxKind::PickupAmmo
+			| SfxKind::PickupKey => PlaybackSettings::DESPAWN
+				.with_spatial(true)
+				.with_spatial_scale(SpatialScale::new(0.12))
+				.with_volume(Volume::Linear(1.15)),
 
-    commands.spawn((
-        ActivePickupSfx,
-        Transform::from_translation(e.pos),
-        AudioPlayer::new(clip),
-        settings,
-    ));
+			SfxKind::MenuMove
+			| SfxKind::MenuSelect
+			| SfxKind::MenuBack => PlaybackSettings::DESPAWN.with_spatial(false),
+
+			SfxKind::IntermissionTick
+			| SfxKind::IntermissionConfirm
+			| SfxKind::IntermissionNoBonus
+			| SfxKind::IntermissionPercent100
+			| SfxKind::IntermissionBonusApply => PlaybackSettings::DESPAWN.with_spatial(false),
+		};
+
+		if is_enemy_voice {
+			commands.spawn((
+				ActiveEnemyVoiceSfx,
+				Transform::from_translation(e.pos),
+				AudioPlayer::new(clip),
+				settings,
+			));
+			continue;
+		}
+
+		if is_enemy_gun {
+			let mut ent = commands.spawn((
+				ActiveEnemyGunSfx,
+				Transform::from_translation(e.pos),
+				AudioPlayer::new(clip),
+				settings,
+			));
+
+			if matches!(
+				e.kind,
+				SfxKind::EnemyShoot(EnemyKind::Hans)
+					| SfxKind::EnemyShoot(EnemyKind::Gretel)
+			) {
+				let secs = match e.kind {
+					SfxKind::EnemyShoot(EnemyKind::Hans) => crate::enemies::HANS_SHOOT_SECS,
+					SfxKind::EnemyShoot(EnemyKind::Gretel) => crate::enemies::GRETEL_SHOOT_SECS,
+					_ => 0.0,
+				};
+
+				if secs > 0.0 {
+					ent.insert(AutoStopSfx {
+						t: Timer::from_seconds(secs, TimerMode::Once),
+					});
+				}
+			}
+
+			continue;
+		}
+
+		commands.spawn((
+			Transform::from_translation(e.pos),
+			AudioPlayer::new(clip),
+			settings,
+		));
+	}
+
+	let Some(e) = last_pickup else { return; };
+
+	let Some(list) = lib.map.get(&e.kind) else {
+		warn!("Missing SFX for {:?}", e.kind);
+		return;
+	};
+	if list.is_empty() {
+		return;
+	}
+
+	for ent in q_active_pickup.iter() {
+		commands.entity(ent).despawn();
+	}
+
+	let i = rand::rng().random_range(0..list.len());
+	let clip = list[i].clone();
+
+	let settings = PlaybackSettings::DESPAWN
+		.with_spatial(true)
+		.with_spatial_scale(SpatialScale::new(0.12))
+		.with_volume(Volume::Linear(1.15));
+
+	commands.spawn((
+		ActivePickupSfx,
+		Transform::from_translation(e.pos),
+		AudioPlayer::new(clip),
+		settings,
+	));
 }

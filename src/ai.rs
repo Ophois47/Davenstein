@@ -73,6 +73,25 @@ pub struct EnemyMove {
     pub speed_tps: f32,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct BurstFire {
+    shots_left: u8,
+    every_tics: u32,
+    next_tics: u32,
+}
+
+fn burst_profile(kind: EnemyKind) -> Option<(u8, u32, f32)> {
+    match kind {
+        // Tuned to fit inside existing SS_SHOOT_SECS (0.35) and sound like a short burst
+        EnemyKind::Ss => Some((5, 6, 0.35)), // shots, interval tics, post-burst cooldown secs
+
+        // Tuned to fit inside existing HANS/GRETEL shoot secs (0.4) and sound like a chaingun burst
+        EnemyKind::Hans | EnemyKind::Gretel => Some((8, 4, 0.45)),
+
+        _ => None,
+    }
+}
+
 #[allow(dead_code)]
 enum ChasePick {
     MoveTo(IVec2),
@@ -507,6 +526,7 @@ pub fn enemy_ai_tick(
     mut los_hold: Local<HashMap<Entity, f32>>,
     mut enemy_fire: MessageWriter<EnemyFire>,
     mut shoot_cd: Local<HashMap<Entity, f32>>,
+    mut bursts: Local<HashMap<Entity, BurstFire>>,
     mut alerted: Local<HashSet<Entity>>,
     wolf_plane1: Res<crate::level::WolfPlane1>,
     tunings: Res<EnemyTunings>,
@@ -567,6 +587,12 @@ pub fn enemy_ai_tick(
         *t -= dt;
         *t > 0.0
     });
+
+    // Drop burst state for enemies no longer in the live query
+    {
+        let q_live = q.p1();
+        bursts.retain(|e, _| q_live.get(*e).is_ok());
+    }
 
     ticker.accum += dt;
 
@@ -682,6 +708,7 @@ pub fn enemy_ai_tick(
 
             if in_pain {
                 los_hold.remove(&e);
+                bursts.remove(&e);
                 // Face Player, Do NOT Move, Shoot, Open Doors While Flinching
                 *dir8 = dir8_towards(my_tile, player_tile);
                 continue;
@@ -805,7 +832,7 @@ pub fn enemy_ai_tick(
                 continue;
             }
 
-            // If Already Moving, Don't Shoot Mid Step,
+            // If Already Moving, Don't Shoot Mid Step
             // Don't Pick New Chase Step This Tic
             if moving_now {
                 continue;
@@ -839,6 +866,55 @@ pub fn enemy_ai_tick(
             }
 
             // =========================
+            // BURST CONTINUATION (SS + Hans + Gretel)
+            // =========================
+            if let Some(b) = bursts.get_mut(&e) {
+                let dx = (player_tile.x - my_tile.x).abs();
+                let dy = (player_tile.y - my_tile.y).abs();
+                let shoot_dist = dx.max(dy);
+
+                let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
+                let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
+
+                *dir8 = dir8_towards(my_tile, player_tile);
+
+                if !can_see || !in_range {
+                    b.shots_left = 0;
+                } else {
+                    if b.next_tics > 0 {
+                        b.next_tics -= 1;
+                    } else {
+                        let hits = wolf_far_miss_gate(shoot_dist);
+                        let damage = if hits {
+                            match kind {
+                                EnemyKind::Hans | EnemyKind::Gretel => wolf_boss_damage(shoot_dist),
+                                _ => wolf_hitscan_damage(shoot_dist),
+                            }
+                        } else {
+                            0
+                        };
+
+                        // ADD THIS BACK - Apply damage for each burst shot
+                        enemy_fire.write(EnemyFire { kind: *kind, damage });
+
+                        // KEEP THIS REMOVED - Don't play sound on each shot
+                        // sfx.write(PlaySfx { ... });
+
+                        if b.shots_left > 0 {
+                            b.shots_left -= 1;
+                        }
+                        b.next_tics = b.every_tics;
+                    }
+                }
+
+                if b.shots_left == 0 {
+                    bursts.remove(&e);
+                }
+
+                continue;
+            }
+
+            // =========================
             // SHOOT LOGIC (Excluding Dogs)
             // =========================
             if !matches!(*kind, EnemyKind::Dog) {
@@ -865,6 +941,66 @@ pub fn enemy_ai_tick(
                     *dir8 = dir8_towards(my_tile, player_tile);
 
                     if cd_now <= 0.0 && los_ready {
+                        if let Some((shots, every_tics, post_cd_secs)) = burst_profile(*kind) {
+                            let burst_secs =
+                                (shots.saturating_sub(1) as f32) * (every_tics as f32) * AI_TIC_SECS;
+
+                            shoot_cd.insert(e, burst_secs + post_cd_secs);
+
+                            // Fire the FIRST shot immediately
+                            let hits = wolf_far_miss_gate(shoot_dist);
+                            let damage = if hits {
+                                match kind {
+                                    EnemyKind::Hans | EnemyKind::Gretel => wolf_boss_damage(shoot_dist),
+                                    _ => wolf_hitscan_damage(shoot_dist),
+                                }
+                            } else {
+                                0
+                            };
+
+                            enemy_fire.write(EnemyFire { kind: *kind, damage });
+
+                            // Play sound ONCE for the entire burst
+                            sfx.write(PlaySfx {
+                                kind: SfxKind::EnemyShoot(*kind),
+                                pos: tf.translation,
+                            });
+
+                            // Queue remaining shots
+                            if shots > 1 {
+                                bursts.insert(
+                                    e,
+                                    BurstFire {
+                                        shots_left: shots - 1,
+                                        every_tics,
+                                        next_tics: every_tics,
+                                    },
+                                );
+                            }
+
+                            // Start Correct Attack Animation for Enemy Kind
+                            match kind {
+                                EnemyKind::Ss => {
+                                    commands.entity(e).insert(crate::enemies::SsShoot {
+                                        t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
+                                    });
+                                }
+                                EnemyKind::Hans => {
+                                    commands.entity(e).insert(crate::enemies::HansShoot {
+                                        t: Timer::from_seconds(crate::enemies::HANS_SHOOT_SECS, TimerMode::Once),
+                                    });
+                                }
+                                EnemyKind::Gretel => {
+                                    commands.entity(e).insert(crate::enemies::GretelShoot {
+                                        t: Timer::from_seconds(crate::enemies::GRETEL_SHOOT_SECS, TimerMode::Once),
+                                    });
+                                }
+                                _ => {}
+                            }
+
+                            continue;
+                        }
+
                         shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
                         let hits = wolf_far_miss_gate(shoot_dist);

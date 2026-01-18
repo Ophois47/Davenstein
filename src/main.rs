@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use davelib::ai::EnemyAiPlugin;
 use davelib::audio::{
     play_sfx_events,
+    tick_hard_stop_sfx,
     setup_audio,
     start_music,
     PlaySfx,
@@ -193,7 +194,15 @@ fn main() {
         // Audio,
         // Level Transitions
         // -----------------------------
-        .add_systems(PostUpdate, play_sfx_events)
+        .add_systems(
+            PostUpdate,
+            (
+                play_sfx_events,
+                davelib::audio::tick_auto_stop_sfx,
+                tick_hard_stop_sfx,
+            )
+                .chain(),
+        )
         .add_systems(
             PostUpdate,
             (
