@@ -563,39 +563,79 @@ pub fn setup(
 		.into_iter()
 		.filter(|&t| {
 			let code = plane1[idx(t)];
-			(108 + skill_off) <= code && code <= (115 + skill_off)
+			let base = (108..=115).contains(&code);
+			let med = (144..=151).contains(&code);
+			let hard = (180..=187).contains(&code);
+			match skill_off {
+				0 => base,
+				36 => base || med,
+				72 => base || med || hard,
+				_ => base,
+			}
 		})
 		.collect();
 
-    let mutants: Vec<IVec2> = mutants
-        .into_iter()
-        .filter(|&t| {
-            let code = plane1[idx(t)];
-            (216 + skill_off) <= code && code <= (223 + skill_off)
-        })
-        .collect();
+	let mutants: Vec<IVec2> = mutants
+		.into_iter()
+		.filter(|&t| {
+			let code = plane1[idx(t)];
+			let base = (216..=223).contains(&code);
+			let med = (234..=241).contains(&code);
+			let hard = (252..=259).contains(&code);
+			match skill_off {
+				0 => base,
+				36 => base || med,
+				72 => base || med || hard,
+				_ => base,
+			}
+		})
+		.collect();
 
 	let ss: Vec<IVec2> = ss
 		.into_iter()
 		.filter(|&t| {
 			let code = plane1[idx(t)];
-			(126 + skill_off) <= code && code <= (133 + skill_off)
+			let base = (126..=133).contains(&code);
+			let med = (162..=169).contains(&code);
+			let hard = (198..=205).contains(&code);
+			match skill_off {
+				0 => base,
+				36 => base || med,
+				72 => base || med || hard,
+				_ => base,
+			}
 		})
 		.collect();
 
 	let officers: Vec<IVec2> = officers
-        .into_iter()
-        .filter(|&t| {
-            let code = plane1[idx(t)];
-            (116 + skill_off) <= code && code <= (123 + skill_off)
-        })
-        .collect();
+		.into_iter()
+		.filter(|&t| {
+			let code = plane1[idx(t)];
+			let base = (116..=123).contains(&code);
+			let med = (152..=159).contains(&code);
+			let hard = (188..=195).contains(&code);
+			match skill_off {
+				0 => base,
+				36 => base || med,
+				72 => base || med || hard,
+				_ => base,
+			}
+		})
+		.collect();
 
 	let dogs: Vec<IVec2> = dogs
 		.into_iter()
 		.filter(|&t| {
 			let code = plane1[idx(t)];
-			(134 + skill_off) <= code && code <= (141 + skill_off)
+			let base = (134..=141).contains(&code);
+			let med = (170..=177).contains(&code);
+			let hard = (206..=213).contains(&code);
+			match skill_off {
+				0 => base,
+				36 => base || med,
+				72 => base || med || hard,
+				_ => base,
+			}
 		})
 		.collect();
 
