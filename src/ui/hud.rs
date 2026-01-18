@@ -1342,7 +1342,7 @@ fn compute_hud_layout(q_windows: &Query<&Window, With<PrimaryWindow>>) -> HudLay
 
     // Face Placement (Native Coords, 24x32 Inside Face Window)
     const FACE_X: f32 = 138.0;
-    const FACE_TOP: f32 = 6.0;
+    const FACE_TOP: f32 = 5.5;
     const FACE_W: f32 = 26.0;
     const FACE_H: f32 = 34.0;
 

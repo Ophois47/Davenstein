@@ -1636,7 +1636,7 @@ fn splash_advance_on_any_input(
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
-                skill.selection = 0;
+                skill.selection = 2;
                 skill.episode_num = episode_num;
 
                 if let Some(imgs) = imgs.as_ref() {

@@ -30,6 +30,3 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
-- Skill levels are not spawning enemies correctly
-- Skill level screen should default to Bring it On
-- Move face sprite on HUD up 1px
