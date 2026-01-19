@@ -282,6 +282,7 @@ pub fn setup(
 	dog_sprites: Res<crate::enemies::DogSprites>,
 	hans_sprites: Res<crate::enemies::HansSprites>,
 	gretel_sprites: Res<crate::enemies::GretelSprites>,
+	mecha_hitler_sprites: Res<crate::enemies::MechaHitlerSprites>,
 	current_level: Res<crate::level::CurrentLevel>,
 	mut level_score: ResMut<crate::level_score::LevelScore>,
 	skill_level: Res<crate::skill::SkillLevel>,
@@ -549,7 +550,7 @@ pub fn setup(
 	commands.insert_resource(crate::level::WolfPlane1(plane1.clone()));
 
 	let pushwall_markers = PushwallMarkers::from_wolf_plane1(64, 64, &plane1);
-	let (grid, spawn, guards, mutants, ss, officers, dogs, hans, gretel) =
+	let (grid, spawn, guards, mutants, ss, officers, dogs, hans, gretel, mecha_hitler) =
 		MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
 
 	// --- Enemy difficulty selection ---
@@ -651,6 +652,13 @@ pub fn setup(
 		.filter(|&t| plane1[idx(t)] == 197)
 		.collect();
 
+	let mecha_hitler: Vec<IVec2> = mecha_hitler
+		.into_iter()
+		.filter(|&t| plane1[idx(t)] == 178)
+		.collect();
+
+	let hitler_phase2_total = mecha_hitler.len();
+
 	info!(
 		"Enemy Spawns: Guards={}, Mutants={}, SS={}, Officers={}, Dogs={}",
 		guards.len(),
@@ -661,9 +669,11 @@ pub fn setup(
 	);
 
 	info!(
-		"Boss Spawns: Hans={}, Gretel={}",
+		"Boss Spawns: Hans={}, Gretel={}, Mecha Hitler={} (implies Hitler phase2={})",
 		hans.len(),
 		gretel.len(),
+		mecha_hitler.len(),
+		hitler_phase2_total,
 	);
 
 	info!(
@@ -679,7 +689,9 @@ pub fn setup(
         + officers.len()
         + dogs.len()
         + hans.len()
-		+ gretel.len();
+		+ gretel.len()
+		+ mecha_hitler.len()
+    	+ hitler_phase2_total;
 
 	let secrets_total = plane1.iter().filter(|&&c| c == 98).count();
 	let treasure_total = plane1
@@ -1100,6 +1112,10 @@ pub fn setup(
 
 	for g in gretel {
 		crate::enemies::spawn_gretel(&mut commands, &mut meshes, &mut materials, &gretel_sprites, g);
+	}
+
+	for mh in mecha_hitler {
+		crate::enemies::spawn_mecha_hitler(&mut commands, &mut meshes, &mut materials, &mecha_hitler_sprites, mh);
 	}
 
 	let player_pos = Vec3::new(spawn.x as f32 * TILE_SIZE, 0.5, spawn.y as f32 * TILE_SIZE);

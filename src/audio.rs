@@ -463,6 +463,16 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::EnemyAlert(EnemyKind::Gretel),
         asset_server.load("sounds/sfx/enemies/gretel/gretel_alert.ogg"),
     );
+    // Hitler Alert
+    lib.insert_one(
+        SfxKind::EnemyAlert(EnemyKind::Hitler),
+        asset_server.load("sounds/sfx/enemies/hitler/hitler_alert.wav"),
+    );
+    // Mecha Hitler Alert
+    lib.insert_one(
+        SfxKind::EnemyAlert(EnemyKind::MechaHitler),
+        asset_server.load("sounds/sfx/enemies/mecha_hitler/mecha_hitler_alert.wav"),
+    );
 
     // Hans Shoot
     lib.insert_one(
@@ -474,6 +484,16 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::EnemyShoot(EnemyKind::Gretel),
         asset_server.load("sounds/sfx/enemies/gretel/gretel_shoot.ogg"),
     );
+    // Hitler Shoot
+    lib.insert_one(
+        SfxKind::EnemyShoot(EnemyKind::Hitler),
+        asset_server.load("sounds/sfx/enemies/hitler/hitler_shoot.wav"),
+    );
+    // Mecha Hitler Shoot
+    lib.insert_one(
+        SfxKind::EnemyShoot(EnemyKind::MechaHitler),
+        asset_server.load("sounds/sfx/enemies/mecha_hitler/mecha_hitler_shoot.wav"),
+    );
 
     // Hans Death
     lib.insert_one(
@@ -484,6 +504,16 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     lib.insert_one(
         SfxKind::EnemyDeath(EnemyKind::Gretel),
         asset_server.load("sounds/sfx/enemies/gretel/gretel_death.ogg"),
+    );
+    // Hitler Death
+    lib.insert_one(
+        SfxKind::EnemyDeath(EnemyKind::Hitler),
+        asset_server.load("sounds/sfx/enemies/hitler/hitler_death.wav"),
+    );
+    // Mecha Hitler Death
+    lib.insert_one(
+        SfxKind::EnemyDeath(EnemyKind::MechaHitler),
+        asset_server.load("sounds/sfx/enemies/mecha_hitler/mecha_hitler_death.wav"),
     );
 
     commands.insert_resource(lib);
@@ -902,10 +932,14 @@ pub fn play_sfx_events(
 				e.kind,
 				SfxKind::EnemyShoot(EnemyKind::Hans)
 					| SfxKind::EnemyShoot(EnemyKind::Gretel)
+                    | SfxKind::EnemyShoot(EnemyKind::Hitler)
+                    | SfxKind::EnemyShoot(EnemyKind::MechaHitler)
 			) {
 				let secs = match e.kind {
 					SfxKind::EnemyShoot(EnemyKind::Hans) => crate::enemies::HANS_SHOOT_SECS,
 					SfxKind::EnemyShoot(EnemyKind::Gretel) => crate::enemies::GRETEL_SHOOT_SECS,
+                    SfxKind::EnemyShoot(EnemyKind::Hitler) => crate::enemies::HITLER_SHOOT_SECS,
+                    SfxKind::EnemyShoot(EnemyKind::MechaHitler) => crate::enemies::MECHA_HITLER_SHOOT_SECS,
 					_ => 0.0,
 				};
 

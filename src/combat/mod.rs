@@ -28,6 +28,8 @@ use davelib::enemies::{
     DogPain,
     HansDying,
     GretelDying,
+    HitlerDying,
+    MechaHitlerDying,
 };
 use davelib::map::MapGrid;
 
@@ -347,6 +349,12 @@ fn process_fire_shots(
                         EnemyKind::Gretel => {
                             commands.entity(e).insert(GretelDying { frame: 0, tics: 0 });
                         }
+                        EnemyKind::Hitler => {
+                            commands.entity(e).insert(HitlerDying { frame: 0, tics: 0 });
+                        }
+                        EnemyKind::MechaHitler => {
+                            commands.entity(e).insert(MechaHitlerDying { frame: 0, tics: 0 });
+                        }
                     }
                 } else {
                     let timer = Timer::from_seconds(0.20, TimerMode::Once);
@@ -370,6 +378,12 @@ fn process_fire_shots(
                             // Wolfenstein 3-D Bosses Do Not Flinch / Enter Pain
                         }
                         EnemyKind::Gretel => {
+                            // Wolfenstein 3-D Bosses Do Not Flinch / Enter Pain
+                        }
+                        EnemyKind::Hitler => {
+                            // Wolfenstein 3-D Bosses Do Not Flinch / Enter Pain
+                        }
+                        EnemyKind::MechaHitler => {
                             // Wolfenstein 3-D Bosses Do Not Flinch / Enter Pain
                         }
                     }

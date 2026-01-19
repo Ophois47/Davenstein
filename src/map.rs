@@ -171,6 +171,7 @@ impl MapGrid {
         Vec<IVec2>,
         Vec<IVec2>,
         Vec<IVec2>,
+        Vec<IVec2>,
     ) {
         let mut raw_plane0: Vec<u16> = Vec::with_capacity(width * height);
         let mut tiles: Vec<Tile> = Vec::with_capacity(width * height);
@@ -183,6 +184,7 @@ impl MapGrid {
         let mut dogs: Vec<IVec2> = Vec::new();
         let mut hans: Vec<IVec2> = Vec::new();
         let mut gretel: Vec<IVec2> = Vec::new();
+        let mut mecha_hitler: Vec<IVec2> = Vec::new();
 
         let idx = |x: usize, z: usize| -> usize { z * width + x };
 
@@ -219,9 +221,7 @@ impl MapGrid {
 
                 let t = IVec2::new(x as i32, z as i32);
 
-                // Enemies: Include the any difficulty codes, plus the medium/hard ranges,
-                // because E1M2 plane1 clearly contains values outside the 108..=115 set
-                // (NOT implementing difficulty selection yet, just ensuring they spawn)
+                // Enemies: Include any difficulty codes, plus medium/hard ranges
                 if (108..=115).contains(&v1) || (144..=151).contains(&v1) || (180..=187).contains(&v1) {
                     guards.push(t);
                 } else if (216..=223).contains(&v1) || (234..=241).contains(&v1) || (252..=259).contains(&v1) {
@@ -236,6 +236,8 @@ impl MapGrid {
                     hans.push(t);
                 } else if v1 == 197 {
                     gretel.push(t);
+                } else if v1 == 178 {
+                    mecha_hitler.push(t);
                 }
             }
         }
@@ -255,6 +257,7 @@ impl MapGrid {
             dogs,
             hans,
             gretel,
+            mecha_hitler,
         )
     }
 }

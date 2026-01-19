@@ -85,8 +85,8 @@ fn burst_profile(kind: EnemyKind) -> Option<(u8, u32, f32)> {
         // Tuned to fit inside existing SS_SHOOT_SECS (0.35) and sound like a short burst
         EnemyKind::Ss => Some((5, 6, 0.35)), // shots, interval tics, post-burst cooldown secs
 
-        // Tuned to fit inside existing HANS/GRETEL shoot secs (0.4) and sound like a chaingun burst
-        EnemyKind::Hans | EnemyKind::Gretel => Some((8, 4, 0.45)),
+        // Tuned to fit inside existing shoot secs (0.4) and sound like a chaingun burst
+        EnemyKind::Hans | EnemyKind::Gretel | EnemyKind::Hitler | EnemyKind::MechaHitler => Some((8, 4, 0.45)),
 
         _ => None,
     }
@@ -887,7 +887,7 @@ pub fn enemy_ai_tick(
                         let hits = wolf_far_miss_gate(shoot_dist);
                         let damage = if hits {
                             match kind {
-                                EnemyKind::Hans | EnemyKind::Gretel => wolf_boss_damage(shoot_dist),
+                                EnemyKind::Hans | EnemyKind::Gretel | EnemyKind::MechaHitler | EnemyKind::Hitler => wolf_boss_damage(shoot_dist),
                                 _ => wolf_hitscan_damage(shoot_dist),
                             }
                         } else {
@@ -995,6 +995,16 @@ pub fn enemy_ai_tick(
                                         t: Timer::from_seconds(crate::enemies::GRETEL_SHOOT_SECS, TimerMode::Once),
                                     });
                                 }
+                                EnemyKind::MechaHitler => {
+                                    commands.entity(e).insert(crate::enemies::MechaHitlerShoot {
+                                        t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
+                                    });
+                                }
+                                EnemyKind::Hitler => {
+                                    commands.entity(e).insert(crate::enemies::HitlerShoot {
+                                        t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
+                                    });
+                                }
                                 _ => {}
                             }
 
@@ -1046,6 +1056,16 @@ pub fn enemy_ai_tick(
                             EnemyKind::Gretel => {
                                 commands.entity(e).insert(crate::enemies::GretelShoot {
                                     t: Timer::from_seconds(crate::enemies::GRETEL_SHOOT_SECS, TimerMode::Once),
+                                });
+                            }
+                            EnemyKind::Hitler => {
+                                commands.entity(e).insert(crate::enemies::HitlerShoot {
+                                    t: Timer::from_seconds(crate::enemies::HITLER_SHOOT_SECS, TimerMode::Once),
+                                });
+                            }
+                            EnemyKind::MechaHitler => {
+                                commands.entity(e).insert(crate::enemies::MechaHitlerShoot {
+                                    t: Timer::from_seconds(crate::enemies::MECHA_HITLER_SHOOT_SECS, TimerMode::Once),
                                 });
                             }
                             EnemyKind::Dog => {}

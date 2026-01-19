@@ -24,6 +24,8 @@ const OFFICER_MAX_HP: i32 = 50;
 const DOG_MAX_HP: i32 = 1;
 const HANS_MAX_HP: i32 = 850;
 const GRETEL_MAX_HP: i32 = 850;
+const HITLER_MAX_HP: i32 = 850;
+const MECHA_HITLER_MAX_HP: i32 = 850;
 
 pub(crate) const SS_SHOOT_SECS: f32 = 0.35;
 pub(crate) const OFFICER_SHOOT_SECS: f32 = 0.35;
@@ -51,6 +53,8 @@ pub enum EnemyKind {
     Dog,
     Hans,
     Gretel,
+    Hitler,
+    MechaHitler,
     // TODO: Other Bosses
 }
 
@@ -75,6 +79,8 @@ pub struct EnemyTunings {
     pub dog: EnemyTuning,
     pub hans: EnemyTuning,
     pub gretel: EnemyTuning,
+    pub hitler: EnemyTuning,
+    pub mecha_hitler: EnemyTuning,
 }
 
 impl EnemyTunings {
@@ -154,6 +160,26 @@ impl EnemyTunings {
                 attack_range_tiles: 8.0,
                 reaction_time_secs: 0.30,
             },
+            hitler: EnemyTuning {
+                max_hp: HITLER_MAX_HP,
+                wander_speed_tps: 0.0,
+                chase_speed_tps: 1.3,
+                can_shoot: true,
+                attack_damage: 30,
+                attack_cooldown_secs: 0.35,
+                attack_range_tiles: 8.0,
+                reaction_time_secs: 0.30,
+            },
+            mecha_hitler: EnemyTuning {
+                max_hp: MECHA_HITLER_MAX_HP,
+                wander_speed_tps: 0.0,
+                chase_speed_tps: 1.3,
+                can_shoot: true,
+                attack_damage: 30,
+                attack_cooldown_secs: 0.35,
+                attack_range_tiles: 8.0,
+                reaction_time_secs: 0.30,
+            },
         }
     }
 
@@ -166,6 +192,8 @@ impl EnemyTunings {
             EnemyKind::Dog => self.dog,
             EnemyKind::Hans => self.hans,
             EnemyKind::Gretel => self.gretel,
+            EnemyKind::Hitler => self.hitler,
+            EnemyKind::MechaHitler => self.mecha_hitler,
         }
     }
 }
@@ -604,6 +632,8 @@ impl FromWorld for DogSprites {
 // --- BOSSES ---
 pub(crate) const HANS_SHOOT_SECS: f32 = 0.35;
 pub(crate) const GRETEL_SHOOT_SECS: f32 = 0.35;
+pub(crate) const HITLER_SHOOT_SECS: f32 = 0.35;
+pub(crate) const MECHA_HITLER_SHOOT_SECS: f32 = 0.35;
 
 #[derive(Component)]
 pub struct Hans;
@@ -612,10 +642,22 @@ pub struct Hans;
 pub struct Gretel;
 
 #[derive(Component)]
+pub struct Hitler;
+
+#[derive(Component)]
+pub struct MechaHitler;
+
+#[derive(Component)]
 pub struct HansCorpse;
 
 #[derive(Component)]
 pub struct GretelCorpse;
+
+#[derive(Component)]
+pub struct HitlerCorpse;
+
+#[derive(Component)]
+pub struct MechaHitlerCorpse;
 
 #[derive(Component, Default)]
 pub struct HansWalk {
@@ -624,6 +666,16 @@ pub struct HansWalk {
 
 #[derive(Component, Default)]
 pub struct GretelWalk {
+    pub phase: f32,
+}
+
+#[derive(Component, Debug, Default)]
+pub struct HitlerWalk {
+    pub phase: f32,
+}
+
+#[derive(Component, Debug, Default)]
+pub struct MechaHitlerWalk {
     pub phase: f32,
 }
 
@@ -637,6 +689,16 @@ pub struct GretelShoot {
     pub t: Timer,
 }
 
+#[derive(Component, Debug)]
+pub struct HitlerShoot {
+    pub t: Timer,
+}
+
+#[derive(Component, Debug)]
+pub struct MechaHitlerShoot {
+    pub t: Timer,
+}
+
 #[derive(Component, Debug, Clone, Copy)]
 pub struct HansDying {
     pub frame: u8, // 0..DEATH_FRAMES-1
@@ -647,6 +709,18 @@ pub struct HansDying {
 pub struct GretelDying {
     pub frame: u8, // 0..DEATH_FRAMES-1
     pub tics: u8,  // Fixed-Step Counter
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct HitlerDying {
+    pub frame: u8, // 0..8
+    pub tics: u8,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct MechaHitlerDying {
+    pub frame: u8, // 0..4
+    pub tics: u8,
 }
 
 #[derive(Resource)]
@@ -664,6 +738,24 @@ pub struct GretelSprites {
     pub walk: [[Handle<Image>; 8]; 4],
     pub shoot: [Handle<Image>; 3],
     pub dying: [[Handle<Image>; 8]; 4],
+    pub corpse: [Handle<Image>; 8],
+}
+
+#[derive(Resource)]
+pub struct MechaHitlerSprites {
+    pub idle: [Handle<Image>; 8],
+    pub walk: [[Handle<Image>; 8]; 4],
+    pub shoot: [Handle<Image>; 3],
+    pub dying: [[Handle<Image>; 8]; 4],
+    pub corpse: [Handle<Image>; 8],
+}
+
+#[derive(Resource)]
+pub struct HitlerSprites {
+    pub idle: [Handle<Image>; 8],
+    pub walk: [[Handle<Image>; 8]; 4],
+    pub shoot: [Handle<Image>; 3],
+    pub dying: [[Handle<Image>; 8]; 8],
     pub corpse: [Handle<Image>; 8],
 }
 
@@ -741,6 +833,63 @@ impl FromWorld for GretelSprites {
     }
 }
 
+impl FromWorld for MechaHitlerSprites {
+    fn from_world(world: &mut World) -> Self {
+        let server = world.resource::<AssetServer>();
+
+        let idle = std::array::from_fn(|i| server.load(format!("enemies/mecha_hitler/mecha_hitler_idle_a{i}.png")));
+        let walk = std::array::from_fn(|row| {
+            std::array::from_fn(|dir| server.load(format!("enemies/mecha_hitler/mecha_hitler_walk_r{row}_dir{dir}.png")))
+        });
+
+        let shoot: [Handle<Image>; 3] =
+            std::array::from_fn(|f| server.load(format!("enemies/mecha_hitler/mecha_hitler_shoot_{f}.png")));
+
+        let d0: Handle<Image> = server.load("enemies/mecha_hitler/mecha_hitler_death_0.png");
+        let d1: Handle<Image> = server.load("enemies/mecha_hitler/mecha_hitler_death_1.png");
+        let d2: Handle<Image> = server.load("enemies/mecha_hitler/mecha_hitler_death_2.png");
+        let d3: Handle<Image> = server.load("enemies/mecha_hitler/mecha_hitler_death_3.png");
+
+        let dying = [
+            std::array::from_fn(|_| d0.clone()),
+            std::array::from_fn(|_| d1.clone()),
+            std::array::from_fn(|_| d2.clone()),
+            std::array::from_fn(|_| d3.clone()),
+        ];
+
+        let corpse0: Handle<Image> = server.load("enemies/mecha_hitler/mecha_hitler_corpse.png");
+        let corpse = std::array::from_fn(|_| corpse0.clone());
+
+        Self { idle, walk, shoot, dying, corpse }
+    }
+}
+
+impl FromWorld for HitlerSprites {
+    fn from_world(world: &mut World) -> Self {
+        let server = world.resource::<AssetServer>();
+
+        let idle = std::array::from_fn(|i| server.load(format!("enemies/hitler/hitler_idle_a{i}.png")));
+        let walk = std::array::from_fn(|row| {
+            std::array::from_fn(|dir| server.load(format!("enemies/hitler/hitler_walk_r{row}_dir{dir}.png")))
+        });
+
+        let shoot: [Handle<Image>; 3] =
+            std::array::from_fn(|f| server.load(format!("enemies/hitler/hitler_shoot_{f}.png")));
+
+        let d: [Handle<Image>; 8] = std::array::from_fn(|i| server.load(format!("enemies/hitler/hitler_death_{i}.png")));
+
+        let dying: [[Handle<Image>; 8]; 8] = std::array::from_fn(|row| {
+            let h = d[row].clone();
+            std::array::from_fn(|_| h.clone())
+        });
+
+        let corpse0: Handle<Image> = server.load("enemies/hitler/hitler_corpse.png");
+        let corpse = std::array::from_fn(|_| corpse0.clone());
+
+        Self { idle, walk, shoot, dying, corpse }
+    }
+}
+
 fn attach_hans_walk(mut commands: Commands, q: Query<Entity, Added<Hans>>) {
     for e in q.iter() {
         commands.entity(e).insert(HansWalk::default());
@@ -750,6 +899,18 @@ fn attach_hans_walk(mut commands: Commands, q: Query<Entity, Added<Hans>>) {
 fn attach_gretel_walk(mut commands: Commands, q: Query<Entity, Added<Gretel>>) {
     for e in q.iter() {
         commands.entity(e).insert(GretelWalk::default());
+    }
+}
+
+fn attach_hitler_walk(mut commands: Commands, q: Query<Entity, Added<Hitler>>) {
+    for e in q.iter() {
+        commands.entity(e).insert(HitlerWalk::default());
+    }
+}
+
+fn attach_mecha_hitler_walk(mut commands: Commands, q: Query<Entity, Added<MechaHitler>>) {
+    for e in q.iter() {
+        commands.entity(e).insert(MechaHitlerWalk::default());
     }
 }
 
@@ -783,6 +944,34 @@ fn tick_gretel_walk(
     }
 }
 
+fn tick_hitler_walk(
+    time: Res<Time>,
+    mut q: Query<(&mut HitlerWalk, Option<&EnemyMove>), (With<Hitler>, Without<Dead>)>,
+) {
+    let dt = time.delta_secs();
+    for (mut w, moving) in q.iter_mut() {
+        if let Some(m) = moving {
+            w.phase += m.speed_tps * dt;
+        } else {
+            w.phase = 0.0;
+        }
+    }
+}
+
+fn tick_mecha_hitler_walk(
+    time: Res<Time>,
+    mut q: Query<(&mut MechaHitlerWalk, Option<&EnemyMove>), (With<MechaHitler>, Without<Dead>)>,
+) {
+    let dt = time.delta_secs();
+    for (mut w, moving) in q.iter_mut() {
+        if let Some(m) = moving {
+            w.phase += m.speed_tps * dt;
+        } else {
+            w.phase = 0.0;
+        }
+    }
+}
+
 fn tick_hans_shoot(
     time: Res<Time>,
     mut commands: Commands,
@@ -805,6 +994,32 @@ fn tick_gretel_shoot(
         s.t.tick(time.delta());
         if s.t.is_finished() {
             commands.entity(e).remove::<GretelShoot>();
+        }
+    }
+}
+
+fn tick_hitler_shoot(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut HitlerShoot), With<Hitler>>,
+) {
+    for (e, mut s) in q.iter_mut() {
+        s.t.tick(time.delta());
+        if s.t.is_finished() {
+            commands.entity(e).remove::<HitlerShoot>();
+        }
+    }
+}
+
+fn tick_mecha_hitler_shoot(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut MechaHitlerShoot), With<MechaHitler>>,
+) {
+    for (e, mut s) in q.iter_mut() {
+        s.t.tick(time.delta());
+        if s.t.is_finished() {
+            commands.entity(e).remove::<MechaHitlerShoot>();
         }
     }
 }
@@ -870,6 +1085,74 @@ pub fn spawn_gretel(
         Dir8(0),
         View8(0),
         Health::new(GRETEL_MAX_HP),
+        OccupiesTile(tile),
+        Mesh3d(quad),
+        MeshMaterial3d(mat),
+        Transform::from_translation(pos),
+    ));
+}
+
+pub fn spawn_hitler(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    sprites: &HitlerSprites,
+    tile: IVec2,
+) {
+    const TILE_SIZE: f32 = 1.0;
+    const WALL_H: f32 = 1.0;
+
+    let pos = Vec3::new(tile.x as f32 * TILE_SIZE, WALL_H * 0.5, tile.y as f32 * TILE_SIZE);
+
+    let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
+    let mat = materials.add(StandardMaterial {
+        base_color_texture: Some(sprites.idle[0].clone()),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    commands.spawn((
+        Hitler,
+        EnemyKind::Hitler,
+        Dir8(0),
+        View8(0),
+        Health::new(HITLER_MAX_HP),
+        OccupiesTile(tile),
+        Mesh3d(quad),
+        MeshMaterial3d(mat),
+        Transform::from_translation(pos),
+    ));
+}
+
+pub fn spawn_mecha_hitler(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    sprites: &MechaHitlerSprites,
+    tile: IVec2,
+) {
+    const TILE_SIZE: f32 = 1.0;
+    const WALL_H: f32 = 1.0;
+
+    let pos = Vec3::new(tile.x as f32 * TILE_SIZE, WALL_H * 0.5, tile.y as f32 * TILE_SIZE);
+
+    let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
+    let mat = materials.add(StandardMaterial {
+        base_color_texture: Some(sprites.idle[0].clone()),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    commands.spawn((
+        MechaHitler,
+        EnemyKind::MechaHitler,
+        Dir8(0),
+        View8(0),
+        Health::new(MECHA_HITLER_MAX_HP),
         OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
@@ -1003,6 +1286,132 @@ pub fn update_gretel_views(
     }
 }
 
+pub fn update_hitler_views(
+    sprites: Res<HitlerSprites>,
+    q_player: Query<&GlobalTransform, With<Player>>,
+    mut q: Query<
+        (
+            Option<&HitlerCorpse>,
+            Option<&HitlerDying>,
+            Option<&HitlerShoot>,
+            Option<&HitlerWalk>,
+            Option<&EnemyMove>,
+            &GlobalTransform,
+            &Dir8,
+            &mut View8,
+            &MeshMaterial3d<StandardMaterial>,
+            &mut Transform,
+        ),
+        (With<Hitler>, Without<Player>),
+    >,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(player_gt) = q_player.iter().next() else { return; };
+    let player_pos = player_gt.translation();
+
+    for (corpse, dying, shoot, walk, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+        let enemy_pos = gt.translation();
+
+        let v = quantize_view8(dir8.0, enemy_pos, player_pos);
+        view.0 = v;
+
+        let to_player = player_pos - enemy_pos;
+        let flat_len2 = to_player.x * to_player.x + to_player.z * to_player.z;
+        if flat_len2 > 1e-6 {
+            let yaw = to_player.x.atan2(to_player.z);
+            tf.rotation = Quat::from_rotation_y(yaw);
+        }
+
+        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+
+        let tex: Handle<Image> = if corpse.is_some() {
+            sprites.corpse[v as usize].clone()
+        } else if let Some(d) = dying {
+            let f = (d.frame as usize).min(7);
+            sprites.dying[f][v as usize].clone()
+        } else if let Some(s) = shoot {
+            let dur = s.t.duration().as_secs_f32().max(1e-6);
+            let t = s.t.elapsed().as_secs_f32();
+            let fi = ((t / dur) * 3.0).floor() as usize;
+            let fi = fi.min(2);
+            sprites.shoot[fi].clone()
+        } else if mv.is_some() {
+            let w = walk.map(|w| w.phase).unwrap_or(0.0);
+            let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
+            sprites.walk[frame_i][v as usize].clone()
+        } else {
+            sprites.idle[v as usize].clone()
+        };
+
+        if mat.base_color_texture.as_ref() != Some(&tex) {
+            mat.base_color_texture = Some(tex);
+        }
+    }
+}
+
+pub fn update_mecha_hitler_views(
+    sprites: Res<MechaHitlerSprites>,
+    q_player: Query<&GlobalTransform, With<Player>>,
+    mut q: Query<
+        (
+            Option<&MechaHitlerCorpse>,
+            Option<&MechaHitlerDying>,
+            Option<&MechaHitlerShoot>,
+            Option<&MechaHitlerWalk>,
+            Option<&EnemyMove>,
+            &GlobalTransform,
+            &Dir8,
+            &mut View8,
+            &MeshMaterial3d<StandardMaterial>,
+            &mut Transform,
+        ),
+        (With<MechaHitler>, Without<Player>),
+    >,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(player_gt) = q_player.iter().next() else { return; };
+    let player_pos = player_gt.translation();
+
+    for (corpse, dying, shoot, walk, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+        let enemy_pos = gt.translation();
+
+        let v = quantize_view8(dir8.0, enemy_pos, player_pos);
+        view.0 = v;
+
+        let to_player = player_pos - enemy_pos;
+        let flat_len2 = to_player.x * to_player.x + to_player.z * to_player.z;
+        if flat_len2 > 1e-6 {
+            let yaw = to_player.x.atan2(to_player.z);
+            tf.rotation = Quat::from_rotation_y(yaw);
+        }
+
+        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+
+        let tex: Handle<Image> = if corpse.is_some() {
+            sprites.corpse[v as usize].clone()
+        } else if let Some(d) = dying {
+            let f = (d.frame as usize).min(3);
+            sprites.dying[f][v as usize].clone()
+        } else if let Some(s) = shoot {
+            let dur = s.t.duration().as_secs_f32().max(1e-6);
+            let t = s.t.elapsed().as_secs_f32();
+            let fi = ((t / dur) * 3.0).floor() as usize;
+            let fi = fi.min(2);
+            sprites.shoot[fi].clone()
+        } else if mv.is_some() {
+            let w = walk.map(|w| w.phase).unwrap_or(0.0);
+            let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
+            sprites.walk[frame_i][v as usize].clone()
+        } else {
+            sprites.idle[v as usize].clone()
+        };
+
+        if mat.base_color_texture.as_ref() != Some(&tex) {
+            mat.base_color_texture = Some(tex);
+        }
+    }
+}
+
 fn tick_hans_dying(
     mut commands: Commands,
     mut q: Query<(Entity, &mut HansDying)>,
@@ -1039,6 +1448,58 @@ fn tick_gretel_dying(
                 commands.entity(e).remove::<GretelDying>();
                 commands.entity(e).insert(GretelCorpse);
             }
+        }
+    }
+}
+
+fn tick_mecha_hitler_dying(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    hitler_sprites: Res<HitlerSprites>,
+    mut q: Query<(Entity, &mut MechaHitlerDying, &OccupiesTile), With<MechaHitler>>,
+) {
+    const TICS_PER_FRAME: u8 = 8;
+    const FRAMES: u8 = 4;
+
+    for (e, mut d, occ) in q.iter_mut() {
+        d.tics += 1;
+        if d.tics < TICS_PER_FRAME {
+            continue;
+        }
+
+        d.tics = 0;
+        d.frame += 1;
+
+        if d.frame >= FRAMES {
+            commands.entity(e).remove::<MechaHitlerDying>();
+            commands.entity(e).insert(MechaHitlerCorpse);
+
+            // Spawn Hitler phase2 at same tile
+            spawn_hitler(&mut commands, &mut meshes, &mut materials, &hitler_sprites, occ.0);
+        }
+    }
+}
+
+fn tick_hitler_dying(
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut HitlerDying), With<Hitler>>,
+) {
+    const TICS_PER_FRAME: u8 = 8;
+    const FRAMES: u8 = 8;
+
+    for (e, mut d) in q.iter_mut() {
+        d.tics += 1;
+        if d.tics < TICS_PER_FRAME {
+            continue;
+        }
+
+        d.tics = 0;
+        d.frame += 1;
+
+        if d.frame >= FRAMES {
+            commands.entity(e).remove::<HitlerDying>();
+            commands.entity(e).insert(HitlerCorpse);
         }
     }
 }
@@ -2172,6 +2633,8 @@ impl Plugin for EnemiesPlugin {
             .init_resource::<DogSprites>()
             .init_resource::<HansSprites>()
             .init_resource::<GretelSprites>()
+            .init_resource::<MechaHitlerSprites>()
+            .init_resource::<HitlerSprites>()
             .add_systems(
                 Update,
                 (
@@ -2183,6 +2646,8 @@ impl Plugin for EnemiesPlugin {
                         attach_dog_walk,
                         attach_hans_walk,
                         attach_gretel_walk,
+                        attach_mecha_hitler_walk,
+                        attach_hitler_walk,
                     )
                         .chain(),
                     (
@@ -2193,6 +2658,8 @@ impl Plugin for EnemiesPlugin {
                         update_dog_views,
                         update_hans_views,
                         update_gretel_views,
+                        update_mecha_hitler_views,
+                        update_hitler_views,
                     )
                         .chain(),
                 )
@@ -2247,6 +2714,18 @@ impl Plugin for EnemiesPlugin {
                         tick_gretel_walk,
                         tick_gretel_shoot,
                         tick_gretel_dying,
+                    )
+                        .chain(),
+                    (
+                        tick_mecha_hitler_walk,
+                        tick_mecha_hitler_shoot,
+                        tick_mecha_hitler_dying,
+                    )
+                        .chain(),
+                    (
+                        tick_hitler_walk,
+                        tick_hitler_shoot,
+                        tick_hitler_dying,
                     )
                         .chain(),
                 )
