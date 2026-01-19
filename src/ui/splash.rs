@@ -68,6 +68,29 @@ const MENU_FONT_DRAW_SCALE: f32 = 0.5;
 const EP_THUMB_X: f32 = 24.0; // left edge of the thumbnail column (in 320x200 space)
 const EP_TEXT_X: f32 = 88.0;  // left edge of the episode text block (in 320x200 space)
 
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum SplashUpdateSet {
+    AdvanceInput,
+    PsychedLoading,
+}
+
+#[derive(SystemParam)]
+struct SplashResources<'w> {
+    step: ResMut<'w, SplashStep>,
+    imgs: Option<Res<'w, SplashImages>>,
+    lock: ResMut<'w, PlayerControlLock>,
+    music_mode: ResMut<'w, MusicMode>,
+    psyched: ResMut<'w, PsychedLoad>,
+    name_entry: ResMut<'w, davelib::high_score::NameEntryState>,
+    high_scores: ResMut<'w, davelib::high_score::HighScores>,
+}
+
+#[derive(SystemParam)]
+pub struct SplashAdvanceInput<'w> {
+	pub keyboard: Res<'w, ButtonInput<KeyCode>>,
+	pub mouse: Res<'w, ButtonInput<MouseButton>>,
+}
+
 #[derive(Deserialize)]
 struct PackedFontMap {
     chars: HashMap<String, PackedGlyph>,
@@ -258,30 +281,10 @@ struct SplashAdvanceQueries<'w, 's> {
     q_win: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
     q_splash_roots: Query<'w, 's, Entity, (With<SplashUi>, Without<ChildOf>)>,
     q_node: Query<'w, 's, &'static mut Node, (With<MenuCursor>, Without<EpisodeHighlight>)>,
-    q_cursor_light: Query<
-        'w,
-        's,
-        &'static mut Visibility,
-        (With<MenuCursorLight>, Without<MenuCursorDark>),
-    >,
-    q_cursor_dark: Query<
-        'w,
-        's,
-        &'static mut Visibility,
-        (With<MenuCursorDark>, Without<MenuCursorLight>),
-    >,
-    q_episode_items: Query<
-        'w,
-        's,
-        (&'static EpisodeItem, &'static EpisodeTextVariant, &'static mut Visibility),
-        (Without<MenuCursorLight>, Without<MenuCursorDark>, Without<SkillItem>),
-    >,
-    q_skill_items: Query<
-        'w,
-        's,
-        (&'static SkillItem, &'static SkillTextVariant, &'static mut Visibility),
-        (Without<MenuCursorLight>, Without<MenuCursorDark>, Without<EpisodeItem>),
-    >,
+    q_cursor_light: Query<'w, 's, &'static mut Visibility, (With<MenuCursorLight>, Without<MenuCursorDark>)>,
+    q_cursor_dark: Query<'w, 's, &'static mut Visibility, (With<MenuCursorDark>, Without<MenuCursorLight>)>,
+    q_episode_items: Query<'w, 's, (&'static EpisodeItem, &'static EpisodeTextVariant, &'static mut Visibility), (Without<MenuCursorLight>, Without<MenuCursorDark>, Without<SkillItem>)>,
+    q_skill_items: Query<'w, 's, (&'static SkillItem, &'static SkillTextVariant, &'static mut Visibility), (Without<MenuCursorLight>, Without<MenuCursorDark>, Without<EpisodeItem>)>,
     q_skill_face: Query<'w, 's, &'static mut ImageNode, With<SkillFace>>,
 }
 
@@ -300,6 +303,7 @@ pub enum SplashStep {
     EpisodeSelect,
     SkillSelect,
     Scores,
+    NameEntry,
     Done,
 }
 
@@ -436,20 +440,24 @@ impl Plugin for SplashPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SplashStep>();
         app.init_resource::<PsychedLoad>();
-
-        // Make sure ESC->pause happens before grab_mouse sees ESC
-        app.add_systems(Update, splash_advance_on_any_input.before(davelib::player::grab_mouse));
-
-        app.add_systems(Update, auto_get_psyched_on_level_start);
+        app.configure_sets(
+            Update,
+            (SplashUpdateSet::AdvanceInput, SplashUpdateSet::PsychedLoading).chain(),
+        );
         app.add_systems(
             Update,
-            tick_get_psyched_loading
-                .after(splash_advance_on_any_input)
-                .before(davelib::player::grab_mouse)
-                .before(davelib::player::use_doors)
-                .before(super::hud::weapon_fire_and_viewmodel),
+            splash_advance_on_any_input,
         );
-        app.add_systems(Update, splash_resize_on_window_change);
+        app.add_systems(
+            Update,
+            (
+                auto_get_psyched_on_level_start,
+                tick_get_psyched_loading,
+                splash_resize_on_window_change,
+            )
+                .chain()
+                .in_set(SplashUpdateSet::PsychedLoading),
+        );
     }
 }
 
@@ -1127,27 +1135,15 @@ fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32
         });
 }
 
-fn spawn_scores_ui(
+fn spawn_name_entry_ui(
     commands: &mut Commands,
-    asset_server: &AssetServer,
     w: f32,
     h: f32,
     imgs: &SplashImages,
+    rank: usize,
+    current_name: &str,
 ) {
-    let banner = asset_server.load(SCORE_BANNER_PATH);
-
     let ui_scale = (w / BASE_W).round().max(1.0);
-
-    // Match the menu/header treatment
-    let top_red_h = (3.0 * ui_scale).round().max(1.0);
-    let header_bar_h = (48.0 * ui_scale).round().max(1.0);
-
-    // score_banner.png is 224x56 native, scale it to fit inside a 48px-tall header bar
-    let banner_native_w = 224.0;
-    let banner_native_h = 56.0;
-    let banner_fit = 48.0 / banner_native_h;
-    let banner_w = (banner_native_w * ui_scale * banner_fit).round().max(1.0);
-    let banner_h = header_bar_h;
 
     let root = commands
         .spawn((
@@ -1181,7 +1177,153 @@ fn spawn_scores_ui(
         ))
         .id();
 
-    // Top red strip
+    // Title based on rank
+    let title = match rank {
+        0 => "You're the BEST player!",
+        1 => "You're the 2nd best player!",
+        2 => "You're the 3rd best player!",
+        _ => "You got a high score!",
+    };
+
+    let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
+        let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+        let mut w = 0.0f32;
+        for ch in text.chars() {
+            if ch == ' ' {
+                w += (MENU_FONT_SPACE_W * s).round();
+                continue;
+            }
+            if let Some(g) = menu_glyph(ch) {
+                w += (g.advance * s).round();
+            }
+        }
+        w.max(1.0)
+    };
+
+    let title_w = measure_menu_text_width(ui_scale, title);
+    let title_x = ((w - title_w) * 0.5).round().max(0.0);
+    let title_y = (40.0 * ui_scale).round();
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_yellow.clone(),
+        title_x,
+        title_y,
+        ui_scale,
+        title,
+        Visibility::Visible,
+    );
+
+    // Prompt
+    let prompt = "Enter your name:";
+    let prompt_w = measure_menu_text_width(ui_scale, prompt);
+    let prompt_x = ((w - prompt_w) * 0.5).round().max(0.0);
+    let prompt_y = (80.0 * ui_scale).round();
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_white.clone(),
+        prompt_x,
+        prompt_y,
+        ui_scale,
+        prompt,
+        Visibility::Visible,
+    );
+
+    // Name display (3 slots with underscores for empty slots)
+    let mut display_name = current_name.to_string();
+    while display_name.len() < 3 {
+        display_name.push('_');
+    }
+
+    let name_y = (110.0 * ui_scale).round();
+    let name_w = measure_menu_text_width(ui_scale, &display_name);
+    let name_x = ((w - name_w) * 0.5).round().max(0.0);
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_yellow.clone(),
+        name_x,
+        name_y,
+        ui_scale,
+        &display_name,
+        Visibility::Visible,
+    );
+
+    // Hint at bottom
+    let hint = "(Press ENTER when done)";
+    let hint_w = measure_menu_text_width(ui_scale, hint);
+    let hint_x = ((w - hint_w) * 0.5).round().max(0.0);
+    let hint_y = (160.0 * ui_scale).round();
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_gray.clone(),
+        hint_x,
+        hint_y,
+        ui_scale,
+        hint,
+        Visibility::Visible,
+    );
+}
+
+fn spawn_scores_ui(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    w: f32,
+    h: f32,
+    imgs: &SplashImages,
+    high_scores: &davelib::high_score::HighScores,
+) {
+    let banner = asset_server.load(SCORE_BANNER_PATH);
+    let ui_scale = (w / BASE_W).round().max(1.0);
+
+    // Match main menu banner approach EXACTLY
+    let banner_native_h = 48.0;
+    let top_red = (3.0 * ui_scale).round();
+
+    let banner_x = 0.0;
+    let banner_y = top_red;
+    let banner_w = w;
+    let banner_h = (banner_native_h * ui_scale).round();
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(1000),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
+            ChildOf(root),
+        ))
+        .id();
+
+    // Top red strip (matches menu exactly)
     commands.spawn((
         SplashUi,
         Node {
@@ -1189,23 +1331,23 @@ fn spawn_scores_ui(
             left: Val::Px(0.0),
             top: Val::Px(0.0),
             width: Val::Px(w),
-            height: Val::Px(top_red_h),
+            height: Val::Px(top_red),
             ..default()
         },
         BackgroundColor(Color::srgb(0.60, 0.0, 0.0)),
         ChildOf(canvas),
     ));
 
-    // Black header bar
-    let header = commands
+    // Black banner band
+    let band = commands
         .spawn((
             SplashUi,
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                top: Val::Px(top_red_h),
-                width: Val::Px(w),
-                height: Val::Px(header_bar_h),
+                left: Val::Px(banner_x),
+                top: Val::Px(banner_y),
+                width: Val::Px(banner_w),
+                height: Val::Px(banner_h),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
                 ..default()
@@ -1215,7 +1357,7 @@ fn spawn_scores_ui(
         ))
         .id();
 
-    // Banner centered in header bar
+    // Centered score banner image inside the black band
     commands.spawn((
         SplashUi,
         ImageNode::new(banner),
@@ -1224,71 +1366,71 @@ fn spawn_scores_ui(
             height: Val::Px(banner_h),
             ..default()
         },
-        ChildOf(header),
+        ChildOf(band),
     ));
 
-    // Measure helper so we can right-align the score column
+    // Convert high scores to display format
+    let mut rows: Vec<(String, String, String)> = Vec::new();
+    for (i, entry) in high_scores.entries.iter().enumerate() {
+        rows.push((
+            format!("{}", i + 1),
+            entry.name.clone(),
+            format!("{:06}", entry.score),
+        ));
+    }
+
+    // Pad to 10 rows if needed (original Wolf3D always showed 10 slots)
+    while rows.len() < 10 {
+        let rank = rows.len() + 1;
+        rows.push((
+            format!("{}", rank),
+            "---".to_string(),
+            "------".to_string(),
+        ));
+    }
+
     let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
         let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
-
-        let mut max_line_w = 0.0f32;
-        let mut cur_line_w = 0.0f32;
-
+        let mut w = 0.0f32;
         for ch in text.chars() {
-            if ch == '\n' {
-                max_line_w = max_line_w.max(cur_line_w);
-                cur_line_w = 0.0;
-                continue;
-            }
-
             if ch == ' ' {
-                cur_line_w += (MENU_FONT_SPACE_W * s).round();
+                w += (MENU_FONT_SPACE_W * s).round();
                 continue;
             }
-
             if let Some(g) = menu_glyph(ch) {
-                cur_line_w += (g.advance * s).round();
+                w += (g.advance * s).round();
             }
         }
-
-        max_line_w = max_line_w.max(cur_line_w);
-        max_line_w.max(1.0)
+        w.max(1.0)
     };
 
-    // Placeholder data until save/load exists
-    let rows: [(&str, u32); 10] = [
-        ("DAVID", 100000),
-        ("ASS", 50000),
-        ("BBB", 40000),
-        ("CCC", 30000),
-        ("DDD", 20000),
-        ("EEE", 10000),
-        ("FFF", 5000),
-        ("GGG", 2000),
-        ("HHH", 1000),
-        ("III", 500),
-    ];
+    // CALCULATE AVAILABLE SPACE FOR SCORES LIST
+    let content_start_y = top_red + banner_h;
+    let bottom_pad = (6.0 * ui_scale).round();
+    let list_top_pad = (12.0 * ui_scale).round();
+    let list_top = content_start_y + list_top_pad;
+    
+    // Calculate row spacing that fits all 10 entries
+    let row_spacing_available = (h - list_top - bottom_pad).max(1.0);
+    let row_step = if rows.len() > 1 {
+        (row_spacing_available / rows.len() as f32).floor().max(1.0)
+    } else {
+        (13.0 * ui_scale).round()
+    };
 
-    // Table layout (native-ish anchors, scaled)
-    let list_top = (top_red_h + header_bar_h + (18.0 * ui_scale)).round();
-    let row_step = (14.0 * ui_scale).round().max(1.0);
+    // Column positions (in 320x200 space)
+    let rank_right = (72.0 * ui_scale).round();
+    let name_left = (88.0 * ui_scale).round();
+    let score_right = (272.0 * ui_scale).round();
 
-    // Columns: rank (right-aligned), name (left-aligned), score (right-aligned)
-    let name_x = (96.0 * ui_scale).round();
-    let score_right_x = (272.0 * ui_scale).round();
-    let rank_gap = (10.0 * ui_scale).round();
-
-    for (i, (name, score)) in rows.iter().enumerate() {
+    for (i, (rank, name, score)) in rows.iter().enumerate() {
         let y = (list_top + (i as f32) * row_step).round();
 
-        let rank = format!("{}", i + 1);
-        let score_txt = format!("{}", score);
+        let rank_w = measure_menu_text_width(ui_scale, rank);
+        let score_w = measure_menu_text_width(ui_scale, score);
 
-        let rank_w = measure_menu_text_width(ui_scale, &rank);
-        let score_w = measure_menu_text_width(ui_scale, &score_txt);
-
-        let rank_x = (name_x - rank_gap - rank_w).max(0.0);
-        let score_x = (score_right_x - score_w).max(0.0);
+        let rank_x = (rank_right - rank_w).round().max(0.0);
+        let score_x = (score_right - score_w).round().max(0.0);
 
         spawn_menu_bitmap_text(
             commands,
@@ -1297,7 +1439,7 @@ fn spawn_scores_ui(
             rank_x,
             y,
             ui_scale,
-            &rank,
+            rank,
             Visibility::Visible,
         );
 
@@ -1305,7 +1447,7 @@ fn spawn_scores_ui(
             commands,
             canvas,
             imgs.menu_font_yellow.clone(),
-            name_x,
+            name_left,
             y,
             ui_scale,
             name,
@@ -1319,7 +1461,7 @@ fn spawn_scores_ui(
             score_x,
             y,
             ui_scale,
-            &score_txt,
+            score,
             Visibility::Visible,
         );
     }
@@ -1609,23 +1751,20 @@ fn spawn_menu_hint(
 }
 
 fn splash_advance_on_any_input(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    time: Res<Time>,
-    mut step: ResMut<SplashStep>,
-    imgs: Option<Res<SplashImages>>,
-    mut lock: ResMut<PlayerControlLock>,
-    mut music_mode: ResMut<MusicMode>,
-    mut psyched: ResMut<PsychedLoad>,
-    mut menu: Local<MenuLocalState>,
-    mut episode: Local<EpisodeLocalState>,
-    mut skill: Local<SkillLocalState>,
-    mut sfx: MessageWriter<PlaySfx>,
-    mut app_exit: MessageWriter<bevy::app::AppExit>,
-    mut q: SplashAdvanceQueries,
+	mut commands: Commands,
+	asset_server: Res<AssetServer>,
+	input: SplashAdvanceInput,
+	time: Res<Time>,
+	mut resources: SplashResources,
+	mut menu: Local<MenuLocalState>,
+	mut episode: Local<EpisodeLocalState>,
+	mut skill: Local<SkillLocalState>,
+	mut sfx: MessageWriter<PlaySfx>,
+	mut app_exit: MessageWriter<bevy::app::AppExit>,
+	mut q: SplashAdvanceQueries,
 ) {
+    let keyboard = &*input.keyboard;
+    let mouse = &*input.mouse;
     let Some(win) = q.q_win.iter().next() else { return; };
 
     let (w, h) = compute_scaled_size(win.width(), win.height());
@@ -1633,12 +1772,12 @@ fn splash_advance_on_any_input(
 
     let any_key = keyboard.get_just_pressed().len() > 0 || mouse.get_just_pressed().len() > 0;
 
-    match *step {
+    match *resources.step {
         SplashStep::Splash0 => {
-            lock.0 = true;
-            music_mode.0 = MusicModeKind::Splash;
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Splash;
 
-            let Some(imgs) = imgs.as_ref() else { return; };
+            let Some(imgs) = resources.imgs.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
                 spawn_splash_ui(&mut commands, imgs.splash0.clone(), w, h);
@@ -1647,15 +1786,15 @@ fn splash_advance_on_any_input(
             if any_key {
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
                 spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
-                *step = SplashStep::Splash1;
+                *resources.step = SplashStep::Splash1;
             }
         }
 
         SplashStep::Splash1 => {
-            lock.0 = true;
-            music_mode.0 = MusicModeKind::Splash;
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Splash;
 
-            let Some(imgs) = imgs.as_ref() else { return; };
+            let Some(imgs) = resources.imgs.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
                 spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
@@ -1665,34 +1804,33 @@ fn splash_advance_on_any_input(
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
                 spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, false);
                 menu.reset();
-                *step = SplashStep::Menu;
+                *resources.step = SplashStep::Menu;
             }
         }
 
         SplashStep::Menu | SplashStep::PauseMenu => {
-            let is_pause = *step == SplashStep::PauseMenu;
+            let is_pause = *resources.step == SplashStep::PauseMenu;
 
-            lock.0 = true;
-            music_mode.0 = MusicModeKind::Menu;
+            resources.music_mode.0 = MusicModeKind::Menu;
 
             let actions: &[MenuAction] = if is_pause { &MENU_ACTIONS_PAUSE } else { &MENU_ACTIONS_MAIN };
 
             // If something ever nuked the menu roots, recreate
             if q.q_splash_roots.iter().next().is_none() {
-                if let Some(imgs) = imgs.as_ref() {
+                if let Some(imgs) = resources.imgs.as_ref() {
                     spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, is_pause);
                     menu.reset();
                 }
                 return;
             }
 
-            // ESC in pause menu resumes (DOS-ish).
+            // ESC in pause menu resumes (DOS-ish)
             if is_pause && keyboard.just_pressed(KeyCode::Escape) {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
-                lock.0 = false;
-                music_mode.0 = MusicModeKind::Gameplay;
-                *step = SplashStep::Done;
+                resources.lock.0 = false;
+                resources.music_mode.0 = MusicModeKind::Gameplay;
+                *resources.step = SplashStep::Done;
                 return;
             }
 
@@ -1732,9 +1870,9 @@ fn splash_advance_on_any_input(
                 match actions[menu.selection] {
                     MenuAction::BackToGame => {
                         for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
-                        lock.0 = false;
-                        music_mode.0 = MusicModeKind::Gameplay;
-                        *step = SplashStep::Done;
+                        resources.lock.0 = false;
+                        resources.music_mode.0 = MusicModeKind::Gameplay;
+                        *resources.step = SplashStep::Done;
                     }
 
                     MenuAction::NewGame => {
@@ -1743,7 +1881,7 @@ fn splash_advance_on_any_input(
                         episode.selection = 0;
                         episode.from_pause = is_pause;
 
-                        if let Some(imgs) = imgs.as_ref() {
+                        if let Some(imgs) = resources.imgs.as_ref() {
                             spawn_episode_select_ui(
                                 &mut commands,
                                 &asset_server,
@@ -1751,23 +1889,24 @@ fn splash_advance_on_any_input(
                                 imgs,
                                 episode.selection,
                             );
-                            *step = SplashStep::EpisodeSelect;
+                            *resources.step = SplashStep::EpisodeSelect;
                         }
                     }
 
                     MenuAction::ViewScores => {
-                        let Some(imgs) = imgs.as_ref() else { return; };
+                        let Some(imgs) = resources.imgs.as_ref() else { return; };
 
                         episode.from_pause = is_pause;
                         for e in q.q_splash_roots.iter() {
                             commands.entity(e).despawn();
                         }
 
-                        spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs);
+                        let high_scores = &*resources.high_scores;
+                        spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs, high_scores);
 
                         menu.reset();
-                        *step = SplashStep::Scores;
-                        music_mode.0 = MusicModeKind::Scores;
+                        *resources.step = SplashStep::Scores;
+                        resources.music_mode.0 = MusicModeKind::Scores;
                     }
 
                     MenuAction::Quit => {
@@ -1778,21 +1917,21 @@ fn splash_advance_on_any_input(
         }
 
         SplashStep::EpisodeSelect => {
-            lock.0 = true;
-            music_mode.0 = MusicModeKind::Menu;
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Menu;
 
             if keyboard.just_pressed(KeyCode::Escape) {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
-                if let Some(imgs) = imgs.as_ref() {
+                if let Some(imgs) = resources.imgs.as_ref() {
                     let back_to_pause = episode.from_pause;
                     episode.from_pause = false;
 
                     spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
                     menu.reset();
-                    *step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
+                    *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                 }
                 return;
             }
@@ -1850,7 +1989,7 @@ fn splash_advance_on_any_input(
                 skill.selection = 2;
                 skill.episode_num = episode_num;
 
-                if let Some(imgs) = imgs.as_ref() {
+                if let Some(imgs) = resources.imgs.as_ref() {
                     spawn_skill_select_ui(
                         &mut commands,
                         &asset_server,
@@ -1858,16 +1997,16 @@ fn splash_advance_on_any_input(
                         imgs,
                         skill.selection,
                     );
-                    *step = SplashStep::SkillSelect;
+                    *resources.step = SplashStep::SkillSelect;
                 }
             }
         }
 
         SplashStep::SkillSelect => {
-            lock.0 = true;
-            music_mode.0 = MusicModeKind::Menu;
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Menu;
 
-            let Some(imgs) = imgs.as_ref() else { return; };
+            let Some(imgs) = resources.imgs.as_ref() else { return; };
 
             if keyboard.just_pressed(KeyCode::Escape) {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
@@ -1881,7 +2020,7 @@ fn splash_advance_on_any_input(
                     imgs,
                     episode.selection,
                 );
-                *step = SplashStep::EpisodeSelect;
+                *resources.step = SplashStep::EpisodeSelect;
                 return;
             }
 
@@ -1962,59 +2101,183 @@ fn splash_advance_on_any_input(
                     &mut commands,
                     &asset_server,
                     win,
-                    &mut *psyched,
-                    &mut *lock,
-                    &mut *music_mode,
+                    &mut *resources.psyched,
+                    &mut *resources.lock,
+                    &mut *resources.music_mode,
                 );
 
-                lock.0 = false;
-                music_mode.0 = MusicModeKind::Gameplay;
+                resources.lock.0 = false;
+                resources.music_mode.0 = MusicModeKind::Gameplay;
 
                 episode.from_pause = false;
-                *step = SplashStep::Done;
+                *resources.step = SplashStep::Done;
+            }
+        }
+
+        SplashStep::NameEntry => {
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Scores;
+
+            let Some(imgs) = resources.imgs.as_ref() else { return; };
+
+            // If we ever land here without an active entry, fall back to Scores
+            if !resources.name_entry.active {
+                for e in q.q_splash_roots.iter() {
+                    commands.entity(e).despawn();
+                }
+
+                let high_scores = &*resources.high_scores;
+                spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs, high_scores);
+
+                *resources.step = SplashStep::Scores;
+                return;
+            }
+
+            // Ensure name entry UI exists
+            if q.q_splash_roots.iter().next().is_none() {
+                spawn_name_entry_ui(
+                    &mut commands,
+                    w,
+                    h,
+                    imgs,
+                    resources.name_entry.rank,
+                    &resources.name_entry.name,
+                );
+            }
+
+            let keycode_to_letter = |kc: KeyCode| -> Option<char> {
+                Some(match kc {
+                    KeyCode::KeyA => 'A',
+                    KeyCode::KeyB => 'B',
+                    KeyCode::KeyC => 'C',
+                    KeyCode::KeyD => 'D',
+                    KeyCode::KeyE => 'E',
+                    KeyCode::KeyF => 'F',
+                    KeyCode::KeyG => 'G',
+                    KeyCode::KeyH => 'H',
+                    KeyCode::KeyI => 'I',
+                    KeyCode::KeyJ => 'J',
+                    KeyCode::KeyK => 'K',
+                    KeyCode::KeyL => 'L',
+                    KeyCode::KeyM => 'M',
+                    KeyCode::KeyN => 'N',
+                    KeyCode::KeyO => 'O',
+                    KeyCode::KeyP => 'P',
+                    KeyCode::KeyQ => 'Q',
+                    KeyCode::KeyR => 'R',
+                    KeyCode::KeyS => 'S',
+                    KeyCode::KeyT => 'T',
+                    KeyCode::KeyU => 'U',
+                    KeyCode::KeyV => 'V',
+                    KeyCode::KeyW => 'W',
+                    KeyCode::KeyX => 'X',
+                    KeyCode::KeyY => 'Y',
+                    KeyCode::KeyZ => 'Z',
+                    _ => return None,
+                })
+            };
+
+            let mut changed = false;
+
+            if keyboard.just_pressed(KeyCode::Backspace) {
+                if !resources.name_entry.name.is_empty() {
+                    resources.name_entry.name.pop();
+                    changed = true;
+                }
+            }
+
+            for &kc in keyboard.get_just_pressed() {
+                let Some(ch) = keycode_to_letter(kc) else { continue; };
+
+                if resources.name_entry.name.len() < 3 {
+                    resources.name_entry.name.push(ch);
+                    changed = true;
+                }
+            }
+
+            resources.name_entry.cursor_pos = resources.name_entry.name.len().min(3);
+
+            if changed {
+                for e in q.q_splash_roots.iter() {
+                    commands.entity(e).despawn();
+                }
+
+                spawn_name_entry_ui(
+                    &mut commands,
+                    w,
+                    h,
+                    imgs,
+                    resources.name_entry.rank,
+                    &resources.name_entry.name,
+                );
+            }
+
+            if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter) {
+                let name = resources.name_entry.name.clone();
+                let score = resources.name_entry.score;
+                let episode_num = resources.name_entry.episode;
+
+                resources.high_scores.add(name, score, episode_num);
+
+                resources.name_entry.active = false;
+                resources.name_entry.name.clear();
+                resources.name_entry.cursor_pos = 0;
+
+                for e in q.q_splash_roots.iter() {
+                    commands.entity(e).despawn();
+                }
+
+                let high_scores = &*resources.high_scores;
+                spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs, high_scores);
+
+                *resources.step = SplashStep::Scores;
             }
         }
 
         SplashStep::Scores => {
-            lock.0 = true;
-            music_mode.0 = MusicModeKind::Scores;
-
-            if !any_key {
-                return;
+            // Score screen is never an input mode
+            // If we arrive here with name entry still active, shut it down
+            if resources.name_entry.active {
+                resources.name_entry.active = false;
+                resources.name_entry.name.clear();
+                resources.name_entry.cursor_pos = 0;
             }
 
-            for e in q.q_splash_roots.iter() {
-                commands.entity(e).despawn();
+            if any_key {
+                let Some(imgs) = resources.imgs.as_ref() else { return; };
+
+                let back_to_pause = episode.from_pause;
+                episode.from_pause = false;
+
+                for e in q.q_splash_roots.iter() {
+                    commands.entity(e).despawn();
+                }
+
+                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                menu.reset();
+
+                *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
+                resources.lock.0 = true;
+                resources.music_mode.0 = MusicModeKind::Menu;
             }
-
-            let Some(imgs) = imgs.as_ref() else { return; };
-
-            let back_to_pause = episode.from_pause;
-            episode.from_pause = false;
-
-            spawn_menu_hint(&mut commands, asset_server.as_ref(), w, h, imgs, back_to_pause);
-            menu.reset();
-
-            music_mode.0 = MusicModeKind::Menu;
-            *step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
         }
 
         SplashStep::Done => {
             // Gameplay -> Pause Menu ESC
             if keyboard.just_pressed(KeyCode::Escape) {
-                let Some(imgs) = imgs.as_ref() else { return; };
+                let Some(imgs) = resources.imgs.as_ref() else { return; };
 
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
-                lock.0 = true;
-                music_mode.0 = MusicModeKind::Menu;
+                resources.lock.0 = true;
+                resources.music_mode.0 = MusicModeKind::Scores;
 
                 // If Stray Splash Roots Exist, Clear Them
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
                 spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, true);
                 menu.reset();
-                *step = SplashStep::PauseMenu;
+                *resources.step = SplashStep::PauseMenu;
             }
         }
     }

@@ -86,196 +86,173 @@ fn world_ready(
 }
 
 fn main() {
-    let assets_path = extract_embedded_assets_to_temp();
-    info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
+	info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
+	let assets_path = extract_embedded_assets_to_temp();
+	let high_scores = davelib::high_score::HighScores::load();
 
-    App::new()
-        // -----------------------------
-        // Plugins (Engine + Game)
-        // -----------------------------
-        .add_plugins(
-            DefaultPlugins
-                .set(AssetPlugin {
-                    file_path: assets_path,
-                    ..default()
-                })
-                .set(ImagePlugin::default_nearest()),
-        )
-        .add_plugins(ui::UiPlugin)
-        .add_plugins(EnemiesPlugin)
-        .add_plugins(EnemyAiPlugin)
-        .add_plugins(combat::CombatPlugin)
-        // -----------------------------
-        // Core Resources / State
-        // -----------------------------
-        .insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
-        .init_resource::<PlayerSettings>()
-        .init_resource::<PlayerControlLock>()
-        .init_resource::<PlayerDeathLatch>()
-        .init_resource::<davelib::player::GodMode>()
-        .init_resource::<davelib::skill::SkillLevel>()
-        .init_resource::<ui::sync::DeathDelay>()
-        .init_resource::<ui::sync::RestartRequested>()
-        .init_resource::<ui::sync::NewGameRequested>()
-        .init_resource::<ui::sync::AdvanceLevelRequested>()
-        .init_resource::<PushwallOcc>()
-        .init_resource::<PushwallState>()
-        .init_resource::<PushwallClock>()
-        .init_resource::<davelib::level::CurrentLevel>()
-        .init_resource::<davelib::audio::MusicMode>()
-        .init_resource::<level_complete::LevelComplete>()
-        .init_resource::<davelib::level_score::LevelScore>()
-        .init_resource::<level_complete::MissionSuccessTally>()
-        .init_resource::<level_complete::ElevatorExitDelay>()
-        .init_resource::<level_complete::PendingLevelExit>()
-        // -----------------------------
-        // Messages / Events
-        // -----------------------------
-        .add_message::<PlaySfx>()
-        .add_message::<RebuildWalls>()
-        // -----------------------------
-        // Startup:
-        // Load Audio,
-        // Build Initial Level,
-        // Spawn Content
-        // -----------------------------
-        .add_systems(
-            Startup,
-            (
-                setup_audio,
-                start_music,
-                setup,
-                spawn_wolf_e1m1_decorations,
-                pickups::spawn_pickups,
-            )
-                .chain(),
-        )
-        // -----------------------------
-        // Update:
-        // Input/UI + World Gameplay
-        // -----------------------------
-        .add_systems(
-            Update,
-            (
-                toggle_god_mode,
-                grab_mouse,
-                mouse_look,
-            )
-                .chain()
-                .run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
-        )
-        .add_systems(
-            Update,
-            (
-                level_complete::tick_elevator_exit_delay,
-                level_complete::sync_mission_success_overlay_visibility,
-                level_complete::start_mission_success_tally_on_win,
-                level_complete::tick_mission_success_tally,
-                level_complete::sync_mission_success_stats_text,
-                level_complete::mission_success_input,
-                level_complete::apply_mission_success_bonus_to_player_score_once,
-            )
-                .chain(),
-        )
-        .add_systems(
-            Update,
-            (
-                pickups::billboard_pickups,
-                billboard_decorations,
-                use_pushwalls,
-                use_doors,
-                level_complete::use_elevator_exit,
-            )
-                .chain()
-                .run_if(world_ready),
-        )
-        // -----------------------------
-        // PostUpdate:
-        // Audio,
-        // Level Transitions
-        // -----------------------------
-        .add_systems(
-            PostUpdate,
-            (
-                play_sfx_events,
-                davelib::audio::tick_auto_stop_sfx,
-                tick_hard_stop_sfx,
-            )
-                .chain(),
-        )
-        .add_systems(
-            PostUpdate,
-            (
-                davelib::audio::sync_boot_music,
-                davelib::audio::sync_level_music,
-            )
-                .chain(),
-        )
-        .add_systems(
-            PostUpdate,
-            (
-                restart::restart_despawn_level,
-                setup,
-                spawn_wolf_e1m1_decorations,
-                pickups::spawn_pickups,
-                restart::restart_finish,
-            )
-                .chain()
-                .run_if(|r: Res<ui::sync::RestartRequested>| r.0),
-        )
-        .add_systems(
-            PostUpdate,
-            (
-                restart::restart_despawn_level,
-                setup,
-                spawn_wolf_e1m1_decorations,
-                pickups::spawn_pickups,
-                restart::new_game_finish,
-            )
-                .chain()
-                .run_if(|r: Res<ui::sync::NewGameRequested>| r.0),
-        )
-        .add_systems(
-            PostUpdate,
-            (
-                restart::restart_despawn_level,
-                setup,
-                spawn_wolf_e1m1_decorations,
-                pickups::spawn_pickups,
-                restart::advance_level_finish,
-            )
-                .chain()
-                .run_if(|r: Res<ui::sync::AdvanceLevelRequested>| r.0),
-        )
-        // -----------------------------
-        // FixedUpdate: Simulation
-        // -----------------------------
-        .add_systems(
-            FixedUpdate,
-            rebuild_wall_faces_on_request
-                .run_if(world_ready)
-                .run_if(|lock: Res<PlayerControlLock>| lock.0),
-        )
-        .add_systems(
-            FixedUpdate,
-            (
-                davelib::level_score::tick_level_time,
-                tick_pushwalls,
-                rebuild_wall_faces_on_request,
-                door_auto_close,
-                door_animate,
-                player_move,
-                pickups::drop_guard_ammo,
-                pickups::drop_mutant_ammo,
-                pickups::drop_ss_loot,
-                pickups::drop_officer_ammo,
-                pickups::drop_hans_key,
-                pickups::drop_gretel_key,
-                pickups::collect_pickups,
-            )
-                .chain()
-                .run_if(world_ready)
-                .run_if(|lock: Res<PlayerControlLock>| !lock.0),
-        )
-        .run();
+	App::new()
+		.add_plugins(
+			DefaultPlugins
+				.set(AssetPlugin {
+					file_path: assets_path,
+					..default()
+				})
+				.set(ImagePlugin::default_nearest()),
+		)
+		.add_plugins(ui::UiPlugin)
+		.add_plugins(EnemiesPlugin)
+		.add_plugins(EnemyAiPlugin)
+		.add_plugins(combat::CombatPlugin)
+		.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
+		.insert_resource(high_scores)
+		.init_resource::<PlayerSettings>()
+		.init_resource::<PlayerControlLock>()
+		.init_resource::<PlayerDeathLatch>()
+		.init_resource::<davelib::player::GodMode>()
+		.init_resource::<davelib::skill::SkillLevel>()
+		.init_resource::<ui::sync::DeathDelay>()
+		.init_resource::<ui::sync::RestartRequested>()
+		.init_resource::<ui::sync::NewGameRequested>()
+		.init_resource::<ui::sync::AdvanceLevelRequested>()
+		.init_resource::<PushwallOcc>()
+		.init_resource::<PushwallState>()
+		.init_resource::<PushwallClock>()
+		.init_resource::<davelib::level::CurrentLevel>()
+		.init_resource::<davelib::audio::MusicMode>()
+		.init_resource::<level_complete::LevelComplete>()
+		.init_resource::<davelib::level_score::LevelScore>()
+		.init_resource::<level_complete::MissionSuccessTally>()
+		.init_resource::<level_complete::ElevatorExitDelay>()
+		.init_resource::<level_complete::PendingLevelExit>()
+		.init_resource::<davelib::high_score::NameEntryState>()
+		.add_message::<PlaySfx>()
+		.add_message::<RebuildWalls>()
+		.add_systems(
+			Startup,
+			(
+				setup_audio,
+				start_music,
+				setup,
+				spawn_wolf_e1m1_decorations,
+				pickups::spawn_pickups,
+			)
+				.chain(),
+		)
+		.add_systems(
+			Update,
+			(
+				toggle_god_mode,
+				grab_mouse,
+				mouse_look,
+			)
+				.chain()
+				.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
+		)
+		.add_systems(
+			Update,
+			(
+				level_complete::tick_elevator_exit_delay,
+				level_complete::sync_mission_success_overlay_visibility,
+				level_complete::start_mission_success_tally_on_win,
+				level_complete::tick_mission_success_tally,
+				level_complete::sync_mission_success_stats_text,
+				level_complete::mission_success_input,
+				level_complete::apply_mission_success_bonus_to_player_score_once,
+			)
+				.chain(),
+		)
+		.add_systems(
+			Update,
+			(
+				pickups::billboard_pickups,
+				billboard_decorations,
+				use_pushwalls,
+				use_doors,
+				level_complete::use_elevator_exit,
+			)
+				.chain()
+				.run_if(world_ready),
+		)
+		.add_systems(
+			PostUpdate,
+			(
+				play_sfx_events,
+				davelib::audio::tick_auto_stop_sfx,
+				tick_hard_stop_sfx,
+			)
+				.chain(),
+		)
+		.add_systems(
+			PostUpdate,
+			(
+				davelib::audio::sync_boot_music,
+				davelib::audio::sync_level_music,
+			)
+				.chain(),
+		)
+		.add_systems(
+			PostUpdate,
+			(
+				restart::restart_despawn_level,
+				setup,
+				spawn_wolf_e1m1_decorations,
+				pickups::spawn_pickups,
+				restart::restart_finish,
+			)
+				.chain()
+				.run_if(|r: Res<ui::sync::RestartRequested>| r.0),
+		)
+		.add_systems(
+			PostUpdate,
+			(
+				restart::restart_despawn_level,
+				setup,
+				spawn_wolf_e1m1_decorations,
+				pickups::spawn_pickups,
+				restart::new_game_finish,
+			)
+				.chain()
+				.run_if(|r: Res<ui::sync::NewGameRequested>| r.0),
+		)
+		.add_systems(
+			PostUpdate,
+			(
+				restart::restart_despawn_level,
+				setup,
+				spawn_wolf_e1m1_decorations,
+				pickups::spawn_pickups,
+				restart::advance_level_finish,
+			)
+				.chain()
+				.run_if(|r: Res<ui::sync::AdvanceLevelRequested>| r.0),
+		)
+		.add_systems(
+			FixedUpdate,
+			rebuild_wall_faces_on_request
+				.run_if(world_ready)
+				.run_if(|lock: Res<PlayerControlLock>| lock.0),
+		)
+		.add_systems(
+			FixedUpdate,
+			(
+				davelib::level_score::tick_level_time,
+				tick_pushwalls,
+				rebuild_wall_faces_on_request,
+				door_auto_close,
+				door_animate,
+				player_move,
+				pickups::drop_guard_ammo,
+				pickups::drop_mutant_ammo,
+				pickups::drop_ss_loot,
+				pickups::drop_officer_ammo,
+				pickups::drop_hans_key,
+				pickups::drop_gretel_key,
+				pickups::collect_pickups,
+			)
+				.chain()
+				.run_if(world_ready)
+				.run_if(|lock: Res<PlayerControlLock>| !lock.0),
+		)
+		.run();
 }
+

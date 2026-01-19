@@ -9,11 +9,12 @@ pub mod sync;
 
 use bevy::prelude::*;
 
-pub use state::HudState;
 pub use state::DamageFlash;
-pub use state::PickupFlash;
 pub use state::DeathOverlay;
 pub use state::GameOver;
+pub use state::HudState;
+pub use state::PickupFlash;
+pub use splash::SplashStep;
 
 pub(crate) use hud::HudFaceOverride;
 

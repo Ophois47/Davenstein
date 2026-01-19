@@ -118,9 +118,11 @@ pub fn handle_player_death_once(
 }
 
 pub fn tick_death_delay_and_request_restart(
+    mut commands: Commands,
     time: Res<Time>,
     q_vitals: Query<&PlayerVitals, With<Player>>,
     hud: Res<HudState>,
+    current_level: Res<davelib::level::CurrentLevel>,
     lock: Res<PlayerControlLock>,
     latch: Res<PlayerDeathLatch>,
     mut death: ResMut<DeathDelay>,
@@ -160,23 +162,69 @@ pub fn tick_death_delay_and_request_restart(
     if hud.lives > 0 {
         restart.0 = true;
     } else {
+        // Check for high score before showing game over
+        commands.insert_resource(davelib::high_score::CheckHighScore {
+            score: hud.score,
+            episode: current_level.0.episode(),
+            checked: false,
+        });
         game_over.0 = true;
     }
 }
 
-// In Game Over, Wait for Player
-// Input to Start New Run
+// In Game Over, Wait for Player Input
+// Then check if score qualifies for high scores
 pub fn game_over_input(
     keys: Res<ButtonInput<KeyCode>>,
     game_over: Res<GameOver>,
+    hud: Res<HudState>,
+    current_level: Res<davelib::level::CurrentLevel>,
+    high_scores: Res<davelib::high_score::HighScores>,
     mut new_game: ResMut<NewGameRequested>,
+    mut splash_step: ResMut<crate::ui::SplashStep>,
+    mut name_entry: ResMut<davelib::high_score::NameEntryState>,
 ) {
     if !game_over.0 || new_game.0 {
         return;
     }
 
-    if keys.just_pressed(KeyCode::Enter) {
+    // Critical guard: do not allow Enter to re-arm name entry while in menu/scores UIs
+    if *splash_step != crate::ui::SplashStep::Done {
+        return;
+    }
+
+    if !keys.just_pressed(KeyCode::Enter) {
+        return;
+    }
+
+    // Check if score qualifies for high scores
+    if high_scores.qualifies(hud.score) {
+        // Find rank
+        let rank = high_scores
+            .entries
+            .iter()
+            .position(|e| hud.score > e.score)
+            .unwrap_or(high_scores.entries.len());
+
+        info!("NEW HIGH SCORE! Rank {} with score {}", rank + 1, hud.score);
+
+        // Activate name entry
+        name_entry.active = true;
+        name_entry.name.clear();
+        name_entry.cursor_pos = 0;
+        name_entry.rank = rank;
+        name_entry.score = hud.score;
+        name_entry.episode = current_level.0.episode();
+
+        *splash_step = crate::ui::SplashStep::NameEntry;
+    } else {
+        // Score doesn't qualify, go straight to menu
         new_game.0 = true;
-        info!("Game Over: Enter pressed -> new game requested");
+        *splash_step = crate::ui::SplashStep::Menu;
+
+        info!(
+            "Game Over: returning to menu (score {} doesn't qualify)",
+            hud.score
+        );
     }
 }

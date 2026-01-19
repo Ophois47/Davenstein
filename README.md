@@ -22,10 +22,9 @@ NOTE! Left Control (LCtrl) releases the mouse from the window.
 FEATURES TO BE COMPLETED:
 **********************************************
 1. Bosses for episodes 2, 3, 4 and 6
-2. High scores and associated menu screen
-3. End of episode success logic and victory animation
-4. Save and load game functionality
-5. Options menu
+2. End of episode success logic and victory animation
+3. Save and load game functionality
+4. Options menu
 
 **********************************************
 BUGS:

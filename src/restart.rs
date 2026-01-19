@@ -121,7 +121,6 @@ pub fn new_game_finish(
 
     *hud = HudState::default();
 
-    // Clear death / restart bookkeeping + win state
     *death = Default::default();
     latch.0 = false;
     lock.0 = false;
@@ -132,8 +131,6 @@ pub fn new_game_finish(
     pw_state.active = None;
     pw_occ.clear();
     pw_clock.reset();
-
-    // Consume request so it runs once
     new_game.0 = false;
 
     bevy::log::info!("New Game: finished (fresh HUD, controls unlocked)");
