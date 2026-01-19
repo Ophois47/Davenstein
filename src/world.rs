@@ -18,8 +18,8 @@ use crate::pushwalls::PushwallMarkers;
 
 const TILE_SIZE: f32 = 1.0;
 const WALL_H: f32 = 1.0;
-const DOOR_THICKNESS: f32 = 0.20;
 
+const DOOR_THICKNESS: f32 = 0.20;
 const DOOR_NORMAL_LIGHT: usize = 98;
 const DOOR_NORMAL_DARK: usize = 99;
 const DOOR_JAMB_LIGHT: usize = 100;
@@ -35,7 +35,7 @@ pub struct WallFace;
 #[derive(Message, Clone, Copy, Debug)]
 pub struct RebuildWalls {
     /// Optional tile to treat as a wall for adjacency tests, but NOT spawned
-    /// as a static wall face (the moving pushwall will render it).
+    /// as a static wall face (the moving pushwall will render it)
     pub skip: Option<IVec2>,
 }
 
@@ -58,8 +58,8 @@ pub struct GameAssets {
 
 fn load_assets(asset_server: &AssetServer) -> GameAssets {
     GameAssets {
-        // Wolf wall-sheet (top-left 8x8 = the 64 wall textures in index order).
-        // We remap UVs per wall ID, so this is shared by all wall materials.
+        // Wolf wall-sheet (top-left 8x8 = the 64 wall textures in index order)
+        // We remap UVs per wall ID, so this is shared by all wall materials
         wall_tex: asset_server.load("textures/walls/wolf_walls.png"),
         floor_tex: asset_server.load("textures/floors/floor.png"),
     }
@@ -71,7 +71,7 @@ fn spawn_wall_faces_for_grid(
     cache: &WallRenderCache,
     skip: Option<IVec2>,
 ) {
-    // Real wall test from the grid.
+    // Real wall test from the grid
     let is_wall_real = |xx: i32, zz: i32| -> bool {
         if xx < 0 || zz < 0 {
             return false;
@@ -84,8 +84,8 @@ fn spawn_wall_faces_for_grid(
     };
 
     // Neighbor-wall test for face culling.
-    // IMPORTANT: if the neighbor is the moving pushwall tile (`skip`), treat it as EMPTY
-    // so adjacent walls will still spawn their faces toward the moving pushwall.
+    // IMPORTANT: if the neighbor is the moving pushwall tile (skip), treat it as EMPTY
+    // so adjacent walls will still spawn their faces toward the moving pushwall
     let is_wall_neighbor = |xx: i32, zz: i32| -> bool {
         if let Some(st) = skip {
             if st.x == xx && st.y == zz {
@@ -283,6 +283,7 @@ pub fn setup(
 	hans_sprites: Res<crate::enemies::HansSprites>,
 	gretel_sprites: Res<crate::enemies::GretelSprites>,
 	mecha_hitler_sprites: Res<crate::enemies::MechaHitlerSprites>,
+    ghost_hitler_sprites: Res<crate::enemies::GhostHitlerSprites>,
 	current_level: Res<crate::level::CurrentLevel>,
 	mut level_score: ResMut<crate::level_score::LevelScore>,
 	skill_level: Res<crate::skill::SkillLevel>,
@@ -550,7 +551,7 @@ pub fn setup(
 	commands.insert_resource(crate::level::WolfPlane1(plane1.clone()));
 
 	let pushwall_markers = PushwallMarkers::from_wolf_plane1(64, 64, &plane1);
-	let (grid, spawn, guards, mutants, ss, officers, dogs, hans, gretel, mecha_hitler) =
+	let (grid, spawn, guards, mutants, ss, officers, dogs, hans, gretel, mecha_hitler, ghost_hitler) =
 		MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
 
 	// --- Enemy difficulty selection ---
@@ -657,15 +658,21 @@ pub fn setup(
 		.filter(|&t| plane1[idx(t)] == 178)
 		.collect();
 
+    let ghost_hitler: Vec<IVec2> = ghost_hitler
+        .into_iter()
+        .filter(|&t| plane1[idx(t)] == 160)
+        .collect();
+
 	let hitler_phase2_total = mecha_hitler.len();
 
 	info!(
-		"Enemy Spawns: Guards={}, Mutants={}, SS={}, Officers={}, Dogs={}",
+		"Enemy Spawns: Guards={}, Mutants={}, SS={}, Officers={}, Dogs={}, Ghost Hitler={}",
 		guards.len(),
         mutants.len(),
 		ss.len(),
 		officers.len(),
 		dogs.len(),
+        ghost_hitler.len(),
 	);
 
 	info!(
@@ -691,7 +698,8 @@ pub fn setup(
         + hans.len()
 		+ gretel.len()
 		+ mecha_hitler.len()
-    	+ hitler_phase2_total;
+    	+ hitler_phase2_total
+        + ghost_hitler.len();
 
 	let secrets_total = plane1.iter().filter(|&&c| c == 98).count();
 	let treasure_total = plane1
@@ -1117,6 +1125,10 @@ pub fn setup(
 	for mh in mecha_hitler {
 		crate::enemies::spawn_mecha_hitler(&mut commands, &mut meshes, &mut materials, &mecha_hitler_sprites, mh);
 	}
+
+    for gh in ghost_hitler {
+        crate::enemies::spawn_ghost_hitler(&mut commands, &mut meshes, &mut materials, &ghost_hitler_sprites, gh);
+    }
 
 	let player_pos = Vec3::new(spawn.x as f32 * TILE_SIZE, 0.5, spawn.y as f32 * TILE_SIZE);
 

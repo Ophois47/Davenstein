@@ -375,6 +375,11 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::EnemyAlert(EnemyKind::Dog),
         asset_server.load("sounds/sfx/enemies/dog/dog_alert.ogg"),
     );
+    // Ghost Hitler Alert
+    lib.insert_one(
+        SfxKind::EnemyAlert(EnemyKind::GhostHitler),
+        asset_server.load("sounds/sfx/enemies/ghost_hitler/ghost_hitler_alert.wav"),
+    );
 
     // Guard Shoot
     lib.insert_one(
@@ -450,6 +455,11 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     lib.insert_one(
         SfxKind::EnemyDeath(EnemyKind::Dog),
         asset_server.load("sounds/sfx/enemies/dog/dog_death.ogg"),
+    );
+    // Ghost Hitler Death
+    lib.insert_one(
+        SfxKind::EnemyDeath(EnemyKind::GhostHitler),
+        asset_server.load("sounds/sfx/enemies/ghost_hitler/ghost_hitler_death.wav"),
     );
 
     // Bosses
@@ -875,21 +885,22 @@ pub fn play_sfx_events(
 			| SfxKind::PickupTreasureCrown => PlaybackSettings::DESPAWN
 				.with_spatial(true)
 				.with_spatial_scale(SpatialScale::new(0.15))
-				.with_volume(Volume::Linear(1.5)),
+				.with_volume(Volume::Linear(1.7)),
 
 			SfxKind::EnemyAlert(_) => PlaybackSettings::DESPAWN
 				.with_spatial(true)
-				.with_spatial_scale(SpatialScale::new(0.15)),
+				.with_spatial_scale(SpatialScale::new(0.05))
+                .with_volume(Volume::Linear(1.4)),
 
 			SfxKind::EnemyShoot(_) => PlaybackSettings::DESPAWN
 				.with_spatial(true)
-				.with_spatial_scale(SpatialScale::new(0.25))
-				.with_volume(Volume::Linear(1.4)),
+				.with_spatial_scale(SpatialScale::new(0.05))
+				.with_volume(Volume::Linear(1.6)),
 
 			SfxKind::EnemyDeath(_) => PlaybackSettings::DESPAWN
 				.with_spatial(true)
-				.with_spatial_scale(SpatialScale::new(0.15))
-				.with_volume(Volume::Linear(1.3)),
+				.with_spatial_scale(SpatialScale::new(0.05))
+				.with_volume(Volume::Linear(1.4)),
 
 			SfxKind::PickupChaingun
 			| SfxKind::PickupMachineGun

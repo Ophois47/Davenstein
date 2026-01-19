@@ -32,6 +32,14 @@ use crate::{
     },
 };
 
+// Commands are deferred. Resources/entities inserted via Commands during level
+// setup or restart are not available to later systems until after apply_deferred
+// Systems that read level resources must either:
+// (1) run only after an apply_deferred boundary, and/or
+// (2) use Option<Res<T>> and early-return, and/or
+// (3) be gated by a WorldReady run condition.
+// Missing-resource panics are treated as regressions; always add gating before adding new Res dependencies
+
 // Despawn what should NOT persist across a life restart
 // Leave UI / resources alone, rebuild entire 3D world + actors
 pub fn restart_despawn_level(

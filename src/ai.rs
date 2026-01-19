@@ -995,14 +995,19 @@ pub fn enemy_ai_tick(
                                         t: Timer::from_seconds(crate::enemies::GRETEL_SHOOT_SECS, TimerMode::Once),
                                     });
                                 }
-                                EnemyKind::MechaHitler => {
-                                    commands.entity(e).insert(crate::enemies::MechaHitlerShoot {
-                                        t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
-                                    });
-                                }
                                 EnemyKind::Hitler => {
                                     commands.entity(e).insert(crate::enemies::HitlerShoot {
-                                        t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
+                                        t: Timer::from_seconds(crate::enemies::HITLER_SHOOT_SECS, TimerMode::Once),
+                                    });
+                                }
+                                EnemyKind::MechaHitler => {
+                                    commands.entity(e).insert(crate::enemies::MechaHitlerShoot {
+                                        t: Timer::from_seconds(crate::enemies::MECHA_HITLER_SHOOT_SECS, TimerMode::Once),
+                                    });
+                                }
+                                EnemyKind::GhostHitler => {
+                                    commands.entity(e).insert(crate::enemies::GhostHitlerShoot {
+                                        t: Timer::from_seconds(crate::enemies::GHOST_HITLER_SHOOT_SECS, TimerMode::Once),
                                     });
                                 }
                                 _ => {}
@@ -1066,6 +1071,11 @@ pub fn enemy_ai_tick(
                             EnemyKind::MechaHitler => {
                                 commands.entity(e).insert(crate::enemies::MechaHitlerShoot {
                                     t: Timer::from_seconds(crate::enemies::MECHA_HITLER_SHOOT_SECS, TimerMode::Once),
+                                });
+                            }
+                            EnemyKind::GhostHitler => {
+                                commands.entity(e).insert(crate::enemies::GhostHitlerShoot {
+                                    t: Timer::from_seconds(crate::enemies::GHOST_HITLER_SHOOT_SECS, TimerMode::Once),
                                 });
                             }
                             EnemyKind::Dog => {}

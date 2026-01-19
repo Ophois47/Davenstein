@@ -1,7 +1,8 @@
 /*
 Davenstein - by David Petnick
 */
-mod hitscan;
+pub mod hitscan;
+pub mod projectiles;
 
 use bevy::prelude::*;
 use bevy::time::{Timer, TimerMode};
@@ -30,6 +31,7 @@ use davelib::enemies::{
     GretelDying,
     HitlerDying,
     MechaHitlerDying,
+    GhostHitlerDying,
 };
 use davelib::map::MapGrid;
 
@@ -46,8 +48,25 @@ pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<FireShot>()
-            .add_systems(Update, process_fire_shots.run_if(crate::world_ready));
+        app
+            .add_message::<FireShot>()
+            .add_message::<projectiles::SpawnProjectile>()
+            .add_systems(Startup, projectiles::setup_projectile_assets)
+            .add_systems(Update, process_fire_shots.run_if(crate::world_ready))
+            .add_systems(
+                FixedUpdate,
+                (
+                    projectiles::spawn_projectiles,
+                    ApplyDeferred,
+                    projectiles::tick_projectiles,
+                )
+                    .chain()
+                    .run_if(crate::world_ready),
+            )
+            .add_systems(
+                PostUpdate,
+                projectiles::update_projectile_views.run_if(crate::world_ready),
+            );
     }
 }
 
@@ -355,6 +374,9 @@ fn process_fire_shots(
                         EnemyKind::MechaHitler => {
                             commands.entity(e).insert(MechaHitlerDying { frame: 0, tics: 0 });
                         }
+                        EnemyKind::GhostHitler => {
+                            commands.entity(e).insert(GhostHitlerDying { frame: 0, tics: 0 });
+                        }
                     }
                 } else {
                     let timer = Timer::from_seconds(0.20, TimerMode::Once);
@@ -385,6 +407,9 @@ fn process_fire_shots(
                         }
                         EnemyKind::MechaHitler => {
                             // Wolfenstein 3-D Bosses Do Not Flinch / Enter Pain
+                        }
+                        EnemyKind::GhostHitler => {
+                            // Wolfenstein 3-D Fake Hitler Does Not Flinch / Enter Pain
                         }
                     }
                 }
