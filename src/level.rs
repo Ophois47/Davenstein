@@ -61,7 +61,7 @@ impl LevelId {
         match episode {
             1 => LevelId::E1M1,
             2 => LevelId::E2M1,
-            3 => LevelId::E3M9,
+            3 => LevelId::E3M1,
             4 => LevelId::E4M1,
             5 => LevelId::E5M1,
             6 => LevelId::E6M1,
