@@ -14,7 +14,6 @@ pub enum ProjectileKind {
 	Fireball,
 	#[allow(dead_code)]
 	Rocket,
-	#[allow(dead_code)]
 	Syringe,
 }
 

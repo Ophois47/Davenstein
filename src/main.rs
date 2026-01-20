@@ -9,6 +9,7 @@ mod ui;
 
 use bevy::prelude::*;
 use bevy::asset::AssetPlugin;
+use bevy::ecs::schedule::IntoScheduleConfigs as _;
 use include_dir::{include_dir, Dir};
 use std::path::PathBuf;
 
@@ -22,7 +23,7 @@ use davelib::audio::{
 };
 use davelib::decorations::{
     billboard_decorations,
-    spawn_wolf_e1m1_decorations,
+    spawn_decorations,
 };
 use davelib::enemies::EnemiesPlugin;
 use davelib::player::{
@@ -133,7 +134,7 @@ fn main() {
 				setup_audio,
 				start_music,
 				setup,
-				spawn_wolf_e1m1_decorations,
+				spawn_decorations,
 				pickups::spawn_pickups,
 			)
 				.chain(),
@@ -195,7 +196,7 @@ fn main() {
 			(
 				restart::restart_despawn_level,
 				setup,
-				spawn_wolf_e1m1_decorations,
+				spawn_decorations,
 				pickups::spawn_pickups,
 				restart::restart_finish,
 			)
@@ -207,7 +208,7 @@ fn main() {
 			(
 				restart::restart_despawn_level,
 				setup,
-				spawn_wolf_e1m1_decorations,
+				spawn_decorations,
 				pickups::spawn_pickups,
 				restart::new_game_finish,
 			)
@@ -219,7 +220,7 @@ fn main() {
 			(
 				restart::restart_despawn_level,
 				setup,
-				spawn_wolf_e1m1_decorations,
+				spawn_decorations,
 				pickups::spawn_pickups,
 				restart::advance_level_finish,
 			)

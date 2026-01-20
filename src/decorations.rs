@@ -233,10 +233,9 @@ fn choose_static_path_from_plane1(code: u16) -> Option<String> {
     Some(format!("textures/decorations/stat_{:02}.png", idx))
 }
 
-// TODO: Handle everything through here, pickups and decorations and as much as we can
-/// Spawn Wolf3D E1M1 "statics" (decorations) from plane1 codes using WL_ACT1.C statinfo[]
+/// Spawn "statics" (decorations) from plane1 codes using WL_ACT1.C statinfo[]
 /// This does *not* spawn pickups/treasure/weapons (those are handled by pickups module)
-pub fn spawn_wolf_e1m1_decorations(
+pub fn spawn_decorations(
     mut commands: Commands,
     grid: Res<MapGrid>,
     plane1_res: Res<crate::level::WolfPlane1>,
@@ -247,7 +246,7 @@ pub fn spawn_wolf_e1m1_decorations(
 ) {
     if grid.width != 64 || grid.height != 64 {
         warn!(
-            "spawn_wolf_e1m1_decorations: expected 64x64 grid, got {}x{}",
+            "spawn_decorations: expected 64x64 grid, got {}x{}",
             grid.width, grid.height
         );
         return;
@@ -255,13 +254,6 @@ pub fn spawn_wolf_e1m1_decorations(
 
     let expected = grid.width * grid.height;
     if plane1_res.0.len() != expected {
-        warn!(
-            "spawn_wolf_e1m1_decorations: WolfPlane1 len {} != expected {} ({}x{})",
-            plane1_res.0.len(),
-            expected,
-            grid.width,
-            grid.height
-        );
         return;
     }
 

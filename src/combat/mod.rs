@@ -32,6 +32,7 @@ use davelib::enemies::{
     HitlerDying,
     MechaHitlerDying,
     GhostHitlerDying,
+    SchabbsDying,
 };
 use davelib::map::MapGrid;
 
@@ -389,6 +390,9 @@ fn process_fire_shots(
                         EnemyKind::GhostHitler => {
                             commands.entity(e).insert(GhostHitlerDying { frame: 0, tics: 0 });
                         }
+                        EnemyKind::Schabbs => {
+                            commands.entity(e).insert(SchabbsDying { frame: 0, tics: 0 });
+                        }
                     }
                 } else {
                     let timer = Timer::from_seconds(0.20, TimerMode::Once);
@@ -422,6 +426,9 @@ fn process_fire_shots(
                         }
                         EnemyKind::GhostHitler => {
                             // Wolfenstein 3-D Fake Hitler Does Not Flinch / Enter Pain
+                        }
+                        EnemyKind::Schabbs => {
+                            // Wolfenstein 3-D Bosses Do Not Flinch / Enter Pain
                         }
                     }
                 }

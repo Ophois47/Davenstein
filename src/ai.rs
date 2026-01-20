@@ -42,8 +42,6 @@ These run in sequence via .chain() to maintain the original execution order.
    chain() enforces execution order but does not auto-flush deferred Commands
    If same-tick visibility is required, add an apply_deferred boundary between producer and consumer
 */
-
-
 use bevy::prelude::*;
 use std::collections::{HashSet, HashMap};
 
@@ -1092,6 +1090,11 @@ fn enemy_ai_combat(
                         EnemyKind::GhostHitler => {
                             commands.entity(e).insert(crate::enemies::GhostHitlerShoot {
                                 t: Timer::from_seconds(crate::enemies::GHOST_HITLER_SHOOT_SECS, TimerMode::Once),
+                            });
+                        }
+                        EnemyKind::Schabbs => {
+                            commands.entity(e).insert(crate::enemies::SchabbsShoot {
+                                t: Timer::from_seconds(crate::enemies::SCHABBS_THROW_SECS, TimerMode::Once),
                             });
                         }
                         EnemyKind::Dog => {}

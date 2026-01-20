@@ -284,6 +284,7 @@ pub fn setup(
 	gretel_sprites: Res<crate::enemies::GretelSprites>,
 	mecha_hitler_sprites: Res<crate::enemies::MechaHitlerSprites>,
     ghost_hitler_sprites: Res<crate::enemies::GhostHitlerSprites>,
+    schabbs_sprites: Res<crate::enemies::SchabbsSprites>,
 	current_level: Res<crate::level::CurrentLevel>,
 	mut level_score: ResMut<crate::level_score::LevelScore>,
 	skill_level: Res<crate::skill::SkillLevel>,
@@ -551,7 +552,7 @@ pub fn setup(
 	commands.insert_resource(crate::level::WolfPlane1(plane1.clone()));
 
 	let pushwall_markers = PushwallMarkers::from_wolf_plane1(64, 64, &plane1);
-	let (grid, spawn, guards, mutants, ss, officers, dogs, hans, gretel, mecha_hitler, ghost_hitler) =
+	let (grid, spawn, guards, mutants, ss, officers, dogs, hans, gretel, mecha_hitler, ghost_hitler, schabbs) =
 		MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
 
 	// --- Enemy difficulty selection ---
@@ -663,6 +664,11 @@ pub fn setup(
         .filter(|&t| plane1[idx(t)] == 160)
         .collect();
 
+    let schabbs: Vec<IVec2> = schabbs
+        .into_iter()
+        .filter(|&t| plane1[idx(t)] == 179)
+        .collect();
+
 	let hitler_phase2_total = mecha_hitler.len();
 
 	info!(
@@ -676,11 +682,12 @@ pub fn setup(
 	);
 
 	info!(
-		"Boss Spawns: Hans={}, Gretel={}, Mecha Hitler={} (implies Hitler phase2={})",
+		"Boss Spawns: Hans={}, Gretel={}, Mecha Hitler={} (implies Hitler Phase II={}), Schabbs={}",
 		hans.len(),
 		gretel.len(),
 		mecha_hitler.len(),
 		hitler_phase2_total,
+        schabbs.len(),
 	);
 
 	info!(
@@ -690,6 +697,7 @@ pub fn setup(
 	);
 
 	// Intermission Screen Totals
+    // FIXME: Is this right? Should bosses be counted in this way?
 	let kills_total = guards.len()
         + mutants.len()
         + ss.len()
@@ -699,7 +707,8 @@ pub fn setup(
 		+ gretel.len()
 		+ mecha_hitler.len()
     	+ hitler_phase2_total
-        + ghost_hitler.len();
+        + ghost_hitler.len()
+        + schabbs.len();
 
 	let secrets_total = plane1.iter().filter(|&&c| c == 98).count();
 	let treasure_total = plane1
@@ -1128,6 +1137,10 @@ pub fn setup(
 
     for gh in ghost_hitler {
         crate::enemies::spawn_ghost_hitler(&mut commands, &mut meshes, &mut materials, &ghost_hitler_sprites, gh);
+    }
+
+    for sc in schabbs {
+        crate::enemies::spawn_schabbs(&mut commands, &mut meshes, &mut materials, &schabbs_sprites, sc);
     }
 
 	let player_pos = Vec3::new(spawn.x as f32 * TILE_SIZE, 0.5, spawn.y as f32 * TILE_SIZE);
