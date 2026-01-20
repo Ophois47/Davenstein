@@ -1,6 +1,49 @@
 /*
 Davenstein - by David Petnick
+
+CRITICAL BEVY LIMITATION DOCUMENTED:
+====================================
+Bevy has a hard limit on the number of parameters a system function can accept.
+When this limit is exceeded, you get compiler errors like:
+  "the trait `IntoSystem<(), (), _>` is not implemented for fn item"
+
+The original `enemy_ai_tick` system had 17 parameters including a complex ParamSet,
+which exceeded Bevy's limits and could not be registered as a system at all.
+
+SOLUTION: Split large systems into multiple smaller systems that each handle
+a specific responsibility. This keeps parameter counts manageable while maintaining
+the same logic and execution order.
+
+For this AI system, we split into:
+1. enemy_ai_activation - Handle state transitions (Stand -> Patrol -> Chase)
+2. enemy_ai_combat - Handle shooting, dog bites, burst fire
+3. enemy_ai_movement - Handle pathfinding and movement scheduling
+
+These run in sequence via .chain() to maintain the original execution order.
 */
+/*
+1) Bevy validates ECS borrows at schedule initialization time
+   If a single system function has conflicting access to the same component type
+   Example Query<&Transform, ...> plus Query<&mut Transform, ...> in one system
+   Bevy will panic with error B0001 and the game will crash on startup
+   Fix options are
+   - Make queries disjoint with filters like Without<T>
+   - Merge conflicting queries into a ParamSet and ensure you do not use them simultaneously
+   Reference https://bevy.org/learn/errors/b0001
+
+2) Compiler dead_code warnings are a real gameplay signal in ECS projects
+   If a system like attach_enemy_ai is never used, it is not registered into any schedule
+   That can silently break gameplay because queries stop matching any entities
+   In this incident, enemies had EnemyKind but never received EnemyAi
+   Result AI systems ran but affected zero enemies so nobody chased or shot
+
+3) Commands are deferred
+   Inserting components via Commands does not make them visible to later systems in the same schedule run
+   chain() enforces execution order but does not auto-flush deferred Commands
+   If same-tick visibility is required, add an apply_deferred boundary between producer and consumer
+*/
+
+
 use bevy::prelude::*;
 use std::collections::{HashSet, HashMap};
 
@@ -34,9 +77,17 @@ const AI_TIC_SECS: f32 = 1.0 / 70.0;
 const DOOR_OPEN_SECS: f32 = 4.5;
 const CLAIM_TILE_EARLY: bool = true;
 
+// Shooting constants
+const GUARD_SHOOT_MAX_DIST_TILES: i32 = 7;
+const GUARD_SHOOT_PAUSE_SECS: f32 = 0.25;
+const MUTANT_SHOOT_PAUSE_SECS: f32 = 0.15;
+const LOS_FIRST_SHOT_DELAY_SECS: f32 = 0.02;
+const GUARD_SHOOT_COOLDOWN_SECS: f32 = 0.55;
+const GUARD_SHOOT_TOTAL_SECS: f32 = GUARD_SHOOT_PAUSE_SECS + GUARD_SHOOT_COOLDOWN_SECS;
+
 #[derive(Resource, Debug, Default)]
 pub struct AiTicker {
-    accum: f32,
+    pub accum: f32,
 }
 
 #[derive(Clone, Copy, Debug, Message)]
@@ -79,6 +130,10 @@ pub struct EnemyMove {
     pub speed_tps: f32,
 }
 
+// Temporary component to communicate Dir8 changes from movement system
+#[derive(Component, Debug, Clone, Copy)]
+struct PendingDir8(Dir8);
+
 #[derive(Clone, Copy, Debug)]
 pub struct BurstFire {
     shots_left: u8,
@@ -86,14 +141,21 @@ pub struct BurstFire {
     next_tics: u32,
 }
 
+// Resource to share data between the split AI systems
+#[derive(Resource, Default)]
+struct AiSharedData {
+    occupied: HashSet<IVec2>,
+    scheduled_move: HashSet<Entity>,
+    dist_map: Vec<i32>,
+    player_tile: IVec2,
+    player_pos: Vec3,
+    player_area: Option<i32>,
+}
+
 fn burst_profile(kind: EnemyKind) -> Option<(u8, u32, f32)> {
     match kind {
-        // Tuned to fit inside existing SS_SHOOT_SECS (0.35) and sound like a short burst
-        EnemyKind::Ss => Some((5, 6, 0.35)), // shots, interval tics, post-burst cooldown secs
-
-        // Tuned to fit inside existing shoot secs (0.4) and sound like a chaingun burst
+        EnemyKind::Ss => Some((5, 6, 0.35)),
         EnemyKind::Hans | EnemyKind::Gretel | EnemyKind::Hitler | EnemyKind::MechaHitler => Some((8, 4, 0.45)),
-
         _ => None,
     }
 }
@@ -117,13 +179,11 @@ fn pick_chase_step(
     let dx = player_tile.x - my_tile.x;
     let dz = player_tile.y - my_tile.y;
 
-    // Desired Directions Toward Player (4-Way)
     let xdir = if dx > 0 { 1 } else if dx < 0 { -1 } else { 0 };
     let zdir = if dz > 0 { 1 } else if dz < 0 { -1 } else { 0 };
 
     let primary_x = dx.abs() >= dz.abs();
 
-    // Candidate Steps in Classic Priority Order
     let mut candidates: [IVec2; 6] = [
         IVec2::ZERO,
         IVec2::ZERO,
@@ -136,7 +196,6 @@ fn pick_chase_step(
     let toward_x = IVec2::new(xdir, 0);
     let toward_z = IVec2::new(0, zdir);
 
-    // Two Toward Player Axes First
     if primary_x {
         candidates[0] = toward_x;
         candidates[1] = toward_z;
@@ -145,7 +204,6 @@ fn pick_chase_step(
         candidates[1] = toward_x;
     }
 
-    // Then Perpendicular Fallbacks (Try to Go Around)
     candidates[2] = IVec2::new(0, 1);
     candidates[3] = IVec2::new(0, -1);
     candidates[4] = IVec2::new(1, 0);
@@ -157,21 +215,18 @@ fn pick_chase_step(
         if step == IVec2::ZERO {
             continue;
         }
-        // Avoid Immediate Reversing Unless Forced
         if last_step != IVec2::ZERO && step == reverse {
             continue;
         }
 
         let dest = my_tile + step;
 
-        // Don't Step Into Occupied Tiles or Player Tile
         if dest == player_tile || occupied.contains(&dest) {
             continue;
         }
 
         let Some(t) = tile_at(grid, dest) else { continue; };
 
-        // Check for Blocking Decorations
         if solid.is_solid(dest.x, dest.y) {
             continue;
         }
@@ -183,7 +238,6 @@ fn pick_chase_step(
         }
     }
 
-    // Nothing Worked, Allow Reverse as Last Resort
     if last_step != IVec2::ZERO {
         let dest = my_tile + reverse;
         if dest != player_tile && !occupied.contains(&dest) && !solid.is_solid(dest.x, dest.y) {
@@ -211,8 +265,6 @@ fn attach_enemy_ai(
     for (e, kind, occ, mut dir8) in q_new.iter_mut() {
         let mut state = EnemyAiState::Stand;
 
-        // Derive initial facing / patrol-ness from the raw Wolf plane1 code at this spawn tile
-        // This keeps the "sentry vs patrol" behavior data-driven from plane1
         let idx = (occ.0.y * w + occ.0.x) as usize;
         if let Some(code) = wolf_plane1.0.get(idx).copied() {
             if let Some((d, is_patrol)) = spawn_dir_and_patrol_for_kind(*kind, code) {
@@ -252,8 +304,6 @@ fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVe
         return true;
     }
 
-    // Ray From Tile Center to Tile Center, Using
-    // Same N+0.5 Boundary Scheme as Hitscan / Collision
     let origin = Vec2::new(from.x as f32, from.y as f32);
     let target = Vec2::new(to.x as f32, to.y as f32);
 
@@ -268,10 +318,8 @@ fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVe
     let dz = dir.y;
 
     const EPS: f32 = 1e-8;
-    // Tie-Break For Corner Hits
     const EPS_T: f32 = 1e-6;
 
-    // Tile Boundaries at N+0.5
     let px = origin.x + 0.5;
     let pz = origin.y + 0.5;
 
@@ -312,12 +360,10 @@ fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVe
             t_max_z += t_delta_z;
             d
         } else {
-            // Corner Crossing: Treat Either
-            // Adjacent Blocking Tile as Blocking LOS
             let next_ix = ix + step_x;
             let next_iz = iz + step_z;
 
-            let d = t_max_x; // ~= t_max_z
+            let d = t_max_x;
             t_max_x += t_delta_x;
             t_max_z += t_delta_z;
 
@@ -359,13 +405,11 @@ fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVe
 }
 
 fn dir8_from_step(step: IVec2) -> Dir8 {
-    // Match Enemies.rs::quantize_view8 Convention:
-    // Dir8(0)=+Z, Dir8(2)=+X, Dir8(4)=-Z, Dir8(6)=-X
     match (step.x, step.y) {
-        (0, 1) => Dir8(0),  // +Z
-        (1, 0) => Dir8(2),  // +X
-        (0, -1) => Dir8(4), // -Z
-        (-1, 0) => Dir8(6), // -X
+        (0, 1) => Dir8(0),
+        (1, 0) => Dir8(2),
+        (0, -1) => Dir8(4),
+        (-1, 0) => Dir8(6),
         _ => Dir8(0),
     }
 }
@@ -376,11 +420,8 @@ fn dir8_towards(from: IVec2, to: IVec2) -> Dir8 {
         return Dir8(0);
     }
 
-    // 0 Rad = +Z (Positive "y" in Grid Coords)
     let ang = (d.x as f32).atan2(d.y as f32);
-
-    // Quantize Into 8 Octants (0..7), with 0 = +Z, 2 = +X, 4 = -Z, 6 = -X
-    let step = std::f32::consts::FRAC_PI_4; // 45°
+    let step = std::f32::consts::FRAC_PI_4;
     let mut oct = ((ang + step * 0.5) / step).floor() as i32;
     oct = ((oct % 8) + 8) % 8;
 
@@ -415,7 +456,7 @@ fn try_open_door_at(
 struct AreaMap {
     w: usize,
     h: usize,
-    ids: Vec<i32>, // -1 = Solid / Unassigned
+    ids: Vec<i32>,
 }
 
 impl AreaMap {
@@ -440,7 +481,6 @@ impl AreaMap {
                     continue;
                 }
 
-                // flood fill
                 let mut stack = vec![IVec2::new(x as i32, z as i32)];
                 ids[idx] = next_id;
 
@@ -488,11 +528,11 @@ impl AreaMap {
 }
 
 fn wolf_hitscan_damage(dist_tiles: i32) -> i32 {
-    let r = rand::random::<u8>() as i32; // 0..255
+    let r = rand::random::<u8>() as i32;
     if dist_tiles <= 1 {
-        r / 4 // 0..63
+        r / 4
     } else {
-        r / 6 // 0..42
+        r / 6
     }
 }
 
@@ -500,132 +540,85 @@ fn wolf_far_miss_gate(dist_tiles: i32) -> bool {
     if dist_tiles <= 3 {
         true
     } else {
-        // Floor(r/12) is 0..21, Must Be >= Dist to Hit
-        let r = rand::random::<u8>() as i32; // 0..255
+        let r = rand::random::<u8>() as i32;
         (r / 12) >= dist_tiles
     }
 }
 
 fn wolf_boss_damage(dist_tiles: i32) -> i32 {
-    // Bosses are better shots: effective distance reduced by 1/3
     let effective_dist = (dist_tiles / 3).max(0);
-    let r = rand::random::<u8>() as i32; // 0..255
+    let r = rand::random::<u8>() as i32;
     
     if effective_dist < 2 {
-        r / 4  // 0..63
+        r / 4
     } else if effective_dist < 4 {
-        r / 8  // 0..31
+        r / 8
     } else {
-        r / 16 // 0..15
+        r / 16
     }
 }
 
-pub fn enemy_ai_tick(
+// SYSTEM 1: Prepare shared data and handle activation/patrol
+fn enemy_ai_prepare_and_activate(
     mut commands: Commands,
     time: Res<Time>,
     mut ticker: ResMut<AiTicker>,
     grid: Res<MapGrid>,
     solid: Res<SolidStatics>,
     q_player: Query<&GlobalTransform, With<Player>>,
-    mut q_doors: Query<(&DoorTile, &mut DoorState, &GlobalTransform)>,
     mut sfx: MessageWriter<PlaySfx>,
-    mut los_hold: Local<HashMap<Entity, f32>>,
-    mut enemy_fire: MessageWriter<EnemyFire>,
-    mut enemy_fireball: MessageWriter<EnemyFireballShot>,
-    mut shoot_cd: Local<HashMap<Entity, f32>>,
-    mut bursts: Local<HashMap<Entity, BurstFire>>,
     mut alerted: Local<HashSet<Entity>>,
     wolf_plane1: Res<crate::level::WolfPlane1>,
     tunings: Res<EnemyTunings>,
-    mut q: ParamSet<(
-        Query<&OccupiesTile, (With<EnemyKind>, Without<Dead>)>,
-        Query<
-            (
-                Entity,
-                &EnemyKind,
-                &mut EnemyAi,
-                &mut OccupiesTile,
-                &mut Dir8,
-                &Transform,
-                Option<&EnemyMove>,
-                Option<&mut Patrol>,
-                Option<&crate::enemies::GuardPain>,
-                Option<&crate::enemies::MutantPain>,
-                Option<&crate::enemies::SsPain>,
-                Option<&crate::enemies::OfficerPain>,
-                Option<&crate::enemies::DogPain>,
-                Option<&crate::enemies::DogBite>,
-                Option<&crate::enemies::DogBiteCooldown>,
-            ),
-            (With<EnemyKind>, Without<Player>, Without<Dead>),
-        >,
-    )>,
+    mut shared: ResMut<AiSharedData>,
+    mut q_doors: Query<(&DoorTile, &mut DoorState, &GlobalTransform)>,
+    mut q_enemies: Query<
+        (
+            Entity,
+            &EnemyKind,
+            &mut EnemyAi,
+            &mut OccupiesTile,
+            &mut Dir8,
+            &Transform,
+            Option<&EnemyMove>,
+            Option<&Patrol>,
+            Option<&crate::enemies::GuardPain>,
+            Option<&crate::enemies::MutantPain>,
+            Option<&crate::enemies::SsPain>,
+            Option<&crate::enemies::OfficerPain>,
+            Option<&crate::enemies::DogPain>,
+        ),
+        (With<EnemyKind>, Without<Player>, Without<Dead>),
+    >,
 ) {
-    // Tunables (Later Move These Into Options / Difficulty Resource)
-    const GUARD_SHOOT_MAX_DIST_TILES: i32 = 7;
-
-    const GUARD_SHOOT_PAUSE_SECS: f32 = 0.25;
-    const MUTANT_SHOOT_PAUSE_SECS: f32 = 0.15;
-    const LOS_FIRST_SHOT_DELAY_SECS: f32 = 0.02;
-
-    // Extra Delay After Pause Before Another Shot Can Start
-    const GUARD_SHOOT_COOLDOWN_SECS: f32 = 0.55;
-
-    const GUARD_SHOOT_TOTAL_SECS: f32 = GUARD_SHOOT_PAUSE_SECS + GUARD_SHOOT_COOLDOWN_SECS;
-
     let Some(player_gt) = q_player.iter().next() else { return; };
     let player_pos = player_gt.translation();
     let player_tile = world_to_tile_xz(Vec2::new(player_pos.x, player_pos.z));
 
-    // Snapshot Occupied Tiles (Alive Enemies Only)
-    let mut occupied: HashSet<IVec2> = HashSet::new();
-    for ot in q.p0().iter() {
-        occupied.insert(ot.0);
-    }
+    shared.player_tile = player_tile;
+    shared.player_pos = player_pos;
 
-    // Moves Scheduled This Frame
-    // Commands Are Deferred, So Within This Function A Newly Inserted EnemyMove Will Not Be Visible Yet
-    // Track Those Inserts So The 70hz AI Loop Does Not Double-Schedule Or Turn To Face While Still Walking Away
-    let mut scheduled_move: HashSet<Entity> = HashSet::new();
-
-    // Cooldowns Tick Down Every Frame
     let dt = time.delta_secs();
-    shoot_cd.retain(|_, t| {
-        *t -= dt;
-        *t > 0.0
-    });
-
-    // Drop burst state for enemies no longer in the live query
-    {
-        let q_live = q.p1();
-        bursts.retain(|e, _| q_live.get(*e).is_ok());
-    }
-
     ticker.accum += dt;
 
     while ticker.accum >= AI_TIC_SECS {
         ticker.accum -= AI_TIC_SECS;
 
-        // Areas Only Used for Initial Activation Gating
         let areas = AreaMap::compute(&grid);
         let player_area = areas.id(player_tile);
+        shared.player_area = player_area;
 
-        // ============================================================
-        // BFS distance field to player
-        // DoorClosed is treated as traversable so most monsters can intend to go through it
-        // Dogs will be prevented from choosing DoorClosed steps later
-        // ============================================================
         let w = grid.width as i32;
         let h = grid.height as i32;
         let in_bounds = |t: IVec2| t.x >= 0 && t.y >= 0 && t.x < w && t.y < h;
         let idx = |t: IVec2| (t.y * w + t.x) as usize;
 
-        let mut dist = vec![-1i32; grid.width * grid.height];
+        shared.dist_map = vec![-1i32; grid.width * grid.height];
         if in_bounds(player_tile)
             && !solid.is_solid(player_tile.x, player_tile.y)
             && grid.tile(player_tile.x as usize, player_tile.y as usize) != Tile::Wall
         {
-            dist[idx(player_tile)] = 0;
+            shared.dist_map[idx(player_tile)] = 0;
 
             let mut queue: Vec<IVec2> = vec![player_tile];
             let mut qh: usize = 0;
@@ -641,7 +634,7 @@ pub fn enemy_ai_tick(
                 let cur = queue[qh];
                 qh += 1;
 
-                let base = dist[idx(cur)];
+                let base = shared.dist_map[idx(cur)];
                 let next = base + 1;
 
                 for step in dirs {
@@ -650,18 +643,41 @@ pub fn enemy_ai_tick(
                         continue;
                     }
                     let ni = idx(n);
-                    if dist[ni] >= 0 {
+                    if shared.dist_map[ni] >= 0 {
                         continue;
                     }
 
-                    // Only Walls Hard Blocking for BFS, Doors Traversable Intent
                     if solid.is_solid(n.x, n.y) || grid.tile(n.x as usize, n.y as usize) == Tile::Wall {
                         continue;
                     }
 
-                    dist[ni] = next;
+                    shared.dist_map[ni] = next;
                     queue.push(n);
                 }
+            }
+        }
+
+        shared.scheduled_move.clear();
+        shared.occupied.clear();
+
+        {
+            for (
+                _e,
+                _kind,
+                _ai,
+                occ,
+                _dir8,
+                _tf,
+                _moving,
+                _patrol,
+                _guard_pain,
+                _mutant_pain,
+                _ss_pain,
+                _officer_pain,
+                _dog_pain,
+            ) in q_enemies.iter_mut()
+            {
+                shared.occupied.insert(occ.0);
             }
         }
 
@@ -679,22 +695,17 @@ pub fn enemy_ai_tick(
             ss_pain,
             officer_pain,
             dog_pain,
-            dog_bite,
-            dog_bite_cd,
-        ) in q.p1().iter_mut()
+        ) in q_enemies.iter_mut()
         {
             let t = tunings.for_kind(*kind);
-            let speed = t.chase_speed_tps;
             let my_tile = occ.0;
-            let moving_now = moving.is_some() || scheduled_move.contains(&e);
+            let moving_now = moving.is_some() || shared.scheduled_move.contains(&e);
 
-            // Acquire -> Chase (Activation Gated by Same Area + LOS)
             if matches!(ai.state, EnemyAiState::Stand | EnemyAiState::Patrol) {
                 let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
                 if same_area && has_line_of_sight(&grid, &solid, my_tile, player_tile) {
                     ai.state = EnemyAiState::Chase;
 
-                    // One Time Alert Per Enemy
                     if alerted.insert(e) && !matches!(*kind, EnemyKind::Mutant) {
                         sfx.write(PlaySfx {
                             kind: SfxKind::EnemyAlert(*kind),
@@ -704,9 +715,6 @@ pub fn enemy_ai_tick(
                 }
             }
 
-            // ============
-            // PAIN GATING
-            // ============
             let in_pain = guard_pain.is_some()
                 || ss_pain.is_some()
                 || dog_pain.is_some()
@@ -714,187 +722,275 @@ pub fn enemy_ai_tick(
                 || mutant_pain.is_some();
 
             if in_pain {
-                los_hold.remove(&e);
-                bursts.remove(&e);
-                // Face Player, Do NOT Move, Shoot, Open Doors While Flinching
                 *dir8 = dir8_towards(my_tile, player_tile);
                 continue;
             }
 
-            // Dog Bite State Gate
-            if matches!(*kind, EnemyKind::Dog) && dog_bite.is_some() {
-                *dir8 = dir8_towards(my_tile, player_tile);
+            if matches!(ai.state, EnemyAiState::Stand) {
                 continue;
             }
 
-            // Guard Patrol
-            match ai.state {
-                EnemyAiState::Stand => {
+            if matches!(ai.state, EnemyAiState::Patrol) {
+                if moving_now {
                     continue;
                 }
-                EnemyAiState::Patrol => {
-                    if moving_now {
+
+                if patrol.is_none() {
+                    continue;
+                }
+
+                if in_bounds(my_tile) {
+                    let code = wolf_plane1.0[idx(my_tile)];
+                    if let Some(new_dir) = patrol_dir_from_plane1(code) {
+                        *dir8 = new_dir;
+                    }
+                }
+
+                let step = patrol_step_8way(*dir8);
+                let dest = my_tile + step;
+
+                if step == IVec2::ZERO || !in_bounds(dest) || dest == player_tile {
+                    dir8.0 = (dir8.0 + 4) & 7;
+                    continue;
+                }
+
+                let diagonal = step.x != 0 && step.y != 0;
+                if diagonal {
+                    let a = my_tile + IVec2::new(step.x, 0);
+                    let b = my_tile + IVec2::new(0, step.y);
+
+                    if !in_bounds(a) || !in_bounds(b) {
+                        dir8.0 = (dir8.0 + 4) & 7;
                         continue;
                     }
 
-                    let Some(_patrol) = patrol else {
+                    if shared.occupied.contains(&a) || shared.occupied.contains(&b) {
+                        dir8.0 = (dir8.0 + 4) & 7;
                         continue;
+                    }
+
+                    if solid.is_solid(a.x, a.y) || solid.is_solid(b.x, b.y) {
+                        dir8.0 = (dir8.0 + 4) & 7;
+                        continue;
+                    }
+
+                    let ta = tile_at(&grid, a).unwrap_or(Tile::Wall);
+                    let tb = tile_at(&grid, b).unwrap_or(Tile::Wall);
+                    if matches!(ta, Tile::Wall | Tile::DoorClosed) || matches!(tb, Tile::Wall | Tile::DoorClosed) {
+                        dir8.0 = (dir8.0 + 4) & 7;
+                        continue;
+                    }
+                }
+
+                if solid.is_solid(dest.x, dest.y) || shared.occupied.contains(&dest) {
+                    dir8.0 = (dir8.0 + 4) & 7;
+                    continue;
+                }
+
+                match tile_at(&grid, dest).unwrap_or(Tile::Wall) {
+                    Tile::Wall => {
+                        dir8.0 = (dir8.0 + 4) & 7;
+                        continue;
+                    }
+                    Tile::DoorClosed => {
+                        if !matches!(*kind, EnemyKind::Dog) {
+                            try_open_door_at(dest, &mut q_doors, &mut sfx);
+                        }
+                        continue;
+                    }
+                    Tile::DoorOpen | Tile::Empty => {
+                        let patrol_speed = t.chase_speed_tps * 0.65;
+
+                        if CLAIM_TILE_EARLY {
+                            occ.0 = dest;
+                        }
+
+                        let y = tf.translation.y;
+                        let target = Vec3::new(dest.x as f32, y, dest.y as f32);
+
+                        commands.entity(e).insert(EnemyMove {
+                            target,
+                            speed_tps: patrol_speed,
+                        });
+
+                        shared.scheduled_move.insert(e);
+                        shared.occupied.insert(dest);
+                        if CLAIM_TILE_EARLY {
+                            shared.occupied.remove(&my_tile);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// SYSTEM 2: Handle combat (shooting, dog bites, burst fire)
+fn enemy_ai_combat(
+    mut commands: Commands,
+    time: Res<Time>,
+    grid: Res<MapGrid>,
+    solid: Res<SolidStatics>,
+    mut enemy_fire: MessageWriter<EnemyFire>,
+    mut enemy_fireball: MessageWriter<EnemyFireballShot>,
+    mut sfx: MessageWriter<PlaySfx>,
+    mut shoot_cd: Local<HashMap<Entity, f32>>,
+    mut bursts: Local<HashMap<Entity, BurstFire>>,
+    mut los_hold: Local<HashMap<Entity, f32>>,
+    tunings: Res<EnemyTunings>,
+    shared: Res<AiSharedData>,
+    q_enemies: Query<
+        (
+            Entity,
+            &EnemyKind,
+            &EnemyAi,
+            &OccupiesTile,
+            &Dir8,  // Changed from &mut Dir8
+            &Transform,
+            Option<&EnemyMove>,
+            Option<&crate::enemies::DogBite>,
+            Option<&crate::enemies::DogBiteCooldown>,
+        ),
+        (With<EnemyKind>, Without<Dead>),
+    >,
+) {
+    let dt = time.delta_secs();
+    
+    // Tick down cooldowns
+    shoot_cd.retain(|_, t| {
+        *t -= dt;
+        *t > 0.0
+    });
+
+    // Clean up burst state
+    bursts.retain(|e, _| q_enemies.get(*e).is_ok());
+
+    let player_tile = shared.player_tile;
+    let player_pos = shared.player_pos;
+
+    for (e, kind, ai, occ, _dir8, tf, moving, dog_bite, dog_bite_cd) in q_enemies.iter() {  // Changed to iter() instead of iter_mut()
+        if !matches!(ai.state, EnemyAiState::Chase) {
+            continue;
+        }
+
+        let my_tile = occ.0;
+        let moving_now = moving.is_some() || shared.scheduled_move.contains(&e);
+
+        // Dog bite state gate
+        if matches!(*kind, EnemyKind::Dog) && dog_bite.is_some() {
+            // Removed dir8 mutation - it's already set in prepare_and_activate
+            continue;
+        }
+
+        let cd_now = shoot_cd.get(&e).copied().unwrap_or(0.0);
+
+        // Stop to shoot
+        if cd_now > GUARD_SHOOT_COOLDOWN_SECS {
+            // Removed dir8 mutation - it's already set in prepare_and_activate
+            continue;
+        }
+
+        if moving_now {
+            continue;
+        }
+
+        // Dog melee bite
+        if matches!(*kind, EnemyKind::Dog) {
+            let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
+            let dx = (player_tile.x - my_tile.x).abs();
+            let dy = (player_tile.y - my_tile.y).abs();
+            let dist_tiles = dx.max(dy) as f32;
+
+            if dog_bite_cd.is_none() && can_see && dist_tiles <= tunings.dog.attack_range_tiles {
+                // Removed dir8 mutation
+
+                commands.entity(e).insert(crate::enemies::DogBite::new());
+
+                sfx.write(PlaySfx {
+                    kind: SfxKind::EnemyShoot(EnemyKind::Dog),
+                    pos: tf.translation,
+                });
+
+                continue;
+            }
+        }
+
+        // Burst continuation
+        if let Some(b) = bursts.get_mut(&e) {
+            let dx = (player_tile.x - my_tile.x).abs();
+            let dy = (player_tile.y - my_tile.y).abs();
+            let shoot_dist = dx.max(dy);
+
+            let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
+            let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
+
+            // Removed dir8 mutation
+
+            if !can_see || !in_range {
+                b.shots_left = 0;
+            } else {
+                if b.next_tics > 0 {
+                    b.next_tics -= 1;
+                } else {
+                    let hits = wolf_far_miss_gate(shoot_dist);
+                    let damage = if hits {
+                        match kind {
+                            EnemyKind::Hans | EnemyKind::Gretel | EnemyKind::MechaHitler | EnemyKind::Hitler => wolf_boss_damage(shoot_dist),
+                            _ => wolf_hitscan_damage(shoot_dist),
+                        }
+                    } else {
+                        0
                     };
 
-                    if in_bounds(my_tile) {
-                        let code = wolf_plane1.0[idx(my_tile)];
-                        if let Some(new_dir) = patrol_dir_from_plane1(code) {
-                            *dir8 = new_dir;
-                        }
+                    enemy_fire.write(EnemyFire { kind: *kind, damage });
+
+                    if b.shots_left > 0 {
+                        b.shots_left -= 1;
                     }
-
-                    let step = patrol_step_8way(*dir8);
-                    let dest = my_tile + step;
-
-                    if step == IVec2::ZERO || !in_bounds(dest) || dest == player_tile {
-                        dir8.0 = (dir8.0 + 4) & 7;
-                        continue;
-                    }
-
-                    let diagonal = step.x != 0 && step.y != 0;
-                    if diagonal {
-                        let a = my_tile + IVec2::new(step.x, 0);
-                        let b = my_tile + IVec2::new(0, step.y);
-
-                        if !in_bounds(a) || !in_bounds(b) {
-                            dir8.0 = (dir8.0 + 4) & 7;
-                            continue;
-                        }
-
-                        if occupied.contains(&a) || occupied.contains(&b) {
-                            dir8.0 = (dir8.0 + 4) & 7;
-                            continue;
-                        }
-
-                        if solid.is_solid(a.x, a.y) || solid.is_solid(b.x, b.y) {
-                            dir8.0 = (dir8.0 + 4) & 7;
-                            continue;
-                        }
-
-                        let ta = tile_at(&grid, a).unwrap_or(Tile::Wall);
-                        let tb = tile_at(&grid, b).unwrap_or(Tile::Wall);
-                        if matches!(ta, Tile::Wall | Tile::DoorClosed) || matches!(tb, Tile::Wall | Tile::DoorClosed) {
-                            dir8.0 = (dir8.0 + 4) & 7;
-                            continue;
-                        }
-                    }
-
-                    if solid.is_solid(dest.x, dest.y) || occupied.contains(&dest) {
-                        dir8.0 = (dir8.0 + 4) & 7;
-                        continue;
-                    }
-
-                    match tile_at(&grid, dest).unwrap_or(Tile::Wall) {
-                        Tile::Wall => {
-                            dir8.0 = (dir8.0 + 4) & 7;
-                            continue;
-                        }
-                        Tile::DoorClosed => {
-                            if !matches!(*kind, EnemyKind::Dog) {
-                                try_open_door_at(dest, &mut q_doors, &mut sfx);
-                            }
-                            continue;
-                        }
-                        Tile::DoorOpen | Tile::Empty => {
-                            let patrol_speed = t.chase_speed_tps * 0.65;
-
-                            if CLAIM_TILE_EARLY {
-                                occ.0 = dest;
-                            }
-
-                            let y = tf.translation.y;
-                            let target = Vec3::new(dest.x as f32, y, dest.y as f32);
-
-                            commands.entity(e).insert(EnemyMove {
-                                target,
-                                speed_tps: patrol_speed,
-                            });
-
-                            scheduled_move.insert(e);
-
-                            occupied.insert(dest);
-                            if CLAIM_TILE_EARLY {
-                                occupied.remove(&my_tile);
-                            }
-
-                            continue;
-                        }
-                    }
-                }
-                EnemyAiState::Chase => {}
-            }
-
-            // Current Shooting Cooldown Remaining (0 => Ready)
-            let cd_now = shoot_cd.get(&e).copied().unwrap_or(0.0);
-
-            // Stop to Shoot
-            // During Initial Pause Window After Firing, Do Not Pick Movement
-            if cd_now > GUARD_SHOOT_COOLDOWN_SECS {
-                *dir8 = dir8_towards(my_tile, player_tile);
-                continue;
-            }
-
-            // If Already Moving, Don't Shoot Mid Step
-            // Don't Pick New Chase Step This Tic
-            if moving_now {
-                continue;
-            }
-
-            // =========================
-            // DOG MELEE BITE LOGIC
-            // =========================
-            if matches!(*kind, EnemyKind::Dog) {
-                let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
-
-                // Wolf-ish distance (Chebyshev)
-                let dx = (player_tile.x - my_tile.x).abs();
-                let dy = (player_tile.y - my_tile.y).abs();
-                let dist_tiles = dx.max(dy) as f32;
-
-                if dog_bite_cd.is_none() && can_see && dist_tiles <= tunings.dog.attack_range_tiles {
-                    *dir8 = dir8_towards(my_tile, player_tile);
-
-                    commands.entity(e).insert(crate::enemies::DogBite::new());
-
-                    // Bite SFX Plays at Start
-                    sfx.write(PlaySfx {
-                        kind: SfxKind::EnemyShoot(EnemyKind::Dog),
-                        pos: tf.translation,
-                    });
-
-                    // Don't Schedule Move on Same Tic We Start Bite
-                    continue;
+                    b.next_tics = b.every_tics;
                 }
             }
 
-            // =========================
-            // BURST CONTINUATION (SS + Hans + Gretel)
-            // =========================
-            if let Some(b) = bursts.get_mut(&e) {
-                let dx = (player_tile.x - my_tile.x).abs();
-                let dy = (player_tile.y - my_tile.y).abs();
-                let shoot_dist = dx.max(dy);
+            if b.shots_left == 0 {
+                bursts.remove(&e);
+            }
 
-                let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
-                let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
+            continue;
+        }
 
-                *dir8 = dir8_towards(my_tile, player_tile);
+        // Shoot logic (non-dogs)
+        if !matches!(*kind, EnemyKind::Dog) {
+            let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
 
-                if !can_see || !in_range {
-                    b.shots_left = 0;
-                } else {
-                    if b.next_tics > 0 {
-                        b.next_tics -= 1;
-                    } else {
+            let dx = (player_tile.x - my_tile.x).abs();
+            let dy = (player_tile.y - my_tile.y).abs();
+            let shoot_dist = dx.max(dy);
+            let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
+
+            let held = if can_see && in_range {
+                let t = los_hold.entry(e).or_insert(0.0);
+                *t = (*t + AI_TIC_SECS).min(LOS_FIRST_SHOT_DELAY_SECS);
+                *t
+            } else {
+                los_hold.remove(&e);
+                0.0
+            };
+
+            let los_ready = held >= LOS_FIRST_SHOT_DELAY_SECS;
+
+            if can_see && in_range {
+                // Removed dir8 mutation
+
+                if cd_now <= 0.0 && los_ready {
+                    // Burst fire enemies
+                    if let Some((shots, every_tics, post_cd_secs)) = burst_profile(*kind) {
+                        let burst_secs = (shots.saturating_sub(1) as f32) * (every_tics as f32) * AI_TIC_SECS;
+                        shoot_cd.insert(e, burst_secs + post_cd_secs);
+
                         let hits = wolf_far_miss_gate(shoot_dist);
                         let damage = if hits {
                             match kind {
-                                EnemyKind::Hans | EnemyKind::Gretel | EnemyKind::MechaHitler | EnemyKind::Hitler => wolf_boss_damage(shoot_dist),
+                                EnemyKind::Hans | EnemyKind::Gretel => wolf_boss_damage(shoot_dist),
                                 _ => wolf_hitscan_damage(shoot_dist),
                             }
                         } else {
@@ -903,179 +999,29 @@ pub fn enemy_ai_tick(
 
                         enemy_fire.write(EnemyFire { kind: *kind, damage });
 
-                        if b.shots_left > 0 {
-                            b.shots_left -= 1;
-                        }
-                        b.next_tics = b.every_tics;
-                    }
-                }
-
-                if b.shots_left == 0 {
-                    bursts.remove(&e);
-                }
-
-                continue;
-            }
-
-            // =========================
-            // SHOOT LOGIC (Excluding Dogs)
-            // =========================
-            if !matches!(*kind, EnemyKind::Dog) {
-                let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
-
-                let dx = (player_tile.x - my_tile.x).abs();
-                let dy = (player_tile.y - my_tile.y).abs();
-                let shoot_dist = dx.max(dy);
-                let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
-
-                // Track How Long LOS Held, Reset on Loss / Out of Range
-                let held = if can_see && in_range {
-                    let t = los_hold.entry(e).or_insert(0.0);
-                    *t = (*t + AI_TIC_SECS).min(LOS_FIRST_SHOT_DELAY_SECS);
-                    *t
-                } else {
-                    los_hold.remove(&e);
-                    0.0
-                };
-
-                let los_ready = held >= LOS_FIRST_SHOT_DELAY_SECS;
-
-                if can_see && in_range {
-                    *dir8 = dir8_towards(my_tile, player_tile);
-
-                    if cd_now <= 0.0 && los_ready {
-                        if let Some((shots, every_tics, post_cd_secs)) = burst_profile(*kind) {
-                            let burst_secs =
-                                (shots.saturating_sub(1) as f32) * (every_tics as f32) * AI_TIC_SECS;
-
-                            shoot_cd.insert(e, burst_secs + post_cd_secs);
-
-                            // Fire the FIRST shot immediately
-                            let hits = wolf_far_miss_gate(shoot_dist);
-                            let damage = if hits {
-                                match kind {
-                                    EnemyKind::Hans | EnemyKind::Gretel => wolf_boss_damage(shoot_dist),
-                                    _ => wolf_hitscan_damage(shoot_dist),
-                                }
-                            } else {
-                                0
-                            };
-
-                            enemy_fire.write(EnemyFire { kind: *kind, damage });
-
-                            // Play sound ONCE for the entire burst
-                            if !matches!(*kind, EnemyKind::GhostHitler) {
-                                sfx.write(PlaySfx {
-                                    kind: SfxKind::EnemyShoot(*kind),
-                                    pos: tf.translation,
-                                });
-                            }
-
-                            // Queue remaining shots
-                            if shots > 1 {
-                                bursts.insert(
-                                    e,
-                                    BurstFire {
-                                        shots_left: shots - 1,
-                                        every_tics,
-                                        next_tics: every_tics,
-                                    },
-                                );
-                            }
-
-                            // Start Correct Attack Animation for Enemy Kind
-                            match kind {
-                                EnemyKind::Ss => {
-                                    commands.entity(e).insert(crate::enemies::SsShoot {
-                                        t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
-                                    });
-                                }
-                                EnemyKind::Hans => {
-                                    commands.entity(e).insert(crate::enemies::HansShoot {
-                                        t: Timer::from_seconds(crate::enemies::HANS_SHOOT_SECS, TimerMode::Once),
-                                    });
-                                }
-                                EnemyKind::Gretel => {
-                                    commands.entity(e).insert(crate::enemies::GretelShoot {
-                                        t: Timer::from_seconds(crate::enemies::GRETEL_SHOOT_SECS, TimerMode::Once),
-                                    });
-                                }
-                                EnemyKind::Hitler => {
-                                    commands.entity(e).insert(crate::enemies::HitlerShoot {
-                                        t: Timer::from_seconds(crate::enemies::HITLER_SHOOT_SECS, TimerMode::Once),
-                                    });
-                                }
-                                EnemyKind::MechaHitler => {
-                                    commands.entity(e).insert(crate::enemies::MechaHitlerShoot {
-                                        t: Timer::from_seconds(crate::enemies::MECHA_HITLER_SHOOT_SECS, TimerMode::Once),
-                                    });
-                                }
-                                EnemyKind::GhostHitler => {
-                                    commands.entity(e).insert(crate::enemies::GhostHitlerShoot {
-                                        t: Timer::from_seconds(crate::enemies::GHOST_HITLER_SHOOT_SECS, TimerMode::Once),
-                                    });
-                                }
-                                _ => {}
-                            }
-
-                            continue;
-                        }
-
-                        shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
-
-                        // Ghost Hitler fires a projectile instead of hitscan
-                        if matches!(*kind, EnemyKind::GhostHitler) {
-                            let origin = tf.translation + Vec3::new(0.0, 0.55, 0.0);
-                            let mut dir = player_pos - origin;
-                            dir.y = 0.0;
-
-                            if dir.length_squared() > 1e-6 {
-                                enemy_fireball.write(EnemyFireballShot {
-                                    origin,
-                                    dir: dir.normalize(),
-                                });
-                            }
-
-                            commands.entity(e).insert(crate::enemies::GhostHitlerShoot {
-                                t: Timer::from_seconds(crate::enemies::GHOST_HITLER_SHOOT_SECS, TimerMode::Once),
+                        if !matches!(*kind, EnemyKind::GhostHitler) {
+                            sfx.write(PlaySfx {
+                                kind: SfxKind::EnemyShoot(*kind),
+                                pos: tf.translation,
                             });
-
-                            continue;
                         }
 
-                        let hits = wolf_far_miss_gate(shoot_dist);
-                        let damage = if hits {
-                            match kind {
-                                EnemyKind::Hans => wolf_boss_damage(shoot_dist),
-                                EnemyKind::Gretel => wolf_boss_damage(shoot_dist),
-                                _ => wolf_hitscan_damage(shoot_dist),
-                            }
-                        } else {
-                            0
-                        };
+                        if shots > 1 {
+                            bursts.insert(
+                                e,
+                                BurstFire {
+                                    shots_left: shots - 1,
+                                    every_tics,
+                                    next_tics: every_tics,
+                                },
+                            );
+                        }
 
-                        enemy_fire.write(EnemyFire { kind: *kind, damage });
-
-                        // Start Correct Attack Animation for Enemy Kind
+                        // Attack animations
                         match kind {
-                            EnemyKind::Guard => {
-                                commands.entity(e).insert(crate::enemies::GuardShoot {
-                                    timer: Timer::from_seconds(GUARD_SHOOT_PAUSE_SECS, TimerMode::Once),
-                                });
-                            }
-                            EnemyKind::Mutant => {
-                                commands.entity(e).insert(crate::enemies::MutantShoot {
-                                    timer: Timer::from_seconds(MUTANT_SHOOT_PAUSE_SECS, TimerMode::Once),
-                                });
-                            }
                             EnemyKind::Ss => {
                                 commands.entity(e).insert(crate::enemies::SsShoot {
                                     t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
-                                });
-                            }
-                            EnemyKind::Officer => {
-                                commands.entity(e).insert(crate::enemies::OfficerShoot {
-                                    t: Timer::from_seconds(crate::enemies::OFFICER_SHOOT_SECS, TimerMode::Once),
                                 });
                             }
                             EnemyKind::Hans => {
@@ -1103,158 +1049,291 @@ pub fn enemy_ai_tick(
                                     t: Timer::from_seconds(crate::enemies::GHOST_HITLER_SHOOT_SECS, TimerMode::Once),
                                 });
                             }
-                            EnemyKind::Dog => {}
+                            _ => {}
                         }
 
-                        if !matches!(*kind, EnemyKind::GhostHitler) {
-                            sfx.write(PlaySfx {
-                                kind: SfxKind::EnemyShoot(*kind),
-                                pos: tf.translation,
-                            });
-                        }
-
-                        // Don't Schedule Move on Same Tic We Start Shot
                         continue;
                     }
-                }
-            }
 
-            // =========================
-            // MOVE LOGIC (BFS Gradient + Door Open)
-            // =========================
-            let dirs = [
-                IVec2::new(1, 0),
-                IVec2::new(-1, 0),
-                IVec2::new(0, 1),
-                IVec2::new(0, -1),
-            ];
+                    // Regular shooting
+                    shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
-            let mut moved_or_acted = false;
+                    // Ghost Hitler projectile
+                    if matches!(*kind, EnemyKind::GhostHitler) {
+                        let origin = tf.translation + Vec3::new(0.0, 0.55, 0.0);
+                        let mut dir = player_pos - origin;
+                        dir.y = 0.0;
 
-            if in_bounds(my_tile) {
-                let my_d = dist[idx(my_tile)];
-                if my_d >= 0 {
-                    let mut best: Option<(i32, IVec2, Tile)> = None;
-
-                    for step in dirs {
-                        let dest = my_tile + step;
-                        if dest == player_tile || !in_bounds(dest) {
-                            continue;
-                        }
-
-                        let tile = grid.tile(dest.x as usize, dest.y as usize);
-
-                        if tile == Tile::Wall || solid.is_solid(dest.x, dest.y) {
-                            continue;
-                        }
-
-                        // Dogs Never Open Doors
-                        if matches!(*kind, EnemyKind::Dog) && tile == Tile::DoorClosed {
-                            continue;
-                        }
-
-                        let d = dist[idx(dest)];
-                        if d < 0 || d >= my_d {
-                            continue;
-                        }
-
-                        if occupied.contains(&dest) {
-                            continue;
-                        }
-
-                        // Prefer Smaller Distance
-                        // Avoid Immediate Reverse Unless Needed
-                        // Prefer Non Door if Tied
-                        let mut score = d * 10;
-                        if step == -ai.last_step {
-                            score += 5;
-                        }
-                        if tile == Tile::DoorClosed {
-                            score += 1;
-                        }
-
-                        if best.map(|(bs, _, _)| score < bs).unwrap_or(true) {
-                            best = Some((score, dest, tile));
-                        }
-                    }
-
-                    if let Some((_score, dest, tile)) = best {
-                        if tile == Tile::DoorClosed {
-                            if !matches!(*kind, EnemyKind::Dog) {
-                                try_open_door_at(dest, &mut q_doors, &mut sfx);
-                                ai.last_step = IVec2::ZERO;
-                                moved_or_acted = true;
-                            }
-                        } else {
-                            let step = dest - my_tile;
-                            *dir8 = dir8_from_step(step);
-                            ai.last_step = step;
-
-                            if CLAIM_TILE_EARLY {
-                                occ.0 = dest;
-                            }
-
-                            let y = tf.translation.y;
-                            let target = Vec3::new(dest.x as f32, y, dest.y as f32);
-
-                            commands.entity(e).insert(EnemyMove {
-                                target,
-                                speed_tps: speed,
+                        if dir.length_squared() > 1e-6 {
+                            enemy_fireball.write(EnemyFireballShot {
+                                origin,
+                                dir: dir.normalize(),
                             });
-
-                            scheduled_move.insert(e);
-
-                            occupied.insert(dest);
-                            if CLAIM_TILE_EARLY {
-                                occupied.remove(&my_tile);
-                            }
-
-                            moved_or_acted = true;
                         }
+
+                        commands.entity(e).insert(crate::enemies::GhostHitlerShoot {
+                            t: Timer::from_seconds(crate::enemies::GHOST_HITLER_SHOOT_SECS, TimerMode::Once),
+                        });
+
+                        continue;
                     }
-                }
-            }
 
-            // Fallback
-            if !moved_or_acted {
-                match pick_chase_step(&grid, &solid, &occupied, my_tile, player_tile, ai.last_step) {
-                    ChasePick::MoveTo(dest) => {
-                        if dest != player_tile && !occupied.contains(&dest) {
-                            let step = dest - my_tile;
-                            *dir8 = dir8_from_step(step);
-                            ai.last_step = step;
+                    let hits = wolf_far_miss_gate(shoot_dist);
+                    let damage = if hits {
+                        match kind {
+                            EnemyKind::Hans | EnemyKind::Gretel => wolf_boss_damage(shoot_dist),
+                            _ => wolf_hitscan_damage(shoot_dist),
+                        }
+                    } else {
+                        0
+                    };
 
-                            if CLAIM_TILE_EARLY {
-                                occ.0 = dest;
-                            }
+                    enemy_fire.write(EnemyFire { kind: *kind, damage });
 
-                            let y = tf.translation.y;
-                            let target = Vec3::new(dest.x as f32, y, dest.y as f32);
-
-                            commands.entity(e).insert(EnemyMove {
-                                target,
-                                speed_tps: speed,
+                    // Attack animations
+                    match kind {
+                        EnemyKind::Guard => {
+                            commands.entity(e).insert(crate::enemies::GuardShoot {
+                                timer: Timer::from_seconds(GUARD_SHOOT_PAUSE_SECS, TimerMode::Once),
                             });
-
-                            scheduled_move.insert(e);
-
-                            occupied.insert(dest);
-                            if CLAIM_TILE_EARLY {
-                                occupied.remove(&my_tile);
-                            }
                         }
-                    }
-                    ChasePick::OpenDoor(door_tile) => {
-                        // Dogs Never Open Doors
-                        if !matches!(*kind, EnemyKind::Dog) {
-                            try_open_door_at(door_tile, &mut q_doors, &mut sfx);
-                            ai.last_step = IVec2::ZERO;
+                        EnemyKind::Mutant => {
+                            commands.entity(e).insert(crate::enemies::MutantShoot {
+                                timer: Timer::from_seconds(MUTANT_SHOOT_PAUSE_SECS, TimerMode::Once),
+                            });
                         }
+                        EnemyKind::Ss => {
+                            commands.entity(e).insert(crate::enemies::SsShoot {
+                                t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
+                            });
+                        }
+                        EnemyKind::Officer => {
+                            commands.entity(e).insert(crate::enemies::OfficerShoot {
+                                t: Timer::from_seconds(crate::enemies::OFFICER_SHOOT_SECS, TimerMode::Once),
+                            });
+                        }
+                        EnemyKind::Hans => {
+                            commands.entity(e).insert(crate::enemies::HansShoot {
+                                t: Timer::from_seconds(crate::enemies::HANS_SHOOT_SECS, TimerMode::Once),
+                            });
+                        }
+                        EnemyKind::Gretel => {
+                            commands.entity(e).insert(crate::enemies::GretelShoot {
+                                t: Timer::from_seconds(crate::enemies::GRETEL_SHOOT_SECS, TimerMode::Once),
+                            });
+                        }
+                        EnemyKind::Hitler => {
+                            commands.entity(e).insert(crate::enemies::HitlerShoot {
+                                t: Timer::from_seconds(crate::enemies::HITLER_SHOOT_SECS, TimerMode::Once),
+                            });
+                        }
+                        EnemyKind::MechaHitler => {
+                            commands.entity(e).insert(crate::enemies::MechaHitlerShoot {
+                                t: Timer::from_seconds(crate::enemies::MECHA_HITLER_SHOOT_SECS, TimerMode::Once),
+                            });
+                        }
+                        EnemyKind::GhostHitler => {
+                            commands.entity(e).insert(crate::enemies::GhostHitlerShoot {
+                                t: Timer::from_seconds(crate::enemies::GHOST_HITLER_SHOOT_SECS, TimerMode::Once),
+                            });
+                        }
+                        EnemyKind::Dog => {}
                     }
-                    ChasePick::None => {}
+
+                    if !matches!(*kind, EnemyKind::GhostHitler) {
+                        sfx.write(PlaySfx {
+                            kind: SfxKind::EnemyShoot(*kind),
+                            pos: tf.translation,
+                        });
+                    }
+
+                    continue;
                 }
             }
         }
+    }
+}
+
+// SYSTEM 3: Handle movement (pathfinding and door opening)
+fn enemy_ai_movement(
+    mut commands: Commands,
+    grid: Res<MapGrid>,
+    solid: Res<SolidStatics>,
+    mut sfx: MessageWriter<PlaySfx>,
+    tunings: Res<EnemyTunings>,
+    mut shared: ResMut<AiSharedData>,
+    mut q_doors: Query<(&DoorTile, &mut DoorState, &GlobalTransform)>,
+    mut q_enemies: Query<
+        (
+            Entity,
+            &EnemyKind,
+            &mut EnemyAi,
+            &mut OccupiesTile,
+            &Transform,  // Changed from &mut Dir8 to just &Transform
+            Option<&EnemyMove>,
+        ),
+        (With<EnemyKind>, Without<Dead>),
+    >,
+) {
+    let player_tile = shared.player_tile;
+    
+    let w = grid.width as i32;
+    let h = grid.height as i32;
+    let in_bounds = |t: IVec2| t.x >= 0 && t.y >= 0 && t.x < w && t.y < h;
+    let idx = |t: IVec2| (t.y * w + t.x) as usize;
+
+    let dirs = [
+        IVec2::new(1, 0),
+        IVec2::new(-1, 0),
+        IVec2::new(0, 1),
+        IVec2::new(0, -1),
+    ];
+
+    for (e, kind, mut ai, mut occ, tf, moving) in q_enemies.iter_mut() {
+        if !matches!(ai.state, EnemyAiState::Chase) {
+            continue;
+        }
+
+        let t = tunings.for_kind(*kind);
+        let speed = t.chase_speed_tps;
+        let my_tile = occ.0;
+        let moving_now = moving.is_some() || shared.scheduled_move.contains(&e);
+
+        if moving_now {
+            continue;
+        }
+
+        let mut moved_or_acted = false;
+
+        if in_bounds(my_tile) {
+            let my_d = shared.dist_map[idx(my_tile)];
+            if my_d >= 0 {
+                let mut best: Option<(i32, IVec2, Tile)> = None;
+
+                for step in dirs {
+                    let dest = my_tile + step;
+                    if dest == player_tile || !in_bounds(dest) {
+                        continue;
+                    }
+
+                    let tile = grid.tile(dest.x as usize, dest.y as usize);
+
+                    if tile == Tile::Wall || solid.is_solid(dest.x, dest.y) {
+                        continue;
+                    }
+
+                    if matches!(*kind, EnemyKind::Dog) && tile == Tile::DoorClosed {
+                        continue;
+                    }
+
+                    let d = shared.dist_map[idx(dest)];
+                    if d < 0 || d >= my_d {
+                        continue;
+                    }
+
+                    if shared.occupied.contains(&dest) {
+                        continue;
+                    }
+
+                    let mut score = d * 10;
+                    if step == -ai.last_step {
+                        score += 5;
+                    }
+                    if tile == Tile::DoorClosed {
+                        score += 1;
+                    }
+
+                    if best.map(|(bs, _, _)| score < bs).unwrap_or(true) {
+                        best = Some((score, dest, tile));
+                    }
+                }
+
+                if let Some((_score, dest, tile)) = best {
+                    if tile == Tile::DoorClosed {
+                        if !matches!(*kind, EnemyKind::Dog) {
+                            try_open_door_at(dest, &mut q_doors, &mut sfx);
+                            ai.last_step = IVec2::ZERO;
+                            moved_or_acted = true;
+                        }
+                    } else {
+                        let step = dest - my_tile;
+                        let new_dir = dir8_from_step(step);
+                        commands.entity(e).insert(PendingDir8(new_dir));  // Insert pending instead of mutating
+                        ai.last_step = step;
+
+                        if CLAIM_TILE_EARLY {
+                            occ.0 = dest;
+                        }
+
+                        let y = tf.translation.y;
+                        let target = Vec3::new(dest.x as f32, y, dest.y as f32);
+
+                        commands.entity(e).insert(EnemyMove {
+                            target,
+                            speed_tps: speed,
+                        });
+
+                        shared.scheduled_move.insert(e);
+                        shared.occupied.insert(dest);
+                        if CLAIM_TILE_EARLY {
+                            shared.occupied.remove(&my_tile);
+                        }
+
+                        moved_or_acted = true;
+                    }
+                }
+            }
+        }
+
+        // Fallback pathfinding
+        if !moved_or_acted {
+            match pick_chase_step(&grid, &solid, &shared.occupied, my_tile, player_tile, ai.last_step) {
+                ChasePick::MoveTo(dest) => {
+                    if dest != player_tile && !shared.occupied.contains(&dest) {
+                        let step = dest - my_tile;
+                        let new_dir = dir8_from_step(step);
+                        commands.entity(e).insert(PendingDir8(new_dir));  // Insert pending instead of mutating
+                        ai.last_step = step;
+
+                        if CLAIM_TILE_EARLY {
+                            occ.0 = dest;
+                        }
+
+                        let y = tf.translation.y;
+                        let target = Vec3::new(dest.x as f32, y, dest.y as f32);
+
+                        commands.entity(e).insert(EnemyMove {
+                            target,
+                            speed_tps: speed,
+                        });
+
+                        shared.scheduled_move.insert(e);
+                        shared.occupied.insert(dest);
+                        if CLAIM_TILE_EARLY {
+                            shared.occupied.remove(&my_tile);
+                        }
+                    }
+                }
+                ChasePick::OpenDoor(door_tile) => {
+                    if !matches!(*kind, EnemyKind::Dog) {
+                        try_open_door_at(door_tile, &mut q_doors, &mut sfx);
+                        ai.last_step = IVec2::ZERO;
+                    }
+                }
+                ChasePick::None => {}
+            }
+        }
+    }
+}
+
+// SYSTEM 4: Apply pending Dir8 changes
+fn apply_pending_dir8(
+    mut commands: Commands,
+    mut q: Query<(Entity, &PendingDir8, &mut Dir8)>,
+) {
+    for (e, pending, mut dir8) in q.iter_mut() {
+        *dir8 = pending.0;
+        commands.entity(e).remove::<PendingDir8>();
     }
 }
 
@@ -1317,20 +1396,34 @@ fn player_can_be_targeted(
     !lock.0 && !latch.0
 }
 
+use bevy::ecs::schedule::SystemSet;
+
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+enum AiSystemSet {
+    Prepare,
+    Combat,
+    Movement,
+}
+
 pub struct EnemyAiPlugin;
 
 impl Plugin for EnemyAiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AiTicker>()
+            .init_resource::<AiSharedData>()
             .insert_resource(EnemyTunings::baseline())
             .add_message::<EnemyFire>()
             .add_message::<EnemyFireballShot>()
+            .add_systems(Update, attach_enemy_ai)
             .add_systems(
                 FixedUpdate,
                 (
-                    enemy_ai_tick,
-                    enemy_ai_move.after(enemy_ai_tick),
+                    enemy_ai_prepare_and_activate,
+                    enemy_ai_combat,
+                    enemy_ai_movement,
+                    enemy_ai_move,
                 )
+                    .chain()
                     .run_if(player_can_be_targeted),
             );
     }

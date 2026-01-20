@@ -96,10 +96,12 @@ pub fn setup_projectile_assets(
 	asset_server: Res<AssetServer>,
 	mut meshes: ResMut<Assets<Mesh>>,
 ) {
-	let fireball_0: Handle<Image> =
-		asset_server.load("textures/enemies/fake_hitler/ghost_hitler_fireball_0.png");
-	let fireball_1: Handle<Image> =
-		asset_server.load("textures/enemies/fake_hitler/ghost_hitler_fireball_1.png");
+	let fireball_0: Handle<Image> = asset_server.load(
+		"enemies/ghost_hitler/fake_hitler_fireball_0.png",
+	);
+	let fireball_1: Handle<Image> = asset_server.load(
+		"enemies/ghost_hitler/fake_hitler_fireball_1.png",
+	);
 
 	let (w, h) = kind_size(ProjectileKind::Fireball);
 	let quad = meshes.add(Rectangle::new(w, h));
@@ -237,7 +239,7 @@ pub fn tick_projectiles(
 	grid: Option<Res<MapGrid>>,
 	solid: Option<Res<SolidStatics>>,
 	god: Option<Res<GodMode>>,
-	mut q_player: Query<(&Transform, &mut PlayerVitals), With<Player>>,
+	mut q_player: Query<(&Transform, &mut PlayerVitals), (With<Player>, Without<Projectile>)>,
 	mut q: Query<(Entity, &mut Transform, &Projectile)>,
 ) {
 	let Some(grid) = grid else { return; };
@@ -289,7 +291,7 @@ pub fn update_projectile_views(
 	time: Res<Time>,
 	assets: Option<Res<ProjectileAssets>>,
 	mut mats: ResMut<Assets<StandardMaterial>>,
-	q_player: Query<&Transform, With<Player>>,
+	q_player: Query<&Transform, (With<Player>, Without<ProjectileView>)>,
 	mut q: Query<(&mut Transform, &mut Projectile, &ProjectileView)>,
 ) {
 	let Some(assets) = assets else { return; };
