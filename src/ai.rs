@@ -45,6 +45,12 @@ pub struct EnemyFire {
     pub damage: i32,
 }
 
+#[derive(Clone, Copy, Debug, Message)]
+pub struct EnemyFireballShot {
+    pub origin: Vec3,
+    pub dir: Vec3,
+}
+
 #[derive(Component, Debug, Clone, Copy)]
 pub struct EnemyAi {
     pub state: EnemyAiState,
@@ -525,6 +531,7 @@ pub fn enemy_ai_tick(
     mut sfx: MessageWriter<PlaySfx>,
     mut los_hold: Local<HashMap<Entity, f32>>,
     mut enemy_fire: MessageWriter<EnemyFire>,
+    mut enemy_fireball: MessageWriter<EnemyFireballShot>,
     mut shoot_cd: Local<HashMap<Entity, f32>>,
     mut bursts: Local<HashMap<Entity, BurstFire>>,
     mut alerted: Local<HashSet<Entity>>,
@@ -894,11 +901,7 @@ pub fn enemy_ai_tick(
                             0
                         };
 
-                        // ADD THIS BACK - Apply damage for each burst shot
                         enemy_fire.write(EnemyFire { kind: *kind, damage });
-
-                        // KEEP THIS REMOVED - Don't play sound on each shot
-                        // sfx.write(PlaySfx { ... });
 
                         if b.shots_left > 0 {
                             b.shots_left -= 1;
@@ -961,10 +964,12 @@ pub fn enemy_ai_tick(
                             enemy_fire.write(EnemyFire { kind: *kind, damage });
 
                             // Play sound ONCE for the entire burst
-                            sfx.write(PlaySfx {
-                                kind: SfxKind::EnemyShoot(*kind),
-                                pos: tf.translation,
-                            });
+                            if !matches!(*kind, EnemyKind::GhostHitler) {
+                                sfx.write(PlaySfx {
+                                    kind: SfxKind::EnemyShoot(*kind),
+                                    pos: tf.translation,
+                                });
+                            }
 
                             // Queue remaining shots
                             if shots > 1 {
@@ -1017,6 +1022,26 @@ pub fn enemy_ai_tick(
                         }
 
                         shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
+
+                        // Ghost Hitler fires a projectile instead of hitscan
+                        if matches!(*kind, EnemyKind::GhostHitler) {
+                            let origin = tf.translation + Vec3::new(0.0, 0.55, 0.0);
+                            let mut dir = player_pos - origin;
+                            dir.y = 0.0;
+
+                            if dir.length_squared() > 1e-6 {
+                                enemy_fireball.write(EnemyFireballShot {
+                                    origin,
+                                    dir: dir.normalize(),
+                                });
+                            }
+
+                            commands.entity(e).insert(crate::enemies::GhostHitlerShoot {
+                                t: Timer::from_seconds(crate::enemies::GHOST_HITLER_SHOOT_SECS, TimerMode::Once),
+                            });
+
+                            continue;
+                        }
 
                         let hits = wolf_far_miss_gate(shoot_dist);
                         let damage = if hits {
@@ -1081,10 +1106,12 @@ pub fn enemy_ai_tick(
                             EnemyKind::Dog => {}
                         }
 
-                        sfx.write(PlaySfx {
-                            kind: SfxKind::EnemyShoot(*kind),
-                            pos: tf.translation,
-                        });
+                        if !matches!(*kind, EnemyKind::GhostHitler) {
+                            sfx.write(PlaySfx {
+                                kind: SfxKind::EnemyShoot(*kind),
+                                pos: tf.translation,
+                            });
+                        }
 
                         // Don't Schedule Move on Same Tic We Start Shot
                         continue;
@@ -1297,11 +1324,13 @@ impl Plugin for EnemyAiPlugin {
         app.init_resource::<AiTicker>()
             .insert_resource(EnemyTunings::baseline())
             .add_message::<EnemyFire>()
-            .add_systems(Update, attach_enemy_ai)
+            .add_message::<EnemyFireballShot>()
             .add_systems(
                 FixedUpdate,
-                (enemy_ai_tick, enemy_ai_move)
-                    .chain()
+                (
+                    enemy_ai_tick,
+                    enemy_ai_move.after(enemy_ai_tick),
+                )
                     .run_if(player_can_be_targeted),
             );
     }

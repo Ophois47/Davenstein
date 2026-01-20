@@ -56,6 +56,7 @@ impl Plugin for CombatPlugin {
             .add_systems(
                 FixedUpdate,
                 (
+                    process_enemy_fireball_shots,
                     projectiles::spawn_projectiles,
                     ApplyDeferred,
                     projectiles::tick_projectiles,
@@ -87,6 +88,19 @@ impl WeaponSlot {
             KeyCode::Digit4 => Some(Self::Chaingun),
             _ => None,
         }
+    }
+}
+
+fn process_enemy_fireball_shots(
+    mut fireballs: MessageReader<davelib::ai::EnemyFireballShot>,
+    mut spawn: MessageWriter<projectiles::SpawnProjectile>,
+) {
+    for fb in fireballs.read() {
+        spawn.write(projectiles::SpawnProjectile {
+            kind: projectiles::ProjectileKind::Fireball,
+            origin: fb.origin,
+            dir: fb.dir,
+        });
     }
 }
 
