@@ -152,6 +152,7 @@ struct AiSharedData {
     player_area: Option<i32>,
 }
 
+#[allow(dead_code)]
 fn burst_profile(kind: EnemyKind) -> Option<(u8, u32, f32)> {
     match kind {
         EnemyKind::Ss => Some((5, 6, 0.35)),
@@ -845,7 +846,7 @@ fn enemy_ai_combat(
             &EnemyKind,
             &EnemyAi,
             &OccupiesTile,
-            &Dir8,  // Changed from &mut Dir8
+            &Dir8,
             &Transform,
             Option<&EnemyMove>,
             Option<&crate::enemies::DogBite>,
@@ -855,20 +856,18 @@ fn enemy_ai_combat(
     >,
 ) {
     let dt = time.delta_secs();
-    
-    // Tick down cooldowns
+
     shoot_cd.retain(|_, t| {
         *t -= dt;
         *t > 0.0
     });
 
-    // Clean up burst state
     bursts.retain(|e, _| q_enemies.get(*e).is_ok());
 
     let player_tile = shared.player_tile;
     let player_pos = shared.player_pos;
 
-    for (e, kind, ai, occ, _dir8, tf, moving, dog_bite, dog_bite_cd) in q_enemies.iter() {  // Changed to iter() instead of iter_mut()
+    for (e, kind, ai, occ, _dir8, tf, moving, dog_bite, dog_bite_cd) in q_enemies.iter() {
         if !matches!(ai.state, EnemyAiState::Chase) {
             continue;
         }
@@ -876,46 +875,9 @@ fn enemy_ai_combat(
         let my_tile = occ.0;
         let moving_now = moving.is_some() || shared.scheduled_move.contains(&e);
 
-        // Dog bite state gate
-        if matches!(*kind, EnemyKind::Dog) && dog_bite.is_some() {
-            // Removed dir8 mutation - it's already set in prepare_and_activate
-            continue;
-        }
-
         let cd_now = shoot_cd.get(&e).copied().unwrap_or(0.0);
 
-        // Stop to shoot
-        if cd_now > GUARD_SHOOT_COOLDOWN_SECS {
-            // Removed dir8 mutation - it's already set in prepare_and_activate
-            continue;
-        }
-
-        if moving_now {
-            continue;
-        }
-
-        // Dog melee bite
-        if matches!(*kind, EnemyKind::Dog) {
-            let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
-            let dx = (player_tile.x - my_tile.x).abs();
-            let dy = (player_tile.y - my_tile.y).abs();
-            let dist_tiles = dx.max(dy) as f32;
-
-            if dog_bite_cd.is_none() && can_see && dist_tiles <= tunings.dog.attack_range_tiles {
-                // Removed dir8 mutation
-
-                commands.entity(e).insert(crate::enemies::DogBite::new());
-
-                sfx.write(PlaySfx {
-                    kind: SfxKind::EnemyShoot(EnemyKind::Dog),
-                    pos: tf.translation,
-                });
-
-                continue;
-            }
-        }
-
-        // Burst continuation
+        // Burst continuation must run even while cd is active
         if let Some(b) = bursts.get_mut(&e) {
             let dx = (player_tile.x - my_tile.x).abs();
             let dy = (player_tile.y - my_tile.y).abs();
@@ -924,25 +886,40 @@ fn enemy_ai_combat(
             let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
             let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
 
-            // Removed dir8 mutation
-
             if !can_see || !in_range {
                 b.shots_left = 0;
             } else {
                 if b.next_tics > 0 {
                     b.next_tics -= 1;
                 } else {
-                    let hits = wolf_far_miss_gate(shoot_dist);
-                    let damage = if hits {
-                        match kind {
-                            EnemyKind::Hans | EnemyKind::Gretel | EnemyKind::MechaHitler | EnemyKind::Hitler => wolf_boss_damage(shoot_dist),
-                            _ => wolf_hitscan_damage(shoot_dist),
+                    // Ghost Hitler uses projectile volleys, everyone else stays hitscan
+                    if matches!(*kind, EnemyKind::GhostHitler) {
+                        let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
+                        let mut dir = player_pos - origin;
+                        dir.y = 0.0;
+
+                        if dir.length_squared() > 1e-6 {
+                            enemy_fireball.write(EnemyFireballShot {
+                                origin,
+                                dir: dir.normalize(),
+                            });
                         }
                     } else {
-                        0
-                    };
+                        let hits = wolf_far_miss_gate(shoot_dist);
+                        let damage = if hits {
+                            match kind {
+                                EnemyKind::Hans
+                                | EnemyKind::Gretel
+                                | EnemyKind::MechaHitler
+                                | EnemyKind::Hitler => wolf_boss_damage(shoot_dist),
+                                _ => wolf_hitscan_damage(shoot_dist),
+                            }
+                        } else {
+                            0
+                        };
 
-                    enemy_fire.write(EnemyFire { kind: *kind, damage });
+                        enemy_fire.write(EnemyFire { kind: *kind, damage });
+                    }
 
                     if b.shots_left > 0 {
                         b.shots_left -= 1;
@@ -956,6 +933,40 @@ fn enemy_ai_combat(
             }
 
             continue;
+        }
+
+        // Dog bite state gate
+        if matches!(*kind, EnemyKind::Dog) && dog_bite.is_some() {
+            continue;
+        }
+
+        // Stop to shoot gate
+        if cd_now > GUARD_SHOOT_COOLDOWN_SECS {
+            continue;
+        }
+
+        // Start attacks only when not moving
+        if moving_now {
+            continue;
+        }
+
+        // Dog melee bite
+        if matches!(*kind, EnemyKind::Dog) {
+            let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
+            let dx = (player_tile.x - my_tile.x).abs();
+            let dy = (player_tile.y - my_tile.y).abs();
+            let dist_tiles = dx.max(dy) as f32;
+
+            if dog_bite_cd.is_none() && can_see && dist_tiles <= tunings.dog.attack_range_tiles {
+                commands.entity(e).insert(crate::enemies::DogBite::new());
+
+                sfx.write(PlaySfx {
+                    kind: SfxKind::EnemyShoot(EnemyKind::Dog),
+                    pos: tf.translation,
+                });
+
+                continue;
+            }
         }
 
         // Shoot logic (non-dogs)
@@ -979,87 +990,14 @@ fn enemy_ai_combat(
             let los_ready = held >= LOS_FIRST_SHOT_DELAY_SECS;
 
             if can_see && in_range {
-                // Removed dir8 mutation
-
                 if cd_now <= 0.0 && los_ready {
-                    // Burst fire enemies
-                    if let Some((shots, every_tics, post_cd_secs)) = burst_profile(*kind) {
-                        let burst_secs = (shots.saturating_sub(1) as f32) * (every_tics as f32) * AI_TIC_SECS;
-                        shoot_cd.insert(e, burst_secs + post_cd_secs);
-
-                        let hits = wolf_far_miss_gate(shoot_dist);
-                        let damage = if hits {
-                            match kind {
-                                EnemyKind::Hans | EnemyKind::Gretel => wolf_boss_damage(shoot_dist),
-                                _ => wolf_hitscan_damage(shoot_dist),
-                            }
-                        } else {
-                            0
-                        };
-
-                        enemy_fire.write(EnemyFire { kind: *kind, damage });
-
-                        if !matches!(*kind, EnemyKind::GhostHitler) {
-                            sfx.write(PlaySfx {
-                                kind: SfxKind::EnemyShoot(*kind),
-                                pos: tf.translation,
-                            });
-                        }
-
-                        if shots > 1 {
-                            bursts.insert(
-                                e,
-                                BurstFire {
-                                    shots_left: shots - 1,
-                                    every_tics,
-                                    next_tics: every_tics,
-                                },
-                            );
-                        }
-
-                        // Attack animations
-                        match kind {
-                            EnemyKind::Ss => {
-                                commands.entity(e).insert(crate::enemies::SsShoot {
-                                    t: Timer::from_seconds(crate::enemies::SS_SHOOT_SECS, TimerMode::Once),
-                                });
-                            }
-                            EnemyKind::Hans => {
-                                commands.entity(e).insert(crate::enemies::HansShoot {
-                                    t: Timer::from_seconds(crate::enemies::HANS_SHOOT_SECS, TimerMode::Once),
-                                });
-                            }
-                            EnemyKind::Gretel => {
-                                commands.entity(e).insert(crate::enemies::GretelShoot {
-                                    t: Timer::from_seconds(crate::enemies::GRETEL_SHOOT_SECS, TimerMode::Once),
-                                });
-                            }
-                            EnemyKind::Hitler => {
-                                commands.entity(e).insert(crate::enemies::HitlerShoot {
-                                    t: Timer::from_seconds(crate::enemies::HITLER_SHOOT_SECS, TimerMode::Once),
-                                });
-                            }
-                            EnemyKind::MechaHitler => {
-                                commands.entity(e).insert(crate::enemies::MechaHitlerShoot {
-                                    t: Timer::from_seconds(crate::enemies::MECHA_HITLER_SHOOT_SECS, TimerMode::Once),
-                                });
-                            }
-                            EnemyKind::GhostHitler => {
-                                commands.entity(e).insert(crate::enemies::GhostHitlerShoot {
-                                    t: Timer::from_seconds(crate::enemies::GHOST_HITLER_SHOOT_SECS, TimerMode::Once),
-                                });
-                            }
-                            _ => {}
-                        }
-
-                        continue;
-                    }
-
-                    // Regular shooting
-                    shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
-
-                    // Ghost Hitler projectile
+                    // Ghost Hitler projectile volley
                     if matches!(*kind, EnemyKind::GhostHitler) {
+                        // Tune these until it visually matches DOS Wolf3D
+                        let shots = 14;
+                        let every_tics = 2;
+                        let post_cd_secs = 0.95;
+
                         let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
                         let mut dir = player_pos - origin;
                         dir.y = 0.0;
@@ -1069,6 +1007,23 @@ fn enemy_ai_combat(
                                 origin,
                                 dir: dir.normalize(),
                             });
+
+                            if shots > 1 {
+                                bursts.insert(
+                                    e,
+                                    BurstFire {
+                                        shots_left: shots - 1,
+                                        every_tics,
+                                        next_tics: every_tics,
+                                    },
+                                );
+                            }
+
+                            let burst_secs =
+                                ((shots.saturating_sub(1)) as f32) * (every_tics as f32) * AI_TIC_SECS;
+                            shoot_cd.insert(e, burst_secs + post_cd_secs);
+                        } else {
+                            shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
                         }
 
                         commands.entity(e).insert(crate::enemies::GhostHitlerShoot {
@@ -1077,6 +1032,9 @@ fn enemy_ai_combat(
 
                         continue;
                     }
+
+                    // Regular hitscan shooting
+                    shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
                     let hits = wolf_far_miss_gate(shoot_dist);
                     let damage = if hits {
@@ -1090,7 +1048,6 @@ fn enemy_ai_combat(
 
                     enemy_fire.write(EnemyFire { kind: *kind, damage });
 
-                    // Attack animations
                     match kind {
                         EnemyKind::Guard => {
                             commands.entity(e).insert(crate::enemies::GuardShoot {
@@ -1140,12 +1097,10 @@ fn enemy_ai_combat(
                         EnemyKind::Dog => {}
                     }
 
-                    if !matches!(*kind, EnemyKind::GhostHitler) {
-                        sfx.write(PlaySfx {
-                            kind: SfxKind::EnemyShoot(*kind),
-                            pos: tf.translation,
-                        });
-                    }
+                    sfx.write(PlaySfx {
+                        kind: SfxKind::EnemyShoot(*kind),
+                        pos: tf.translation,
+                    });
 
                     continue;
                 }
@@ -1396,15 +1351,6 @@ fn player_can_be_targeted(
     !lock.0 && !latch.0
 }
 
-use bevy::ecs::schedule::SystemSet;
-
-#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-enum AiSystemSet {
-    Prepare,
-    Combat,
-    Movement,
-}
-
 pub struct EnemyAiPlugin;
 
 impl Plugin for EnemyAiPlugin {
@@ -1421,6 +1367,7 @@ impl Plugin for EnemyAiPlugin {
                     enemy_ai_prepare_and_activate,
                     enemy_ai_combat,
                     enemy_ai_movement,
+                    apply_pending_dir8,
                     enemy_ai_move,
                 )
                     .chain()

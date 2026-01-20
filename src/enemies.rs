@@ -186,10 +186,10 @@ impl EnemyTunings {
             ghost_hitler: EnemyTuning {
                 max_hp: GHOST_HITLER_MAX_HP,
                 wander_speed_tps: 0.0,
-                chase_speed_tps: 1.3,
+                chase_speed_tps: 0.6,
                 can_shoot: true,
                 attack_damage: 60,
-                attack_cooldown_secs: 0.65,
+                attack_cooldown_secs: 0.85,
                 attack_range_tiles: 12.0,
                 reaction_time_secs: 0.30,
             },
@@ -644,11 +644,11 @@ impl FromWorld for DogSprites {
 }
 
 // --- BOSSES ---
-pub(crate) const HANS_SHOOT_SECS: f32 = 0.35;
-pub(crate) const GRETEL_SHOOT_SECS: f32 = 0.35;
-pub(crate) const HITLER_SHOOT_SECS: f32 = 0.35;
-pub(crate) const MECHA_HITLER_SHOOT_SECS: f32 = 0.35;
-pub(crate) const GHOST_HITLER_SHOOT_SECS: f32 = 0.45;
+pub(crate) const HANS_SHOOT_SECS: f32 = 0.25;
+pub(crate) const GRETEL_SHOOT_SECS: f32 = 0.25;
+pub(crate) const HITLER_SHOOT_SECS: f32 = 0.25;
+pub(crate) const MECHA_HITLER_SHOOT_SECS: f32 = 0.25;
+pub(crate) const GHOST_HITLER_SHOOT_SECS: f32 = 0.25;
 
 #[derive(Component)]
 pub struct Hans;

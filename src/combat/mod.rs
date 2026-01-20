@@ -94,11 +94,6 @@ fn process_enemy_fireball_shots(
     mut spawn: MessageWriter<projectiles::SpawnProjectile>,
 ) {
     for fb in fireballs.read() {
-        info!(
-            "EnemyFireballShot received origin={:?} dir={:?}",
-            fb.origin, fb.dir
-        );
-
         spawn.write(projectiles::SpawnProjectile {
             kind: projectiles::ProjectileKind::Fireball,
             origin: fb.origin,

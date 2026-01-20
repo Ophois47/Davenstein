@@ -12,7 +12,9 @@ use davelib::player::{GodMode, Player, PlayerVitals};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ProjectileKind {
 	Fireball,
+	#[allow(dead_code)]
 	Rocket,
+	#[allow(dead_code)]
 	Syringe,
 }
 
@@ -26,7 +28,6 @@ pub struct SpawnProjectile {
 #[derive(Resource)]
 pub struct ProjectileAssets {
 	pub quad: Handle<Mesh>,
-
 	pub fireball_0: Handle<Image>,
 	pub fireball_1: Handle<Image>,
 }
@@ -47,7 +48,7 @@ pub struct ProjectileView {
 
 fn kind_speed(kind: ProjectileKind) -> f32 {
 	match kind {
-		ProjectileKind::Fireball => 6.5,
+		ProjectileKind::Fireball => 1.6,
 		ProjectileKind::Rocket => 8.5,
 		ProjectileKind::Syringe => 8.5,
 	}
@@ -118,7 +119,7 @@ pub fn spawn_projectiles(
 ) {
 	let Some(assets) = assets else { return; };
 
-	const FIREBALL_SCALE: f32 = 2.25;
+	const FIREBALL_SCALE: f32 = 3.5;
 
 	for e in ev.read() {
 		let dir = Vec3::new(e.dir.x, 0.0, e.dir.z);
@@ -150,7 +151,7 @@ pub fn spawn_projectiles(
 			..default()
 		});
 
-		let id = commands
+		let _id = commands
 			.spawn((
 				Projectile {
 					kind: e.kind,
@@ -165,11 +166,6 @@ pub fn spawn_projectiles(
 				Transform::from_translation(e.origin).with_scale(Vec3::new(w, h, 1.0)),
 			))
 			.id();
-
-		info!(
-			"SpawnProjectile spawned id={:?} kind={:?} origin={:?} dir={:?}",
-			id, e.kind, e.origin, dir
-		);
 	}
 }
 
