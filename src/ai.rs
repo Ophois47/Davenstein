@@ -1060,7 +1060,7 @@ fn enemy_ai_combat(
 
                     // Ghost Hitler projectile
                     if matches!(*kind, EnemyKind::GhostHitler) {
-                        let origin = tf.translation + Vec3::new(0.0, 0.55, 0.0);
+                        let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
                         let mut dir = player_pos - origin;
                         dir.y = 0.0;
 

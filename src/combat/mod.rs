@@ -48,18 +48,16 @@ pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .add_message::<FireShot>()
+        app.add_message::<FireShot>()
             .add_message::<projectiles::SpawnProjectile>()
             .add_systems(Startup, projectiles::setup_projectile_assets)
             .add_systems(Update, process_fire_shots.run_if(crate::world_ready))
             .add_systems(
                 FixedUpdate,
                 (
+                    projectiles::tick_projectiles,
                     process_enemy_fireball_shots,
                     projectiles::spawn_projectiles,
-                    ApplyDeferred,
-                    projectiles::tick_projectiles,
                 )
                     .chain()
                     .run_if(crate::world_ready),
@@ -96,6 +94,11 @@ fn process_enemy_fireball_shots(
     mut spawn: MessageWriter<projectiles::SpawnProjectile>,
 ) {
     for fb in fireballs.read() {
+        info!(
+            "EnemyFireballShot received origin={:?} dir={:?}",
+            fb.origin, fb.dir
+        );
+
         spawn.write(projectiles::SpawnProjectile {
             kind: projectiles::ProjectileKind::Fireball,
             origin: fb.origin,

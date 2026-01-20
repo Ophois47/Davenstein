@@ -96,15 +96,12 @@ pub fn setup_projectile_assets(
 	asset_server: Res<AssetServer>,
 	mut meshes: ResMut<Assets<Mesh>>,
 ) {
-	let fireball_0: Handle<Image> = asset_server.load(
-		"enemies/ghost_hitler/fake_hitler_fireball_0.png",
-	);
-	let fireball_1: Handle<Image> = asset_server.load(
-		"enemies/ghost_hitler/fake_hitler_fireball_1.png",
-	);
+	let fireball_0: Handle<Image> =
+		asset_server.load("enemies/ghost_hitler/fake_hitler_fireball_0.png");
+	let fireball_1: Handle<Image> =
+		asset_server.load("enemies/ghost_hitler/fake_hitler_fireball_1.png");
 
-	let (w, h) = kind_size(ProjectileKind::Fireball);
-	let quad = meshes.add(Rectangle::new(w, h));
+	let quad = meshes.add(Rectangle::new(1.0, 1.0));
 
 	commands.insert_resource(ProjectileAssets {
 		quad,
@@ -121,15 +118,17 @@ pub fn spawn_projectiles(
 ) {
 	let Some(assets) = assets else { return; };
 
+	const FIREBALL_SCALE: f32 = 2.25;
+
 	for e in ev.read() {
 		let dir = Vec3::new(e.dir.x, 0.0, e.dir.z);
-		let dir = if dir.length_squared() > 0.0001 {
-			dir.normalize()
-		} else {
-			continue;
-		};
+		let dir = if dir.length_squared() > 0.0001 { dir.normalize() } else { continue };
 
-		let (w, h) = kind_size(e.kind);
+		let (mut w, mut h) = kind_size(e.kind);
+		if matches!(e.kind, ProjectileKind::Fireball) {
+			w *= FIREBALL_SCALE;
+			h *= FIREBALL_SCALE;
+		}
 
 		let tex0 = match e.kind {
 			ProjectileKind::Fireball => assets.fireball_0.clone(),
@@ -145,27 +144,32 @@ pub fn spawn_projectiles(
 
 		let mat = mats.add(StandardMaterial {
 			base_color_texture: Some(tex0),
-			alpha_mode: AlphaMode::Mask(0.5),
+			alpha_mode: AlphaMode::Blend,
 			unlit: true,
 			cull_mode: None,
 			..default()
 		});
 
-		let scale = Vec3::new(w, h, 1.0);
+		let id = commands
+			.spawn((
+				Projectile {
+					kind: e.kind,
+					dir,
+					speed: kind_speed(e.kind),
+					anim: Timer::from_seconds(kind_anim_period(e.kind), TimerMode::Repeating),
+					frame: 0,
+				},
+				ProjectileView { mat: mat.clone() },
+				Mesh3d(assets.quad.clone()),
+				MeshMaterial3d(mat),
+				Transform::from_translation(e.origin).with_scale(Vec3::new(w, h, 1.0)),
+			))
+			.id();
 
-		commands.spawn((
-			Projectile {
-				kind: e.kind,
-				dir,
-				speed: kind_speed(e.kind),
-				anim: Timer::from_seconds(kind_anim_period(e.kind), TimerMode::Repeating),
-				frame: 0,
-			},
-			ProjectileView { mat: mat.clone() },
-			Mesh3d(assets.quad.clone()),
-			MeshMaterial3d(mat),
-			Transform::from_translation(e.origin).with_scale(scale),
-		));
+		info!(
+			"SpawnProjectile spawned id={:?} kind={:?} origin={:?} dir={:?}",
+			id, e.kind, e.origin, dir
+		);
 	}
 }
 
@@ -248,7 +252,6 @@ pub fn tick_projectiles(
 	let player_pos = player_xform.translation;
 
 	let god = god.map(|g| g.0).unwrap_or(false);
-
 	let dt = time.delta_secs();
 
 	let player_r = 0.22;
