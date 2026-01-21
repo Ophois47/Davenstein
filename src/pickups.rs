@@ -229,8 +229,8 @@ fn pickup_base_rot() -> Quat {
 /// - 56: 1UP
 pub fn spawn_pickups(
     mut commands: Commands,
-    grid: Res<MapGrid>,
-    plane1_res: Res<WolfPlane1>,
+    grid: Res<davelib::map::MapGrid>,
+    plane1_res: Res<davelib::level::WolfPlane1>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -348,24 +348,16 @@ pub fn spawn_pickups(
     for z in 0..grid.height {
         for x in 0..grid.width {
             let v = plane1[idx(x, z)];
-            let Some(kind) = to_pickup_kind(v) else {
-                continue;
-            };
-
-            // Only Place Pickups on Walkable Tiles
-            if !matches!(grid.tile(x, z), Tile::Empty) {
-                continue;
+            if let Some(kind) = to_pickup_kind(v) {
+                spawn_pickup(
+                    &mut commands,
+                    &mut meshes,
+                    &mut materials,
+                    &asset_server,
+                    IVec2::new(x as i32, z as i32),
+                    kind,
+                );
             }
-
-            let tile = IVec2::new(x as i32, z as i32);
-            spawn_pickup(
-                &mut commands,
-                &mut meshes,
-                &mut materials,
-                &asset_server,
-                tile,
-                kind,
-            );
         }
     }
 }

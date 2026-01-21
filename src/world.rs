@@ -657,7 +657,7 @@ pub fn setup(
 
     let schabbs: Vec<IVec2> = schabbs
         .into_iter()
-        .filter(|&t| plane1[idx(t)] == 179)
+        .filter(|&t| plane1[idx(t)] == 196)
         .collect();
 
 	let hitler_phase2_total = mecha_hitler.len();

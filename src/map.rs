@@ -244,7 +244,7 @@ impl MapGrid {
                     mecha_hitler.push(t);
                 } else if v1 == 160 {
                     ghost_hitler.push(t);
-                } else if v1 == 179 {
+                } else if v1 == 196 {
                     schabbs.push(t);
                 }
             }
