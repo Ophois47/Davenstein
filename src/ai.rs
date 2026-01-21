@@ -1364,17 +1364,10 @@ impl Plugin for EnemyAiPlugin {
             .add_message::<EnemyFire>()
             .add_message::<EnemyFireballShot>()
             .add_systems(Update, attach_enemy_ai)
-            .add_systems(
-                FixedUpdate,
-                (
-                    enemy_ai_prepare_and_activate,
-                    enemy_ai_combat,
-                    enemy_ai_movement,
-                    apply_pending_dir8,
-                    enemy_ai_move,
-                )
-                    .chain()
-                    .run_if(player_can_be_targeted),
-            );
+            .add_systems(FixedUpdate, enemy_ai_prepare_and_activate.run_if(player_can_be_targeted))
+            .add_systems(FixedUpdate, enemy_ai_combat.run_if(player_can_be_targeted))
+            .add_systems(FixedUpdate, enemy_ai_movement.run_if(player_can_be_targeted))
+            .add_systems(FixedUpdate, apply_pending_dir8.run_if(player_can_be_targeted))
+            .add_systems(FixedUpdate, enemy_ai_move.run_if(player_can_be_targeted));
     }
 }

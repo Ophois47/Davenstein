@@ -1028,27 +1028,42 @@ impl FromWorld for SchabbsSprites {
     fn from_world(world: &mut World) -> Self {
         let server = world.resource::<AssetServer>();
 
-        let idle = std::array::from_fn(|i| server.load(format!("enemies/schabbs/schabbs_idle_a{i}.png")));
-        let walk = std::array::from_fn(|row| {
-            std::array::from_fn(|dir| server.load(format!("enemies/schabbs/schabbs_walk_r{row}_dir{dir}.png")))
+        // Your current Schabbs export only has these four frames
+        // Treat them as walk frames 0..3
+        let walk_frames: [Handle<Image>; 4] = std::array::from_fn(|i| {
+            server.load(format!("enemies/schabbs/schabbs_idle_a{i}.png"))
         });
-        let shoot: [Handle<Image>; 3] =
-            std::array::from_fn(|f| server.load(format!("enemies/schabbs/schabbs_throw_{f}.png")));
 
+        // Schabbs has no true idle set, so reuse a mid-walk frame as the stand frame
+        let idle: [Handle<Image>; 8] = std::array::from_fn(|_| walk_frames[1].clone());
+
+        // Provide 4 walk frames, duplicated across all 8 views
+        let walk: [[Handle<Image>; 8]; 4] = std::array::from_fn(|row| {
+            let h = walk_frames[row].clone();
+            std::array::from_fn(|_| h.clone())
+        });
+
+        // Your assets are schabbs_shoot_0..1
+        // Keep the existing [3] shape by duplicating the last frame
+        let shoot0: Handle<Image> = server.load("enemies/schabbs/schabbs_shoot_0.png");
+        let shoot1: Handle<Image> = server.load("enemies/schabbs/schabbs_shoot_1.png");
+        let shoot: [Handle<Image>; 3] = [shoot0, shoot1.clone(), shoot1];
+
+        // Your assets are schabbs_death_0..2
+        // Keep the existing [4] shape by duplicating the last frame
         let d0: Handle<Image> = server.load("enemies/schabbs/schabbs_death_0.png");
         let d1: Handle<Image> = server.load("enemies/schabbs/schabbs_death_1.png");
         let d2: Handle<Image> = server.load("enemies/schabbs/schabbs_death_2.png");
-        let d3: Handle<Image> = server.load("enemies/schabbs/schabbs_death_3.png");
 
-        let dying = [
+        let dying: [[Handle<Image>; 8]; 4] = [
             std::array::from_fn(|_| d0.clone()),
             std::array::from_fn(|_| d1.clone()),
             std::array::from_fn(|_| d2.clone()),
-            std::array::from_fn(|_| d3.clone()),
+            std::array::from_fn(|_| d2.clone()),
         ];
 
-        let corpse0: Handle<Image> = server.load("enemies/schabbs/schabbs_corpse.png");
-        let corpse = std::array::from_fn(|_| corpse0.clone());
+        let corpse_one: Handle<Image> = server.load("enemies/schabbs/schabbs_corpse.png");
+        let corpse: [Handle<Image>; 8] = std::array::from_fn(|_| corpse_one.clone());
 
         Self {
             idle,
@@ -1059,6 +1074,25 @@ impl FromWorld for SchabbsSprites {
         }
     }
 }
+
+// SystemParam to group all enemy sprites into a single parameter
+// This reduces the setup() function parameter count from 18 to 8
+use bevy::ecs::system::SystemParam;
+
+#[derive(SystemParam)]
+pub struct AllEnemySprites<'w> {
+    pub guards: Res<'w, GuardSprites>,
+    pub mutants: Res<'w, MutantSprites>,
+    pub ss: Res<'w, SsSprites>,
+    pub officers: Res<'w, OfficerSprites>,
+    pub dogs: Res<'w, DogSprites>,
+    pub hans: Res<'w, HansSprites>,
+    pub gretel: Res<'w, GretelSprites>,
+    pub mecha_hitler: Res<'w, MechaHitlerSprites>,
+    pub ghost_hitler: Res<'w, GhostHitlerSprites>,
+    pub schabbs: Res<'w, SchabbsSprites>,
+}
+
 
 fn attach_hans_walk(mut commands: Commands, q: Query<Entity, Added<Hans>>) {
     for e in q.iter() {
@@ -3107,117 +3141,80 @@ impl Plugin for EnemiesPlugin {
             .init_resource::<MechaHitlerSprites>()
             .init_resource::<GhostHitlerSprites>()
             .init_resource::<SchabbsSprites>()
-            .add_systems(
-                Update,
-                (
-                    (
-                        attach_guard_walk,
-                        attach_mutant_walk,
-                        attach_ss_walk,
-                        attach_officer_walk,
-                        attach_dog_walk,
-                        attach_hans_walk,
-                        attach_gretel_walk,
-                        attach_hitler_walk,
-                        attach_mecha_hitler_walk,
-                        attach_ghost_hitler_walk,
-                        attach_schabbs_walk,
-                    )
-                        .chain(),
-                    (
-                        update_guard_views,
-                        update_mutant_views,
-                        update_ss_views,
-                        update_officer_views,
-                        update_dog_views,
-                        update_hans_views,
-                        update_gretel_views,
-                        update_hitler_views,
-                        update_mecha_hitler_views,
-                        update_ghost_hitler_views,
-                        update_schabbs_views,
-                    )
-                        .chain(),
-                )
-                    .chain(),
-            )
-            .add_systems(
-                FixedUpdate,
-                (
-                    (
-                        tick_guard_walk,
-                        tick_guard_pain,
-                        tick_guard_shoot,
-                        tick_guard_dying,
-                    )
-                        .chain(),
-                    (
-                        tick_mutant_walk,
-                        tick_mutant_pain,
-                        tick_mutant_shoot,
-                        tick_mutant_dying,
-                    )
-                        .chain(),
-                    (
-                        tick_ss_walk,
-                        tick_ss_pain,
-                        tick_ss_shoot,
-                        tick_ss_dying,
-                    )
-                        .chain(),
-                    (
-                        tick_officer_walk,
-                        tick_officer_pain,
-                        tick_officer_shoot,
-                        tick_officer_dying,
-                    )
-                        .chain(),
-                    (
-                        tick_dog_walk,
-                        tick_dog_pain,
-                        tick_dog_bite_cooldown,
-                        tick_dog_bite,
-                        tick_dog_dying,
-                    )
-                        .chain(),
-                    (
-                        tick_hans_walk,
-                        tick_hans_shoot,
-                        tick_hans_dying,
-                    )
-                        .chain(),
-                    (
-                        tick_gretel_walk,
-                        tick_gretel_shoot,
-                        tick_gretel_dying,
-                    )
-                        .chain(),
-                    (
-                        tick_mecha_hitler_walk,
-                        tick_mecha_hitler_shoot,
-                        tick_mecha_hitler_dying,
-                    )
-                        .chain(),
-                    (
-                        tick_hitler_walk,
-                        tick_hitler_shoot,
-                        tick_hitler_dying,
-                    )
-                        .chain(),
-                    (
-                        tick_ghost_hitler_walk,
-                        tick_ghost_hitler_shoot,
-                        tick_ghost_hitler_dying,
-                    )
-                        .chain(),
-                    (
-                        tick_schabbs_walk,
-                        tick_schabbs_throw,
-                        tick_schabbs_dying,
-                    )
-                        .chain(),
-                )
-                    .chain(),
-            );
+            // Update systems - attach walk components
+            .add_systems(Update, attach_guard_walk)
+            .add_systems(Update, attach_mutant_walk)
+            .add_systems(Update, attach_ss_walk)
+            .add_systems(Update, attach_officer_walk)
+            .add_systems(Update, attach_dog_walk)
+            .add_systems(Update, attach_hans_walk)
+            .add_systems(Update, attach_gretel_walk)
+            .add_systems(Update, attach_hitler_walk)
+            .add_systems(Update, attach_mecha_hitler_walk)
+            .add_systems(Update, attach_ghost_hitler_walk)
+            .add_systems(Update, attach_schabbs_walk)
+            // Update systems - update views
+            .add_systems(Update, update_guard_views)
+            .add_systems(Update, update_mutant_views)
+            .add_systems(Update, update_ss_views)
+            .add_systems(Update, update_officer_views)
+            .add_systems(Update, update_dog_views)
+            .add_systems(Update, update_hans_views)
+            .add_systems(Update, update_gretel_views)
+            .add_systems(Update, update_hitler_views)
+            .add_systems(Update, update_mecha_hitler_views)
+            .add_systems(Update, update_ghost_hitler_views)
+            .add_systems(Update, update_schabbs_views)
+            // FixedUpdate systems - guards
+            .add_systems(FixedUpdate, tick_guard_walk)
+            .add_systems(FixedUpdate, tick_guard_pain)
+            .add_systems(FixedUpdate, tick_guard_shoot)
+            .add_systems(FixedUpdate, tick_guard_dying)
+            // FixedUpdate systems - mutants
+            .add_systems(FixedUpdate, tick_mutant_walk)
+            .add_systems(FixedUpdate, tick_mutant_pain)
+            .add_systems(FixedUpdate, tick_mutant_shoot)
+            .add_systems(FixedUpdate, tick_mutant_dying)
+            // FixedUpdate systems - SS
+            .add_systems(FixedUpdate, tick_ss_walk)
+            .add_systems(FixedUpdate, tick_ss_pain)
+            .add_systems(FixedUpdate, tick_ss_shoot)
+            .add_systems(FixedUpdate, tick_ss_dying)
+            // FixedUpdate systems - officers
+            .add_systems(FixedUpdate, tick_officer_walk)
+            .add_systems(FixedUpdate, tick_officer_pain)
+            .add_systems(FixedUpdate, tick_officer_shoot)
+            .add_systems(FixedUpdate, tick_officer_dying)
+            // FixedUpdate systems - dogs
+            .add_systems(FixedUpdate, tick_dog_walk)
+            .add_systems(FixedUpdate, tick_dog_pain)
+            .add_systems(FixedUpdate, tick_dog_bite_cooldown)
+            .add_systems(FixedUpdate, tick_dog_bite)
+            .add_systems(FixedUpdate, tick_dog_dying)
+            // FixedUpdate systems - Hans
+            .add_systems(FixedUpdate, tick_hans_walk)
+            .add_systems(FixedUpdate, tick_hans_shoot)
+            .add_systems(FixedUpdate, tick_hans_dying)
+            // FixedUpdate systems - Gretel
+            .add_systems(FixedUpdate, tick_gretel_walk)
+            .add_systems(FixedUpdate, tick_gretel_shoot)
+            .add_systems(FixedUpdate, tick_gretel_dying)
+            // FixedUpdate systems - Mecha Hitler
+            .add_systems(FixedUpdate, tick_mecha_hitler_walk)
+            .add_systems(FixedUpdate, tick_mecha_hitler_shoot)
+            .add_systems(FixedUpdate, tick_mecha_hitler_dying)
+            // FixedUpdate systems - Hitler
+            .add_systems(FixedUpdate, tick_hitler_walk)
+            .add_systems(FixedUpdate, tick_hitler_shoot)
+            .add_systems(FixedUpdate, tick_hitler_dying)
+            // FixedUpdate systems - Ghost Hitler
+            .add_systems(FixedUpdate, tick_ghost_hitler_walk)
+            .add_systems(FixedUpdate, tick_ghost_hitler_shoot)
+            .add_systems(FixedUpdate, tick_ghost_hitler_dying)
+            // FixedUpdate systems - Schabbs
+            .add_systems(FixedUpdate, tick_schabbs_walk)
+            .add_systems(FixedUpdate, tick_schabbs_throw)
+            .add_systems(FixedUpdate, tick_schabbs_dying);
     }
 }
+

@@ -34,47 +34,33 @@ impl Plugin for UiPlugin {
             .init_resource::<hud::HudFaceLook>()
             .init_resource::<hud::WeaponState>()
             .add_plugins(splash::SplashPlugin)
-            .add_systems(Startup, (hud::setup_hud, splash::setup_splash).chain())
-            .add_systems(
-                Update,
-                (
-                    // Core State / Sync
-                    (
-                        sync::apply_enemy_fire_to_player_vitals,
-                        sync::sync_player_hp_with_hud,
-                        sync::handle_player_death_once,
-                        sync::tick_death_delay_and_request_restart,
-                        sync::game_over_input,
-                    )
-                        .chain(),
-                    // HUD + Viewmodel
-                    (
-                        hud::sync_viewmodel_size,
-                        hud::weapon_fire_and_viewmodel,
-                        hud::sync_hud_hp_digits,
-                        hud::sync_hud_ammo_digits,
-                        hud::sync_hud_score_digits,
-                        hud::sync_hud_lives_digits,
-                        hud::sync_hud_floor_digits,
-                        hud::sync_hud_icons,
-                        hud::tick_hud_face_timers,
-                        hud::sync_hud_face,
-                    )
-                        .chain(),
-                    // Overlays
-                    (
-                        hud::flash_on_hp_drop,
-                        hud::ensure_pickup_flash_overlay,
-                        hud::tick_pickup_flash,
-                        hud::tick_damage_flash,
-                        hud::tick_death_overlay,
-                        hud::sync_game_over_overlay_visibility,
-                        level_end_font::sync_level_end_bitmap_text,
-                        hud::tick_mission_bj_card,
-                    )
-                        .chain(),
-                )
-                    .chain(),
-            );
+            .add_systems(Startup, hud::setup_hud)
+            .add_systems(Startup, splash::setup_splash)
+            // Core State / Sync systems
+            .add_systems(Update, sync::apply_enemy_fire_to_player_vitals)
+            .add_systems(Update, sync::sync_player_hp_with_hud)
+            .add_systems(Update, sync::handle_player_death_once)
+            .add_systems(Update, sync::tick_death_delay_and_request_restart)
+            .add_systems(Update, sync::game_over_input)
+            // HUD + Viewmodel systems
+            .add_systems(Update, hud::sync_viewmodel_size)
+            .add_systems(Update, hud::weapon_fire_and_viewmodel)
+            .add_systems(Update, hud::sync_hud_hp_digits)
+            .add_systems(Update, hud::sync_hud_ammo_digits)
+            .add_systems(Update, hud::sync_hud_score_digits)
+            .add_systems(Update, hud::sync_hud_lives_digits)
+            .add_systems(Update, hud::sync_hud_floor_digits)
+            .add_systems(Update, hud::sync_hud_icons)
+            .add_systems(Update, hud::tick_hud_face_timers)
+            .add_systems(Update, hud::sync_hud_face)
+            // Overlay systems
+            .add_systems(Update, hud::flash_on_hp_drop)
+            .add_systems(Update, hud::ensure_pickup_flash_overlay)
+            .add_systems(Update, hud::tick_pickup_flash)
+            .add_systems(Update, hud::tick_damage_flash)
+            .add_systems(Update, hud::tick_death_overlay)
+            .add_systems(Update, hud::sync_game_over_overlay_visibility)
+            .add_systems(Update, level_end_font::sync_level_end_bitmap_text)
+            .add_systems(Update, hud::tick_mission_bj_card);
     }
 }

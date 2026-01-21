@@ -29,6 +29,7 @@ pub struct ProjectileAssets {
 	pub quad: Handle<Mesh>,
 	pub fireball_0: Handle<Image>,
 	pub fireball_1: Handle<Image>,
+	pub syringe: [Handle<Image>; 4],
 }
 
 #[derive(Component)]
@@ -101,12 +102,17 @@ pub fn setup_projectile_assets(
 	let fireball_1: Handle<Image> =
 		asset_server.load("enemies/ghost_hitler/fake_hitler_fireball_1.png");
 
+	let syringe: [Handle<Image>; 4] = std::array::from_fn(|i| {
+		asset_server.load(format!("enemies/schabbs/syringe_a{i}.png"))
+	});
+
 	let quad = meshes.add(Rectangle::new(1.0, 1.0));
 
 	commands.insert_resource(ProjectileAssets {
 		quad,
 		fireball_0,
 		fireball_1,
+		syringe,
 	});
 }
 
@@ -137,8 +143,8 @@ pub fn spawn_projectiles(
 				continue;
 			}
 			ProjectileKind::Syringe => {
-				warn!("ProjectileKind::Syringe spawned but no sprites are wired yet");
-				continue;
+				// Starts at a0 and will be corrected in update_projectile_views
+				assets.syringe[0].clone()
 			}
 		};
 
@@ -285,6 +291,37 @@ pub fn tick_projectiles(
 	}
 }
 
+fn projectile_view8(dir: Vec3, proj_pos: Vec3, player_pos: Vec3) -> u8 {
+	use std::f32::consts::TAU;
+
+	let to_player = player_pos - proj_pos;
+	let flat_to_player = Vec3::new(to_player.x, 0.0, to_player.z);
+	if flat_to_player.length_squared() < 1e-6 {
+		return 0;
+	}
+
+	let flat_dir = Vec3::new(dir.x, 0.0, dir.z);
+	if flat_dir.length_squared() < 1e-6 {
+		return 0;
+	}
+
+	let step = TAU / 8.0;
+
+	let yaw_to_player = flat_to_player.x.atan2(flat_to_player.z).rem_euclid(TAU);
+	let yaw_dir = flat_dir.x.atan2(flat_dir.z).rem_euclid(TAU);
+
+	let rel = (yaw_to_player - yaw_dir).rem_euclid(TAU);
+
+	(((rel + step * 0.5) / step).floor() as i32 & 7) as u8
+}
+
+fn view8_to_view4(v8: u8) -> usize {
+	// Mirror 8-way to 4-way like Wolf-style angle sprites
+	// 0..7 -> 0,1,2,3,4,3,2,1 then clamp to 0..3 since you have a0..a3
+	let v = if v8 > 4 { 8 - v8 } else { v8 };
+	(v as usize).min(3)
+}
+
 pub fn update_projectile_views(
 	time: Res<Time>,
 	assets: Option<Res<ProjectileAssets>>,
@@ -302,20 +339,53 @@ pub fn update_projectile_views(
 		let yaw = to_player.x.atan2(to_player.z);
 		xform.rotation = Quat::from_rotation_y(yaw);
 
-		proj.anim.tick(time.delta());
-		if proj.anim.just_finished() {
-			proj.frame = (proj.frame + 1) & 1;
+		let Some(mat) = mats.get_mut(&view.mat) else { continue; };
 
-			let tex = match proj.kind {
-				ProjectileKind::Fireball => {
-					if proj.frame == 0 { assets.fireball_0.clone() } else { assets.fireball_1.clone() }
+		match proj.kind {
+			ProjectileKind::Fireball => {
+				proj.anim.tick(time.delta());
+				if !proj.anim.just_finished() {
+					continue;
 				}
-				ProjectileKind::Rocket => continue,
-				ProjectileKind::Syringe => continue,
-			};
 
-			if let Some(mat) = mats.get_mut(&view.mat) {
-				mat.base_color_texture = Some(tex);
+				proj.frame = (proj.frame + 1) & 1;
+
+				let tex = if proj.frame == 0 {
+					assets.fireball_0.clone()
+				} else {
+					assets.fireball_1.clone()
+				};
+
+				if mat.base_color_texture.as_ref() != Some(&tex) {
+					mat.base_color_texture = Some(tex);
+				}
+			}
+			ProjectileKind::Syringe => {
+				proj.anim.tick(time.delta());
+				if !proj.anim.just_finished() {
+					continue;
+				}
+
+				// Ping-pong 4 frames to simulate end-over-end flip
+				// Sequence: 0,1,2,3,2,1 then repeat
+				proj.frame = (proj.frame + 1) % 6;
+
+				let i = match proj.frame {
+					0 => 0,
+					1 => 1,
+					2 => 2,
+					3 => 3,
+					4 => 2,
+					_ => 1,
+				};
+
+				let tex = assets.syringe[i].clone();
+				if mat.base_color_texture.as_ref() != Some(&tex) {
+					mat.base_color_texture = Some(tex);
+				}
+			}
+			ProjectileKind::Rocket => {
+				// Not wired yet
 			}
 		}
 	}

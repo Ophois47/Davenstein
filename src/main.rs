@@ -9,11 +9,12 @@ mod ui;
 
 use bevy::prelude::*;
 use bevy::asset::AssetPlugin;
-use bevy::ecs::schedule::IntoScheduleConfigs as _;
 use include_dir::{include_dir, Dir};
 use std::path::PathBuf;
 
 use davelib::ai::EnemyAiPlugin;
+use davelib::map::MapGrid;
+use davelib::level::WolfPlane1;
 use davelib::audio::{
     play_sfx_events,
     tick_hard_stop_sfx,
@@ -78,12 +79,16 @@ fn extract_embedded_assets_to_temp() -> String {
 //  params to panic. More generally, during transitions there can be frames where
 //  world resources aren't present yet (because Commands apply deferred), and any
 //  system using strict Res / ResMut will panic
-fn world_ready(
-    grid: Option<Res<davelib::map::MapGrid>>,
-    solid: Option<Res<davelib::decorations::SolidStatics>>,
-    markers: Option<Res<davelib::pushwalls::PushwallMarkers>>,
-) -> bool {
-    grid.is_some() && solid.is_some() && markers.is_some()
+fn world_ready(map: Option<Res<MapGrid>>, plane1: Option<Res<WolfPlane1>>) -> bool {
+    // Why this exists
+    // During restart/advance we despawn and rebuild the level, so some level-scoped resources do not exist for a short window
+    // When a system runs, Bevy fetches every `Res<T>` param before calling your code, and it will panic if any required resource is missing
+    // Using Option<Res<T>> for one param does not help if the system still has other required Res<...> params
+    // The fix is to gate any gameplay systems that read level-scoped Res<T> with run_if(world_ready) so they never run until the level resources exist
+    // When adding a new feature:
+    // - If the feature reads a level-scoped resource via Res<T>, either add that resource to this predicate or gate that system with a more specific run_if
+    // - If the feature creates resources/components via Commands, you may also need apply_deferred barriers in the build chain so the next system can safely read them
+    map.is_some() && plane1.is_some()
 }
 
 fn main() {
@@ -128,132 +133,74 @@ fn main() {
 		.init_resource::<davelib::high_score::NameEntryState>()
 		.add_message::<PlaySfx>()
 		.add_message::<RebuildWalls>()
+		.add_systems(Startup, setup_audio)
+		.add_systems(Startup, start_music)
+		.add_systems(Startup, setup)
+		.add_systems(Startup, spawn_decorations)
+		.add_systems(Startup, pickups::spawn_pickups)
 		.add_systems(
-			Startup,
-			(
-				setup_audio,
-				start_music,
-				setup,
-				spawn_decorations,
-				pickups::spawn_pickups,
-			)
-				.chain(),
+			Update,
+			toggle_god_mode.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
 		)
 		.add_systems(
 			Update,
-			(
-				toggle_god_mode,
-				grab_mouse,
-				mouse_look,
-			)
-				.chain()
-				.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
+			grab_mouse.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
 		)
 		.add_systems(
 			Update,
-			(
-				level_complete::tick_elevator_exit_delay,
-				level_complete::sync_mission_success_overlay_visibility,
-				level_complete::start_mission_success_tally_on_win,
-				level_complete::tick_mission_success_tally,
-				level_complete::sync_mission_success_stats_text,
-				level_complete::mission_success_input,
-				level_complete::apply_mission_success_bonus_to_player_score_once,
-			)
-				.chain(),
+			mouse_look.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
 		)
-		.add_systems(
-			Update,
-			(
-				pickups::billboard_pickups,
-				billboard_decorations,
-				use_pushwalls,
-				use_doors,
-				level_complete::use_elevator_exit,
-			)
-				.chain()
-				.run_if(world_ready),
-		)
-		.add_systems(
-			PostUpdate,
-			(
-				play_sfx_events,
-				davelib::audio::tick_auto_stop_sfx,
-				tick_hard_stop_sfx,
-			)
-				.chain(),
-		)
-		.add_systems(
-			PostUpdate,
-			(
-				davelib::audio::sync_boot_music,
-				davelib::audio::sync_level_music,
-			)
-				.chain(),
-		)
-		.add_systems(
-			PostUpdate,
-			(
-				restart::restart_despawn_level,
-				setup,
-				spawn_decorations,
-				pickups::spawn_pickups,
-				restart::restart_finish,
-			)
-				.chain()
-				.run_if(|r: Res<ui::sync::RestartRequested>| r.0),
-		)
-		.add_systems(
-			PostUpdate,
-			(
-				restart::restart_despawn_level,
-				setup,
-				spawn_decorations,
-				pickups::spawn_pickups,
-				restart::new_game_finish,
-			)
-				.chain()
-				.run_if(|r: Res<ui::sync::NewGameRequested>| r.0),
-		)
-		.add_systems(
-			PostUpdate,
-			(
-				restart::restart_despawn_level,
-				setup,
-				spawn_decorations,
-				pickups::spawn_pickups,
-				restart::advance_level_finish,
-			)
-				.chain()
-				.run_if(|r: Res<ui::sync::AdvanceLevelRequested>| r.0),
-		)
+		.add_systems(Update, level_complete::tick_elevator_exit_delay)
+		.add_systems(Update, level_complete::sync_mission_success_overlay_visibility)
+		.add_systems(Update, level_complete::start_mission_success_tally_on_win)
+		.add_systems(Update, level_complete::tick_mission_success_tally)
+		.add_systems(Update, level_complete::sync_mission_success_stats_text)
+		.add_systems(Update, level_complete::mission_success_input)
+		.add_systems(Update, level_complete::apply_mission_success_bonus_to_player_score_once)
+		.add_systems(Update, pickups::billboard_pickups.run_if(world_ready))
+		.add_systems(Update, billboard_decorations.run_if(world_ready))
+		.add_systems(Update, use_pushwalls.run_if(world_ready))
+		.add_systems(Update, use_doors.run_if(world_ready))
+		.add_systems(Update, level_complete::use_elevator_exit.run_if(world_ready))
+		.add_systems(PostUpdate, play_sfx_events)
+		.add_systems(PostUpdate, davelib::audio::tick_auto_stop_sfx)
+		.add_systems(PostUpdate, tick_hard_stop_sfx)
+		.add_systems(PostUpdate, davelib::audio::sync_boot_music)
+		.add_systems(PostUpdate, davelib::audio::sync_level_music)
+		.add_systems(PostUpdate, restart::restart_despawn_level.run_if(|r: Res<ui::sync::RestartRequested>| r.0))
+		.add_systems(PostUpdate, setup.run_if(|r: Res<ui::sync::RestartRequested>| r.0))
+		.add_systems(PostUpdate, spawn_decorations.run_if(|r: Res<ui::sync::RestartRequested>| r.0))
+		.add_systems(PostUpdate, pickups::spawn_pickups.run_if(|r: Res<ui::sync::RestartRequested>| r.0))
+		.add_systems(PostUpdate, restart::restart_finish.run_if(|r: Res<ui::sync::RestartRequested>| r.0))
+		.add_systems(PostUpdate, restart::restart_despawn_level.run_if(|r: Res<ui::sync::NewGameRequested>| r.0))
+		.add_systems(PostUpdate, setup.run_if(|r: Res<ui::sync::NewGameRequested>| r.0))
+		.add_systems(PostUpdate, spawn_decorations.run_if(|r: Res<ui::sync::NewGameRequested>| r.0))
+		.add_systems(PostUpdate, pickups::spawn_pickups.run_if(|r: Res<ui::sync::NewGameRequested>| r.0))
+		.add_systems(PostUpdate, restart::new_game_finish.run_if(|r: Res<ui::sync::NewGameRequested>| r.0))
+		.add_systems(PostUpdate, restart::restart_despawn_level.run_if(|r: Res<ui::sync::AdvanceLevelRequested>| r.0))
+		.add_systems(PostUpdate, setup.run_if(|r: Res<ui::sync::AdvanceLevelRequested>| r.0))
+		.add_systems(PostUpdate, spawn_decorations.run_if(|r: Res<ui::sync::AdvanceLevelRequested>| r.0))
+		.add_systems(PostUpdate, pickups::spawn_pickups.run_if(|r: Res<ui::sync::AdvanceLevelRequested>| r.0))
+		.add_systems(PostUpdate, restart::advance_level_finish.run_if(|r: Res<ui::sync::AdvanceLevelRequested>| r.0))
 		.add_systems(
 			FixedUpdate,
 			rebuild_wall_faces_on_request
 				.run_if(world_ready)
 				.run_if(|lock: Res<PlayerControlLock>| lock.0),
 		)
-		.add_systems(
-			FixedUpdate,
-			(
-				davelib::level_score::tick_level_time,
-				tick_pushwalls,
-				rebuild_wall_faces_on_request,
-				door_auto_close,
-				door_animate,
-				player_move,
-				pickups::drop_guard_ammo,
-				pickups::drop_mutant_ammo,
-				pickups::drop_ss_loot,
-				pickups::drop_officer_ammo,
-				pickups::drop_hans_key,
-				pickups::drop_gretel_key,
-				pickups::collect_pickups,
-			)
-				.chain()
-				.run_if(world_ready)
-				.run_if(|lock: Res<PlayerControlLock>| !lock.0),
-		)
+		.add_systems(FixedUpdate, davelib::level_score::tick_level_time.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(FixedUpdate, tick_pushwalls.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(FixedUpdate, rebuild_wall_faces_on_request.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(FixedUpdate, door_auto_close.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(FixedUpdate, door_animate.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(FixedUpdate, player_move.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(FixedUpdate, pickups::drop_guard_ammo.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(FixedUpdate, pickups::drop_mutant_ammo.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(FixedUpdate, pickups::drop_ss_loot.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(FixedUpdate, pickups::drop_officer_ammo.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(FixedUpdate, pickups::drop_hans_key.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(FixedUpdate, pickups::drop_gretel_key.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(FixedUpdate, pickups::collect_pickups.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
 		.run();
 }
 

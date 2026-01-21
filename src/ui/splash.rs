@@ -442,7 +442,7 @@ impl Plugin for SplashPlugin {
         app.init_resource::<PsychedLoad>();
         app.configure_sets(
             Update,
-            (SplashUpdateSet::AdvanceInput, SplashUpdateSet::PsychedLoading).chain(),
+            (SplashUpdateSet::AdvanceInput, SplashUpdateSet::PsychedLoading).chain_ignore_deferred(),
         );
         app.add_systems(
             Update,
@@ -450,13 +450,15 @@ impl Plugin for SplashPlugin {
         );
         app.add_systems(
             Update,
-            (
-                auto_get_psyched_on_level_start,
-                tick_get_psyched_loading,
-                splash_resize_on_window_change,
-            )
-                .chain()
-                .in_set(SplashUpdateSet::PsychedLoading),
+            auto_get_psyched_on_level_start.in_set(SplashUpdateSet::PsychedLoading),
+        );
+        app.add_systems(
+            Update,
+            tick_get_psyched_loading.in_set(SplashUpdateSet::PsychedLoading),
+        );
+        app.add_systems(
+            Update,
+            splash_resize_on_window_change.in_set(SplashUpdateSet::PsychedLoading),
         );
     }
 }

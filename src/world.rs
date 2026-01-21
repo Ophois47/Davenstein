@@ -275,16 +275,7 @@ pub fn setup(
 	asset_server: Res<AssetServer>,
 	mut meshes: ResMut<Assets<Mesh>>,
 	mut materials: ResMut<Assets<StandardMaterial>>,
-	guard_sprites: Res<crate::enemies::GuardSprites>,
-    mutant_sprites: Res<crate::enemies::MutantSprites>,
-	ss_sprites: Res<crate::enemies::SsSprites>,
-	officer_sprites: Res<crate::enemies::OfficerSprites>,
-	dog_sprites: Res<crate::enemies::DogSprites>,
-	hans_sprites: Res<crate::enemies::HansSprites>,
-	gretel_sprites: Res<crate::enemies::GretelSprites>,
-	mecha_hitler_sprites: Res<crate::enemies::MechaHitlerSprites>,
-    ghost_hitler_sprites: Res<crate::enemies::GhostHitlerSprites>,
-    schabbs_sprites: Res<crate::enemies::SchabbsSprites>,
+	enemy_sprites: crate::enemies::AllEnemySprites,
 	current_level: Res<crate::level::CurrentLevel>,
 	mut level_score: ResMut<crate::level_score::LevelScore>,
 	skill_level: Res<crate::skill::SkillLevel>,
@@ -1104,43 +1095,43 @@ pub fn setup(
 	spawn_wall_faces_for_grid(&mut commands, &grid, &wall_cache, None);
 
 	for g in guards {
-		crate::enemies::spawn_guard(&mut commands, &mut meshes, &mut materials, &guard_sprites, g);
+		crate::enemies::spawn_guard(&mut commands, &mut meshes, &mut materials, &enemy_sprites.guards, g);
 	}
 
     for m in mutants {
-        crate::enemies::spawn_mutant(&mut commands, &mut meshes, &mut materials, &mutant_sprites, m);
+        crate::enemies::spawn_mutant(&mut commands, &mut meshes, &mut materials, &enemy_sprites.mutants, m);
     }
 
 	for s in ss {
-		crate::enemies::spawn_ss(&mut commands, &mut meshes, &mut materials, &ss_sprites, s);
+		crate::enemies::spawn_ss(&mut commands, &mut meshes, &mut materials, &enemy_sprites.ss, s);
 	}
 
 	for o in officers {
-		crate::enemies::spawn_officer(&mut commands, &mut meshes, &mut materials, &officer_sprites, o);
+		crate::enemies::spawn_officer(&mut commands, &mut meshes, &mut materials, &enemy_sprites.officers, o);
 	}
 
 	for d in dogs {
-		crate::enemies::spawn_dog(&mut commands, &mut meshes, &mut materials, &dog_sprites, d);
+		crate::enemies::spawn_dog(&mut commands, &mut meshes, &mut materials, &enemy_sprites.dogs, d);
 	}
 
 	for h in hans {
-		crate::enemies::spawn_hans(&mut commands, &mut meshes, &mut materials, &hans_sprites, h);
+		crate::enemies::spawn_hans(&mut commands, &mut meshes, &mut materials, &enemy_sprites.hans, h);
 	}
 
 	for g in gretel {
-		crate::enemies::spawn_gretel(&mut commands, &mut meshes, &mut materials, &gretel_sprites, g);
+		crate::enemies::spawn_gretel(&mut commands, &mut meshes, &mut materials, &enemy_sprites.gretel, g);
 	}
 
 	for mh in mecha_hitler {
-		crate::enemies::spawn_mecha_hitler(&mut commands, &mut meshes, &mut materials, &mecha_hitler_sprites, mh);
+		crate::enemies::spawn_mecha_hitler(&mut commands, &mut meshes, &mut materials, &enemy_sprites.mecha_hitler, mh);
 	}
 
     for gh in ghost_hitler {
-        crate::enemies::spawn_ghost_hitler(&mut commands, &mut meshes, &mut materials, &ghost_hitler_sprites, gh);
+        crate::enemies::spawn_ghost_hitler(&mut commands, &mut meshes, &mut materials, &enemy_sprites.ghost_hitler, gh);
     }
 
     for sc in schabbs {
-        crate::enemies::spawn_schabbs(&mut commands, &mut meshes, &mut materials, &schabbs_sprites, sc);
+        crate::enemies::spawn_schabbs(&mut commands, &mut meshes, &mut materials, &enemy_sprites.schabbs, sc);
     }
 
 	let player_pos = Vec3::new(spawn.x as f32 * TILE_SIZE, 0.5, spawn.y as f32 * TILE_SIZE);
