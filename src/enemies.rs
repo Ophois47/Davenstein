@@ -1144,7 +1144,6 @@ impl FromWorld for OttoSprites {
         let shoot1: Handle<Image> = server.load("enemies/otto/otto_shoot_1.png");
         let shoot: [Handle<Image>; 3] = [shoot0, shoot1.clone(), shoot1];
 
-
         let d0: Handle<Image> = server.load("enemies/otto/otto_death_0.png");
         let d1: Handle<Image> = server.load("enemies/otto/otto_death_1.png");
         let d2: Handle<Image> = server.load("enemies/otto/otto_death_2.png");

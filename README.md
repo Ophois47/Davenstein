@@ -29,3 +29,5 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
+- Implement missile hit sounds for Otto and the General
+- Several rocket directions seem mixed up
