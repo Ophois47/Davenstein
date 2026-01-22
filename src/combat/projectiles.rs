@@ -72,9 +72,9 @@ fn kind_anim_period(kind: ProjectileKind) -> f32 {
 
 fn kind_size(kind: ProjectileKind) -> (f32, f32) {
 	match kind {
-		ProjectileKind::Fireball => (0.32, 0.32),
+		ProjectileKind::Fireball => (0.34, 0.34),
 		ProjectileKind::Rocket => (0.40, 0.40),
-		ProjectileKind::Syringe => (0.40, 0.40),
+		ProjectileKind::Syringe => (0.50, 0.50),
 	}
 }
 

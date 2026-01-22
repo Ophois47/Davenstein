@@ -1065,15 +1065,17 @@ fn enemy_ai_combat(
                         let mut dir = player_pos - origin;
                         dir.y = 0.0;
 
-                        info!("SCHABBS ATTACKING! Origin: {:?}, Player: {:?}", origin, player_pos);
-
                         if dir.length_squared() > 1e-6 {
                             enemy_syringe.write(EnemySyringeShot {
                                 origin,
                                 dir: dir.normalize(),
                             });
-                            info!("SYRINGE MESSAGE SENT!");
                         }
+
+                        sfx.write(PlaySfx {
+                            kind: SfxKind::EnemyShoot(EnemyKind::Schabbs),
+                            pos: tf.translation,
+                        });
 
                         shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
