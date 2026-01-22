@@ -74,7 +74,7 @@ fn kind_size(kind: ProjectileKind) -> (f32, f32) {
 	match kind {
 		ProjectileKind::Fireball => (0.32, 0.32),
 		ProjectileKind::Rocket => (0.40, 0.40),
-		ProjectileKind::Syringe => (0.34, 0.34),
+		ProjectileKind::Syringe => (0.40, 0.40),
 	}
 }
 
@@ -127,6 +127,7 @@ pub fn spawn_projectiles(
 	const FIREBALL_SCALE: f32 = 3.5;
 
 	for e in ev.read() {
+		info!("SPAWNING PROJECTILE: kind={:?}, origin={:?}", e.kind, e.origin);
 		let dir = Vec3::new(e.dir.x, 0.0, e.dir.z);
 		let dir = if dir.length_squared() > 0.0001 { dir.normalize() } else { continue };
 

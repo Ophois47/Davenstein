@@ -32,6 +32,7 @@ const SCHABBS_MAX_HP: i32 = 850;
 pub(crate) const SS_SHOOT_SECS: f32 = 0.35;
 pub(crate) const OFFICER_SHOOT_SECS: f32 = 0.35;
 pub(crate) const DOG_BITE_SECS: f32 = 0.35;
+pub(crate) const SCHABBS_SHOOT_SECS: f32 = 0.45;
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Dir8(pub u8);

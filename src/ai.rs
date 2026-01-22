@@ -100,6 +100,12 @@ pub struct EnemyFireballShot {
     pub dir: Vec3,
 }
 
+#[derive(Clone, Copy, Debug, Message)]
+pub struct EnemySyringeShot {
+    pub origin: Vec3,
+    pub dir: Vec3,
+}
+
 #[derive(Component, Debug, Clone, Copy)]
 pub struct EnemyAi {
     pub state: EnemyAiState,
@@ -832,6 +838,7 @@ fn enemy_ai_combat(
     solid: Res<SolidStatics>,
     mut enemy_fire: MessageWriter<EnemyFire>,
     mut enemy_fireball: MessageWriter<EnemyFireballShot>,
+    mut enemy_syringe: MessageWriter<EnemySyringeShot>,
     mut sfx: MessageWriter<PlaySfx>,
     mut shoot_cd: Local<HashMap<Entity, f32>>,
     mut bursts: Local<HashMap<Entity, BurstFire>>,
@@ -902,6 +909,27 @@ fn enemy_ai_combat(
                                 dir: dir.normalize(),
                             });
                         }
+                    // Schabbs syringe throw (single shot, not a volley)
+                    } else if matches!(*kind, EnemyKind::Schabbs) {
+                        let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
+                        let mut dir = player_pos - origin;
+                        dir.y = 0.0;
+
+                        info!("SCHABBS ATTACKING! Origin: {:?}, Player: {:?}", origin, player_pos);
+                        if dir.length_squared() > 1e-6 {
+                            enemy_syringe.write(EnemySyringeShot {
+                                origin,
+                                dir: dir.normalize(),
+                            });
+                        }
+
+                        shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
+
+                        commands.entity(e).insert(crate::enemies::SchabbsShoot {
+                            t: Timer::from_seconds(crate::enemies::SCHABBS_SHOOT_SECS, TimerMode::Once),
+                        });
+
+                        continue;
                     } else {
                         let hits = wolf_far_miss_gate(shoot_dist);
                         let damage = if hits {
@@ -1026,6 +1054,31 @@ fn enemy_ai_combat(
 
                         commands.entity(e).insert(crate::enemies::GhostHitlerShoot {
                             t: Timer::from_seconds(crate::enemies::GHOST_HITLER_SHOOT_SECS, TimerMode::Once),
+                        });
+
+                        continue;
+                    }
+
+                    // Schabbs syringe throw (single shot, not a volley)
+                    if matches!(*kind, EnemyKind::Schabbs) {
+                        let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
+                        let mut dir = player_pos - origin;
+                        dir.y = 0.0;
+
+                        info!("SCHABBS ATTACKING! Origin: {:?}, Player: {:?}", origin, player_pos);
+
+                        if dir.length_squared() > 1e-6 {
+                            enemy_syringe.write(EnemySyringeShot {
+                                origin,
+                                dir: dir.normalize(),
+                            });
+                            info!("SYRINGE MESSAGE SENT!");
+                        }
+
+                        shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
+
+                        commands.entity(e).insert(crate::enemies::SchabbsShoot {
+                            t: Timer::from_seconds(crate::enemies::SCHABBS_SHOOT_SECS, TimerMode::Once),
                         });
 
                         continue;
@@ -1363,6 +1416,7 @@ impl Plugin for EnemyAiPlugin {
             .insert_resource(EnemyTunings::baseline())
             .add_message::<EnemyFire>()
             .add_message::<EnemyFireballShot>()
+            .add_message::<EnemySyringeShot>()
             .add_systems(Update, attach_enemy_ai)
             .add_systems(FixedUpdate, enemy_ai_prepare_and_activate.run_if(player_can_be_targeted))
             .add_systems(FixedUpdate, enemy_ai_combat.run_if(player_can_be_targeted))

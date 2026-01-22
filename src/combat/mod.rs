@@ -55,6 +55,7 @@ impl Plugin for CombatPlugin {
             .add_systems(Update, process_fire_shots.run_if(crate::world_ready))
             .add_systems(FixedUpdate, projectiles::tick_projectiles.run_if(crate::world_ready))
             .add_systems(FixedUpdate, process_enemy_fireball_shots.run_if(crate::world_ready))
+            .add_systems(FixedUpdate, process_enemy_syringe_shots.run_if(crate::world_ready))
             .add_systems(FixedUpdate, projectiles::spawn_projectiles.run_if(crate::world_ready))
             .add_systems(
                 PostUpdate,
@@ -93,6 +94,21 @@ fn process_enemy_fireball_shots(
             origin: fb.origin,
             dir: fb.dir,
         });
+    }
+}
+
+fn process_enemy_syringe_shots(
+    mut syringes: MessageReader<davelib::ai::EnemySyringeShot>,
+    mut spawn: MessageWriter<projectiles::SpawnProjectile>,
+) {
+    for syr in syringes.read() {
+        info!("CONVERTING SYRINGE SHOT: origin={:?}, dir={:?}", syr.origin, syr.dir);
+        spawn.write(projectiles::SpawnProjectile {
+            kind: projectiles::ProjectileKind::Syringe,
+            origin: syr.origin,
+            dir: syr.dir,
+        });
+        info!("SPAWN PROJECTILE MESSAGE SENT!");
     }
 }
 
