@@ -102,13 +102,11 @@ fn process_enemy_syringe_shots(
     mut spawn: MessageWriter<projectiles::SpawnProjectile>,
 ) {
     for syr in syringes.read() {
-        info!("CONVERTING SYRINGE SHOT: origin={:?}, dir={:?}", syr.origin, syr.dir);
         spawn.write(projectiles::SpawnProjectile {
             kind: projectiles::ProjectileKind::Syringe,
             origin: syr.origin,
             dir: syr.dir,
         });
-        info!("SPAWN PROJECTILE MESSAGE SENT!");
     }
 }
 
