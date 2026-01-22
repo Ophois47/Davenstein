@@ -940,8 +940,8 @@ fn enemy_ai_combat(
                         });
 
                         continue;
-                    // Otto Rocket Shoot (single shot, not a volley)
-                    } else if matches!(*kind, EnemyKind::Otto) {
+                    // Otto and General Rocket Shoot (single shot, not a volley)
+                    } else if matches!(*kind, EnemyKind::Otto) || matches!(*kind, EnemyKind::General) {
                         let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
                         let mut dir = player_pos - origin;
                         dir.y = 0.0;
@@ -1120,8 +1120,8 @@ fn enemy_ai_combat(
                         continue;
                     }
 
-                    // Otto Rocket Fire (single shot, not a volley)
-                    if matches!(*kind, EnemyKind::Otto) {
+                    // Otto and General Rocket Fire (single shot, not a volley)
+                    if matches!(*kind, EnemyKind::Otto) || matches!(*kind, EnemyKind::General) {
                         let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
                         let mut dir = player_pos - origin;
                         dir.y = 0.0;
@@ -1216,6 +1216,11 @@ fn enemy_ai_combat(
                         EnemyKind::Otto => {
                             commands.entity(e).insert(crate::enemies::OttoShoot {
                                 t: Timer::from_seconds(crate::enemies::OTTO_SHOOT_SECS, TimerMode::Once),
+                            });
+                        }
+                        EnemyKind::General => {
+                            commands.entity(e).insert(crate::enemies::GeneralShoot {
+                                t: Timer::from_seconds(crate::enemies::GENERAL_SHOOT_SECS, TimerMode::Once),
                             });
                         }
                         EnemyKind::Dog => {}

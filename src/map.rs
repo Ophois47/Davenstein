@@ -175,6 +175,7 @@ impl MapGrid {
         Vec<IVec2>,
         Vec<IVec2>,
         Vec<IVec2>,
+        Vec<IVec2>,
     ) {
         let mut raw_plane0: Vec<u16> = Vec::with_capacity(width * height);
         let mut tiles: Vec<Tile> = Vec::with_capacity(width * height);
@@ -191,6 +192,7 @@ impl MapGrid {
         let mut ghost_hitler: Vec<IVec2> = Vec::new();
         let mut schabbs: Vec<IVec2> = Vec::new();
         let mut otto: Vec<IVec2> = Vec::new();
+        let mut general: Vec<IVec2> = Vec::new();
 
         let idx = |x: usize, z: usize| -> usize { z * width + x };
 
@@ -250,6 +252,8 @@ impl MapGrid {
                     schabbs.push(t);
                 } else if v1 == 215 {
                     otto.push(t);
+                } else if v1 == 179 {
+                    general.push(t);
                 }
             }
         }
@@ -273,6 +277,7 @@ impl MapGrid {
             ghost_hitler,
             schabbs,
             otto,
+            general,
         )
     }
 }

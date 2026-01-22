@@ -34,6 +34,7 @@ use davelib::enemies::{
     GhostHitlerDying,
     SchabbsDying,
     OttoDying,
+    GeneralDying,
 };
 use davelib::map::MapGrid;
 
@@ -418,6 +419,9 @@ fn process_fire_shots(
                         EnemyKind::Otto => {
                             commands.entity(e).insert(OttoDying { frame: 0, tics: 0 });
                         }
+                        EnemyKind::General => {
+                            commands.entity(e).insert(GeneralDying { frame: 0, tics: 0 });
+                        }
                     }
                 } else {
                     let timer = Timer::from_seconds(0.20, TimerMode::Once);
@@ -456,6 +460,9 @@ fn process_fire_shots(
                             // Wolfenstein 3-D Bosses Do Not Flinch / Enter Pain
                         }
                         EnemyKind::Otto => {
+                            // Wolfenstein 3-D Bosses Do Not Flinch / Enter Pain
+                        }
+                        EnemyKind::General => {
                             // Wolfenstein 3-D Bosses Do Not Flinch / Enter Pain
                         }
                     }

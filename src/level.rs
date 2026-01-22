@@ -64,7 +64,8 @@ impl LevelId {
             3 => LevelId::E3M1,
             4 => LevelId::E4M1,
             5 => LevelId::E5M1,
-            6 => LevelId::E6M1,
+            // FIXME: PUT BACK AFTER TESTING !!!
+            6 => LevelId::E6M9,
             _ => LevelId::E1M1,
         }
     }

@@ -163,6 +163,9 @@ pub struct ActivePickupSfx;
 pub struct ActiveEnemyVoiceSfx;
 
 #[derive(Component)]
+pub struct ActiveBossDeathSfx;
+
+#[derive(Component)]
 pub struct ActiveIntermissionSfx;
 
 #[derive(Resource, Default)]
@@ -493,6 +496,11 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::EnemyAlert(EnemyKind::Otto),
         asset_server.load("sounds/sfx/enemies/otto/otto_alert.wav"),
     );
+    // General Fettgesicht Alert
+    lib.insert_one(
+        SfxKind::EnemyAlert(EnemyKind::General),
+        asset_server.load("sounds/sfx/enemies/general/general_alert.wav"),
+    );
 
     // Hans Shoot
     lib.insert_one(
@@ -524,6 +532,11 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::EnemyShoot(EnemyKind::Otto),
         asset_server.load("sounds/sfx/enemies/otto/otto_shoot.wav"),
     );
+    // General Fettgesicht Fire Rocket
+    lib.insert_one(
+        SfxKind::EnemyShoot(EnemyKind::General),
+        asset_server.load("sounds/sfx/enemies/general/general_shoot.wav"),
+    );
 
     // Hans Death
     lib.insert_one(
@@ -554,6 +567,11 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     lib.insert_one(
         SfxKind::EnemyDeath(EnemyKind::Otto),
         asset_server.load("sounds/sfx/enemies/otto/otto_death.wav"),
+    );
+    // General Fettgesicht Death
+    lib.insert_one(
+        SfxKind::EnemyDeath(EnemyKind::General),
+        asset_server.load("sounds/sfx/enemies/general/general_death.wav"),
     );
 
     commands.insert_resource(lib);
@@ -861,14 +879,29 @@ pub fn play_sfx_events(
 		let i = rand::rng().random_range(0..list.len());
 		let clip = list[i].clone();
 
-		let is_enemy_voice = matches!(e.kind, SfxKind::EnemyAlert(_) | SfxKind::EnemyDeath(_));
-		let is_enemy_gun = matches!(e.kind, SfxKind::EnemyShoot(_));
+        let is_boss_voice = match e.kind {
+            SfxKind::EnemyAlert(kind) | SfxKind::EnemyDeath(kind) => matches!(kind,
+                EnemyKind::Hans |
+                EnemyKind::Gretel |
+                EnemyKind::Hitler |
+                EnemyKind::MechaHitler |
+                EnemyKind::GhostHitler |
+                EnemyKind::Schabbs |
+                EnemyKind::Otto |
+                EnemyKind::General
+            ),
+            _ => false,
+        };
 
-		if is_enemy_voice {
-			for ent in q_active_enemy_voice.iter() {
-				commands.entity(ent).despawn();
-			}
-		}
+        let is_enemy_voice = matches!(e.kind, SfxKind::EnemyAlert(_) | SfxKind::EnemyDeath(_));
+        let is_enemy_gun = matches!(e.kind, SfxKind::EnemyShoot(_));
+
+// Boss deaths don't get interrupted by regular enemy sounds
+if is_enemy_voice && !is_boss_voice {
+    for ent in q_active_enemy_voice.iter() {
+        commands.entity(ent).despawn();
+    }
+}
 
 		if is_enemy_gun {
 			for (ent, sink, spatial) in q_active_enemy_gun.iter() {
@@ -917,20 +950,60 @@ pub fn play_sfx_events(
 				.with_spatial_scale(SpatialScale::new(0.15))
 				.with_volume(Volume::Linear(1.7)),
 
-			SfxKind::EnemyAlert(_) => PlaybackSettings::DESPAWN
-				.with_spatial(true)
-				.with_spatial_scale(SpatialScale::new(0.05))
-                .with_volume(Volume::Linear(1.4)),
+			SfxKind::EnemyAlert(kind) => {
+                // Boss alerts use priority playback (non-spatial, interrupts everything)
+                let is_boss = matches!(kind,
+                    EnemyKind::Hans |
+                    EnemyKind::Gretel |
+                    EnemyKind::Hitler |
+                    EnemyKind::MechaHitler |
+                    EnemyKind::GhostHitler |
+                    EnemyKind::Schabbs |
+                    EnemyKind::Otto |
+                    EnemyKind::General
+                );
+                
+                if is_boss {
+                    PlaybackSettings::DESPAWN
+                        .with_spatial(false)
+                        .with_volume(Volume::Linear(1.4))
+                } else {
+                    PlaybackSettings::DESPAWN
+                        .with_spatial(true)
+                        .with_spatial_scale(SpatialScale::new(0.05))
+                        .with_volume(Volume::Linear(1.4))
+                }
+            }
 
 			SfxKind::EnemyShoot(_) => PlaybackSettings::DESPAWN
 				.with_spatial(true)
 				.with_spatial_scale(SpatialScale::new(0.05))
 				.with_volume(Volume::Linear(1.6)),
 
-			SfxKind::EnemyDeath(_) => PlaybackSettings::DESPAWN
-				.with_spatial(true)
-				.with_spatial_scale(SpatialScale::new(0.05))
-				.with_volume(Volume::Linear(1.4)),
+			SfxKind::EnemyDeath(kind) => {
+                // Boss deaths use priority playback (non-spatial, interrupts everything)
+                let is_boss = matches!(kind,
+                    EnemyKind::Hans |
+                    EnemyKind::Gretel |
+                    EnemyKind::Hitler |
+                    EnemyKind::MechaHitler |
+                    EnemyKind::GhostHitler |
+                    EnemyKind::Schabbs |
+                    EnemyKind::Otto |
+                    EnemyKind::General
+                );
+                
+                if is_boss {
+                    PlaybackSettings::DESPAWN
+                        .with_spatial(false)
+                        .with_volume(Volume::Linear(1.4))
+                } else {
+                    PlaybackSettings::DESPAWN
+                        .with_spatial(true)
+                        .with_spatial_scale(SpatialScale::new(0.05))
+                        .with_volume(Volume::Linear(1.4))
+                }
+            }
 
 			SfxKind::PickupChaingun
 			| SfxKind::PickupMachineGun
@@ -952,14 +1025,23 @@ pub fn play_sfx_events(
 		};
 
 		if is_enemy_voice {
-			commands.spawn((
-				ActiveEnemyVoiceSfx,
-				Transform::from_translation(e.pos),
-				AudioPlayer::new(clip),
-				settings,
-			));
-			continue;
-		}
+            if is_boss_voice {
+                commands.spawn((
+                    ActiveBossDeathSfx,
+                    Transform::from_translation(e.pos),
+                    AudioPlayer::new(clip),
+                    settings,
+                ));
+            } else {
+                commands.spawn((
+                    ActiveEnemyVoiceSfx,
+                    Transform::from_translation(e.pos),
+                    AudioPlayer::new(clip),
+                    settings,
+                ));
+            }
+            continue;
+        }
 
 		if is_enemy_gun {
 			let mut ent = commands.spawn((

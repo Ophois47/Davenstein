@@ -29,5 +29,13 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
-- Implement missile hit sounds for Otto and the General
+- Implement chaingun attack for General Fettgesicht
+- Implement hit sounds and effects for rockets
+- Implement smoke trail effects for rockets
 - Several rocket directions seem mixed up
+- Bosses need to scale thier health values per skill level
+- The width of Otto's corpse is a little squished
+- When two of the same enemies fire their weapons at the same time
+		there is a conflict, we get:
+
+	"FetchError>>>::with_entity::{{closure}}: Entity despawned: The entity with ID 1378v14 is invalid; its index now has generation 15. Note that interacting with a despawned entity is the most common cause of this error but there are others. If you were attempting to apply a command to this entity, and want to handle this error gracefully, consider using `EntityCommands::queue_handled` or `queue_silenced`."
