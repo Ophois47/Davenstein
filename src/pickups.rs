@@ -15,8 +15,6 @@ use davelib::enemies::{
     HansCorpse,
     GretelCorpse,
 };
-use davelib::level::WolfPlane1;
-use davelib::map::{MapGrid, Tile};
 use davelib::player::Player;
 
 // Ammo Pickup Amounts

@@ -292,37 +292,6 @@ pub fn tick_projectiles(
 	}
 }
 
-fn projectile_view8(dir: Vec3, proj_pos: Vec3, player_pos: Vec3) -> u8 {
-	use std::f32::consts::TAU;
-
-	let to_player = player_pos - proj_pos;
-	let flat_to_player = Vec3::new(to_player.x, 0.0, to_player.z);
-	if flat_to_player.length_squared() < 1e-6 {
-		return 0;
-	}
-
-	let flat_dir = Vec3::new(dir.x, 0.0, dir.z);
-	if flat_dir.length_squared() < 1e-6 {
-		return 0;
-	}
-
-	let step = TAU / 8.0;
-
-	let yaw_to_player = flat_to_player.x.atan2(flat_to_player.z).rem_euclid(TAU);
-	let yaw_dir = flat_dir.x.atan2(flat_dir.z).rem_euclid(TAU);
-
-	let rel = (yaw_to_player - yaw_dir).rem_euclid(TAU);
-
-	(((rel + step * 0.5) / step).floor() as i32 & 7) as u8
-}
-
-fn view8_to_view4(v8: u8) -> usize {
-	// Mirror 8-way to 4-way like Wolf-style angle sprites
-	// 0..7 -> 0,1,2,3,4,3,2,1 then clamp to 0..3 since you have a0..a3
-	let v = if v8 > 4 { 8 - v8 } else { v8 };
-	(v as usize).min(3)
-}
-
 pub fn update_projectile_views(
 	time: Res<Time>,
 	assets: Option<Res<ProjectileAssets>>,
