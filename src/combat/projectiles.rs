@@ -12,7 +12,6 @@ use davelib::player::{GodMode, Player, PlayerVitals};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ProjectileKind {
 	Fireball,
-	#[allow(dead_code)]
 	Rocket,
 	Syringe,
 }
@@ -30,6 +29,7 @@ pub struct ProjectileAssets {
 	pub fireball_0: Handle<Image>,
 	pub fireball_1: Handle<Image>,
 	pub syringe: [Handle<Image>; 4],
+	pub rocket: [Handle<Image>; 4];
 }
 
 #[derive(Component)]

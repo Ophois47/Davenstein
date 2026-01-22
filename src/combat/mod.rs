@@ -33,6 +33,7 @@ use davelib::enemies::{
     MechaHitlerDying,
     GhostHitlerDying,
     SchabbsDying,
+    OttoDying,
 };
 use davelib::map::MapGrid;
 
@@ -104,6 +105,19 @@ fn process_enemy_syringe_shots(
     for syr in syringes.read() {
         spawn.write(projectiles::SpawnProjectile {
             kind: projectiles::ProjectileKind::Syringe,
+            origin: syr.origin,
+            dir: syr.dir,
+        });
+    }
+}
+
+fn process_enemy_rocket_shots(
+    mut syringes: MessageReader<davelib::ai::EnemyRocketShot>,
+    mut spawn: MessageWriter<projectiles::SpawnProjectile>,
+) {
+    for syr in syringes.read() {
+        spawn.write(projectiles::SpawnProjectile {
+            kind: projectiles::ProjectileKind::Rocket,
             origin: syr.origin,
             dir: syr.dir,
         });
@@ -400,6 +414,9 @@ fn process_fire_shots(
                         EnemyKind::Schabbs => {
                             commands.entity(e).insert(SchabbsDying { frame: 0, tics: 0 });
                         }
+                        EnemyKind::Otto => {
+                            commands.entity(e).insert(OttoDying { frame: 0, tics: 0 });
+                        }
                     }
                 } else {
                     let timer = Timer::from_seconds(0.20, TimerMode::Once);
@@ -435,6 +452,9 @@ fn process_fire_shots(
                             // Wolfenstein 3-D Fake Hitler Does Not Flinch / Enter Pain
                         }
                         EnemyKind::Schabbs => {
+                            // Wolfenstein 3-D Bosses Do Not Flinch / Enter Pain
+                        }
+                        EnemyKind::Otto => {
                             // Wolfenstein 3-D Bosses Do Not Flinch / Enter Pain
                         }
                     }

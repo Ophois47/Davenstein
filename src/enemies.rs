@@ -28,6 +28,7 @@ const HITLER_MAX_HP: i32 = 850;
 const MECHA_HITLER_MAX_HP: i32 = 850;
 const GHOST_HITLER_MAX_HP: i32 = 450;
 const SCHABBS_MAX_HP: i32 = 850;
+const OTTO_MAX_HP: i32 = 850;
 
 pub(crate) const SS_SHOOT_SECS: f32 = 0.35;
 pub(crate) const OFFICER_SHOOT_SECS: f32 = 0.35;
@@ -60,7 +61,8 @@ pub enum EnemyKind {
     MechaHitler,
     GhostHitler,
     Schabbs,
-    // TODO: Other Bosses
+    Otto,
+    // TODO: The General
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -88,6 +90,7 @@ pub struct EnemyTunings {
     pub mecha_hitler: EnemyTuning,
     pub ghost_hitler: EnemyTuning,
     pub schabbs: EnemyTuning,
+    pub otto: EnemyTuning,
 }
 
 impl EnemyTunings {
@@ -207,6 +210,16 @@ impl EnemyTunings {
                 attack_range_tiles: 8.0,
                 reaction_time_secs: 0.30,
             },
+            otto: EnemyTuning {
+                max_hp: OTTO_MAX_HP,
+                wander_speed_tps: 0.0,
+                chase_speed_tps: 1.3,
+                can_shoot: true,
+                attack_damage: 30,
+                attack_cooldown_secs: 0.35,
+                attack_range_tiles: 8.0,
+                reaction_time_secs: 0.30,
+            },
         }
     }
 
@@ -223,6 +236,7 @@ impl EnemyTunings {
             EnemyKind::MechaHitler => self.mecha_hitler,
             EnemyKind::GhostHitler => self.ghost_hitler,
             EnemyKind::Schabbs => self.schabbs,
+            EnemyKind::Otto => self.otto,
         }
     }
 }
@@ -665,6 +679,7 @@ pub(crate) const HITLER_SHOOT_SECS: f32 = 0.25;
 pub(crate) const MECHA_HITLER_SHOOT_SECS: f32 = 0.25;
 pub(crate) const GHOST_HITLER_SHOOT_SECS: f32 = 0.25;
 pub(crate) const SCHABBS_THROW_SECS: f32 = 0.25;
+pub(crate) const OTTO_SHOOT_SECS: f32 = 0.25;
 
 #[derive(Component)]
 pub struct Hans;
@@ -685,6 +700,9 @@ pub struct GhostHitler;
 pub struct Schabbs;
 
 #[derive(Component)]
+pub struct Otto;
+
+#[derive(Component)]
 pub struct HansCorpse;
 
 #[derive(Component)]
@@ -701,6 +719,9 @@ pub struct GhostHitlerCorpse;
 
 #[derive(Component)]
 pub struct SchabbsCorpse;
+
+#[derive(Component)]
+pub struct OttoCorpse;
 
 #[derive(Component, Default)]
 pub struct HansWalk {
@@ -732,6 +753,11 @@ pub struct SchabbsWalk {
     pub phase: f32,
 }
 
+#[derive(Component, Debug, Default)]
+pub struct OttoWalk {
+    pub phase: f32,
+}
+
 #[derive(Component)]
 pub struct HansShoot {
     pub t: Timer,
@@ -759,6 +785,11 @@ pub struct GhostHitlerShoot {
 
 #[derive(Component, Debug)]
 pub struct SchabbsShoot {
+    pub t: Timer,
+}
+
+#[derive(Component, Debug)]
+pub struct OttoShoot {
     pub t: Timer,
 }
 
@@ -794,6 +825,12 @@ pub struct GhostHitlerDying {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct SchabbsDying {
+    pub frame: u8, // 0..4
+    pub tics: u8,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct OttoDying {
     pub frame: u8, // 0..4
     pub tics: u8,
 }
@@ -846,6 +883,15 @@ pub struct GhostHitlerSprites {
 
 #[derive(Resource)]
 pub struct SchabbsSprites {
+    pub idle: [Handle<Image>; 8],
+    pub walk: [[Handle<Image>; 8]; 4],
+    pub shoot: [Handle<Image>; 3],
+    pub dying: [[Handle<Image>; 8]; 4],
+    pub corpse: [Handle<Image>; 8],
+}
+
+#[derive(Resource)]
+pub struct OttoSprites {
     pub idle: [Handle<Image>; 8],
     pub walk: [[Handle<Image>; 8]; 4],
     pub shoot: [Handle<Image>; 3],
@@ -1076,6 +1122,53 @@ impl FromWorld for SchabbsSprites {
     }
 }
 
+impl FromWorld for OttoSprites {
+    fn from_world(world: &mut World) -> Self {
+        let server = world.resource::<AssetServer>();
+
+        // Walk frames 0..3
+        let walk_frames: [Handle<Image>; 4] = std::array::from_fn(|i| {
+            server.load(format!("enemies/otto/otto_walk_a{i}.png"))
+        });
+
+        // Reuse a mid-walk frame as the stand frame
+        let idle: [Handle<Image>; 8] = std::array::from_fn(|_| walk_frames[1].clone());
+
+        // Provide 4 walk frames, duplicated across all 8 views
+        let walk: [[Handle<Image>; 8]; 4] = std::array::from_fn(|row| {
+            let h = walk_frames[row].clone();
+            std::array::from_fn(|_| h.clone())
+        });
+
+        let shoot0: Handle<Image> = server.load("enemies/otto/otto_shoot_0.png");
+        let shoot1: Handle<Image> = server.load("enemies/otto/ottos_shoot_1.png");
+        let shoot: [Handle<Image>; 3] = [shoot0, shoot1.clone(), shoot1];
+
+
+        let d0: Handle<Image> = server.load("enemies/otto/otto_death_0.png");
+        let d1: Handle<Image> = server.load("enemies/otto/otto_death_1.png");
+        let d2: Handle<Image> = server.load("enemies/otto/otto_death_2.png");
+
+        let dying: [[Handle<Image>; 8]; 4] = [
+            std::array::from_fn(|_| d0.clone()),
+            std::array::from_fn(|_| d1.clone()),
+            std::array::from_fn(|_| d2.clone()),
+            std::array::from_fn(|_| d2.clone()),
+        ];
+
+        let corpse_one: Handle<Image> = server.load("enemies/otto/otto_corpse.png");
+        let corpse: [Handle<Image>; 8] = std::array::from_fn(|_| corpse_one.clone());
+
+        Self {
+            idle,
+            walk,
+            shoot,
+            dying,
+            corpse,
+        }
+    }
+}
+
 // SystemParam to group all enemy sprites into a single parameter
 // This reduces the setup() function parameter count from 18 to 8
 use bevy::ecs::system::SystemParam;
@@ -1092,8 +1185,8 @@ pub struct AllEnemySprites<'w> {
     pub mecha_hitler: Res<'w, MechaHitlerSprites>,
     pub ghost_hitler: Res<'w, GhostHitlerSprites>,
     pub schabbs: Res<'w, SchabbsSprites>,
+    pub otto: Res<'w, OttoSprites>,
 }
-
 
 fn attach_hans_walk(mut commands: Commands, q: Query<Entity, Added<Hans>>) {
     for e in q.iter() {
@@ -1128,6 +1221,12 @@ fn attach_ghost_hitler_walk(mut commands: Commands, q: Query<Entity, Added<Ghost
 fn attach_schabbs_walk(mut commands: Commands, q: Query<Entity, Added<Schabbs>>) {
     for e in q.iter() {
         commands.entity(e).insert(SchabbsWalk::default());
+    }
+}
+
+fn attach_otto_walk(mut commands: Commands, q: Query<Entity, Added<Otto>>) {
+    for e in q.iter() {
+        commands.entity(e).insert(OttoWalk::default());
     }
 }
 
@@ -1218,6 +1317,21 @@ fn tick_schabbs_walk(
     }
 }
 
+fn tick_otto_walk(
+    time: Res<Time>,
+    mut q: Query<(&mut SchabbsWalk, Option<&EnemyMove>), (With<Otto>, Without<OttoDying>)>,
+) {
+    let dt = time.delta_secs();
+    for (mut w, moving) in q.iter_mut() {
+        if let Some(m) = moving {
+            // Drive Animation by Distance Traveled (Tiles)
+            w.phase += m.speed_tps * dt;
+        } else {
+            w.phase = 0.0;
+        }
+    }
+}
+
 fn tick_hans_shoot(
     time: Res<Time>,
     mut commands: Commands,
@@ -1292,6 +1406,19 @@ fn tick_schabbs_throw(
         s.t.tick(time.delta());
         if s.t.is_finished() {
             commands.entity(e).remove::<SchabbsShoot>();
+        }
+    }
+}
+
+fn tick_otto_shoot(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut OttoShoot), With<Otto>>,
+) {
+    for (e, mut s) in q.iter_mut() {
+        s.t.tick(time.delta());
+        if s.t.is_finished() {
+            commands.entity(e).remove::<OttoShoot>();
         }
     }
 }
@@ -1493,6 +1620,40 @@ pub fn spawn_schabbs(
         Dir8(0),
         View8(0),
         Health::new(SCHABBS_MAX_HP),
+        OccupiesTile(tile),
+        Mesh3d(quad),
+        MeshMaterial3d(mat),
+        Transform::from_translation(pos),
+    ));
+}
+
+pub fn spawn_otto(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    sprites: &OttoSprites,
+    tile: IVec2,
+) {
+    const TILE_SIZE: f32 = 1.0;
+    const WALL_H: f32 = 1.0;
+
+    let pos = Vec3::new(tile.x as f32 * TILE_SIZE, WALL_H * 0.5, tile.y as f32 * TILE_SIZE);
+
+    let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
+    let mat = materials.add(StandardMaterial {
+        base_color_texture: Some(sprites.idle[0].clone()),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    commands.spawn((
+        Otto,
+        EnemyKind::Otto,
+        Dir8(0),
+        View8(0),
+        Health::new(OTTO_MAX_HP),
         OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
@@ -1873,6 +2034,68 @@ pub fn update_schabbs_views(
     }
 }
 
+pub fn update_otto_views(
+    sprites: Res<OttoSprites>,
+    q_player: Query<&GlobalTransform, With<Player>>,
+    mut q: Query<
+        (
+            Option<&OttoCorpse>,
+            Option<&OttoDying>,
+            Option<&OttoShoot>,
+            Option<&OttoWalk>,
+            Option<&EnemyMove>,
+            &GlobalTransform,
+            &Dir8,
+            &mut View8,
+            &MeshMaterial3d<StandardMaterial>,
+            &mut Transform,
+        ),
+        (With<Otto>, Without<Player>),
+    >,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(player_gt) = q_player.iter().next() else { return; };
+    let player_pos = player_gt.translation();
+
+    for (corpse, dying, shoot, walk, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+        let enemy_pos = gt.translation();
+
+        let v = quantize_view8(dir8.0, enemy_pos, player_pos);
+        view.0 = v;
+
+        let to_player = player_pos - enemy_pos;
+        let flat_len2 = to_player.x * to_player.x + to_player.z * to_player.z;
+        if flat_len2 > 1e-6 {
+            let yaw = to_player.x.atan2(to_player.z);
+            tf.rotation = Quat::from_rotation_y(yaw);
+        }
+
+        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+
+        let tex: Handle<Image> = if corpse.is_some() {
+            sprites.corpse[v as usize].clone()
+        } else if let Some(d) = dying {
+            let f = (d.frame as usize).min(3);
+            sprites.dying[f][v as usize].clone()
+        } else if let Some(s) = shoot {
+            let dur = s.t.duration().as_secs_f32().max(1e-6);
+            let t = s.t.elapsed().as_secs_f32();
+            let fi = ((t / dur) * 2.0).floor() as usize;
+            sprites.shoot[fi.min(1)].clone()
+        } else if mv.is_some() {
+            let w = walk.map(|w| w.phase).unwrap_or(0.0);
+            let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
+            sprites.walk[frame_i][v as usize].clone()
+        } else {
+            sprites.idle[v as usize].clone()
+        };
+
+        if mat.base_color_texture.as_ref() != Some(&tex) {
+            mat.base_color_texture = Some(tex);
+        }
+    }
+}
+
 fn tick_hans_dying(
     mut commands: Commands,
     mut q: Query<(Entity, &mut HansDying)>,
@@ -2004,6 +2227,27 @@ fn tick_schabbs_dying(
             if d.frame >= FRAMES {
                 commands.entity(e).remove::<SchabbsDying>();
                 commands.entity(e).insert(SchabbsCorpse);
+            }
+        }
+    }
+}
+
+fn tick_otto_dying(
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut OttoDying)>,
+) {
+    const FRAMES: u8 = 3;
+
+    for (e, mut d) in q.iter_mut() {
+        d.tics = d.tics.saturating_add(1);
+
+        if d.tics >= 8 {
+            d.tics = 0;
+            d.frame = d.frame.saturating_add(1);
+
+            if d.frame >= FRAMES {
+                commands.entity(e).remove::<OttoDying>();
+                commands.entity(e).insert(OttoCorpse);
             }
         }
     }
@@ -3142,6 +3386,7 @@ impl Plugin for EnemiesPlugin {
             .init_resource::<MechaHitlerSprites>()
             .init_resource::<GhostHitlerSprites>()
             .init_resource::<SchabbsSprites>()
+            .init_resource::<OttoSprites>()
             // Update systems - attach walk components
             .add_systems(Update, attach_guard_walk)
             .add_systems(Update, attach_mutant_walk)
@@ -3154,6 +3399,7 @@ impl Plugin for EnemiesPlugin {
             .add_systems(Update, attach_mecha_hitler_walk)
             .add_systems(Update, attach_ghost_hitler_walk)
             .add_systems(Update, attach_schabbs_walk)
+            .add_systems(Update, attach_otto_walk)
             // Update systems - update views
             .add_systems(Update, update_guard_views)
             .add_systems(Update, update_mutant_views)
@@ -3166,6 +3412,7 @@ impl Plugin for EnemiesPlugin {
             .add_systems(Update, update_mecha_hitler_views)
             .add_systems(Update, update_ghost_hitler_views)
             .add_systems(Update, update_schabbs_views)
+            .add_systems(Update, update_otto_views)
             // FixedUpdate systems - guards
             .add_systems(FixedUpdate, tick_guard_walk)
             .add_systems(FixedUpdate, tick_guard_pain)
@@ -3215,7 +3462,10 @@ impl Plugin for EnemiesPlugin {
             // FixedUpdate systems - Schabbs
             .add_systems(FixedUpdate, tick_schabbs_walk)
             .add_systems(FixedUpdate, tick_schabbs_throw)
-            .add_systems(FixedUpdate, tick_schabbs_dying);
+            .add_systems(FixedUpdate, tick_schabbs_dying)
+            // FixedUpdate systems - Otto
+            .add_systems(FixedUpdate, tick_otto_walk)
+            .add_systems(FixedUpdate, tick_otto_shoot)
+            .add_systems(FixedUpdate, tick_otto_dying);
     }
 }
-

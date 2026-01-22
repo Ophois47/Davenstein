@@ -488,6 +488,11 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::EnemyAlert(EnemyKind::Schabbs),
         asset_server.load("sounds/sfx/enemies/schabbs/schabbs_alert.wav"),
     );
+    // Otto Giftmacher Alert
+    lib.insert_one(
+        SfxKind::EnemyAlert(EnemyKind::Otto),
+        asset_server.load("sounds/sfx/enemies/otto/otto_alert.wav"),
+    );
 
     // Hans Shoot
     lib.insert_one(
@@ -514,6 +519,11 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::EnemyShoot(EnemyKind::Schabbs),
         asset_server.load("sounds/sfx/enemies/schabbs/schabbs_throw.wav"),
     );
+    // Otto Giftmacher Fire Rocket
+    lib.insert_one(
+        SfxKind::EnemyShoot(EnemyKind::Otto),
+        asset_server.load("sounds/sfx/enemies/otto/otto_shoot.wav"),
+    );
 
     // Hans Death
     lib.insert_one(
@@ -535,10 +545,15 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
         SfxKind::EnemyDeath(EnemyKind::MechaHitler),
         asset_server.load("sounds/sfx/enemies/mecha_hitler/mecha_hitler_death.wav"),
     );
-    // Schabbs Death
+    // Dr Schabbs Death
     lib.insert_one(
         SfxKind::EnemyDeath(EnemyKind::Schabbs),
         asset_server.load("sounds/sfx/enemies/schabbs/schabbs_death.wav"),
+    );
+    // Otto Giftmacher Death
+    lib.insert_one(
+        SfxKind::EnemyDeath(EnemyKind::Otto),
+        asset_server.load("sounds/sfx/enemies/otto/otto_death.wav"),
     );
 
     commands.insert_resource(lib);

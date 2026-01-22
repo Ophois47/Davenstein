@@ -106,6 +106,12 @@ pub struct EnemySyringeShot {
     pub dir: Vec3,
 }
 
+#[derive(Clone, Copy, Debug, Message)]
+pub struct EnemyRocketShot {
+    pub origin: Vec3,
+    pub dir: Vec3,
+}
+
 #[derive(Component, Debug, Clone, Copy)]
 pub struct EnemyAi {
     pub state: EnemyAiState,
@@ -839,6 +845,7 @@ fn enemy_ai_combat(
     mut enemy_fire: MessageWriter<EnemyFire>,
     mut enemy_fireball: MessageWriter<EnemyFireballShot>,
     mut enemy_syringe: MessageWriter<EnemySyringeShot>,
+    mut enemy_rocket: MessageWriter<EnemyRocketShot>,
     mut sfx: MessageWriter<PlaySfx>,
     mut shoot_cd: Local<HashMap<Entity, f32>>,
     mut bursts: Local<HashMap<Entity, BurstFire>>,
@@ -930,6 +937,30 @@ fn enemy_ai_combat(
 
                         commands.entity(e).insert(crate::enemies::SchabbsShoot {
                             t: Timer::from_seconds(crate::enemies::SCHABBS_SHOOT_SECS, TimerMode::Once),
+                        });
+
+                        continue;
+                    // Otto Rocket Shoot (single shot, not a volley)
+                    } else if matches!(*kind, EnemyKind::Otto) {
+                        let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
+                        let mut dir = player_pos - origin;
+                        dir.y = 0.0;
+
+                        if dir.length_squared() > 1e-6 {
+                            enemy_rocket.write(EnemyRocketShot {
+                                origin,
+                                dir: dir.normalize(),
+                            });
+                        }
+
+                        sfx.write(PlaySfx {
+                            kind: SfxKind::EnemyShoot(EnemyKind::Otto),
+                            pos: tf.translation,
+                        });
+                        shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
+
+                        commands.entity(e).insert(crate::enemies::OttoShoot {
+                            t: Timer::from_seconds(crate::enemies::OTTO_SHOOT_SECS, TimerMode::Once),
                         });
 
                         continue;
@@ -1089,6 +1120,33 @@ fn enemy_ai_combat(
                         continue;
                     }
 
+                    // Otto Rocket Fire (single shot, not a volley)
+                    if matches!(*kind, EnemyKind::Otto) {
+                        let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
+                        let mut dir = player_pos - origin;
+                        dir.y = 0.0;
+
+                        if dir.length_squared() > 1e-6 {
+                            enemy_rocket.write(EnemyRocketShot {
+                                origin,
+                                dir: dir.normalize(),
+                            });
+                        }
+
+                        sfx.write(PlaySfx {
+                            kind: SfxKind::EnemyShoot(EnemyKind::Otto),
+                            pos: tf.translation,
+                        });
+
+                        shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
+
+                        commands.entity(e).insert(crate::enemies::OttoShoot {
+                            t: Timer::from_seconds(crate::enemies::OTTO_SHOOT_SECS, TimerMode::Once),
+                        });
+
+                        continue;
+                    }
+
                     // Regular hitscan shooting
                     shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
@@ -1153,6 +1211,11 @@ fn enemy_ai_combat(
                         EnemyKind::Schabbs => {
                             commands.entity(e).insert(crate::enemies::SchabbsShoot {
                                 t: Timer::from_seconds(crate::enemies::SCHABBS_THROW_SECS, TimerMode::Once),
+                            });
+                        }
+                        EnemyKind::Otto => {
+                            commands.entity(e).insert(crate::enemies::OttoShoot {
+                                t: Timer::from_seconds(crate::enemies::OTTO_SHOOT_SECS, TimerMode::Once),
                             });
                         }
                         EnemyKind::Dog => {}
@@ -1274,7 +1337,7 @@ fn enemy_ai_movement(
                     } else {
                         let step = dest - my_tile;
                         let new_dir = dir8_from_step(step);
-                        commands.entity(e).insert(PendingDir8(new_dir));  // Insert pending instead of mutating
+                        commands.entity(e).insert(PendingDir8(new_dir));
                         ai.last_step = step;
 
                         if CLAIM_TILE_EARLY {
@@ -1422,6 +1485,7 @@ impl Plugin for EnemyAiPlugin {
             .add_message::<EnemyFire>()
             .add_message::<EnemyFireballShot>()
             .add_message::<EnemySyringeShot>()
+            .add_message::<EnemyRocketShot>()
             .add_systems(Update, attach_enemy_ai)
             .add_systems(FixedUpdate, enemy_ai_prepare_and_activate.run_if(player_can_be_targeted))
             .add_systems(FixedUpdate, enemy_ai_combat.run_if(player_can_be_targeted))

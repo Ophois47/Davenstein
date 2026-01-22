@@ -543,7 +543,7 @@ pub fn setup(
 	commands.insert_resource(crate::level::WolfPlane1(plane1.clone()));
 
 	let pushwall_markers = PushwallMarkers::from_wolf_plane1(64, 64, &plane1);
-	let (grid, spawn, guards, mutants, ss, officers, dogs, hans, gretel, mecha_hitler, ghost_hitler, schabbs) =
+	let (grid, spawn, guards, mutants, ss, officers, dogs, hans, gretel, mecha_hitler, ghost_hitler, schabbs, otto) =
 		MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
 
 	// --- Enemy difficulty selection ---
@@ -660,6 +660,11 @@ pub fn setup(
         .filter(|&t| plane1[idx(t)] == 196)
         .collect();
 
+	let otto: Vec<IVec2> = otto
+        .into_iter()
+        .filter(|&t| plane1[idx(t)] == 215)
+        .collect();
+
 	let hitler_phase2_total = mecha_hitler.len();
 
 	info!(
@@ -673,12 +678,13 @@ pub fn setup(
 	);
 
 	info!(
-		"Boss Spawns: Hans={}, Gretel={}, Mecha Hitler={} (implies Hitler Phase II={}), Schabbs={}",
+		"Boss Spawns: Hans={}, Gretel={}, Mecha Hitler={} (implies Hitler Phase II={}), Schabbs={}, Otto={}",
 		hans.len(),
 		gretel.len(),
 		mecha_hitler.len(),
 		hitler_phase2_total,
         schabbs.len(),
+		otto.len(),
 	);
 
 	info!(
@@ -699,7 +705,8 @@ pub fn setup(
 		+ mecha_hitler.len()
     	+ hitler_phase2_total
         + ghost_hitler.len()
-        + schabbs.len();
+        + schabbs.len()
+		+ otto.len();
 
 	let secrets_total = plane1.iter().filter(|&&c| c == 98).count();
 	let treasure_total = plane1
@@ -1132,6 +1139,10 @@ pub fn setup(
 
     for sc in schabbs {
         crate::enemies::spawn_schabbs(&mut commands, &mut meshes, &mut materials, &enemy_sprites.schabbs, sc);
+    }
+
+	for ot in otto {
+        crate::enemies::spawn_otto(&mut commands, &mut meshes, &mut materials, &enemy_sprites.otto, ot);
     }
 
 	let player_pos = Vec3::new(spawn.x as f32 * TILE_SIZE, 0.5, spawn.y as f32 * TILE_SIZE);
