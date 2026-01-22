@@ -1128,7 +1128,7 @@ impl FromWorld for OttoSprites {
 
         // Walk frames 0..3
         let walk_frames: [Handle<Image>; 4] = std::array::from_fn(|i| {
-            server.load(format!("enemies/otto/otto_walk_a{i}.png"))
+            server.load(format!("enemies/otto/otto_walk_{i}.png"))
         });
 
         // Reuse a mid-walk frame as the stand frame
@@ -1141,7 +1141,7 @@ impl FromWorld for OttoSprites {
         });
 
         let shoot0: Handle<Image> = server.load("enemies/otto/otto_shoot_0.png");
-        let shoot1: Handle<Image> = server.load("enemies/otto/ottos_shoot_1.png");
+        let shoot1: Handle<Image> = server.load("enemies/otto/otto_shoot_1.png");
         let shoot: [Handle<Image>; 3] = [shoot0, shoot1.clone(), shoot1];
 
 
@@ -1319,7 +1319,7 @@ fn tick_schabbs_walk(
 
 fn tick_otto_walk(
     time: Res<Time>,
-    mut q: Query<(&mut SchabbsWalk, Option<&EnemyMove>), (With<Otto>, Without<OttoDying>)>,
+    mut q: Query<(&mut OttoWalk, Option<&EnemyMove>), (With<Otto>, Without<OttoDying>)>,
 ) {
     let dt = time.delta_secs();
     for (mut w, moving) in q.iter_mut() {

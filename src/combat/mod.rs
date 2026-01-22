@@ -57,6 +57,7 @@ impl Plugin for CombatPlugin {
             .add_systems(FixedUpdate, projectiles::tick_projectiles.run_if(crate::world_ready))
             .add_systems(FixedUpdate, process_enemy_fireball_shots.run_if(crate::world_ready))
             .add_systems(FixedUpdate, process_enemy_syringe_shots.run_if(crate::world_ready))
+            .add_systems(FixedUpdate, process_enemy_rocket_shots.run_if(crate::world_ready))
             .add_systems(FixedUpdate, projectiles::spawn_projectiles.run_if(crate::world_ready))
             .add_systems(
                 PostUpdate,

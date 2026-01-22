@@ -29,7 +29,7 @@ pub struct ProjectileAssets {
 	pub fireball_0: Handle<Image>,
 	pub fireball_1: Handle<Image>,
 	pub syringe: [Handle<Image>; 4],
-	pub rocket: [Handle<Image>; 4];
+	pub rocket: [Handle<Image>; 8],
 }
 
 #[derive(Component)]
@@ -92,6 +92,72 @@ fn tile_at_world(grid: &MapGrid, p: Vec3) -> Option<Tile> {
 	Some(grid.tile(tx as usize, tz as usize))
 }
 
+/// Calculate which of 8 directional sprites to show based on:
+/// - The direction the projectile is traveling (proj_dir)
+/// - The direction from projectile to player (to_player)
+///
+/// This matches classic Wolfenstein 3D sprite direction logic.
+/// Direction 0 = facing away from player (South)
+/// Direction 4 = facing toward player (North)
+/// Directions go clockwise: 0,1,2,3,4,5,6,7
+fn calculate_dir8_index(proj_dir: Vec3, to_player: Vec3) -> usize {
+	// Normalize both directions in XZ plane
+	let proj_xz = Vec2::new(proj_dir.x, proj_dir.z).normalize_or_zero();
+	let player_xz = Vec2::new(to_player.x, to_player.z).normalize_or_zero();
+	
+	if proj_xz == Vec2::ZERO || player_xz == Vec2::ZERO {
+		return 0;
+	}
+	
+	// Calculate the angle of the projectile's direction relative to the player's view direction
+	// We want to know: from the player's perspective, which way is the rocket facing?
+	
+	// Get angle from player to rocket (player's viewing angle)
+	let view_angle = player_xz.y.atan2(player_xz.x);
+	
+	// Get angle of rocket's travel direction
+	let proj_angle = proj_xz.y.atan2(proj_xz.x);
+	
+	// The difference tells us the rocket's orientation relative to player's view
+	let mut relative_angle = proj_angle - view_angle;
+	
+	// Normalize to [0, 2π)
+	while relative_angle < 0.0 {
+		relative_angle += std::f32::consts::TAU;
+	}
+	while relative_angle >= std::f32::consts::TAU {
+		relative_angle -= std::f32::consts::TAU;
+	}
+	
+	// Convert to 8 directions (octants)
+	// 0 = facing away (South), 4 = facing toward (North), clockwise
+	let octant = ((relative_angle + std::f32::consts::PI / 8.0) / (std::f32::consts::TAU / 8.0)).floor() as i32;
+	
+	// Map to Wolfenstein 3D convention:
+	// octant 0 (East) -> direction 2 (East)
+	// octant 1 (NE) -> direction 3 (NE)  
+	// octant 2 (North) -> direction 4 (North, toward player)
+	// octant 3 (NW) -> direction 5 (NW)
+	// octant 4 (West) -> direction 6 (West)
+	// octant 5 (SW) -> direction 7 (SW)
+	// octant 6 (South) -> direction 0 (South, away from player)
+	// octant 7 (SE) -> direction 1 (SE)
+	
+	let dir = match octant {
+		0 => 2,  // E
+		1 => 3,  // NE
+		2 => 4,  // N (toward player)
+		3 => 5,  // NW
+		4 => 6,  // W
+		5 => 7,  // SW
+		6 => 0,  // S (away from player)
+		7 => 1,  // SE
+		_ => 0,
+	};
+	
+	dir as usize
+}
+
 pub fn setup_projectile_assets(
 	mut commands: Commands,
 	asset_server: Res<AssetServer>,
@@ -103,16 +169,22 @@ pub fn setup_projectile_assets(
 		asset_server.load("enemies/ghost_hitler/fake_hitler_fireball_1.png");
 
 	let syringe: [Handle<Image>; 4] = std::array::from_fn(|i| {
-		asset_server.load(format!("enemies/schabbs/syringe_a{i}.png"))
+    	asset_server.load(format!("enemies/schabbs/syringe_a{i}.png"))
+	});
+
+	// Load 8 directional rocket sprites
+	let rocket: [Handle<Image>; 8] = std::array::from_fn(|i| {
+	    asset_server.load(format!("enemies/otto/otto_rocket_{i}.png"))
 	});
 
 	let quad = meshes.add(Rectangle::new(1.0, 1.0));
 
 	commands.insert_resource(ProjectileAssets {
-		quad,
-		fireball_0,
-		fireball_1,
-		syringe,
+	    quad,
+	    fireball_0,
+	    fireball_1,
+	    syringe,
+	    rocket,
 	});
 }
 
@@ -127,7 +199,6 @@ pub fn spawn_projectiles(
 	const FIREBALL_SCALE: f32 = 3.5;
 
 	for e in ev.read() {
-		info!("SPAWNING PROJECTILE: kind={:?}, origin={:?}", e.kind, e.origin);
 		let dir = Vec3::new(e.dir.x, 0.0, e.dir.z);
 		let dir = if dir.length_squared() > 0.0001 { dir.normalize() } else { continue };
 
@@ -138,12 +209,12 @@ pub fn spawn_projectiles(
 		}
 
 		let tex0 = match e.kind {
-			ProjectileKind::Fireball => assets.fireball_0.clone(),
-			ProjectileKind::Rocket => {
-				warn!("ProjectileKind::Rocket spawned but no sprites are wired yet");
-				continue;
-			}
-			ProjectileKind::Syringe => {
+		    ProjectileKind::Fireball => assets.fireball_0.clone(),
+		    ProjectileKind::Rocket => {
+		        // Start with direction 0, will be updated in update_projectile_views
+		        assets.rocket[0].clone()
+		    }
+		    ProjectileKind::Syringe => {
 				// Starts at a0 and will be corrected in update_projectile_views
 				assets.syringe[0].clone()
 			}
@@ -312,51 +383,57 @@ pub fn update_projectile_views(
 		let Some(mat) = mats.get_mut(&view.mat) else { continue; };
 
 		match proj.kind {
-			ProjectileKind::Fireball => {
-				proj.anim.tick(time.delta());
-				if !proj.anim.just_finished() {
-					continue;
-				}
+            ProjectileKind::Fireball => {
+                proj.anim.tick(time.delta());
+                if !proj.anim.just_finished() {
+                    continue;
+                }
 
-				proj.frame = (proj.frame + 1) & 1;
+                proj.frame = (proj.frame + 1) & 1;
 
-				let tex = if proj.frame == 0 {
-					assets.fireball_0.clone()
-				} else {
-					assets.fireball_1.clone()
-				};
+                let tex = if proj.frame == 0 {
+                    assets.fireball_0.clone()
+                } else {
+                    assets.fireball_1.clone()
+                };
 
-				if mat.base_color_texture.as_ref() != Some(&tex) {
-					mat.base_color_texture = Some(tex);
-				}
-			}
-			ProjectileKind::Syringe => {
-				proj.anim.tick(time.delta());
-				if !proj.anim.just_finished() {
-					continue;
-				}
+                if mat.base_color_texture.as_ref() != Some(&tex) {
+                    mat.base_color_texture = Some(tex);
+                }
+            }
+            ProjectileKind::Rocket => {
+                // Calculate which directional sprite to show
+                let dir_index = calculate_dir8_index(proj.dir, to_player);
+                let tex = assets.rocket[dir_index].clone();
+                
+                if mat.base_color_texture.as_ref() != Some(&tex) {
+                    mat.base_color_texture = Some(tex);
+                }
+            }
+            ProjectileKind::Syringe => {
+                proj.anim.tick(time.delta());
+                if !proj.anim.just_finished() {
+                    continue;
+                }
 
-				// Ping-pong 4 frames to simulate end-over-end flip
-				// Sequence: 0,1,2,3,2,1 then repeat
-				proj.frame = (proj.frame + 1) % 6;
+                // Ping-pong 4 frames to simulate end-over-end flip
+                // Sequence: 0,1,2,3,2,1 then repeat
+                proj.frame = (proj.frame + 1) % 6;
 
-				let i = match proj.frame {
-					0 => 0,
-					1 => 1,
-					2 => 2,
-					3 => 3,
-					4 => 2,
-					_ => 1,
-				};
+                let i = match proj.frame {
+                    0 => 0,
+                    1 => 1,
+                    2 => 2,
+                    3 => 3,
+                    4 => 2,
+                    _ => 1,
+                };
 
-				let tex = assets.syringe[i].clone();
-				if mat.base_color_texture.as_ref() != Some(&tex) {
-					mat.base_color_texture = Some(tex);
-				}
-			}
-			ProjectileKind::Rocket => {
-				// Not wired yet
-			}
-		}
+                let tex = assets.syringe[i].clone();
+                if mat.base_color_texture.as_ref() != Some(&tex) {
+                    mat.base_color_texture = Some(tex);
+                }
+            }
+        }
 	}
 }
