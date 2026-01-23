@@ -814,6 +814,7 @@ pub fn collect_pickups(
             pos: player_tf.translation,
         };
 
+        // Keys get highest priority - play immediately and block other sounds
         if kind == SfxKind::PickupKey {
             sfx.write(msg);
             *key_sfx_block_secs = KEY_PICKUP_SFX_BLOCK_SECS;
@@ -821,6 +822,16 @@ pub fn collect_pickups(
             return;
         }
 
+        // Chaingun gets second priority - play immediately and block other sounds
+        // (shorter block time than keys since chaingun sound is shorter)
+        if kind == SfxKind::PickupChaingun {
+            sfx.write(msg);
+            *key_sfx_block_secs = 2.0; // Chaingun sound duration
+            *queued_pickup_sfx = None;
+            return;
+        }
+
+        // If blocked by key or chaingun sound, queue this sound
         if *key_sfx_block_secs > 0.0 {
             *queued_pickup_sfx = Some(msg);
             return;
@@ -853,9 +864,8 @@ pub fn collect_pickups(
                         let gain = WEAPON_PICKUP_BULLETS.min(AMMO_MAX - hud.ammo);
                         hud.ammo += gain;
 
-                        if let Some(kind) = pickup_sfx {
-                            emit_pickup_sfx(kind);
-                        }
+                        // When you already own the weapon, it just gives ammo
+                        emit_pickup_sfx(SfxKind::PickupAmmo);
                     }
                 } else {
                     if let Some(kind) = pickup_sfx {

@@ -703,7 +703,7 @@ fn spawn_episode_select_ui(
             ChildOf(canvas),
         ));
 
-        let text_top = (row_top + (2.0 * ui_scale)).round();
+        let text_top = (row_top + (1.8 * ui_scale)).round();
         let is_selected = idx == selection;
 
         let gray_run = spawn_menu_bitmap_text(

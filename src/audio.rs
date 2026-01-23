@@ -709,6 +709,16 @@ fn is_pickup_kind(k: SfxKind) -> bool {
     )
 }
 
+/// Returns priority value for pickup sounds. Higher = more important.
+/// Key (3) > Chaingun (2) > Others (1)
+fn pickup_priority(k: SfxKind) -> u8 {
+    match k {
+        SfxKind::PickupKey => 3,
+        SfxKind::PickupChaingun => 2,
+        _ => 1,
+    }
+}
+
 #[derive(Component)]
 pub struct ActiveEnemyShootSfx {
     pub kind: EnemyKind,
@@ -790,7 +800,18 @@ pub fn play_sfx_events(
 
 	for e in ev.read() {
 		if is_pickup_kind(e.kind) {
-			last_pickup = Some(*e);
+			// Keep the pickup with highest priority
+			// If priorities are equal, keep the most recent one
+			match last_pickup {
+				None => last_pickup = Some(*e),
+				Some(prev) => {
+					let prev_priority = pickup_priority(prev.kind);
+					let new_priority = pickup_priority(e.kind);
+					if new_priority >= prev_priority {
+						last_pickup = Some(*e);
+					}
+				}
+			}
 		} else {
 			non_pickups.push(*e);
 		}

@@ -21,12 +21,11 @@ NOTE! Left Control (LCtrl) releases the mouse from the window.
 **********************************************
 FEATURES TO BE COMPLETED:
 **********************************************
-1. End of episode success logic and victory animation
-2. Save and load game functionality
-3. Options menu
+1. Implement hit sounds and effects for rockets
+2. End of episode success logic and victory animation
+3. Save and load game functionality
+4. Options menu
 
 **********************************************
 BUGS:
 **********************************************
-- Implement hit sounds and effects for rockets
-- Chaingun pickup sound needs to take priority
