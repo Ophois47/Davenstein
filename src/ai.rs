@@ -1563,6 +1563,15 @@ fn player_can_be_targeted(
     !lock.0 && !latch.0
 }
 
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+pub enum AiFixedSet {
+    Prepare,
+    Combat,
+    Movement,
+    ApplyDir8,
+    Move,
+}
+
 pub struct EnemyAiPlugin;
 
 impl Plugin for EnemyAiPlugin {
@@ -1574,11 +1583,47 @@ impl Plugin for EnemyAiPlugin {
             .add_message::<EnemyFireballShot>()
             .add_message::<EnemySyringeShot>()
             .add_message::<EnemyRocketShot>()
+            .configure_sets(
+                FixedUpdate,
+                (
+                    AiFixedSet::Prepare,
+                    AiFixedSet::Combat,
+                    AiFixedSet::Movement,
+                    AiFixedSet::ApplyDir8,
+                    AiFixedSet::Move,
+                )
+                    .chain(),
+            )
             .add_systems(Update, attach_enemy_ai)
-            .add_systems(FixedUpdate, enemy_ai_prepare_and_activate.run_if(player_can_be_targeted))
-            .add_systems(FixedUpdate, enemy_ai_combat.run_if(player_can_be_targeted))
-            .add_systems(FixedUpdate, enemy_ai_movement.run_if(player_can_be_targeted))
-            .add_systems(FixedUpdate, apply_pending_dir8.run_if(player_can_be_targeted))
-            .add_systems(FixedUpdate, enemy_ai_move.run_if(player_can_be_targeted));
+            .add_systems(
+                FixedUpdate,
+                enemy_ai_prepare_and_activate
+                    .in_set(AiFixedSet::Prepare)
+                    .run_if(player_can_be_targeted),
+            )
+            .add_systems(
+                FixedUpdate,
+                enemy_ai_combat
+                    .in_set(AiFixedSet::Combat)
+                    .run_if(player_can_be_targeted),
+            )
+            .add_systems(
+                FixedUpdate,
+                enemy_ai_movement
+                    .in_set(AiFixedSet::Movement)
+                    .run_if(player_can_be_targeted),
+            )
+            .add_systems(
+                FixedUpdate,
+                apply_pending_dir8
+                    .in_set(AiFixedSet::ApplyDir8)
+                    .run_if(player_can_be_targeted),
+            )
+            .add_systems(
+                FixedUpdate,
+                enemy_ai_move
+                    .in_set(AiFixedSet::Move)
+                    .run_if(player_can_be_targeted),
+            );
     }
 }

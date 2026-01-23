@@ -55,6 +55,7 @@ impl Plugin for CombatPlugin {
             .add_message::<projectiles::SpawnProjectile>()
             .add_systems(Startup, projectiles::setup_projectile_assets)
             .add_systems(Update, process_fire_shots.run_if(crate::world_ready))
+            .add_systems(FixedUpdate, projectiles::tick_smoke_puffs.run_if(crate::world_ready))
             .add_systems(FixedUpdate, projectiles::tick_projectiles.run_if(crate::world_ready))
             .add_systems(FixedUpdate, process_enemy_fireball_shots.run_if(crate::world_ready))
             .add_systems(FixedUpdate, process_enemy_syringe_shots.run_if(crate::world_ready))
@@ -63,6 +64,10 @@ impl Plugin for CombatPlugin {
             .add_systems(
                 PostUpdate,
                 projectiles::update_projectile_views.run_if(crate::world_ready),
+            )
+            .add_systems(
+                PostUpdate,
+                projectiles::update_smoke_puff_views.run_if(crate::world_ready),
             );
     }
 }

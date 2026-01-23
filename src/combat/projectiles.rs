@@ -30,6 +30,7 @@ pub struct ProjectileAssets {
 	pub fireball_1: Handle<Image>,
 	pub syringe: [Handle<Image>; 4],
 	pub rocket: [Handle<Image>; 8],
+	pub rocket_smoke: [Handle<Image>; 4],
 }
 
 #[derive(Component)]
@@ -45,6 +46,28 @@ pub struct Projectile {
 pub struct ProjectileView {
 	pub mat: Handle<StandardMaterial>,
 }
+
+// Rocket Smoke Logic
+#[derive(Component)]
+pub struct RocketSmokeEmitter {
+	pub tics: u8,
+}
+
+#[derive(Component)]
+pub struct SmokePuff {
+	pub frame: usize,
+	pub tics: u8,
+}
+
+#[derive(Component)]
+pub struct SmokePuffView {
+	pub mat: Handle<StandardMaterial>,
+}
+
+const ROCKET_SMOKE_EMIT_TICS: u8 = 3;
+const SMOKE_FRAME_TICS: u8 = 3;
+const SMOKE_FRAMES: usize = 4;
+
 
 fn kind_speed(kind: ProjectileKind) -> f32 {
 	match kind {
@@ -169,22 +192,26 @@ pub fn setup_projectile_assets(
 		asset_server.load("enemies/ghost_hitler/fake_hitler_fireball_1.png");
 
 	let syringe: [Handle<Image>; 4] = std::array::from_fn(|i| {
-    	asset_server.load(format!("enemies/schabbs/syringe_a{i}.png"))
+		asset_server.load(format!("enemies/schabbs/syringe_a{i}.png"))
 	});
 
-	// Load 8 directional rocket sprites
 	let rocket: [Handle<Image>; 8] = std::array::from_fn(|i| {
-	    asset_server.load(format!("enemies/otto/otto_rocket_{i}.png"))
+		asset_server.load(format!("enemies/otto/otto_rocket_{i}.png"))
+	});
+
+	let rocket_smoke: [Handle<Image>; 4] = std::array::from_fn(|i| {
+		asset_server.load(format!("enemies/otto/otto_smoke_{i}.png"))
 	});
 
 	let quad = meshes.add(Rectangle::new(1.0, 1.0));
 
 	commands.insert_resource(ProjectileAssets {
-	    quad,
-	    fireball_0,
-	    fireball_1,
-	    syringe,
-	    rocket,
+		quad,
+		fireball_0,
+		fireball_1,
+		syringe,
+		rocket,
+		rocket_smoke,
 	});
 }
 
@@ -209,15 +236,9 @@ pub fn spawn_projectiles(
 		}
 
 		let tex0 = match e.kind {
-		    ProjectileKind::Fireball => assets.fireball_0.clone(),
-		    ProjectileKind::Rocket => {
-		        // Start with direction 0, will be updated in update_projectile_views
-		        assets.rocket[0].clone()
-		    }
-		    ProjectileKind::Syringe => {
-				// Starts at a0 and will be corrected in update_projectile_views
-				assets.syringe[0].clone()
-			}
+			ProjectileKind::Fireball => assets.fireball_0.clone(),
+			ProjectileKind::Rocket => assets.rocket[0].clone(),
+			ProjectileKind::Syringe => assets.syringe[0].clone(),
 		};
 
 		let mat = mats.add(StandardMaterial {
@@ -228,21 +249,23 @@ pub fn spawn_projectiles(
 			..default()
 		});
 
-		let _id = commands
-			.spawn((
-				Projectile {
-					kind: e.kind,
-					dir,
-					speed: kind_speed(e.kind),
-					anim: Timer::from_seconds(kind_anim_period(e.kind), TimerMode::Repeating),
-					frame: 0,
-				},
-				ProjectileView { mat: mat.clone() },
-				Mesh3d(assets.quad.clone()),
-				MeshMaterial3d(mat),
-				Transform::from_translation(e.origin).with_scale(Vec3::new(w, h, 1.0)),
-			))
-			.id();
+		let mut ent = commands.spawn((
+			Projectile {
+				kind: e.kind,
+				dir,
+				speed: kind_speed(e.kind),
+				anim: Timer::from_seconds(kind_anim_period(e.kind), TimerMode::Repeating),
+				frame: 0,
+			},
+			ProjectileView { mat: mat.clone() },
+			Mesh3d(assets.quad.clone()),
+			MeshMaterial3d(mat),
+			Transform::from_translation(e.origin).with_scale(Vec3::new(w, h, 1.0)),
+		));
+
+		if matches!(e.kind, ProjectileKind::Rocket) {
+			ent.insert(RocketSmokeEmitter { tics: ROCKET_SMOKE_EMIT_TICS });
+		}
 	}
 }
 
@@ -310,16 +333,67 @@ fn tile_blocks_projectile(t: Tile) -> bool {
 	}
 }
 
+pub fn tick_smoke_puffs(
+	mut commands: Commands,
+	assets: Option<Res<ProjectileAssets>>,
+	mut mats: ResMut<Assets<StandardMaterial>>,
+	mut q: Query<(Entity, &mut SmokePuff, &SmokePuffView)>,
+) {
+	let Some(assets) = assets else { return; };
+
+	for (e, mut puff, view) in q.iter_mut() {
+		if puff.tics > 0 {
+			puff.tics -= 1;
+		}
+
+		if puff.tics != 0 {
+			continue;
+		}
+
+		puff.frame += 1;
+		if puff.frame >= SMOKE_FRAMES {
+			commands.entity(e).despawn();
+			continue;
+		}
+
+		puff.tics = SMOKE_FRAME_TICS;
+
+		let Some(mat) = mats.get_mut(&view.mat) else { continue; };
+		let tex = assets.rocket_smoke[puff.frame].clone();
+		if mat.base_color_texture.as_ref() != Some(&tex) {
+			mat.base_color_texture = Some(tex);
+		}
+	}
+}
+
+pub fn update_smoke_puff_views(
+	q_player: Query<&Transform, (With<Player>, Without<SmokePuff>)>,
+	mut q: Query<&mut Transform, (With<SmokePuff>, Without<Player>)>,
+) {
+	let Some(player_xform) = q_player.iter().next() else { return; };
+	let player_pos = player_xform.translation;
+
+	for mut xform in q.iter_mut() {
+		let to_player = player_pos - xform.translation;
+		let yaw = to_player.x.atan2(to_player.z);
+		xform.rotation = Quat::from_rotation_y(yaw);
+	}
+}
+
+
 pub fn tick_projectiles(
 	time: Res<Time>,
 	mut commands: Commands,
+	assets: Option<Res<ProjectileAssets>>,
+	mut mats: ResMut<Assets<StandardMaterial>>,
 	grid: Option<Res<MapGrid>>,
 	solid: Option<Res<SolidStatics>>,
 	god: Option<Res<GodMode>>,
 	mut q_player: Query<(&Transform, &mut PlayerVitals), (With<Player>, Without<Projectile>)>,
-	mut q: Query<(Entity, &mut Transform, &Projectile)>,
+	mut q: Query<(Entity, &mut Transform, &Projectile, Option<&mut RocketSmokeEmitter>)>,
 ) {
 	let Some(grid) = grid else { return; };
+	let Some(assets) = assets else { return; };
 
 	let Some((player_xform, mut vitals)) = q_player.iter_mut().next() else { return; };
 	let player_pos = player_xform.translation;
@@ -331,7 +405,7 @@ pub fn tick_projectiles(
 	let proj_r = 0.10;
 	let hit_r = player_r + proj_r;
 
-	for (e, mut xform, proj) in q.iter_mut() {
+	for (e, mut xform, proj, emitter) in q.iter_mut() {
 		let a = xform.translation;
 		let b = a + proj.dir * proj.speed * dt;
 
@@ -357,6 +431,32 @@ pub fn tick_projectiles(
 		if tile_blocks_projectile(tile_b) {
 			commands.entity(e).despawn();
 			continue;
+		}
+
+		if let Some(mut em) = emitter {
+			if em.tics > 0 {
+				em.tics -= 1;
+			}
+
+			if em.tics == 0 {
+				em.tics = ROCKET_SMOKE_EMIT_TICS;
+
+				let mat = mats.add(StandardMaterial {
+					base_color_texture: Some(assets.rocket_smoke[0].clone()),
+					alpha_mode: AlphaMode::Blend,
+					unlit: true,
+					cull_mode: None,
+					..default()
+				});
+
+				commands.spawn((
+					SmokePuff { frame: 0, tics: SMOKE_FRAME_TICS },
+					SmokePuffView { mat: mat.clone() },
+					Mesh3d(assets.quad.clone()),
+					MeshMaterial3d(mat),
+					Transform::from_translation(a).with_scale(Vec3::new(0.55, 0.55, 1.0)),
+				));
+			}
 		}
 
 		xform.translation = b;

@@ -29,5 +29,4 @@ FEATURES TO BE COMPLETED:
 BUGS:
 **********************************************
 - Implement hit sounds and effects for rockets
-- Implement smoke trail effects for rockets
 - Bosses need to scale thier health values per skill level
