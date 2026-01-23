@@ -899,7 +899,8 @@ pub fn play_sfx_events(
 // Boss deaths don't get interrupted by regular enemy sounds
 if is_enemy_voice && !is_boss_voice {
     for ent in q_active_enemy_voice.iter() {
-        commands.entity(ent).despawn();
+        // Use try_despawn to handle race condition when entity already despawned
+        commands.entity(ent).try_despawn();
     }
 }
 
@@ -912,7 +913,9 @@ if is_enemy_voice && !is_boss_voice {
 					sink.stop();
 				}
 
-				commands.entity(ent).despawn();
+				// Use try_despawn to handle race condition when entity already despawned
+				// This happens when multiple enemies fire simultaneously (e.g., General's rapid dual-weapon attack)
+				commands.entity(ent).try_despawn();
 			}
 		}
 
@@ -1094,7 +1097,8 @@ if is_enemy_voice && !is_boss_voice {
 	}
 
 	for ent in q_active_pickup.iter() {
-		commands.entity(ent).despawn();
+		// Use try_despawn to handle race condition when entity already despawned
+		commands.entity(ent).try_despawn();
 	}
 
 	let i = rand::rng().random_range(0..list.len());

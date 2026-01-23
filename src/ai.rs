@@ -940,8 +940,8 @@ fn enemy_ai_combat(
                         });
 
                         continue;
-                    // Otto and General Rocket Shoot (single shot, not a volley)
-                    } else if matches!(*kind, EnemyKind::Otto) || matches!(*kind, EnemyKind::General) {
+                    // Otto Rocket Shoot (single shot rocket only)
+                    } else if matches!(*kind, EnemyKind::Otto) {
                         let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
                         let mut dir = player_pos - origin;
                         dir.y = 0.0;
@@ -964,6 +964,33 @@ fn enemy_ai_combat(
                         });
 
                         continue;
+                    // General - Chaingun volley continuation (after initial rocket)
+                    } else if matches!(*kind, EnemyKind::General) {
+                        // General fires 4 chaingun bullets in rapid succession
+                        let hits = wolf_far_miss_gate(shoot_dist);
+                        let damage = if hits {
+                            wolf_boss_damage(shoot_dist)
+                        } else {
+                            0
+                        };
+
+                        enemy_fire.write(EnemyFire { kind: *kind, damage });
+
+                        // Insert/update the chaingun volley component for view tracking
+                        commands.entity(e).insert(crate::enemies::GeneralChaingunVolley {
+                            shots_remaining: b.shots_left,
+                        });
+
+                        // Remove rocket shoot component so we transition to chaingun sprites
+                        commands.entity(e).remove::<crate::enemies::GeneralShoot>();
+
+                        // Play chaingun sound on first shot of the volley
+                        if b.shots_left == 4 {
+                            sfx.write(PlaySfx {
+                                kind: SfxKind::EnemyShoot(EnemyKind::Hans),  // Use Hans chaingun sound
+                                pos: tf.translation,
+                            });
+                        }
                     } else {
                         let hits = wolf_far_miss_gate(shoot_dist);
                         let damage = if hits {
@@ -990,6 +1017,10 @@ fn enemy_ai_combat(
 
             if b.shots_left == 0 {
                 bursts.remove(&e);
+                // Clean up General's chaingun volley component when burst completes
+                if matches!(*kind, EnemyKind::General) {
+                    commands.entity(e).remove::<crate::enemies::GeneralChaingunVolley>();
+                }
             }
 
             continue;
@@ -1121,7 +1152,7 @@ fn enemy_ai_combat(
                     }
 
                     // Otto and General Rocket Fire (single shot, not a volley)
-                    if matches!(*kind, EnemyKind::Otto) || matches!(*kind, EnemyKind::General) {
+                    if matches!(*kind, EnemyKind::Otto) {
                         let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
                         let mut dir = player_pos - origin;
                         dir.y = 0.0;
@@ -1143,6 +1174,58 @@ fn enemy_ai_combat(
                         commands.entity(e).insert(crate::enemies::OttoShoot {
                             t: Timer::from_seconds(crate::enemies::OTTO_SHOOT_SECS, TimerMode::Once),
                         });
+
+                        continue;
+                    }
+
+                    // General Fettgesicht - Fires 1 rocket then 4 chaingun bullets per volley
+                    if matches!(*kind, EnemyKind::General) {
+                        let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
+                        let mut dir = player_pos - origin;
+                        dir.y = 0.0;
+
+                        // Fire the rocket first
+                        if dir.length_squared() > 1e-6 {
+                            enemy_rocket.write(EnemyRocketShot {
+                                origin,
+                                dir: dir.normalize(),
+                            });
+                        }
+
+                        // Play rocket fire sound
+                        sfx.write(PlaySfx {
+                            kind: SfxKind::EnemyShoot(EnemyKind::General),
+                            pos: tf.translation,
+                        });
+
+                        // Set up rocket animation component
+                        commands.entity(e).insert(crate::enemies::GeneralShoot {
+                            t: Timer::from_seconds(crate::enemies::GENERAL_SHOOT_SECS, TimerMode::Once),
+                        });
+
+                        // Queue up 4 chaingun shots in a burst
+                        // Tune these values to match Wolf3D feel
+                        let shots = 4;
+                        let every_tics = 4;  // Spacing between chaingun shots
+                        
+                        // CRITICAL: Delay first chaingun shot until AFTER rocket animation
+                        // Convert rocket animation time to tics
+                        let rocket_anim_tics = (crate::enemies::GENERAL_SHOOT_SECS / AI_TIC_SECS).ceil() as u32;
+
+                        bursts.insert(
+                            e,
+                            BurstFire {
+                                shots_left: shots,
+                                every_tics,
+                                next_tics: rocket_anim_tics,  // Wait for rocket to finish!
+                            },
+                        );
+
+                        // Total duration = rocket animation + chaingun burst + post cooldown
+                        let burst_secs = (shots as f32) * (every_tics as f32) * AI_TIC_SECS;
+                        let rocket_secs = crate::enemies::GENERAL_SHOOT_SECS;
+                        let post_cd_secs = 0.45;
+                        shoot_cd.insert(e, rocket_secs + burst_secs + post_cd_secs);
 
                         continue;
                     }

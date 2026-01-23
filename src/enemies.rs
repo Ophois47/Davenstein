@@ -823,6 +823,11 @@ pub struct GeneralShoot {
     pub t: Timer,
 }
 
+#[derive(Component, Debug)]
+pub struct GeneralChaingunVolley {
+    pub shots_remaining: u8,
+}
+
 #[derive(Component, Debug, Clone, Copy)]
 pub struct HansDying {
     pub frame: u8, // 0..DEATH_FRAMES-1
@@ -939,7 +944,8 @@ pub struct OttoSprites {
 pub struct GeneralSprites {
     pub idle: [Handle<Image>; 8],
     pub walk: [[Handle<Image>; 8]; 4],
-    pub shoot: [Handle<Image>; 3],
+    pub shoot_rocket: [Handle<Image>; 2],
+    pub shoot_chaingun: [Handle<Image>; 2],
     pub dying: [[Handle<Image>; 8]; 4],
     pub corpse: [Handle<Image>; 8],
 }
@@ -1231,9 +1237,15 @@ impl FromWorld for GeneralSprites {
             std::array::from_fn(|_| h.clone())
         });
 
-        let shoot0: Handle<Image> = server.load("enemies/general/general_shoot_rocket_0.png");
-        let shoot1: Handle<Image> = server.load("enemies/general/general_shoot_rocket_1.png");
-        let shoot: [Handle<Image>; 3] = [shoot0, shoot1.clone(), shoot1];
+        // Load rocket launcher shoot sprites
+        let shoot_rocket: [Handle<Image>; 2] = std::array::from_fn(|i| {
+            server.load(format!("enemies/general/general_shoot_rocket_{i}.png"))
+        });
+
+        // Load chaingun shoot sprites
+        let shoot_chaingun: [Handle<Image>; 2] = std::array::from_fn(|i| {
+            server.load(format!("enemies/general/general_shoot_chaingun_{i}.png"))
+        });
 
         let d0: Handle<Image> = server.load("enemies/general/general_death_0.png");
         let d1: Handle<Image> = server.load("enemies/general/general_death_1.png");
@@ -1252,7 +1264,8 @@ impl FromWorld for GeneralSprites {
         Self {
             idle,
             walk,
-            shoot,
+            shoot_rocket,
+            shoot_chaingun,
             dying,
             corpse,
         }
@@ -2263,6 +2276,7 @@ pub fn update_general_views(
             Option<&GeneralCorpse>,
             Option<&GeneralDying>,
             Option<&GeneralShoot>,
+            Option<&GeneralChaingunVolley>,
             Option<&GeneralWalk>,
             Option<&EnemyMove>,
             &GlobalTransform,
@@ -2278,7 +2292,7 @@ pub fn update_general_views(
     let Some(player_gt) = q_player.iter().next() else { return; };
     let player_pos = player_gt.translation();
 
-    for (corpse, dying, shoot, walk, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+    for (corpse, dying, shoot, chaingun, walk, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
         let enemy_pos = gt.translation();
 
         let v = quantize_view8(dir8.0, enemy_pos, player_pos);
@@ -2298,11 +2312,17 @@ pub fn update_general_views(
         } else if let Some(d) = dying {
             let f = (d.frame as usize).min(3);
             sprites.dying[f][v as usize].clone()
+        } else if chaingun.is_some() {
+            // Chaingun volley - show chaingun sprites
+            // Alternate between frames 0 and 1 based on shots remaining (creates firing effect)
+            let frame = if chaingun.unwrap().shots_remaining % 2 == 0 { 1 } else { 0 };
+            sprites.shoot_chaingun[frame].clone()
         } else if let Some(s) = shoot {
+            // Rocket shoot - show rocket sprites
             let dur = s.t.duration().as_secs_f32().max(1e-6);
             let t = s.t.elapsed().as_secs_f32();
             let fi = ((t / dur) * 2.0).floor() as usize;
-            sprites.shoot[fi.min(1)].clone()
+            sprites.shoot_rocket[fi.min(1)].clone()
         } else if mv.is_some() {
             let w = walk.map(|w| w.phase).unwrap_or(0.0);
             let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
