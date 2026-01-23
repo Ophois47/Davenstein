@@ -31,4 +31,3 @@ BUGS:
 - Implement hit sounds and effects for rockets
 - Chaingun pickup sound needs to take priority
 - Text on episode selection screen needs to be moved down slightly
-- HUD face sprite needs to be 1px larger at the bottom ONLY

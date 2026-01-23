@@ -1344,7 +1344,7 @@ fn compute_hud_layout(q_windows: &Query<&Window, With<PrimaryWindow>>) -> HudLay
     const FACE_X: f32 = 138.0;
     const FACE_TOP: f32 = 5.5;
     const FACE_W: f32 = 26.0;
-    const FACE_H: f32 = 34.0;
+    const FACE_H: f32 = 34.2;
 
     // Current Player Level
     const FLOOR_X: f32 = 14.0;
