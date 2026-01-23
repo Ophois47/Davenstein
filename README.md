@@ -30,3 +30,4 @@ BUGS:
 **********************************************
 - Implement hit sounds and effects for rockets
 - Bosses need to scale thier health values per skill level
+- Chaingun pickup sound needs to take priority

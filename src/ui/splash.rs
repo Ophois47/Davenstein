@@ -1759,8 +1759,11 @@ fn splash_advance_on_any_input(
 	time: Res<Time>,
 	mut resources: SplashResources,
 	mut menu: Local<MenuLocalState>,
+    mut new_game: ResMut<crate::ui::sync::NewGameRequested>,
+    mut current_level: ResMut<davelib::level::CurrentLevel>,
 	mut episode: Local<EpisodeLocalState>,
 	mut skill: Local<SkillLocalState>,
+    mut skill_level: ResMut<davelib::skill::SkillLevel>,
 	mut sfx: MessageWriter<PlaySfx>,
 	mut app_exit: MessageWriter<bevy::app::AppExit>,
 	mut q: SplashAdvanceQueries,
@@ -2092,12 +2095,9 @@ fn splash_advance_on_any_input(
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
                 // Set the selected difficulty level
-                commands.insert_resource(davelib::skill::SkillLevel::from_selection(skill.selection));
-
-                commands.insert_resource(crate::ui::sync::NewGameRequested(true));
-                commands.insert_resource(davelib::level::CurrentLevel(
-                    davelib::level::LevelId::first_level_of_episode(episode_num)
-                ));
+                *skill_level = davelib::skill::SkillLevel::from_selection(skill.selection);
+                new_game.0 = true;
+                current_level.0 = davelib::level::LevelId::first_level_of_episode(episode_num);
 
                 begin_get_psyched_loading(
                     &mut commands,
