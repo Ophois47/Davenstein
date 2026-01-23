@@ -29,5 +29,6 @@ FEATURES TO BE COMPLETED:
 BUGS:
 **********************************************
 - Implement hit sounds and effects for rockets
-- Bosses need to scale thier health values per skill level
 - Chaingun pickup sound needs to take priority
+- Text on episode selection screen needs to be moved down slightly
+- HUD face sprite needs to be 1px larger at the bottom ONLY

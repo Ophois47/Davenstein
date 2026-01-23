@@ -2094,10 +2094,16 @@ fn splash_advance_on_any_input(
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
-                // Set the selected difficulty level
                 *skill_level = davelib::skill::SkillLevel::from_selection(skill.selection);
                 new_game.0 = true;
                 current_level.0 = davelib::level::LevelId::first_level_of_episode(episode_num);
+
+                info!(
+                    "Menu: selected difficulty {} (idx={}) episode={}",
+                    skill_level.name(),
+                    skill.selection,
+                    episode_num
+                );
 
                 begin_get_psyched_loading(
                     &mut commands,
