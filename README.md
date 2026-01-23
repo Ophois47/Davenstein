@@ -30,4 +30,3 @@ BUGS:
 **********************************************
 - Implement hit sounds and effects for rockets
 - Chaingun pickup sound needs to take priority
-- Text on episode selection screen needs to be moved down slightly
