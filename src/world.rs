@@ -1129,31 +1129,31 @@ pub fn setup(
 	}
 
 	for h in hans {
-		crate::enemies::spawn_hans(&mut commands, &mut meshes, &mut materials, &enemy_sprites.hans, h);
+		crate::enemies::spawn_hans(&mut commands, &mut meshes, &mut materials, &enemy_sprites.hans, h, &skill_level);
 	}
 
 	for g in gretel {
-		crate::enemies::spawn_gretel(&mut commands, &mut meshes, &mut materials, &enemy_sprites.gretel, g);
+		crate::enemies::spawn_gretel(&mut commands, &mut meshes, &mut materials, &enemy_sprites.gretel, g, &skill_level);
 	}
 
 	for mh in mecha_hitler {
-		crate::enemies::spawn_mecha_hitler(&mut commands, &mut meshes, &mut materials, &enemy_sprites.mecha_hitler, mh);
+		crate::enemies::spawn_mecha_hitler(&mut commands, &mut meshes, &mut materials, &enemy_sprites.mecha_hitler, mh, &skill_level);
 	}
 
     for gh in ghost_hitler {
-        crate::enemies::spawn_ghost_hitler(&mut commands, &mut meshes, &mut materials, &enemy_sprites.ghost_hitler, gh);
+        crate::enemies::spawn_ghost_hitler(&mut commands, &mut meshes, &mut materials, &enemy_sprites.ghost_hitler, gh, &skill_level);
     }
 
     for sc in schabbs {
-        crate::enemies::spawn_schabbs(&mut commands, &mut meshes, &mut materials, &enemy_sprites.schabbs, sc);
+        crate::enemies::spawn_schabbs(&mut commands, &mut meshes, &mut materials, &enemy_sprites.schabbs, sc, &skill_level);
     }
 
 	for ot in otto {
-        crate::enemies::spawn_otto(&mut commands, &mut meshes, &mut materials, &enemy_sprites.otto, ot);
+        crate::enemies::spawn_otto(&mut commands, &mut meshes, &mut materials, &enemy_sprites.otto, ot, &skill_level);
     }
 
     for g in general {
-        crate::enemies::spawn_general(&mut commands, &mut meshes, &mut materials, &enemy_sprites.general, g);
+        crate::enemies::spawn_general(&mut commands, &mut meshes, &mut materials, &enemy_sprites.general, g, &skill_level);
     }
 
 	let player_pos = Vec3::new(spawn.x as f32 * TILE_SIZE, 0.5, spawn.y as f32 * TILE_SIZE);

@@ -22,18 +22,68 @@ const MUTANT_MAX_HP: i32 = 45;
 const SS_MAX_HP: i32 = 100;
 const OFFICER_MAX_HP: i32 = 50;
 const DOG_MAX_HP: i32 = 1;
-const HANS_MAX_HP: i32 = 850;
-const GRETEL_MAX_HP: i32 = 850;
-const HITLER_MAX_HP: i32 = 850;
-const MECHA_HITLER_MAX_HP: i32 = 850;
-const GHOST_HITLER_MAX_HP: i32 = 450;
-const SCHABBS_MAX_HP: i32 = 850;
-const OTTO_MAX_HP: i32 = 850;
-const GENERAL_MAX_HP: i32 = 850;
 
 pub(crate) const SS_SHOOT_SECS: f32 = 0.35;
 pub(crate) const OFFICER_SHOOT_SECS: f32 = 0.35;
 pub(crate) const DOG_BITE_SECS: f32 = 0.35;
+
+/// Boss HP by skill level (1992 MS-DOS Wolfenstein 3-D / WL6)
+/// Source: Wolf3D wiki authentic values
+/// skill.0: 0=Easy, 1=Medium, 2=Hard, 3=Nightmare
+pub(crate) fn boss_health(kind: EnemyKind, skill: &crate::skill::SkillLevel) -> i32 {
+    let difficulty = skill.0.min(3); // Clamp to valid range
+    match (kind, difficulty) {
+        // Hans Grosse
+        (EnemyKind::Hans, 0) => 850,
+        (EnemyKind::Hans, 1) => 950,
+        (EnemyKind::Hans, 2) => 1050,
+        (EnemyKind::Hans, 3) => 1200,
+        
+        // Dr. Schabbs
+        (EnemyKind::Schabbs, 0) => 850,
+        (EnemyKind::Schabbs, 1) => 950,
+        (EnemyKind::Schabbs, 2) => 1550,
+        (EnemyKind::Schabbs, 3) => 2400,
+        
+        // Fake Hitler (phase 1)
+        (EnemyKind::Hitler, 0) => 200,
+        (EnemyKind::Hitler, 1) => 300,
+        (EnemyKind::Hitler, 2) => 400,
+        (EnemyKind::Hitler, 3) => 500,
+        
+        // Mecha Hitler (phase 2)
+        (EnemyKind::MechaHitler, 0) => 800,
+        (EnemyKind::MechaHitler, 1) => 950,
+        (EnemyKind::MechaHitler, 2) => 1050,
+        (EnemyKind::MechaHitler, 3) => 1200,
+        
+        // Gretel Grosse
+        (EnemyKind::Gretel, 0) => 850,
+        (EnemyKind::Gretel, 1) => 950,
+        (EnemyKind::Gretel, 2) => 1050,
+        (EnemyKind::Gretel, 3) => 1200,
+        
+        // Otto Giftmacher
+        (EnemyKind::Otto, 0) => 850,
+        (EnemyKind::Otto, 1) => 950,
+        (EnemyKind::Otto, 2) => 1050,
+        (EnemyKind::Otto, 3) => 1200,
+        
+        // General Fettgesicht
+        (EnemyKind::General, 0) => 850,
+        (EnemyKind::General, 1) => 950,
+        (EnemyKind::General, 2) => 1050,
+        (EnemyKind::General, 3) => 1200,
+        
+        // Ghost Hitler (SOD expansion - using similar scaling)
+        (EnemyKind::GhostHitler, 0) => 850,
+        (EnemyKind::GhostHitler, 1) => 950,
+        (EnemyKind::GhostHitler, 2) => 1050,
+        (EnemyKind::GhostHitler, 3) => 1200,
+        
+        _ => 850, // fallback
+    }
+}
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Dir8(pub u8);
@@ -150,7 +200,7 @@ impl EnemyTunings {
                 reaction_time_secs: 0.20,
             },
             hans: EnemyTuning {
-                max_hp: HANS_MAX_HP,
+                max_hp: boss_health(EnemyKind::Hans, &crate::skill::SkillLevel(1)),
                 // Wolfenstein 3-D Bosses Typically Stand Still Until Alerted
                 wander_speed_tps: 0.0,
                 chase_speed_tps: 1.3,
@@ -161,7 +211,7 @@ impl EnemyTunings {
                 reaction_time_secs: 0.30,
             },
             gretel: EnemyTuning {
-                max_hp: GRETEL_MAX_HP,
+                max_hp: boss_health(EnemyKind::Gretel, &crate::skill::SkillLevel(1)),
                 // Wolfenstein 3-D Bosses Typically Stand Still Until Alerted
                 wander_speed_tps: 0.0,
                 chase_speed_tps: 1.3,
@@ -172,7 +222,7 @@ impl EnemyTunings {
                 reaction_time_secs: 0.30,
             },
             hitler: EnemyTuning {
-                max_hp: HITLER_MAX_HP,
+                max_hp: boss_health(EnemyKind::Hitler, &crate::skill::SkillLevel(1)),
                 wander_speed_tps: 0.0,
                 chase_speed_tps: 1.3,
                 can_shoot: true,
@@ -182,7 +232,7 @@ impl EnemyTunings {
                 reaction_time_secs: 0.30,
             },
             mecha_hitler: EnemyTuning {
-                max_hp: MECHA_HITLER_MAX_HP,
+                max_hp: boss_health(EnemyKind::MechaHitler, &crate::skill::SkillLevel(1)),
                 wander_speed_tps: 0.0,
                 chase_speed_tps: 1.3,
                 can_shoot: true,
@@ -192,7 +242,7 @@ impl EnemyTunings {
                 reaction_time_secs: 0.30,
             },
             ghost_hitler: EnemyTuning {
-                max_hp: GHOST_HITLER_MAX_HP,
+                max_hp: boss_health(EnemyKind::GhostHitler, &crate::skill::SkillLevel(1)),
                 wander_speed_tps: 0.0,
                 chase_speed_tps: 0.6,
                 can_shoot: true,
@@ -202,7 +252,7 @@ impl EnemyTunings {
                 reaction_time_secs: 0.30,
             },
             schabbs: EnemyTuning {
-                max_hp: SCHABBS_MAX_HP,
+                max_hp: boss_health(EnemyKind::Schabbs, &crate::skill::SkillLevel(1)),
                 wander_speed_tps: 0.0,
                 chase_speed_tps: 1.3,
                 can_shoot: true,
@@ -212,7 +262,7 @@ impl EnemyTunings {
                 reaction_time_secs: 0.30,
             },
             otto: EnemyTuning {
-                max_hp: OTTO_MAX_HP,
+                max_hp: boss_health(EnemyKind::Otto, &crate::skill::SkillLevel(1)),
                 wander_speed_tps: 0.0,
                 chase_speed_tps: 1.3,
                 can_shoot: true,
@@ -222,7 +272,7 @@ impl EnemyTunings {
                 reaction_time_secs: 0.30,
             },
             general: EnemyTuning {
-                max_hp: GENERAL_MAX_HP,
+                max_hp: boss_health(EnemyKind::General, &crate::skill::SkillLevel(1)),
                 wander_speed_tps: 0.0,
                 chase_speed_tps: 1.3,
                 can_shoot: true,
@@ -1567,6 +1617,7 @@ pub fn spawn_hans(
     materials: &mut Assets<StandardMaterial>,
     sprites: &HansSprites,
     tile: IVec2,
+    skill: &crate::skill::SkillLevel,
 ) {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
@@ -1587,7 +1638,7 @@ pub fn spawn_hans(
         EnemyKind::Hans,
         Dir8(0),
         View8(0),
-        Health::new(HANS_MAX_HP),
+        Health::new(boss_health(EnemyKind::Hans, skill)),
         OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
@@ -1601,6 +1652,7 @@ pub fn spawn_gretel(
     materials: &mut Assets<StandardMaterial>,
     sprites: &GretelSprites,
     tile: IVec2,
+    skill: &crate::skill::SkillLevel,
 ) {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
@@ -1621,7 +1673,7 @@ pub fn spawn_gretel(
         EnemyKind::Gretel,
         Dir8(0),
         View8(0),
-        Health::new(GRETEL_MAX_HP),
+        Health::new(boss_health(EnemyKind::Gretel, skill)),
         OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
@@ -1635,6 +1687,7 @@ pub fn spawn_hitler(
     materials: &mut Assets<StandardMaterial>,
     sprites: &HitlerSprites,
     tile: IVec2,
+    skill: &crate::skill::SkillLevel,
 ) {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
@@ -1655,7 +1708,7 @@ pub fn spawn_hitler(
         EnemyKind::Hitler,
         Dir8(0),
         View8(0),
-        Health::new(HITLER_MAX_HP),
+        Health::new(boss_health(EnemyKind::Hitler, skill)),
         OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
@@ -1669,6 +1722,7 @@ pub fn spawn_mecha_hitler(
     materials: &mut Assets<StandardMaterial>,
     sprites: &MechaHitlerSprites,
     tile: IVec2,
+    skill: &crate::skill::SkillLevel,
 ) {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
@@ -1689,7 +1743,7 @@ pub fn spawn_mecha_hitler(
         EnemyKind::MechaHitler,
         Dir8(0),
         View8(0),
-        Health::new(MECHA_HITLER_MAX_HP),
+        Health::new(boss_health(EnemyKind::MechaHitler, skill)),
         OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
@@ -1703,6 +1757,7 @@ pub fn spawn_ghost_hitler(
     materials: &mut Assets<StandardMaterial>,
     sprites: &GhostHitlerSprites,
     tile: IVec2,
+    skill: &crate::skill::SkillLevel,
 ) {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
@@ -1723,7 +1778,7 @@ pub fn spawn_ghost_hitler(
         EnemyKind::GhostHitler,
         Dir8(0),
         View8(0),
-        Health::new(GHOST_HITLER_MAX_HP),
+        Health::new(boss_health(EnemyKind::GhostHitler, skill)),
         OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
@@ -1737,6 +1792,7 @@ pub fn spawn_schabbs(
     materials: &mut Assets<StandardMaterial>,
     sprites: &SchabbsSprites,
     tile: IVec2,
+    skill: &crate::skill::SkillLevel,
 ) {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
@@ -1757,7 +1813,7 @@ pub fn spawn_schabbs(
         EnemyKind::Schabbs,
         Dir8(0),
         View8(0),
-        Health::new(SCHABBS_MAX_HP),
+        Health::new(boss_health(EnemyKind::Schabbs, skill)),
         OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
@@ -1771,6 +1827,7 @@ pub fn spawn_otto(
     materials: &mut Assets<StandardMaterial>,
     sprites: &OttoSprites,
     tile: IVec2,
+    skill: &crate::skill::SkillLevel,
 ) {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
@@ -1791,7 +1848,7 @@ pub fn spawn_otto(
         EnemyKind::Otto,
         Dir8(0),
         View8(0),
-        Health::new(OTTO_MAX_HP),
+        Health::new(boss_health(EnemyKind::Otto, skill)),
         OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
@@ -1805,6 +1862,7 @@ pub fn spawn_general(
     materials: &mut Assets<StandardMaterial>,
     sprites: &GeneralSprites,
     tile: IVec2,
+    skill: &crate::skill::SkillLevel,
 ) {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
@@ -1825,7 +1883,7 @@ pub fn spawn_general(
         EnemyKind::General,
         Dir8(0),
         View8(0),
-        Health::new(GENERAL_MAX_HP),
+        Health::new(boss_health(EnemyKind::General, skill)),
         OccupiesTile(tile),
         Mesh3d(quad),
         MeshMaterial3d(mat),
@@ -2405,6 +2463,7 @@ fn tick_mecha_hitler_dying(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     hitler_sprites: Res<HitlerSprites>,
+    skill_level: Res<crate::skill::SkillLevel>,
     mut q: Query<(Entity, &mut MechaHitlerDying, &OccupiesTile), With<MechaHitler>>,
 ) {
     const TICS_PER_FRAME: u8 = 8;
@@ -2424,7 +2483,7 @@ fn tick_mecha_hitler_dying(
             commands.entity(e).insert(MechaHitlerCorpse);
 
             // Spawn Hitler phase2 at same tile
-            spawn_hitler(&mut commands, &mut meshes, &mut materials, &hitler_sprites, occ.0);
+            spawn_hitler(&mut commands, &mut meshes, &mut materials, &hitler_sprites, occ.0, &skill_level);
         }
     }
 }

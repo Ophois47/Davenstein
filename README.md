@@ -30,6 +30,4 @@ BUGS:
 **********************************************
 - Implement hit sounds and effects for rockets
 - Implement smoke trail effects for rockets
-- Several rocket directions seem mixed up
 - Bosses need to scale thier health values per skill level
-- The width of Otto's corpse is a little squished
