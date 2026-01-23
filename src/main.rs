@@ -187,9 +187,10 @@ fn main() {
 		.add_message::<RebuildWalls>()
 		.add_systems(Startup, setup_audio)
 		.add_systems(Startup, start_music.after(setup_audio))
-		.add_systems(Startup, setup)
-		.add_systems(Startup, spawn_decorations.after(setup))
-		.add_systems(Startup, pickups::spawn_pickups.after(setup))
+		.add_systems(
+			Startup,
+			(setup, ApplyDeferred, spawn_decorations, pickups::spawn_pickups).chain(),
+		)
 		.add_systems(
 			Update,
 			toggle_god_mode.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
@@ -219,10 +220,18 @@ fn main() {
 		.add_systems(PostUpdate, tick_hard_stop_sfx)
 		.add_systems(PostUpdate, davelib::audio::sync_boot_music)
 		.add_systems(PostUpdate, davelib::audio::sync_level_music)
-		.add_systems(PostUpdate, restart::restart_despawn_level.run_if(level_rebuild_requested))
-		.add_systems(PostUpdate, setup.after(restart::restart_despawn_level).run_if(level_rebuild_requested))
-		.add_systems(PostUpdate, spawn_decorations.after(setup).run_if(level_rebuild_requested))
-		.add_systems(PostUpdate, pickups::spawn_pickups.after(setup).run_if(level_rebuild_requested))
+		.add_systems(
+			PostUpdate,
+			(
+				restart::restart_despawn_level,
+				setup,
+				ApplyDeferred,
+				spawn_decorations,
+				pickups::spawn_pickups,
+			)
+				.chain()
+				.run_if(level_rebuild_requested),
+		)
 		.add_systems(
 			PostUpdate,
 			restart::restart_finish

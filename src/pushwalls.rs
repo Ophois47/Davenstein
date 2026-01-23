@@ -422,8 +422,6 @@ pub fn use_pushwalls(
     });
 }
 
-/// Fixed-Tick Pushwall Movement at Wolf's 70 Hz Tic Rate
-/// Run in FixedUpdate (60Hz) but Internally Step at 70Hz Using an Accumulator
 pub fn tick_pushwalls(
     time: Res<Time>,
     mut clock: ResMut<PushwallClock>,
@@ -439,9 +437,18 @@ pub fn tick_pushwalls(
         return;
     };
 
+    // One extra FixedUpdate tick of visual lifetime avoids a 1-frame gap at the final boundary
+    // RebuildWalls is processed in FixedUpdate before this system, so we despawn on the next tick
+    if active.state > PUSHWALL_TOTAL_TICS {
+        despawn_tree(&mut commands, &q_children, active.entity);
+        pws.active = None;
+        occ.clear();
+        return;
+    }
+
     clock.accum += time.delta_secs();
 
-    // Process Multiple 70Hz Tics if FixedUpdate is Slow
+    // Process multiple 70Hz tics if FixedUpdate is slow
     while clock.accum >= WOLF_TIC_SECS {
         clock.accum -= WOLF_TIC_SECS;
 
@@ -449,15 +456,15 @@ pub fn tick_pushwalls(
         active.state += 1;
         let new_block = active.state / PUSHWALL_TICS_PER_TILE;
 
-        // Boundary Crossing (Every 128 Tics)
+        // Boundary crossing (every 128 tics)
         if new_block != old_block {
-            // Tile Behind Becomes Empty
+            // Tile behind becomes empty
             if in_bounds(&grid, active.base) {
                 grid.set_tile(active.base.x as usize, active.base.y as usize, Tile::Empty);
                 grid.set_plane0_code(active.base.x as usize, active.base.y as usize, 0);
             }
 
-            // Stop After Exactly 2 Tiles
+            // Stop after exactly 2 tiles
             if active.state >= PUSHWALL_TOTAL_TICS {
                 let dest = active.base + active.dir;
                 if in_bounds(&grid, dest) {
@@ -465,36 +472,39 @@ pub fn tick_pushwalls(
                     grid.set_plane0_code(dest.x as usize, dest.y as usize, active.wall_id);
                 }
 
-                // Remove Visual Entity + Children
-                despawn_tree(&mut commands, &q_children, active.entity);
+                // Hold the visual on the destination tile until the next FixedUpdate tick
+                // This prevents the last-step flicker caused by rebuilding walls on the following frame
+                active.base = dest;
+                active.state = PUSHWALL_TOTAL_TICS + 1;
 
-                // Clear State + Occupancy
-                pws.active = None;
                 occ.clear();
-
-                // Rebuild Walls Normally (No Skip)
                 rebuild.write(RebuildWalls { skip: None });
-                return;
+                break;
             }
 
-            // Continue: Advance Base by 1 Tile
+            // Continue: advance base by 1 tile
             active.base += active.dir;
 
-            // Block Base + Ahead Tile
+            // Block base + ahead tile
             occ.set(active.base, active.base + active.dir);
 
-            // Rebuild Walls Skipping New Base Tile (Moving Wall Renders It)
+            // Rebuild walls skipping new base tile (moving wall renders it)
             rebuild.write(RebuildWalls {
                 skip: Some(active.base),
             });
         }
     }
 
-    // Visual Interpolation Inside Current Tile Segment
-    let pwallpos = ((active.state / 2) & 63) as f32 / 64.0;
+    // Visual interpolation inside current tile segment
     let base_center = Vec3::new(active.base.x as f32, 0.5, active.base.y as f32);
-    let offset = Vec3::new(active.dir.x as f32, 0.0, active.dir.y as f32) * pwallpos;
-    let pos = base_center + offset;
+
+    let pos = if active.state > PUSHWALL_TOTAL_TICS {
+        base_center
+    } else {
+        let pwallpos = ((active.state / 2) & 63) as f32 / 64.0;
+        let offset = Vec3::new(active.dir.x as f32, 0.0, active.dir.y as f32) * pwallpos;
+        base_center + offset
+    };
 
     if let Ok(mut tf) = q_vis.get_mut(active.entity) {
         tf.translation = pos;

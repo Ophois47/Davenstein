@@ -13,6 +13,9 @@ pub struct BillboardUpright;
 #[derive(Component)]
 pub struct BillboardFloor;
 
+#[derive(Component)]
+pub struct FloorDecal;
+
 // Radians Around X, 0 = Upright, -PI/2 = Flat
 #[derive(Component, Copy, Clone)]
 pub struct BillboardTilt(pub f32);
@@ -233,124 +236,125 @@ fn choose_static_path_from_plane1(code: u16) -> Option<String> {
     Some(format!("textures/decorations/stat_{:02}.png", idx))
 }
 
+/// Determines if a plane1 code should be rendered as a floor decal
+fn is_floor_decal_plane1(code: u16) -> bool {
+    // Floor decals: puddle (23), skeleton flat (32), and a few others
+    matches!(code, 23 | 32 | 61 | 62 | 63)
+}
+
 /// Spawn "statics" (decorations) from plane1 codes using WL_ACT1.C statinfo[]
 /// This does *not* spawn pickups/treasure/weapons (those are handled by pickups module)
 pub fn spawn_decorations(
-    mut commands: Commands,
-    grid: Res<MapGrid>,
-    plane1_res: Res<crate::level::WolfPlane1>,
-    asset_server: Res<AssetServer>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut solid: ResMut<SolidStatics>,
+	mut commands: Commands,
+	grid: Res<MapGrid>,
+	plane1_res: Res<crate::level::WolfPlane1>,
+	asset_server: Res<AssetServer>,
+	mut meshes: ResMut<Assets<Mesh>>,
+	mut materials: ResMut<Assets<StandardMaterial>>,
+	mut solid: ResMut<SolidStatics>,
 ) {
-    if grid.width != 64 || grid.height != 64 {
-        warn!(
-            "spawn_decorations: expected 64x64 grid, got {}x{}",
-            grid.width, grid.height
-        );
-        return;
-    }
+	if grid.width != 64 || grid.height != 64 {
+		warn!("spawn_decorations expects 64x64 grid but got {}x{}", grid.width, grid.height);
+		return;
+	}
 
-    let expected = grid.width * grid.height;
-    if plane1_res.0.len() != expected {
-        return;
-    }
+	let expected_len = (grid.width * grid.height) as usize;
+	if plane1_res.0.len() != expected_len {
+		warn!(
+			"spawn_decorations expected plane1 len {} but got {}",
+			expected_len,
+			plane1_res.0.len()
+		);
+		return;
+	}
 
-    solid.clear();
+	solid.clear();
 
-    let plane1: &[u16] = &plane1_res.0;
-    let idx = |x: usize, z: usize| -> usize { z * grid.width + x };
+	let quad_upright = meshes.add(Rectangle::new(0.95, 0.95));
+	let quad_decal_default = meshes.add(Rectangle::new(0.95, 1.20));
+	let quad_decal_puddle = meshes.add(Rectangle::new(0.95, 3.50));
+	let quad_decal_skel = meshes.add(Rectangle::new(0.95, 2.00));
 
-    // Wolfenstein statics: idx = plane1_code - 23
-    // idx 0 = puddle, idx 9 = skeleton flat
-    fn is_floor_decal_plane1(code: u16) -> bool {
-        matches!(code, 23 | 32)
-    }
+	let mut spawned = 0usize;
 
-    // Upright sprites (billboarded): square-ish
-    let w = 0.95_f32;
-    let h = 0.95_f32;
-    let quad_upright = meshes.add(Rectangle::new(w, h));
+	for y in 0..grid.height {
+		for x in 0..grid.width {
+			let idx = (y * grid.width + x) as usize;
+			let code = plane1_res.0[idx];
+			if code < 23 {
+				continue;
+			}
 
-    // Floor decals
-    let quad_decal_default = meshes.add(Rectangle::new(0.95, 1.20));
-    let quad_decal_puddle = meshes.add(Rectangle::new(0.95, 3.50));
-    let quad_decal_skel = meshes.add(Rectangle::new(0.95, 2.00));
+			let si = (code - 23) as usize;
+			if si >= STAT_KIND.len() {
+				continue;
+			}
 
-    // Small epsilon to avoid z-fighting with the floor
-    let floor_y = 0.01_f32;
+			let kind = STAT_KIND[si];
+			if kind == StatKind::Pickup {
+				continue;
+			}
 
-    for z in 0..grid.height {
-        for x in 0..grid.width {
-            let code = plane1[idx(x, z)];
-            if code < 23 {
-                continue; // Actors / player start etc.
-            }
+			let Some(tex_path) = choose_tile_path_from_plane1(code) else {
+				continue;
+			};
 
-            let si = (code - 23) as usize;
-            if si >= STAT_KIND.len() {
-                continue;
-            }
+			let floor_decal = is_floor_decal_plane1(code);
+			let blocks = kind == StatKind::Block;
 
-            let kind = STAT_KIND[si];
-            if kind == StatKind::Pickup {
-                continue; // Pickups module handles these
-            }
+			let (mesh_handle, tilt, y_pos, w, h, depth_bias) = if floor_decal {
+				let (mesh, h, bias) = match code {
+					23 => (quad_decal_puddle.clone(), 0.95, 1.0),
+					32 => (quad_decal_skel.clone(), 0.95, 1.0),
+					_ => (quad_decal_default.clone(), 0.95, 1.0),
+				};
+				(mesh, -std::f32::consts::FRAC_PI_2, 0.01, 0.95, h, bias)
+			} else {
+				let (w, h) = if blocks {
+					(0.95, 0.95)
+				} else {
+					match code {
+						_ => (0.95, 0.95),
+					}
+				};
+				(quad_upright.clone(), 0.0, h * 0.5, w, h, if blocks { 0.0 } else { 0.5 })
+			};
 
-            let blocks = kind == StatKind::Block;
-            if blocks {
-                solid.set_solid(x as i32, z as i32, true);
-            }
+			let tex: Handle<Image> = asset_server.load(tex_path);
+			let mat = materials.add(StandardMaterial {
+				base_color_texture: Some(tex),
+				alpha_mode: AlphaMode::Mask(0.5),
+				unlit: true,
+				double_sided: true,
+				depth_bias,
+				..default()
+			});
 
-            let floor_decal = !blocks && is_floor_decal_plane1(code);
+			let mut e = commands.spawn((
+				Name::new(format!("Decoration({},{}) code={}", x, y, code)),
+				Decoration {
+					plane1_code: code,
+					blocks,
+				},
+				BillboardTilt(tilt),
+				Mesh3d(mesh_handle),
+				MeshMaterial3d(mat),
+				Transform::from_translation(Vec3::new(x as f32, y_pos, y as f32)).with_scale(Vec3::new(w, 1.0, h)),
+			));
 
-            let Some(tex_path) = choose_tile_path_from_plane1(code) else {
-                continue;
-            };
-            let tex: Handle<Image> = asset_server.load(tex_path);
+			if floor_decal {
+				e.insert(FloorDecal);
+			}
 
-            let mat = materials.add(StandardMaterial {
-                base_color_texture: Some(tex),
-                alpha_mode: AlphaMode::Mask(0.5),
-                unlit: true,
-                cull_mode: None,
-                ..default()
-            });
+			if blocks {
+				solid.set_solid(x as i32, y as i32, true);
+			}
 
-            if floor_decal {
-                let decal_mesh = match code {
-                    23 => quad_decal_puddle.clone(),
-                    32 => quad_decal_skel.clone(),
-                    _ => quad_decal_default.clone(),
-                };
+			spawned += 1;
+		}
+	}
 
-                commands.spawn((
-                    Name::new("Decoration_FloorDecal"),
-                    Decoration { plane1_code: code, blocks },
-                    // Flat decal: billboard system will set yaw + this tilt each frame
-                    BillboardTilt(-std::f32::consts::FRAC_PI_2),
-                    Mesh3d(decal_mesh),
-                    MeshMaterial3d(mat),
-                    Transform::from_translation(Vec3::new(x as f32, floor_y, z as f32)),
-                    GlobalTransform::default(),
-                ));
-            } else {
-                // Upright Sprite: Bottom at y=0
-                let y = h * 0.5;
-
-                commands.spawn((
-                    Name::new(if blocks { "Decoration_Block" } else { "Decoration" }),
-                    Decoration { plane1_code: code, blocks },
-                    BillboardTilt(0.0),
-                    Mesh3d(quad_upright.clone()),
-                    MeshMaterial3d(mat),
-                    Transform::from_translation(Vec3::new(x as f32, y, z as f32)),
-                    GlobalTransform::default(),
-                ));
-            }
-        }
-    }
+	info!("spawn_decorations spawned {} entities", spawned);
 }
 
 pub fn billboard_decorations(
