@@ -28,3 +28,4 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
+- Flag decorations are not vertical as they should be

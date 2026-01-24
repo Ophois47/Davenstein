@@ -8,7 +8,11 @@ use rand::Rng;
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::decorations::SolidStatics;
 use davelib::map::{MapGrid, Tile};
-use davelib::player::{GodMode, Player, PlayerVitals};
+use davelib::player::{
+	GodMode,
+	Player,
+	PlayerVitals,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ProjectileKind {
@@ -134,8 +138,7 @@ fn tile_at_world(grid: &MapGrid, p: Vec3) -> Option<Tile> {
 /// Calculate which of 8 directional sprites to show based on:
 /// - The direction the projectile is traveling (proj_dir)
 /// - The direction from projectile to player (to_player)
-///
-/// This matches classic Wolfenstein 3D sprite direction logic.
+/// This matches classic Wolfenstein 3D sprite direction logic
 /// Direction 0 = facing away from player (South)
 /// Direction 4 = facing toward player (North)
 /// Directions go clockwise: 0,1,2,3,4,5,6,7
@@ -148,16 +151,15 @@ fn calculate_dir8_index(proj_dir: Vec3, to_player: Vec3) -> usize {
 		return 0;
 	}
 	
-	// Calculate the angle of the projectile's direction relative to the player's view direction
-	// We want to know: from the player's perspective, which way is the rocket facing?
-	
-	// Get angle from player to rocket (player's viewing angle)
+	// Calculate Angle of Projectile's Direction 
+	// Relative to Player's View Direction
+	// Get Angle From Player to Rocket
 	let view_angle = player_xz.y.atan2(player_xz.x);
 	
-	// Get angle of rocket's travel direction
+	// Get Angle of Rocket's Travel Direction
 	let proj_angle = proj_xz.y.atan2(proj_xz.x);
 	
-	// The difference tells us the rocket's orientation relative to player's view
+	// The Difference Tells us Rocket's Orientation Relative to Player's View
 	let mut relative_angle = proj_angle - view_angle;
 	
 	// Normalize to [0, 2π)
@@ -168,28 +170,28 @@ fn calculate_dir8_index(proj_dir: Vec3, to_player: Vec3) -> usize {
 		relative_angle -= std::f32::consts::TAU;
 	}
 	
-	// Convert to 8 directions (octants)
-	// 0 = facing away (South), 4 = facing toward (North), clockwise
+	// Convert to 8 Directions (Octants)
+	// 0 = Facing Away (South), 4 = Facing Toward (North), Clockwise
 	let octant = ((relative_angle + std::f32::consts::PI / 8.0) / (std::f32::consts::TAU / 8.0)).floor() as i32;
 	
-	// Map to Wolfenstein 3D convention:
-	// octant 0 (East) -> direction 2 (East)
-	// octant 1 (NE) -> direction 3 (NE)  
-	// octant 2 (North) -> direction 4 (North, toward player)
-	// octant 3 (NW) -> direction 5 (NW)
-	// octant 4 (West) -> direction 6 (West)
-	// octant 5 (SW) -> direction 7 (SW)
-	// octant 6 (South) -> direction 0 (South, away from player)
-	// octant 7 (SE) -> direction 1 (SE)
+	// Map to Wolfenstein 3D Convention:
+	// Octant 0 (East) -> Direction 2 (East)
+	// Octant 1 (NE) -> Direction 3 (NE)  
+	// Octant 2 (North) -> Direction 4 (North, Toward Player)
+	// Octant 3 (NW) -> Direction 5 (NW)
+	// Octant 4 (West) -> Direction 6 (West)
+	// Octant 5 (SW) -> Direction 7 (SW)
+	// Octant 6 (South) -> Direction 0 (South, Away From Player)
+	// Octant 7 (SE) -> Direction 1 (SE)
 	
 	let dir = match octant {
 		0 => 2,  // E
 		1 => 3,  // NE
-		2 => 4,  // N (toward player)
+		2 => 4,  // N (Toward Player)
 		3 => 5,  // NW
 		4 => 6,  // W
 		5 => 7,  // SW
-		6 => 0,  // S (away from player)
+		6 => 0,  // S (Away From Player)
 		7 => 1,  // SE
 		_ => 0,
 	};
@@ -605,7 +607,7 @@ pub fn update_projectile_views(
                 }
             }
             ProjectileKind::Rocket => {
-                // Calculate which directional sprite to show
+                // Calculate Which Directional Sprite to Show
                 let dir_index = calculate_dir8_index(proj.dir, to_player);
                 let tex = assets.rocket[dir_index].clone();
                 
@@ -619,8 +621,8 @@ pub fn update_projectile_views(
                     continue;
                 }
 
-                // Ping-pong 4 frames to simulate end-over-end flip
-                // Sequence: 0,1,2,3,2,1 then repeat
+                // 4 frames to Simulate End Over End Flip
+                // Sequence: 0,1,2,3,2,1 Then Repeat
                 proj.frame = (proj.frame + 1) % 6;
 
                 let i = match proj.frame {

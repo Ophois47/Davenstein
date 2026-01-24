@@ -5,27 +5,30 @@ use bevy::prelude::*;
 use davelib::map::{MapGrid, Tile};
 use davelib::decorations::SolidStatics;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct RayHit {
-    #[allow(dead_code)]
     pub tile: Tile,
-    #[allow(dead_code)]
     pub tile_coord: IVec2,
-    #[allow(dead_code)]
     pub pos: Vec3,
-    #[allow(dead_code)]
     pub normal: Vec3,
-    #[allow(dead_code)]
     pub dist: f32,
 }
 
-pub fn raycast_grid(grid: &MapGrid, _solid: &SolidStatics, origin: Vec3, dir3: Vec3, max_dist: f32) -> Option<RayHit> {
+pub fn raycast_grid(
+    grid: &MapGrid,
+    _solid: &SolidStatics,
+    origin: Vec3, 
+    dir3: Vec3, 
+    max_dist: f32
+) -> Option<RayHit> {
     const FLOOR_Y: f32 = 0.0;
     const WALL_H: f32 = 1.0;
 
     const EPS_DIR: f32 = 1e-8;
     const EPS_Y: f32 = 1e-4;
-    const EPS_T: f32 = 1e-6; // tie-break for corner hits
+    // Tie-Break For Corner Hits
+    const EPS_T: f32 = 1e-6;
 
     let dir3 = dir3.normalize_or_zero();
     if dir3 == Vec3::ZERO {
@@ -88,7 +91,7 @@ pub fn raycast_grid(grid: &MapGrid, _solid: &SolidStatics, origin: Vec3, dir3: V
             }
         }
 
-        // Step to Next Cell Boundary.
+        // Step to Next Cell Boundary
         let dist = if t_max_x + EPS_T < t_max_z {
             ix += step_x;
             let dist = t_max_x;
@@ -102,7 +105,8 @@ pub fn raycast_grid(grid: &MapGrid, _solid: &SolidStatics, origin: Vec3, dir3: V
             step_normal = Vec3::new(0.0, 0.0, -(step_z as f32));
             dist
         } else {
-            // Corner Cross: test both adjacent cells (prevents corner-peeking through walls)
+            // Corner Cross: Test Both Adjacent Cells
+            // Prevents Corner Peeking Through Walls
             let cand_x = (ix + step_x, iz);
             let cand_z = (ix, iz + step_z);
             let dist = t_max_x; // ~= t_max_z
@@ -115,8 +119,8 @@ pub fn raycast_grid(grid: &MapGrid, _solid: &SolidStatics, origin: Vec3, dir3: V
                     return None;
                 }
 
-                // NOTE: We intentionally do NOT stop on SolidStatics here.
-                // Statics block movement, but hitscan should pass through decorations (Wolf behavior).
+                // NOTE: Intentionally Do NOT Stop on SolidStatics Here
+                // Statics Block Movement, Hitscan Should Pass Through Decorations
 
                 let tile = grid.tile(cx as usize, cz as usize);
                 if matches!(tile, Tile::Wall | Tile::DoorClosed) {
@@ -130,13 +134,14 @@ pub fn raycast_grid(grid: &MapGrid, _solid: &SolidStatics, origin: Vec3, dir3: V
                 }
             }
 
-            // Advance diagonally
+            // Advance Diagonally
             ix += step_x;
             iz += step_z;
             t_max_x += t_delta_x;
             t_max_z += t_delta_z;
 
-            // If we later hit a diagonal wall tile at this same dist, pick a consistent normal.
+            // If Later We Hit Diagonal Wall Tile at 
+            // Same Distance, Pick Consistent Normal
             step_normal = if dx.abs() >= dz.abs() {
                 Vec3::new(-(step_x as f32), 0.0, 0.0)
             } else {
@@ -155,9 +160,9 @@ pub fn raycast_grid(grid: &MapGrid, _solid: &SolidStatics, origin: Vec3, dir3: V
             return None;
         }
 
-        // Intentionally do NOT stop on SolidStatics here either
-        // Movement collision still uses SolidStatics
-        // Hitscan should pass through decorations
+        // Intentionally Do NOT Stop on SolidStatics Here Either
+        // Movement Collision Still Uses SolidStatics
+        // Hitscan Should Pass Through Decorations
 
         let tile = grid.tile(ix as usize, iz as usize);
 

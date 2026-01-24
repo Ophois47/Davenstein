@@ -40,7 +40,6 @@ use davelib::map::MapGrid;
 
 #[derive(Message, Debug, Clone, Copy)]
 pub struct FireShot {
-    #[allow(dead_code)]
     pub weapon: WeaponSlot,
     pub origin: Vec3,
     pub dir: Vec3,
@@ -157,9 +156,6 @@ fn process_fire_shots(
 
     fn hitbox(kind: EnemyKind) -> (f32, f32, f32) {
         // (radius, half_h, center_y)
-        // Sprites are visually wider than a "physical" cylinder, and classic Wolfenstein 3-D
-        // feels generous when you're pointing at a target. Widen XZ radius a bit so hitscan
-        // lands when the player is aiming at the sprite, not only the mathematical center
         match kind {
             EnemyKind::Dog => (0.38, 0.45, 0.40),
             // Boss is Visually Big, Slightly Larger Hitbox
@@ -304,7 +300,7 @@ fn process_fire_shots(
         }
     }
 
-    // Seed RNG once
+    // Seed RNG Once
     if *rng == 0 {
         *rng = 0xC0FFEE_u32;
     }
@@ -315,8 +311,12 @@ fn process_fire_shots(
             continue;
         }
 
-        let boundary_dist =
-            ray_exit_dist_xz(shot.origin, dir, grid.width, grid.height).unwrap_or(shot.max_dist);
+        let boundary_dist = ray_exit_dist_xz(
+            shot.origin,
+            dir,
+            grid.width,
+            grid.height,
+        ).unwrap_or(shot.max_dist);
         let max_dist = shot.max_dist.min(boundary_dist);
 
         let world_hit = raycast_grid(&grid, &solid, shot.origin, dir, max_dist);
@@ -380,7 +380,8 @@ fn process_fire_shots(
                 if hp.cur <= 0 {
                     hp.cur = 0;
 
-                    level_score.kills_found += 1; // Kill discovery counts when death is latched
+                    // Kill Discovery Counts When Death is Latched
+                    level_score.kills_found += 1;
 
                     if let Ok((_, _, _, gt)) = q_alive.get(e) {
                         let p = gt.translation();
