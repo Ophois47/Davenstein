@@ -239,7 +239,7 @@ fn choose_static_path_from_plane1(code: u16) -> Option<String> {
 /// Determines if a plane1 code should be rendered as a floor decal
 fn is_floor_decal_plane1(code: u16) -> bool {
     // Floor decals: puddle (23), skeleton flat (32), and a few others
-    matches!(code, 23 | 32 | 61 | 62 | 63)
+    matches!(code, 23 | 32 | 61 | 63)
 }
 
 /// Spawn "statics" (decorations) from plane1 codes using WL_ACT1.C statinfo[]
