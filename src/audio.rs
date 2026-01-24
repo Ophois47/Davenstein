@@ -42,6 +42,7 @@ pub enum SfxKind {
     PistolFire,
     MachineGunFire,
     ChaingunFire,
+    RocketImpact,
 
     // Pickups - Weapons
     PickupChaingun,
@@ -312,6 +313,11 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     lib.insert_one(
         SfxKind::ChaingunFire,
         asset_server.load("sounds/sfx/weapons/chaingun/chaingun_fire.wav"),
+    );
+    // Rocket Impact
+    lib.insert_one(
+        SfxKind::RocketImpact,
+        asset_server.load("sounds/sfx/weapons/rocket/rocket_impact.wav"),
     );
 
     // Weapon / Ammo Pickups
@@ -949,6 +955,11 @@ if is_enemy_voice && !is_boss_voice {
 				.with_spatial(true)
 				.with_spatial_scale(SpatialScale::new(0.12))
 				.with_volume(Volume::Linear(1.0)),
+
+            SfxKind::RocketImpact => PlaybackSettings::DESPAWN
+                .with_spatial(true)
+                .with_spatial_scale(SpatialScale::new(0.10))
+                .with_volume(Volume::Linear(2.5)),
 
 			SfxKind::KnifeSwing
 			| SfxKind::PistolFire

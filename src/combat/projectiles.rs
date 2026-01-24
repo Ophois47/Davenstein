@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use bevy::render::alpha::AlphaMode;
 use rand::Rng;
 
+use davelib::audio::{PlaySfx, SfxKind};
 use davelib::decorations::SolidStatics;
 use davelib::map::{MapGrid, Tile};
 use davelib::player::{GodMode, Player, PlayerVitals};
@@ -31,6 +32,7 @@ pub struct ProjectileAssets {
 	pub syringe: [Handle<Image>; 4],
 	pub rocket: [Handle<Image>; 8],
 	pub rocket_smoke: [Handle<Image>; 4],
+	pub rocket_impact: [Handle<Image>; 4],
 }
 
 #[derive(Component)]
@@ -68,6 +70,20 @@ const ROCKET_SMOKE_EMIT_TICS: u8 = 3;
 const SMOKE_FRAME_TICS: u8 = 3;
 const SMOKE_FRAMES: usize = 4;
 
+// Rocket Impact Logic
+#[derive(Component)]
+pub struct RocketImpact {
+	pub frame: usize,
+	pub tics: u8,
+}
+
+#[derive(Component)]
+pub struct RocketImpactView {
+	pub mat: Handle<StandardMaterial>,
+}
+
+const IMPACT_FRAME_TICS: u8 = 3;
+const IMPACT_FRAMES: usize = 4;
 
 fn kind_speed(kind: ProjectileKind) -> f32 {
 	match kind {
@@ -181,6 +197,76 @@ fn calculate_dir8_index(proj_dir: Vec3, to_player: Vec3) -> usize {
 	dir as usize
 }
 
+fn spawn_rocket_impact(
+	commands: &mut Commands,
+	mats: &mut Assets<StandardMaterial>,
+	assets: &ProjectileAssets,
+	pos: Vec3,
+) {
+	let mat = mats.add(StandardMaterial {
+		base_color_texture: Some(assets.rocket_impact[0].clone()),
+		alpha_mode: AlphaMode::Blend,
+		unlit: true,
+		cull_mode: None,
+		..default()
+	});
+
+	commands.spawn((
+		RocketImpact { frame: 0, tics: IMPACT_FRAME_TICS },
+		RocketImpactView { mat: mat.clone() },
+		Mesh3d(assets.quad.clone()),
+		MeshMaterial3d(mat),
+		Transform::from_translation(pos).with_scale(Vec3::new(0.85, 0.85, 1.0)),
+	));
+}
+
+pub fn tick_rocket_impacts(
+	mut commands: Commands,
+	assets: Option<Res<ProjectileAssets>>,
+	mut mats: ResMut<Assets<StandardMaterial>>,
+	mut q: Query<(Entity, &mut RocketImpact, &RocketImpactView)>,
+) {
+	let Some(assets) = assets else { return; };
+
+	for (e, mut imp, view) in q.iter_mut() {
+		if imp.tics > 0 {
+			imp.tics -= 1;
+		}
+
+		if imp.tics != 0 {
+			continue;
+		}
+
+		imp.frame += 1;
+		if imp.frame >= IMPACT_FRAMES {
+			commands.entity(e).despawn();
+			continue;
+		}
+
+		imp.tics = IMPACT_FRAME_TICS;
+
+		let Some(mat) = mats.get_mut(&view.mat) else { continue; };
+		let tex = assets.rocket_impact[imp.frame].clone();
+		if mat.base_color_texture.as_ref() != Some(&tex) {
+			mat.base_color_texture = Some(tex);
+		}
+	}
+}
+
+pub fn update_rocket_impact_views(
+	q_player: Query<&Transform, (With<Player>, Without<RocketImpact>)>,
+	mut q: Query<&mut Transform, (With<RocketImpact>, Without<Player>)>,
+) {
+	let Some(player_xform) = q_player.iter().next() else { return; };
+	let player_pos = player_xform.translation;
+
+	for mut xform in q.iter_mut() {
+		let to_player = player_pos - xform.translation;
+		let yaw = to_player.x.atan2(to_player.z);
+		xform.rotation = Quat::from_rotation_y(yaw);
+	}
+}
+
 pub fn setup_projectile_assets(
 	mut commands: Commands,
 	asset_server: Res<AssetServer>,
@@ -203,6 +289,10 @@ pub fn setup_projectile_assets(
 		asset_server.load(format!("enemies/otto/otto_smoke_{i}.png"))
 	});
 
+	let rocket_impact: [Handle<Image>; 4] = std::array::from_fn(|i| {
+		asset_server.load(format!("enemies/otto/otto_impact_{i}.png"))
+	});
+
 	let quad = meshes.add(Rectangle::new(1.0, 1.0));
 
 	commands.insert_resource(ProjectileAssets {
@@ -212,6 +302,7 @@ pub fn setup_projectile_assets(
 		syringe,
 		rocket,
 		rocket_smoke,
+		rocket_impact,
 	});
 }
 
@@ -380,7 +471,6 @@ pub fn update_smoke_puff_views(
 	}
 }
 
-
 pub fn tick_projectiles(
 	time: Res<Time>,
 	mut commands: Commands,
@@ -389,6 +479,7 @@ pub fn tick_projectiles(
 	grid: Option<Res<MapGrid>>,
 	solid: Option<Res<SolidStatics>>,
 	god: Option<Res<GodMode>>,
+	mut sfx: MessageWriter<PlaySfx>,
 	mut q_player: Query<(&Transform, &mut PlayerVitals), (With<Player>, Without<Projectile>)>,
 	mut q: Query<(Entity, &mut Transform, &Projectile, Option<&mut RocketSmokeEmitter>)>,
 ) {
@@ -418,6 +509,12 @@ pub fn tick_projectiles(
 
 		if let Some(solid) = solid.as_deref() {
 			if segment_hits_solid_statics(a, b, solid) {
+				if matches!(proj.kind, ProjectileKind::Rocket) {
+					let hit_pos = a + proj.dir * 0.12;
+					spawn_rocket_impact(&mut commands, &mut mats, &assets, hit_pos);
+					sfx.write(PlaySfx { kind: SfxKind::RocketImpact, pos: hit_pos });
+				}
+
 				commands.entity(e).despawn();
 				continue;
 			}
@@ -429,6 +526,12 @@ pub fn tick_projectiles(
 		};
 
 		if tile_blocks_projectile(tile_b) {
+			if matches!(proj.kind, ProjectileKind::Rocket) {
+				let hit_pos = a + proj.dir * 0.12;
+				spawn_rocket_impact(&mut commands, &mut mats, &assets, hit_pos);
+				sfx.write(PlaySfx { kind: SfxKind::RocketImpact, pos: hit_pos });
+			}
+
 			commands.entity(e).despawn();
 			continue;
 		}
