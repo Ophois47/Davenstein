@@ -51,6 +51,7 @@ Davenstein - by David Petnick
 // - In PostUpdate, do NOT register multiple instances of setup/spawn systems and then order “after setup”
 // - Instead: one rebuild pipeline gated by level_rebuild_requested(), plus per-request finish systems gated individually
 mod combat;
+mod episode_end;
 mod level_complete;
 mod pickups;
 mod restart;
@@ -161,6 +162,7 @@ fn main() {
 		.add_plugins(EnemiesPlugin)
 		.add_plugins(EnemyAiPlugin)
 		.add_plugins(combat::CombatPlugin)
+		.add_plugins(episode_end::EpisodeEndPlugin)
 		.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
 		.insert_resource(high_scores)
 		.init_resource::<PlayerSettings>()

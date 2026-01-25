@@ -68,6 +68,13 @@ const MENU_FONT_DRAW_SCALE: f32 = 0.5;
 const EP_THUMB_X: f32 = 24.0; // left edge of the thumbnail column (in 320x200 space)
 const EP_TEXT_X: f32 = 88.0;  // left edge of the episode text block (in 320x200 space)
 
+#[derive(Resource)]
+pub struct EpisodeEndImages {
+    pub bj_victory_walk: [Handle<Image>; 4],
+    pub bj_victory_jump: [Handle<Image>; 4],
+    pub you_win: Handle<Image>,
+}
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SplashUpdateSet {
     AdvanceInput,
@@ -78,6 +85,8 @@ pub enum SplashUpdateSet {
 struct SplashResources<'w> {
     step: ResMut<'w, SplashStep>,
     imgs: Option<Res<'w, SplashImages>>,
+    episode_end: Option<Res<'w, EpisodeEndImages>>,
+    hud: Res<'w, crate::ui::HudState>,
     lock: ResMut<'w, PlayerControlLock>,
     music_mode: ResMut<'w, MusicMode>,
     psyched: ResMut<'w, PsychedLoad>,
@@ -303,6 +312,7 @@ pub enum SplashStep {
     EpisodeSelect,
     SkillSelect,
     Scores,
+    EpisodeVictory,
     NameEntry,
     Done,
 }
@@ -2270,6 +2280,53 @@ fn splash_advance_on_any_input(
             }
         }
 
+        SplashStep::EpisodeVictory => {
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Scores;
+
+            let Some(ep_imgs) = resources.episode_end.as_ref() else { return; };
+
+            if q.q_splash_roots.iter().next().is_none() {
+                spawn_episode_victory_ui(&mut commands, ep_imgs.you_win.clone(), w, h);
+            }
+
+            if any_key {
+                for e in q.q_splash_roots.iter() {
+                    commands.entity(e).despawn();
+                }
+
+                episode.from_pause = false;
+
+                let score = resources.hud.score;
+                let episode_num = current_level.0.episode();
+
+                if resources.high_scores.qualifies(score) {
+                    resources.name_entry.active = true;
+                    let rank = resources
+                        .high_scores
+                        .entries
+                        .iter()
+                        .position(|e| score > e.score)
+                        .unwrap_or(resources.high_scores.entries.len());
+
+                    resources.name_entry.rank = rank;
+                    resources.name_entry.score = score;
+                    resources.name_entry.episode = episode_num;
+                    resources.name_entry.name.clear();
+                    resources.name_entry.cursor_pos = 0;
+
+                    *resources.step = SplashStep::NameEntry;
+                } else {
+                    let Some(imgs) = resources.imgs.as_ref() else { return; };
+
+                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, false);
+                    menu.reset();
+                    *resources.step = SplashStep::Menu;
+                    resources.music_mode.0 = MusicModeKind::Menu;
+                }
+            }
+        }
+
         SplashStep::Done => {
             // Gameplay -> Pause Menu ESC
             if keyboard.just_pressed(KeyCode::Escape) {
@@ -2333,6 +2390,22 @@ pub(crate) fn setup_splash(mut commands: Commands, asset_server: Res<AssetServer
         menu_font_gray,
         menu_font_yellow,
         skill_faces: [skill_face_0, skill_face_1, skill_face_2, skill_face_3],
+    });
+
+    commands.insert_resource(EpisodeEndImages {
+        bj_victory_walk: [
+            asset_server.load("textures/ui/episode_end/bj_victory_walk_0.png"),
+            asset_server.load("textures/ui/episode_end/bj_victory_walk_1.png"),
+            asset_server.load("textures/ui/episode_end/bj_victory_walk_2.png"),
+            asset_server.load("textures/ui/episode_end/bj_victory_walk_3.png"),
+        ],
+        bj_victory_jump: [
+            asset_server.load("textures/ui/episode_end/bj_victory_jump_0.png"),
+            asset_server.load("textures/ui/episode_end/bj_victory_jump_1.png"),
+            asset_server.load("textures/ui/episode_end/bj_victory_jump_2.png"),
+            asset_server.load("textures/ui/episode_end/bj_victory_jump_3.png"),
+        ],
+        you_win: asset_server.load("textures/ui/episode_end/you_win.png"),
     });
 }
 
@@ -2493,4 +2566,8 @@ fn auto_get_psyched_on_level_start(
             &mut *music_mode,
         );
     }
+}
+
+fn spawn_episode_victory_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32) {
+    spawn_splash_ui(commands, image, w, h);
 }

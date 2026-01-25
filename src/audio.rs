@@ -36,6 +36,9 @@ pub enum SfxKind {
     IntermissionNoBonus,
     IntermissionPercent100,
     IntermissionBonusApply,
+
+    // Episode End
+    EpisodeVictoryYea,
     
     // Sfx - Weapons
     KnifeSwing,
@@ -288,6 +291,12 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     lib.insert_one(
         SfxKind::IntermissionBonusApply,
         asset_server.load("sounds/sfx/stats/bonus_apply.ogg"),
+    );
+
+    // Episode End Victory Yell
+    lib.insert_one(
+        SfxKind::EpisodeVictoryYea,
+        asset_server.load("sounds/sfx/victory.wav"),
     );
 
     // Doors
@@ -1051,6 +1060,10 @@ if is_enemy_voice && !is_boss_voice {
 			SfxKind::MenuMove
 			| SfxKind::MenuSelect
 			| SfxKind::MenuBack => PlaybackSettings::DESPAWN.with_spatial(false),
+
+            SfxKind::EpisodeVictoryYea => PlaybackSettings::DESPAWN
+                .with_spatial(false)
+                .with_volume(Volume::Linear(1.4)),
 
 			SfxKind::IntermissionTick
 			| SfxKind::IntermissionConfirm

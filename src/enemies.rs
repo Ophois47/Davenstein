@@ -15,6 +15,7 @@ use crate::audio::{
     SfxKind,
     ActiveEnemyVoiceSfx,
 };
+use crate::episode_end::DeathCamBoss;
 use crate::player::Player;
 
 const GUARD_MAX_HP: i32 = 25;
@@ -1705,6 +1706,7 @@ pub fn spawn_hitler(
 
     commands.spawn((
         Hitler,
+        DeathCamBoss,
         EnemyKind::Hitler,
         Dir8(0),
         View8(0),
@@ -1810,6 +1812,7 @@ pub fn spawn_schabbs(
 
     commands.spawn((
         Schabbs,
+        DeathCamBoss,
         EnemyKind::Schabbs,
         Dir8(0),
         View8(0),
@@ -1845,6 +1848,7 @@ pub fn spawn_otto(
 
     commands.spawn((
         Otto,
+        DeathCamBoss,
         EnemyKind::Otto,
         Dir8(0),
         View8(0),
@@ -1880,6 +1884,7 @@ pub fn spawn_general(
 
     commands.spawn((
         General,
+        DeathCamBoss,
         EnemyKind::General,
         Dir8(0),
         View8(0),
