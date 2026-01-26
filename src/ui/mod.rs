@@ -48,6 +48,7 @@ impl Plugin for UiPlugin {
 			.add_systems(Update, sync::game_over_input)
 			// HUD + Viewmodel systems
 			.add_systems(Update, hud::sync_viewmodel_size)
+			.add_systems(Update, hud::sync_viewmodel_visibility)
 			.add_systems(Update, hud::weapon_fire_and_viewmodel)
 			.add_systems(Update, hud::sync_hud_hp_digits)
 			.add_systems(Update, hud::sync_hud_ammo_digits)

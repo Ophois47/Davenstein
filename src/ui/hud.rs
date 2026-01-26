@@ -2071,6 +2071,62 @@ fn spawn_game_over_overlay(commands: &mut Commands, parent: Entity, ui_font: Han
     });
 }
 
+pub(crate) fn sync_viewmodel_visibility(
+    lock: Res<PlayerControlLock>,
+    mut commands: Commands,
+    mut q_vm: Query<(Entity, Option<&mut Visibility>), With<ViewModelImage>>,
+    mut last_unlocked: Local<Option<Visibility>>,
+) {
+    let Some((vm_e, vm_vis)) = q_vm.iter_mut().next() else { return; };
+
+    let should_hide = lock.0;
+
+    if should_hide {
+        if last_unlocked.is_none() {
+            let cur = match vm_vis.as_deref() {
+                Some(v) => *v,
+                None => Visibility::Visible,
+            };
+            *last_unlocked = Some(cur);
+        }
+
+        match vm_vis {
+            Some(mut v) => {
+                if *v != Visibility::Hidden {
+                    *v = Visibility::Hidden;
+                }
+            }
+            None => {
+                commands.entity(vm_e).insert(Visibility::Hidden);
+            }
+        }
+
+        return;
+    }
+
+    if let Some(prev) = last_unlocked.take() {
+        match vm_vis {
+            Some(mut v) => *v = prev,
+            None => {
+                commands.entity(vm_e).insert(prev);
+            }
+        }
+        return;
+    }
+
+    // Ensure the viewmodel is visible when not locked
+    match vm_vis {
+        Some(mut v) => {
+            if *v == Visibility::Hidden {
+                *v = Visibility::Visible;
+            }
+        }
+        None => {
+            commands.entity(vm_e).insert(Visibility::Visible);
+        }
+    }
+}
+
 pub(crate) fn setup_hud(
     mut commands: Commands,
     asset_server: Res<AssetServer>,

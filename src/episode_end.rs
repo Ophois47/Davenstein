@@ -22,6 +22,12 @@ impl Plugin for EpisodeEndPlugin {
 	}
 }
 
+#[derive(Component, Clone, Copy)]
+struct BjDolly {
+	start: Vec3,
+	end: Vec3,
+}
+
 fn world_ready(
 	map: Option<Res<MapGrid>>,
 	plane1: Option<Res<WolfPlane1>>,
@@ -97,7 +103,6 @@ fn start_bj_cutscene(
 		return;
 	}
 
-	// Prevent re-triggering while already in any locked sequence
 	if lock.0 {
 		return;
 	}
@@ -126,8 +131,18 @@ fn start_bj_cutscene(
 
 	lock.0 = true;
 
-	// DOS behavior vibe: snap-turn the view so the player is no longer aiming at the exit
-	player_tr.rotation = player_tr.rotation * Quat::from_rotation_y(std::f32::consts::PI);
+	let (yaw, pitch, roll) = player_tr.rotation.to_euler(EulerRot::YXZ);
+	let yaw = yaw + std::f32::consts::PI;
+	player_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
+
+	let cam_start = player_tr.translation;
+	let back_dir = Quat::from_rotation_y(yaw) * Vec3::Z;
+	let cam_end = cam_start + back_dir * 6.0;
+
+	commands.entity(player_e).insert(BjDolly {
+		start: cam_start,
+		end: cam_end,
+	});
 
 	let bj_mesh = meshes.add(Rectangle::new(0.95, 1.30));
 	let bj_mat = materials.add(StandardMaterial {
@@ -138,16 +153,16 @@ fn start_bj_cutscene(
 		..default()
 	});
 
-	// Child-of-camera so it always frames correctly regardless of world geometry
+	let bj_pos = Vec3::new(player_tr.translation.x, 0.65, player_tr.translation.z);
+
 	let bj_entity = commands
 		.spawn((
 			Name::new("BJ Victory"),
 			Mesh3d(bj_mesh),
 			MeshMaterial3d(bj_mat.clone()),
-			Transform::from_translation(Vec3::new(0.0, -0.25, -2.00)),
+			Transform::from_translation(bj_pos),
 			Visibility::Visible,
 		))
-		.set_parent_in_place(player_e)
 		.id();
 
 	let episode = current_level.0.episode() as u8;
@@ -159,7 +174,7 @@ fn start_bj_cutscene(
 
 	flow.phase = EpisodeEndPhase::BjCutscene(BjCutscene {
 		stage: BjCutsceneStage::Turning,
-		stage_timer: Timer::from_seconds(0.35, TimerMode::Once),
+		stage_timer: Timer::from_seconds(0.60, TimerMode::Once),
 		bj_entity,
 		bj_material: bj_mat,
 		walk_frame: 0,
@@ -178,16 +193,41 @@ fn tick_bj_cutscene(
 	mut materials: ResMut<Assets<StandardMaterial>>,
 	mut sfx: MessageWriter<PlaySfx>,
 	mut flow: ResMut<EpisodeEndFlow>,
-	q_bj: Query<Entity>,
+	mut q_player: Query<(Entity, &mut Transform, Option<&BjDolly>), With<Player>>,
+	mut q_bj: Query<&mut Transform, Without<Player>>,
 ) {
 	let EpisodeEndPhase::BjCutscene(cut) = &mut flow.phase else {
 		return;
 	};
 
+	let Some((player_e, mut player_tr, dolly)) = q_player.iter_mut().next() else {
+		let result = cut.result;
+		flow.phase = EpisodeEndPhase::Finish(result);
+		return;
+	};
+
+	if let Ok(mut bj_tr) = q_bj.get_mut(cut.bj_entity) {
+		let mut dir = player_tr.translation - bj_tr.translation;
+		dir.y = 0.0;
+		let dir = dir.normalize_or_zero();
+		let yaw = dir.x.atan2(-dir.z);
+		bj_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw, 0.0, 0.0);
+	}
+
 	match cut.stage {
 		BjCutsceneStage::Turning => {
 			cut.stage_timer.tick(time.delta());
+
+			if let Some(dolly) = dolly {
+				let dur = cut.stage_timer.duration().as_secs_f32().max(0.0001);
+				let t = (cut.stage_timer.elapsed_secs() / dur).clamp(0.0, 1.0);
+				let t = t * t * (3.0 - 2.0 * t);
+
+				player_tr.translation = dolly.start + (dolly.end - dolly.start) * t;
+			}
+
 			if cut.stage_timer.just_finished() {
+				commands.entity(player_e).remove::<BjDolly>();
 				cut.stage = BjCutsceneStage::Walking;
 				cut.frame_timer.reset();
 			}
@@ -245,9 +285,7 @@ fn tick_bj_cutscene(
 		return;
 	}
 
-	if q_bj.get(cut.bj_entity).is_ok() {
-		commands.entity(cut.bj_entity).despawn();
-	}
+	commands.entity(cut.bj_entity).despawn();
 
 	let result = cut.result;
 	flow.phase = EpisodeEndPhase::Finish(result);
