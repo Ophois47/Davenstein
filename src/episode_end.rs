@@ -1,3 +1,6 @@
+/*
+Davenstein - by David Petnick
+*/
 use bevy::prelude::*;
 
 use davelib::audio::{MusicMode, MusicModeKind, PlaySfx, SfxKind};
@@ -86,6 +89,60 @@ struct DeathCam {
 	result: EpisodeEndResult,
 }
 
+fn start_death_cam(
+	mut flow: ResMut<EpisodeEndFlow>,
+	mut lock: ResMut<PlayerControlLock>,
+	current_level: Res<CurrentLevel>,
+	hud: Res<HudState>,
+	q_dead_boss: Query<&Transform, (With<davelib::episode_end::DeathCamBoss>, Added<davelib::actors::Dead>)>,
+	q_player: Query<&Transform, With<Player>>,
+) {
+	if !matches!(flow.phase, EpisodeEndPhase::Inactive) {
+		return;
+	}
+
+	let Some(boss_tr) = q_dead_boss.iter().next() else {
+		return;
+	};
+
+	let on_floor_9 = current_level.0.floor_number() == 9;
+	let is_hans_or_gretel = matches!(current_level.0, LevelId::E1M9 | LevelId::E5M9);
+	if !on_floor_9 || is_hans_or_gretel {
+		return;
+	}
+
+	let Some(player_tr) = q_player.iter().next() else {
+		return;
+	};
+
+	lock.0 = true;
+
+	let episode = current_level.0.episode() as u8;
+
+	let result = EpisodeEndResult {
+		episode,
+		score: hud.score as u32,
+	};
+
+	let (start_yaw, start_pitch, _roll) = player_tr.rotation.to_euler(EulerRot::YXZ);
+
+	let target_pos = boss_tr.translation;
+	let dir = (target_pos - player_tr.translation).normalize_or_zero();
+
+	let end_yaw = dir.x.atan2(-dir.z);
+	let end_pitch = dir.y.atan2((dir.x * dir.x + dir.z * dir.z).sqrt());
+
+	flow.phase = EpisodeEndPhase::DeathCam(DeathCam {
+		elapsed: 0.0,
+		duration: 1.25,
+		start_yaw,
+		start_pitch,
+		end_yaw,
+		end_pitch,
+		result,
+	});
+}
+
 fn start_bj_cutscene(
 	mut commands: Commands,
 	mut flow: ResMut<EpisodeEndFlow>,
@@ -131,13 +188,118 @@ fn start_bj_cutscene(
 
 	lock.0 = true;
 
-	let (yaw, pitch, roll) = player_tr.rotation.to_euler(EulerRot::YXZ);
-	let yaw = yaw + std::f32::consts::PI;
-	player_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
+	let tx_i = tx as i32;
+	let tz_i = tz as i32;
 
-	let cam_start = player_tr.translation;
-	let back_dir = Quat::from_rotation_y(yaw) * Vec3::Z;
-	let cam_end = cam_start + back_dir * 6.0;
+	let is_door = |t: davelib::map::Tile| matches!(
+		t,
+		davelib::map::Tile::DoorClosed | davelib::map::Tile::DoorOpen
+	);
+
+	let free_run = |step_x: i32, step_z: i32| -> i32 {
+		let mut cx = tx_i;
+		let mut cz = tz_i;
+		let mut run = 0;
+
+		for _ in 0..32 {
+			let nx = cx + step_x;
+			let nz = cz + step_z;
+
+			if nx < 0 || nz < 0 || nx >= grid.width as i32 || nz >= grid.height as i32 {
+				break;
+			}
+
+			if matches!(grid.tile(nx as usize, nz as usize), davelib::map::Tile::Wall) {
+				break;
+			}
+
+			run += 1;
+			cx = nx;
+			cz = nz;
+		}
+
+		run
+	};
+
+	const DOOR_SCAN_MAX: i32 = 16;
+
+	let scan_dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+
+	let mut best_door: Option<(i32, i32, i32, i32, i32, i32)> = None;
+	// (door_x, door_z, dist_to_door, run_away, away_step_x, away_step_z)
+
+	for (sx, sz) in scan_dirs {
+		for dist in 1..=DOOR_SCAN_MAX {
+			let nx = tx_i + sx * dist;
+			let nz = tz_i + sz * dist;
+
+			if nx < 0 || nz < 0 || nx >= grid.width as i32 || nz >= grid.height as i32 {
+				break;
+			}
+
+			let t = grid.tile(nx as usize, nz as usize);
+
+			if matches!(t, davelib::map::Tile::Wall) {
+				break;
+			}
+
+			if is_door(t) {
+				let away_step_x = -sx;
+				let away_step_z = -sz;
+				let run_away = free_run(away_step_x, away_step_z);
+
+				let cand = (nx, nz, dist, run_away, away_step_x, away_step_z);
+
+				match best_door {
+					None => best_door = Some(cand),
+					Some((_, _, best_dist, best_run, _, _)) => {
+						if dist < best_dist || (dist == best_dist && run_away > best_run) {
+							best_door = Some(cand);
+						}
+					}
+				}
+
+				break;
+			}
+		}
+	}
+
+	let cam_y = player_tr.translation.y;
+
+	let (away_dir, door_center, dolly_dist) = if let Some((door_x, door_z, _dist, run_away, away_step_x, away_step_z)) = best_door {
+		let away = Vec3::new(away_step_x as f32, 0.0, away_step_z as f32).normalize_or_zero();
+		let door_center = Vec3::new(door_x as f32, cam_y, door_z as f32);
+		let dist = ((run_away as f32) - 0.25).clamp(0.0, 6.0);
+
+		(away, door_center, dist)
+	} else {
+		let mut best = (0, 0, 0);
+		// (step_x, step_z, run)
+
+		for (sx, sz) in scan_dirs {
+			let run = free_run(sx, sz);
+			if run > best.2 {
+				best = (sx, sz, run);
+			}
+		}
+
+		let away = Vec3::new(best.0 as f32, 0.0, best.1 as f32).normalize_or_zero();
+		let door_center = Vec3::new((tx_i - best.0) as f32, cam_y, (tz_i - best.1) as f32);
+		let dist = ((best.2 as f32) - 0.25).clamp(0.0, 6.0);
+
+		(away, door_center, dist)
+	};
+
+	// Snap to tile center so the dolly is stable and centered regardless of sub-tile entry position
+	let cam_start = Vec3::new(tx_i as f32, cam_y, tz_i as f32);
+	player_tr.translation = cam_start;
+
+	// Face toward the door direction using yaw only
+	let forward_to_door = -away_dir;
+	let yaw_after = forward_to_door.x.atan2(-forward_to_door.z);
+	player_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw_after, 0.0, 0.0);
+
+	let cam_end = cam_start + away_dir * dolly_dist;
 
 	commands.entity(player_e).insert(BjDolly {
 		start: cam_start,
@@ -147,13 +309,14 @@ fn start_bj_cutscene(
 	let bj_mesh = meshes.add(Rectangle::new(0.95, 1.30));
 	let bj_mat = materials.add(StandardMaterial {
 		base_color_texture: Some(images.bj_victory_walk[0].clone()),
-		alpha_mode: AlphaMode::Mask(0.5),
+		alpha_mode: AlphaMode::Blend,
 		unlit: true,
 		double_sided: true,
 		..default()
 	});
 
-	let bj_pos = Vec3::new(player_tr.translation.x, 0.65, player_tr.translation.z);
+	let mut bj_pos = door_center + away_dir * 0.85;
+	bj_pos.y = 0.65;
 
 	let bj_entity = commands
 		.spawn((
@@ -174,7 +337,7 @@ fn start_bj_cutscene(
 
 	flow.phase = EpisodeEndPhase::BjCutscene(BjCutscene {
 		stage: BjCutsceneStage::Turning,
-		stage_timer: Timer::from_seconds(0.60, TimerMode::Once),
+		stage_timer: Timer::from_seconds(1.10, TimerMode::Once),
 		bj_entity,
 		bj_material: bj_mat,
 		walk_frame: 0,
@@ -210,8 +373,10 @@ fn tick_bj_cutscene(
 		let mut dir = player_tr.translation - bj_tr.translation;
 		dir.y = 0.0;
 		let dir = dir.normalize_or_zero();
-		let yaw = dir.x.atan2(-dir.z);
-		bj_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw, 0.0, 0.0);
+
+		// Match enemy/decorations billboard yaw convention so the quad actually faces the camera
+		let yaw = dir.x.atan2(dir.z);
+		bj_tr.rotation = Quat::from_rotation_y(yaw);
 	}
 
 	match cut.stage {
@@ -289,60 +454,6 @@ fn tick_bj_cutscene(
 
 	let result = cut.result;
 	flow.phase = EpisodeEndPhase::Finish(result);
-}
-
-fn start_death_cam(
-	mut flow: ResMut<EpisodeEndFlow>,
-	mut lock: ResMut<PlayerControlLock>,
-	current_level: Res<CurrentLevel>,
-	hud: Res<HudState>,
-	q_dead_boss: Query<&Transform, (With<davelib::episode_end::DeathCamBoss>, Added<davelib::actors::Dead>)>,
-	q_player: Query<&Transform, With<Player>>,
-) {
-	if !matches!(flow.phase, EpisodeEndPhase::Inactive) {
-		return;
-	}
-
-	let Some(boss_tr) = q_dead_boss.iter().next() else {
-		return;
-	};
-
-	let on_floor_9 = current_level.0.floor_number() == 9;
-	let is_hans_or_gretel = matches!(current_level.0, LevelId::E1M9 | LevelId::E5M9);
-	if !on_floor_9 || is_hans_or_gretel {
-		return;
-	}
-
-	let Some(player_tr) = q_player.iter().next() else {
-		return;
-	};
-
-	lock.0 = true;
-
-	let episode = current_level.0.episode() as u8;
-
-	let result = EpisodeEndResult {
-		episode,
-		score: hud.score as u32,
-	};
-
-	let (start_yaw, start_pitch, _roll) = player_tr.rotation.to_euler(EulerRot::YXZ);
-
-	let target_pos = boss_tr.translation;
-	let dir = (target_pos - player_tr.translation).normalize_or_zero();
-
-	let end_yaw = dir.x.atan2(-dir.z);
-	let end_pitch = dir.y.atan2((dir.x * dir.x + dir.z * dir.z).sqrt());
-
-	flow.phase = EpisodeEndPhase::DeathCam(DeathCam {
-		elapsed: 0.0,
-		duration: 1.25,
-		start_yaw,
-		start_pitch,
-		end_yaw,
-		end_pitch,
-		result,
-	});
 }
 
 fn tick_death_cam(
