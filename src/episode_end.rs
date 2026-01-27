@@ -58,6 +58,12 @@ pub struct EpisodeEndResult {
 	pub score: u32,
 }
 
+#[derive(Component, Clone, Copy)]
+struct BjBasePose {
+	y: f32,
+	scale: f32,
+}
+
 struct BjCutscene {
 	stage: BjCutsceneStage,
 	stage_timer: Timer,
@@ -143,6 +149,42 @@ fn start_death_cam(
 	});
 }
 
+fn tick_death_cam(
+	mut flow: ResMut<EpisodeEndFlow>,
+	time: Res<Time>,
+	mut q_player: Query<&mut Transform, With<Player>>,
+) {
+	let EpisodeEndPhase::DeathCam(cam) = &mut flow.phase else {
+		return;
+	};
+
+	cam.elapsed += time.delta_secs();
+
+	let mut t = cam.elapsed / cam.duration;
+	if t > 1.0 {
+		t = 1.0;
+	}
+
+	// Smoothstep so it feels like a snap-pan without being instant
+	let t = t * t * (3.0 - 2.0 * t);
+
+	let yaw = lerp_angle(cam.start_yaw, cam.end_yaw, t);
+	let pitch = cam.start_pitch + (cam.end_pitch - cam.start_pitch) * t;
+
+	let Some(mut tr) = q_player.iter_mut().next() else {
+		let result = cam.result;
+		flow.phase = EpisodeEndPhase::Finish(result);
+		return;
+	};
+
+	tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
+
+	if cam.elapsed >= cam.duration {
+		let result = cam.result;
+		flow.phase = EpisodeEndPhase::Finish(result);
+	}
+}
+
 fn start_bj_cutscene(
 	mut commands: Commands,
 	mut flow: ResMut<EpisodeEndFlow>,
@@ -222,7 +264,6 @@ fn start_bj_cutscene(
 	};
 
 	const DOOR_SCAN_MAX: i32 = 16;
-
 	let scan_dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
 	let mut best_door: Option<(i32, i32, i32, i32, i32, i32)> = None;
@@ -266,10 +307,13 @@ fn start_bj_cutscene(
 
 	let cam_y = player_tr.translation.y;
 
+	const DOLLY_PAD_TILES: f32 = 0.90;
+	const DOLLY_MAX: f32 = 4.35;
+
 	let (away_dir, door_center, dolly_dist) = if let Some((door_x, door_z, _dist, run_away, away_step_x, away_step_z)) = best_door {
 		let away = Vec3::new(away_step_x as f32, 0.0, away_step_z as f32).normalize_or_zero();
 		let door_center = Vec3::new(door_x as f32, cam_y, door_z as f32);
-		let dist = ((run_away as f32) - 0.25).clamp(0.0, 6.0);
+		let dist = ((run_away as f32) - DOLLY_PAD_TILES).clamp(0.0, DOLLY_MAX);
 
 		(away, door_center, dist)
 	} else {
@@ -285,16 +329,14 @@ fn start_bj_cutscene(
 
 		let away = Vec3::new(best.0 as f32, 0.0, best.1 as f32).normalize_or_zero();
 		let door_center = Vec3::new((tx_i - best.0) as f32, cam_y, (tz_i - best.1) as f32);
-		let dist = ((best.2 as f32) - 0.25).clamp(0.0, 6.0);
+		let dist = ((best.2 as f32) - DOLLY_PAD_TILES).clamp(0.0, DOLLY_MAX);
 
 		(away, door_center, dist)
 	};
 
-	// Snap to tile center so the dolly is stable and centered regardless of sub-tile entry position
 	let cam_start = Vec3::new(tx_i as f32, cam_y, tz_i as f32);
 	player_tr.translation = cam_start;
 
-	// Face toward the door direction using yaw only
 	let forward_to_door = -away_dir;
 	let yaw_after = forward_to_door.x.atan2(-forward_to_door.z);
 	player_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw_after, 0.0, 0.0);
@@ -315,15 +357,18 @@ fn start_bj_cutscene(
 		..default()
 	});
 
-	let mut bj_pos = door_center + away_dir * 0.85;
-	bj_pos.y = 0.65;
+	let mut bj_pos = door_center + away_dir * 1.10;
+	bj_pos.y = 0.40;
+
+	const BJ_SCALE: f32 = 0.65;
 
 	let bj_entity = commands
 		.spawn((
 			Name::new("BJ Victory"),
 			Mesh3d(bj_mesh),
 			MeshMaterial3d(bj_mat.clone()),
-			Transform::from_translation(bj_pos),
+			Transform::from_translation(bj_pos).with_scale(Vec3::splat(BJ_SCALE)),
+			BjBasePose { y: bj_pos.y, scale: BJ_SCALE },
 			Visibility::Visible,
 		))
 		.id();
@@ -337,7 +382,7 @@ fn start_bj_cutscene(
 
 	flow.phase = EpisodeEndPhase::BjCutscene(BjCutscene {
 		stage: BjCutsceneStage::Turning,
-		stage_timer: Timer::from_seconds(1.10, TimerMode::Once),
+		stage_timer: Timer::from_seconds(1.70, TimerMode::Once),
 		bj_entity,
 		bj_material: bj_mat,
 		walk_frame: 0,
@@ -357,139 +402,172 @@ fn tick_bj_cutscene(
 	mut sfx: MessageWriter<PlaySfx>,
 	mut flow: ResMut<EpisodeEndFlow>,
 	mut q_player: Query<(Entity, &mut Transform, Option<&BjDolly>), With<Player>>,
-	mut q_bj: Query<&mut Transform, Without<Player>>,
+	mut q_bj: Query<(&mut Transform, &BjBasePose), Without<Player>>,
 ) {
-	let EpisodeEndPhase::BjCutscene(cut) = &mut flow.phase else {
-		return;
-	};
-
 	let Some((player_e, mut player_tr, dolly)) = q_player.iter_mut().next() else {
-		let result = cut.result;
-		flow.phase = EpisodeEndPhase::Finish(result);
 		return;
 	};
 
-	if let Ok(mut bj_tr) = q_bj.get_mut(cut.bj_entity) {
-		let mut dir = player_tr.translation - bj_tr.translation;
-		dir.y = 0.0;
-		let dir = dir.normalize_or_zero();
+	let mut bj_entity: Option<Entity> = None;
+	let mut stage = BjCutsceneStage::Done;
+	let mut turning_elapsed = 0.0f32;
+	let mut jump_frame = 0usize;
 
-		// Match enemy/decorations billboard yaw convention so the quad actually faces the camera
-		let yaw = dir.x.atan2(dir.z);
-		bj_tr.rotation = Quat::from_rotation_y(yaw);
-	}
+	let mut finish_result: Option<EpisodeEndResult> = None;
 
-	match cut.stage {
-		BjCutsceneStage::Turning => {
-			cut.stage_timer.tick(time.delta());
+	{
+		let EpisodeEndPhase::BjCutscene(cut) = &mut flow.phase else {
+			return;
+		};
 
-			if let Some(dolly) = dolly {
-				let dur = cut.stage_timer.duration().as_secs_f32().max(0.0001);
-				let t = (cut.stage_timer.elapsed_secs() / dur).clamp(0.0, 1.0);
-				let t = t * t * (3.0 - 2.0 * t);
+		bj_entity = Some(cut.bj_entity);
 
-				player_tr.translation = dolly.start + (dolly.end - dolly.start) * t;
+		match cut.stage {
+			BjCutsceneStage::Turning => {
+				cut.stage_timer.tick(time.delta());
+
+				if let Some(dolly) = dolly {
+					let dur = cut.stage_timer.duration().as_secs_f32().max(0.0001);
+					let t = (cut.stage_timer.elapsed_secs() / dur).clamp(0.0, 1.0);
+					let t = t * t * (3.0 - 2.0 * t);
+
+					player_tr.translation = dolly.start + (dolly.end - dolly.start) * t;
+				}
+
+				cut.frame_timer.tick(time.delta());
+				if cut.frame_timer.just_finished() {
+					cut.frame_timer.reset();
+
+					cut.walk_frame = (cut.walk_frame + 1) % 4;
+
+					if let Some(mat) = materials.get_mut(&cut.bj_material) {
+						mat.base_color_texture = Some(images.bj_victory_walk[cut.walk_frame].clone());
+					}
+				}
+
+				if cut.stage_timer.just_finished() {
+					commands.entity(player_e).remove::<BjDolly>();
+					cut.stage = BjCutsceneStage::Walking;
+				}
 			}
+			BjCutsceneStage::Walking => {
+				cut.frame_timer.tick(time.delta());
+				if cut.frame_timer.just_finished() {
+					cut.frame_timer.reset();
 
-			if cut.stage_timer.just_finished() {
-				commands.entity(player_e).remove::<BjDolly>();
-				cut.stage = BjCutsceneStage::Walking;
-				cut.frame_timer.reset();
+					cut.walk_frame = (cut.walk_frame + 1) % 4;
+
+					if let Some(mat) = materials.get_mut(&cut.bj_material) {
+						mat.base_color_texture = Some(images.bj_victory_walk[cut.walk_frame].clone());
+					}
+
+					if cut.walk_frame == 0 && cut.walk_loops_left > 0 {
+						cut.walk_loops_left -= 1;
+						if cut.walk_loops_left == 0 {
+							cut.stage = BjCutsceneStage::Jumping;
+							cut.jump_frame = 0;
+							cut.frame_timer = Timer::from_seconds(0.12, TimerMode::Once);
+						}
+					}
+				}
 			}
-		}
-		BjCutsceneStage::Walking => {
-			cut.frame_timer.tick(time.delta());
-			if !cut.frame_timer.just_finished() {
-				return;
+			BjCutsceneStage::Jumping => {
+				if !cut.played_yeah {
+					cut.played_yeah = true;
+
+					sfx.write(PlaySfx {
+						kind: SfxKind::EpisodeVictoryYea,
+						pos: Vec3::ZERO,
+					});
+				}
+
+				cut.frame_timer.tick(time.delta());
+				if cut.frame_timer.just_finished() {
+					cut.frame_timer.reset();
+
+					cut.jump_frame += 1;
+
+					if cut.jump_frame >= 4 {
+						const BJ_DONE_HOLD_SECS: f32 = 5.00;
+
+						cut.stage = BjCutsceneStage::Done;
+						cut.stage_timer = Timer::from_seconds(BJ_DONE_HOLD_SECS, TimerMode::Once);
+					} else if let Some(mat) = materials.get_mut(&cut.bj_material) {
+						mat.base_color_texture = Some(images.bj_victory_jump[cut.jump_frame].clone());
+					}
+				}
 			}
-			cut.frame_timer.reset();
-
-			cut.walk_frame = (cut.walk_frame + 1) % 4;
-
-			if let Some(mat) = materials.get_mut(&cut.bj_material) {
-				mat.base_color_texture = Some(images.bj_victory_walk[cut.walk_frame].clone());
-			}
-
-			if cut.walk_frame == 0 && cut.walk_loops_left > 0 {
-				cut.walk_loops_left -= 1;
-				if cut.walk_loops_left == 0 {
-					cut.stage = BjCutsceneStage::Jumping;
-					cut.jump_frame = 0;
-					cut.frame_timer = Timer::from_seconds(0.12, TimerMode::Once);
+			BjCutsceneStage::Done => {
+				cut.stage_timer.tick(time.delta());
+				if cut.stage_timer.just_finished() {
+					finish_result = Some(cut.result);
 				}
 			}
 		}
-		BjCutsceneStage::Jumping => {
-			if !cut.played_yeah {
-				cut.played_yeah = true;
 
-				sfx.write(PlaySfx {
-					kind: SfxKind::EpisodeVictoryYea,
-					pos: Vec3::ZERO,
-				});
-			}
+		stage = cut.stage;
+		jump_frame = cut.jump_frame;
 
-			cut.frame_timer.tick(time.delta());
-			if !cut.frame_timer.just_finished() {
-				return;
-			}
-			cut.frame_timer.reset();
+		if stage == BjCutsceneStage::Turning {
+			turning_elapsed = cut.stage_timer.elapsed_secs();
+		}
+	}
 
-			cut.jump_frame += 1;
+	let Some(bj_entity) = bj_entity else {
+		return;
+	};
 
-			if cut.jump_frame >= 4 {
-				cut.stage = BjCutsceneStage::Done;
-			} else if let Some(mat) = materials.get_mut(&cut.bj_material) {
-				mat.base_color_texture = Some(images.bj_victory_jump[cut.jump_frame].clone());
+	if let Some(result) = finish_result {
+		commands.entity(bj_entity).despawn();
+		flow.phase = EpisodeEndPhase::Finish(result);
+		return;
+	}
+
+	let cam_pos = player_tr.translation;
+
+	if let Ok((mut bj_tr, base_pose)) = q_bj.get_mut(bj_entity) {
+		let mut dir = cam_pos - bj_tr.translation;
+		dir.y = 0.0;
+
+		let dist = dir.length();
+		let dir = dir.normalize_or_zero();
+
+		let yaw = dir.x.atan2(dir.z);
+		bj_tr.rotation = Quat::from_rotation_y(yaw);
+
+		const BJ_WALK_EARLY_SECS: f32 = 0.0;
+		const BJ_TURNING_WALK_SPEED_SCALE: f32 = 1.35;
+
+		let start_walk_now =
+			matches!(stage, BjCutsceneStage::Walking)
+			|| (matches!(stage, BjCutsceneStage::Turning) && turning_elapsed >= BJ_WALK_EARLY_SECS);
+
+		if start_walk_now {
+			const BJ_WALK_SPEED: f32 = 1.10;
+			const BJ_STOP_DIST: f32 = 0.30;
+
+			let speed = if matches!(stage, BjCutsceneStage::Turning) {
+				BJ_WALK_SPEED * BJ_TURNING_WALK_SPEED_SCALE
+			} else {
+				BJ_WALK_SPEED
+			};
+
+			if dist > BJ_STOP_DIST {
+				bj_tr.translation += Vec3::new(dir.x, 0.0, dir.z) * (speed * time.delta_secs());
 			}
 		}
-		BjCutsceneStage::Done => {}
-	}
 
-	if cut.stage != BjCutsceneStage::Done {
-		return;
-	}
+		let jf = jump_frame.min(3);
 
-	commands.entity(cut.bj_entity).despawn();
+		const BJ_JUMP_Y_OFFSETS: [f32; 4] = [0.00, 0.03, 0.05, 0.03];
 
-	let result = cut.result;
-	flow.phase = EpisodeEndPhase::Finish(result);
-}
+		let raw_off = match stage {
+			BjCutsceneStage::Jumping => BJ_JUMP_Y_OFFSETS[jf],
+			BjCutsceneStage::Done => BJ_JUMP_Y_OFFSETS[3],
+			_ => 0.0,
+		};
 
-fn tick_death_cam(
-	mut flow: ResMut<EpisodeEndFlow>,
-	time: Res<Time>,
-	mut q_player: Query<&mut Transform, With<Player>>,
-) {
-	let EpisodeEndPhase::DeathCam(cam) = &mut flow.phase else {
-		return;
-	};
-
-	let dt = time.delta_secs();
-	cam.elapsed += dt;
-
-	let mut t = cam.elapsed / cam.duration;
-	if t > 1.0 {
-		t = 1.0;
-	}
-
-	// Smoothstep to feel like the original snap-pan without being instant
-	let t = t * t * (3.0 - 2.0 * t);
-
-	let yaw = lerp_angle(cam.start_yaw, cam.end_yaw, t);
-	let pitch = cam.start_pitch + (cam.end_pitch - cam.start_pitch) * t;
-
-	let Some(mut tr) = q_player.iter_mut().next() else {
-		let result = cam.result;
-		flow.phase = EpisodeEndPhase::Finish(result);
-		return;
-	};
-
-	tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
-
-	if cam.elapsed >= cam.duration {
-		let result = cam.result;
-		flow.phase = EpisodeEndPhase::Finish(result);
+		bj_tr.translation.y = base_pose.y + raw_off * base_pose.scale;
 	}
 }
 
