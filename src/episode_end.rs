@@ -88,6 +88,11 @@ enum BjCutsceneStage {
 }
 
 struct DeathCam {
+	stage: DeathCamStage,
+	boss_e: Entity,
+	kind: DeathCamBossKind,
+	replay_requested: bool,
+	saw_dying: bool,
 	elapsed: f32,
 	duration: f32,
 	start_yaw: f32,
@@ -97,19 +102,45 @@ struct DeathCam {
 	result: EpisodeEndResult,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DeathCamStage {
+	Turning,
+	WaitForCorpse,
+	Replaying,
+	Holding,
+}
+
+#[derive(Clone, Copy)]
+enum DeathCamBossKind {
+	Hitler,
+	Schabbs,
+	Otto,
+	General,
+}
+
 fn start_death_cam(
 	mut flow: ResMut<EpisodeEndFlow>,
 	mut lock: ResMut<PlayerControlLock>,
 	current_level: Res<CurrentLevel>,
 	hud: Res<HudState>,
-	q_dead_boss: Query<&Transform, (With<davelib::episode_end::DeathCamBoss>, Added<davelib::actors::Dead>)>,
+	q_dead_boss: Query<
+		(
+			Entity,
+			&Transform,
+			Option<&davelib::enemies::Hitler>,
+			Option<&davelib::enemies::Schabbs>,
+			Option<&davelib::enemies::Otto>,
+			Option<&davelib::enemies::General>,
+		),
+		(With<davelib::episode_end::DeathCamBoss>, Added<davelib::actors::Dead>),
+	>,
 	q_player: Query<&Transform, With<Player>>,
 ) {
 	if !matches!(flow.phase, EpisodeEndPhase::Inactive) {
 		return;
 	}
 
-	let Some(boss_tr) = q_dead_boss.iter().next() else {
+	let Some((boss_e, boss_tr, hitler, schabbs, otto, general)) = q_dead_boss.iter().next() else {
 		return;
 	};
 
@@ -119,6 +150,18 @@ fn start_death_cam(
 		return;
 	}
 
+	let kind = if hitler.is_some() {
+		DeathCamBossKind::Hitler
+	} else if schabbs.is_some() {
+		DeathCamBossKind::Schabbs
+	} else if otto.is_some() {
+		DeathCamBossKind::Otto
+	} else if general.is_some() {
+		DeathCamBossKind::General
+	} else {
+		return;
+	};
+
 	let Some(player_tr) = q_player.iter().next() else {
 		return;
 	};
@@ -126,23 +169,41 @@ fn start_death_cam(
 	lock.0 = true;
 
 	let episode = current_level.0.episode() as u8;
-
 	let result = EpisodeEndResult {
 		episode,
 		score: hud.score as u32,
 	};
 
-	let (start_yaw, start_pitch, _roll) = player_tr.rotation.to_euler(EulerRot::YXZ);
+	const DEATH_CAM_MAX_PITCH: f32 = 0.35;
+	const DEATH_CAM_TURN_SECS: f32 = 1.25;
 
-	let target_pos = boss_tr.translation;
-	let dir = (target_pos - player_tr.translation).normalize_or_zero();
+	let (start_yaw, start_pitch_raw, _roll) = player_tr.rotation.to_euler(EulerRot::YXZ);
+	let start_pitch = start_pitch_raw.clamp(-DEATH_CAM_MAX_PITCH, DEATH_CAM_MAX_PITCH);
 
-	let end_yaw = dir.x.atan2(-dir.z);
-	let end_pitch = dir.y.atan2((dir.x * dir.x + dir.z * dir.z).sqrt());
+	let to = boss_tr.translation - player_tr.translation;
+	let flat_len2 = to.x * to.x + to.z * to.z;
+
+	let (end_yaw, end_pitch) = if flat_len2 <= 1e-6 {
+		(start_yaw, start_pitch)
+	} else {
+		let dir = to.normalize();
+
+		// Player forward is -Z so yaw must align -Z with dir
+		let yaw = (-dir.x).atan2(-dir.z);
+
+		let pitch_raw = dir.y.atan2((dir.x * dir.x + dir.z * dir.z).sqrt());
+		let pitch = pitch_raw.clamp(-DEATH_CAM_MAX_PITCH, DEATH_CAM_MAX_PITCH);
+		(yaw, pitch)
+	};
 
 	flow.phase = EpisodeEndPhase::DeathCam(DeathCam {
+		stage: DeathCamStage::Turning,
+		boss_e,
+		kind,
+		replay_requested: false,
+		saw_dying: false,
 		elapsed: 0.0,
-		duration: 1.25,
+		duration: DEATH_CAM_TURN_SECS,
 		start_yaw,
 		start_pitch,
 		end_yaw,
@@ -152,38 +213,187 @@ fn start_death_cam(
 }
 
 fn tick_death_cam(
+	mut commands: Commands,
 	mut flow: ResMut<EpisodeEndFlow>,
 	time: Res<Time>,
 	mut q_player: Query<&mut Transform, With<Player>>,
+	q_hitler: Query<
+		(Option<&davelib::enemies::HitlerCorpse>, Option<&davelib::enemies::HitlerDying>, &Transform),
+		(With<davelib::enemies::Hitler>, Without<Player>),
+	>,
+	q_schabbs: Query<
+		(Option<&davelib::enemies::SchabbsCorpse>, Option<&davelib::enemies::SchabbsDying>, &Transform),
+		(With<davelib::enemies::Schabbs>, Without<Player>),
+	>,
+	q_otto: Query<
+		(Option<&davelib::enemies::OttoCorpse>, Option<&davelib::enemies::OttoDying>, &Transform),
+		(With<davelib::enemies::Otto>, Without<Player>),
+	>,
+	q_general: Query<
+		(Option<&davelib::enemies::GeneralCorpse>, Option<&davelib::enemies::GeneralDying>, &Transform),
+		(With<davelib::enemies::General>, Without<Player>),
+	>,
 ) {
 	let EpisodeEndPhase::DeathCam(cam) = &mut flow.phase else {
 		return;
 	};
 
-	cam.elapsed += time.delta_secs();
+	const DEATH_CAM_MAX_PITCH: f32 = 0.35;
+	const DEATH_CAM_PRE_REPLAY_SECS: f32 = 0.90;
+	const DEATH_CAM_POST_REPLAY_SECS: f32 = 1.10;
 
-	let mut t = cam.elapsed / cam.duration;
-	if t > 1.0 {
-		t = 1.0;
-	}
-
-	// Smoothstep so it feels like a snap-pan without being instant
-	let t = t * t * (3.0 - 2.0 * t);
-
-	let yaw = lerp_angle(cam.start_yaw, cam.end_yaw, t);
-	let pitch = cam.start_pitch + (cam.end_pitch - cam.start_pitch) * t;
-
-	let Some(mut tr) = q_player.iter_mut().next() else {
+	let Some(mut player_tr) = q_player.iter_mut().next() else {
 		let result = cam.result;
 		flow.phase = EpisodeEndPhase::Finish(result);
 		return;
 	};
 
-	tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
+	let player_pos = player_tr.translation;
 
-	if cam.elapsed >= cam.duration {
+	let boss_state = |cam: &DeathCam| -> Option<(Vec3, bool, bool)> {
+		match cam.kind {
+			DeathCamBossKind::Hitler => {
+				let (corpse, dying, tr) = q_hitler.get(cam.boss_e).ok()?;
+				Some((tr.translation, corpse.is_some(), dying.is_some()))
+			}
+			DeathCamBossKind::Schabbs => {
+				let (corpse, dying, tr) = q_schabbs.get(cam.boss_e).ok()?;
+				Some((tr.translation, corpse.is_some(), dying.is_some()))
+			}
+			DeathCamBossKind::Otto => {
+				let (corpse, dying, tr) = q_otto.get(cam.boss_e).ok()?;
+				Some((tr.translation, corpse.is_some(), dying.is_some()))
+			}
+			DeathCamBossKind::General => {
+				let (corpse, dying, tr) = q_general.get(cam.boss_e).ok()?;
+				Some((tr.translation, corpse.is_some(), dying.is_some()))
+			}
+		}
+	};
+
+	let Some((boss_pos, boss_is_corpse, boss_is_dying)) = boss_state(cam) else {
 		let result = cam.result;
 		flow.phase = EpisodeEndPhase::Finish(result);
+		return;
+	};
+
+	match cam.stage {
+		DeathCamStage::WaitForCorpse => {
+			player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
+
+			if !boss_is_corpse {
+				cam.elapsed = 0.0;
+				return;
+			}
+
+			cam.elapsed += time.delta_secs();
+			if cam.elapsed >= cam.duration {
+				cam.elapsed = 0.0;
+				cam.duration = 0.0;
+				cam.stage = DeathCamStage::Replaying;
+			}
+		}
+
+		DeathCamStage::Turning => {
+			cam.elapsed += time.delta_secs();
+
+			let mut t = cam.elapsed / cam.duration.max(1e-6);
+			if t > 1.0 {
+				t = 1.0;
+			}
+
+			let t = t * t * (3.0 - 2.0 * t);
+
+			let yaw = lerp_angle(cam.start_yaw, cam.end_yaw, t);
+			let pitch = cam.start_pitch + (cam.end_pitch - cam.start_pitch) * t;
+
+			player_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
+
+			if cam.elapsed >= cam.duration {
+				cam.elapsed = 0.0;
+
+				cam.duration = DEATH_CAM_PRE_REPLAY_SECS;
+				cam.stage = DeathCamStage::WaitForCorpse;
+
+				if boss_is_corpse {
+					let (start_yaw, start_pitch_raw, _roll) =
+						player_tr.rotation.to_euler(EulerRot::YXZ);
+					let start_pitch =
+						start_pitch_raw.clamp(-DEATH_CAM_MAX_PITCH, DEATH_CAM_MAX_PITCH);
+
+					let to = boss_pos - player_pos;
+					let flat_len2 = to.x * to.x + to.z * to.z;
+
+					let (end_yaw, end_pitch) = if flat_len2 <= 1e-6 {
+						(start_yaw, start_pitch)
+					} else {
+						let dir = to.normalize();
+
+						let yaw = (-dir.x).atan2(-dir.z);
+
+						let pitch_raw =
+							dir.y.atan2((dir.x * dir.x + dir.z * dir.z).sqrt());
+						let pitch =
+							pitch_raw.clamp(-DEATH_CAM_MAX_PITCH, DEATH_CAM_MAX_PITCH);
+						(yaw, pitch)
+					};
+
+					cam.start_yaw = start_yaw;
+					cam.start_pitch = start_pitch;
+					cam.end_yaw = end_yaw;
+					cam.end_pitch = end_pitch;
+				}
+			}
+		}
+
+		DeathCamStage::Replaying => {
+			player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
+
+			if !cam.replay_requested {
+				match cam.kind {
+					DeathCamBossKind::Hitler => {
+						commands.entity(cam.boss_e).remove::<davelib::enemies::HitlerCorpse>();
+						commands.entity(cam.boss_e).insert(davelib::enemies::HitlerDying { frame: 0, tics: 0 });
+					}
+					DeathCamBossKind::Schabbs => {
+						commands.entity(cam.boss_e).remove::<davelib::enemies::SchabbsCorpse>();
+						commands.entity(cam.boss_e).insert(davelib::enemies::SchabbsDying { frame: 0, tics: 0 });
+					}
+					DeathCamBossKind::Otto => {
+						commands.entity(cam.boss_e).remove::<davelib::enemies::OttoCorpse>();
+						commands.entity(cam.boss_e).insert(davelib::enemies::OttoDying { frame: 0, tics: 0 });
+					}
+					DeathCamBossKind::General => {
+						commands.entity(cam.boss_e).remove::<davelib::enemies::GeneralCorpse>();
+						commands.entity(cam.boss_e).insert(davelib::enemies::GeneralDying { frame: 0, tics: 0 });
+					}
+				}
+
+				cam.replay_requested = true;
+				cam.saw_dying = false;
+				return;
+			}
+
+			if !cam.saw_dying && boss_is_dying {
+				cam.saw_dying = true;
+			}
+
+			if cam.saw_dying && boss_is_corpse && !boss_is_dying {
+				cam.elapsed = 0.0;
+				cam.duration = DEATH_CAM_POST_REPLAY_SECS;
+				cam.stage = DeathCamStage::Holding;
+			}
+		}
+
+		DeathCamStage::Holding => {
+			player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
+
+			cam.elapsed += time.delta_secs();
+			if cam.elapsed >= cam.duration {
+				let result = cam.result;
+				flow.phase = EpisodeEndPhase::Finish(result);
+			}
+		}
 	}
 }
 

@@ -21,7 +21,7 @@ NOTE! Left Control (LCtrl) releases the mouse from the window.
 **********************************************
 FEATURES TO BE COMPLETED:
 **********************************************
-1. End of episode success logic and victory animation
+1. End of episode success logic
 2. Save and load game functionality
 3. Options menu
 
