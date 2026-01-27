@@ -87,6 +87,9 @@ pub(crate) fn boss_health(kind: EnemyKind, skill: &crate::skill::SkillLevel) -> 
 }
 
 #[derive(Component, Debug, Clone, Copy)]
+pub struct DeathCamReplaySlow(pub u8);
+
+#[derive(Component, Debug, Clone, Copy)]
 pub struct Dir8(pub u8);
 
 // Cached to Avoid Redundant Texture Swaps
@@ -2441,26 +2444,30 @@ fn tick_gretel_dying(
 }
 
 fn tick_hitler_dying(
-    mut commands: Commands,
-    mut q: Query<(Entity, &mut HitlerDying), With<Hitler>>,
+	mut commands: Commands,
+	mut q: Query<(Entity, &mut HitlerDying, Option<&DeathCamReplaySlow>), With<Hitler>>,
 ) {
-    const TICS_PER_FRAME: u8 = 8;
-    const FRAMES: u8 = 8;
+	const BASE_TICS_PER_FRAME: u8 = 8;
+	const FRAMES: u8 = 8;
 
-    for (e, mut d) in q.iter_mut() {
-        d.tics += 1;
-        if d.tics < TICS_PER_FRAME {
-            continue;
-        }
+	for (e, mut d, slow) in q.iter_mut() {
+		let mul = slow.map(|s| s.0.max(1)).unwrap_or(1);
+		let tics_per_frame = BASE_TICS_PER_FRAME.saturating_mul(mul);
 
-        d.tics = 0;
-        d.frame += 1;
+		d.tics = d.tics.saturating_add(1);
+		if d.tics < tics_per_frame {
+			continue;
+		}
 
-        if d.frame >= FRAMES {
-            commands.entity(e).remove::<HitlerDying>();
-            commands.entity(e).insert(HitlerCorpse);
-        }
-    }
+		d.tics = 0;
+		d.frame = d.frame.saturating_add(1);
+
+		if d.frame >= FRAMES {
+			commands.entity(e).remove::<HitlerDying>();
+			commands.entity(e).remove::<DeathCamReplaySlow>();
+			commands.entity(e).insert(HitlerCorpse);
+		}
+	}
 }
 
 fn tick_mecha_hitler_dying(
@@ -2517,66 +2524,81 @@ fn tick_ghost_hitler_dying(
 }
 
 fn tick_schabbs_dying(
-    mut commands: Commands,
-    mut q: Query<(Entity, &mut SchabbsDying)>,
+	mut commands: Commands,
+	mut q: Query<(Entity, &mut SchabbsDying, Option<&DeathCamReplaySlow>)>,
 ) {
-    const FRAMES: u8 = 3;
+	const BASE_TICS_PER_FRAME: u8 = 8;
+	const FRAMES: u8 = 3;
 
-    for (e, mut d) in q.iter_mut() {
-        d.tics = d.tics.saturating_add(1);
+	for (e, mut d, slow) in q.iter_mut() {
+		let mul = slow.map(|s| s.0.max(1)).unwrap_or(1);
+		let tics_per_frame = BASE_TICS_PER_FRAME.saturating_mul(mul);
 
-        if d.tics >= 8 {
-            d.tics = 0;
-            d.frame = d.frame.saturating_add(1);
+		d.tics = d.tics.saturating_add(1);
 
-            if d.frame >= FRAMES {
-                commands.entity(e).remove::<SchabbsDying>();
-                commands.entity(e).insert(SchabbsCorpse);
-            }
-        }
-    }
+		if d.tics >= tics_per_frame {
+			d.tics = 0;
+			d.frame = d.frame.saturating_add(1);
+
+			if d.frame >= FRAMES {
+				commands.entity(e).remove::<SchabbsDying>();
+				commands.entity(e).remove::<DeathCamReplaySlow>();
+				commands.entity(e).insert(SchabbsCorpse);
+			}
+		}
+	}
 }
 
 fn tick_otto_dying(
-    mut commands: Commands,
-    mut q: Query<(Entity, &mut OttoDying)>,
+	mut commands: Commands,
+	mut q: Query<(Entity, &mut OttoDying, Option<&DeathCamReplaySlow>)>,
 ) {
-    const FRAMES: u8 = 3;
+	const BASE_TICS_PER_FRAME: u8 = 8;
+	const FRAMES: u8 = 3;
 
-    for (e, mut d) in q.iter_mut() {
-        d.tics = d.tics.saturating_add(1);
+	for (e, mut d, slow) in q.iter_mut() {
+		let mul = slow.map(|s| s.0.max(1)).unwrap_or(1);
+		let tics_per_frame = BASE_TICS_PER_FRAME.saturating_mul(mul);
 
-        if d.tics >= 8 {
-            d.tics = 0;
-            d.frame = d.frame.saturating_add(1);
+		d.tics = d.tics.saturating_add(1);
 
-            if d.frame >= FRAMES {
-                commands.entity(e).remove::<OttoDying>();
-                commands.entity(e).insert(OttoCorpse);
-            }
-        }
-    }
+		if d.tics >= tics_per_frame {
+			d.tics = 0;
+			d.frame = d.frame.saturating_add(1);
+
+			if d.frame >= FRAMES {
+				commands.entity(e).remove::<OttoDying>();
+				commands.entity(e).remove::<DeathCamReplaySlow>();
+				commands.entity(e).insert(OttoCorpse);
+			}
+		}
+	}
 }
 
 fn tick_general_dying(
-    mut commands: Commands,
-    mut q: Query<(Entity, &mut GeneralDying)>,
+	mut commands: Commands,
+	mut q: Query<(Entity, &mut GeneralDying, Option<&DeathCamReplaySlow>)>,
 ) {
-    const FRAMES: u8 = 3;
+	const BASE_TICS_PER_FRAME: u8 = 8;
+	const FRAMES: u8 = 3;
 
-    for (e, mut d) in q.iter_mut() {
-        d.tics = d.tics.saturating_add(1);
+	for (e, mut d, slow) in q.iter_mut() {
+		let mul = slow.map(|s| s.0.max(1)).unwrap_or(1);
+		let tics_per_frame = BASE_TICS_PER_FRAME.saturating_mul(mul);
 
-        if d.tics >= 8 {
-            d.tics = 0;
-            d.frame = d.frame.saturating_add(1);
+		d.tics = d.tics.saturating_add(1);
 
-            if d.frame >= FRAMES {
-                commands.entity(e).remove::<GeneralDying>();
-                commands.entity(e).insert(GeneralCorpse);
-            }
-        }
-    }
+		if d.tics >= tics_per_frame {
+			d.tics = 0;
+			d.frame = d.frame.saturating_add(1);
+
+			if d.frame >= FRAMES {
+				commands.entity(e).remove::<GeneralDying>();
+				commands.entity(e).remove::<DeathCamReplaySlow>();
+				commands.entity(e).insert(GeneralCorpse);
+			}
+		}
+	}
 }
 
 // --- FUNCTIONS ---

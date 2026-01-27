@@ -167,7 +167,6 @@ fn deathcam_pick_replay_pos(grid: &MapGrid, boss_pos: Vec3, kill_pos: Vec3, cam_
 
 fn start_death_cam(
 	mut flow: ResMut<EpisodeEndFlow>,
-	mut lock: ResMut<PlayerControlLock>,
 	current_level: Res<CurrentLevel>,
 	hud: Res<HudState>,
 	q_dead_boss: Query<
@@ -187,7 +186,7 @@ fn start_death_cam(
 		return;
 	}
 
-	let Some((boss_e, boss_tr, hitler, schabbs, otto, general)) = q_dead_boss.iter().next() else {
+	let Some((boss_e, _boss_tr, hitler, schabbs, otto, general)) = q_dead_boss.iter().next() else {
 		return;
 	};
 
@@ -213,37 +212,16 @@ fn start_death_cam(
 		return;
 	};
 
-	lock.0 = true;
-
 	let episode = current_level.0.episode() as u8;
 	let result = EpisodeEndResult {
 		episode,
 		score: hud.score as u32,
 	};
 
-	const DEATH_CAM_MAX_PITCH: f32 = 0.35;
-	const DEATH_CAM_TURN_SECS: f32 = 1.25;
-
-	let (start_yaw, start_pitch_raw, _roll) = player_tr.rotation.to_euler(EulerRot::YXZ);
-	let start_pitch = start_pitch_raw.clamp(-DEATH_CAM_MAX_PITCH, DEATH_CAM_MAX_PITCH);
-
-	let to = boss_tr.translation - player_tr.translation;
-	let flat_len2 = to.x * to.x + to.z * to.z;
-
-	let (end_yaw, end_pitch) = if flat_len2 <= 1e-6 {
-		(start_yaw, start_pitch)
-	} else {
-		let dir = to.normalize();
-
-		let yaw = (-dir.x).atan2(-dir.z);
-
-		let pitch_raw = dir.y.atan2((dir.x * dir.x + dir.z * dir.z).sqrt());
-		let pitch = pitch_raw.clamp(-DEATH_CAM_MAX_PITCH, DEATH_CAM_MAX_PITCH);
-		(yaw, pitch)
-	};
+	let (yaw, pitch, _roll) = player_tr.rotation.to_euler(EulerRot::YXZ);
 
 	flow.phase = EpisodeEndPhase::DeathCam(DeathCam {
-		stage: DeathCamStage::Turning,
+		stage: DeathCamStage::WaitForCorpse,
 		boss_e,
 		kind,
 		kill_pos: player_tr.translation,
@@ -251,11 +229,11 @@ fn start_death_cam(
 		replay_requested: false,
 		saw_dying: false,
 		elapsed: 0.0,
-		duration: DEATH_CAM_TURN_SECS,
-		start_yaw,
-		start_pitch,
-		end_yaw,
-		end_pitch,
+		duration: 0.0,
+		start_yaw: yaw,
+		start_pitch: pitch,
+		end_yaw: yaw,
+		end_pitch: pitch,
 		result,
 	});
 }
@@ -265,6 +243,7 @@ fn tick_death_cam(
 	mut flow: ResMut<EpisodeEndFlow>,
 	time: Res<Time>,
 	grid: Option<Res<MapGrid>>,
+	mut lock: ResMut<PlayerControlLock>,
 	mut q_player: Query<&mut Transform, With<Player>>,
 	q_hitler: Query<
 		(Option<&davelib::enemies::HitlerCorpse>, Option<&davelib::enemies::HitlerDying>, &Transform),
@@ -294,17 +273,16 @@ fn tick_death_cam(
 	const DEATH_CAM_MAX_PITCH: f32 = 0.35;
 	const DEATH_CAM_PRE_REPLAY_SECS: f32 = 0.90;
 	const DEATH_CAM_POST_REPLAY_SECS: f32 = 1.10;
-	const REPLAY_MIN_DIST_TILES: f32 = 2.20;
+	const REPLAY_MIN_DIST_TILES: f32 = 2.30;
 	const REPLAY_STEP_TILES: f32 = 0.0625;
 	const REPLAY_MAX_DIST_TILES: f32 = 8.0;
+	const REPLAY_SLOW_MUL: u8 = 3;
 
 	let Some(mut player_tr) = q_player.iter_mut().next() else {
 		let result = cam.result;
 		flow.phase = EpisodeEndPhase::Finish(result);
 		return;
 	};
-
-	let player_pos = player_tr.translation;
 
 	let boss_state = |cam: &DeathCam| -> Option<(Vec3, bool, bool)> {
 		match cam.kind {
@@ -375,66 +353,52 @@ fn tick_death_cam(
 	};
 
 	match cam.stage {
-		DeathCamStage::Turning => {
-			cam.elapsed += time.delta_secs();
-
-			let mut t = cam.elapsed / cam.duration.max(1e-6);
-			if t > 1.0 {
-				t = 1.0;
-			}
-
-			let t = t * t * (3.0 - 2.0 * t);
-
-			let yaw = lerp_angle(cam.start_yaw, cam.end_yaw, t);
-			let pitch = cam.start_pitch + (cam.end_pitch - cam.start_pitch) * t;
-
-			player_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
-
-			if cam.elapsed >= cam.duration {
-				cam.elapsed = 0.0;
-				cam.duration = DEATH_CAM_PRE_REPLAY_SECS;
-				cam.stage = DeathCamStage::WaitForCorpse;
-			}
-		}
-
 		DeathCamStage::WaitForCorpse => {
 			if !boss_is_corpse {
 				cam.elapsed = 0.0;
-				player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
 				return;
 			}
+
+			cam.elapsed += time.delta_secs();
+			if cam.elapsed < DEATH_CAM_PRE_REPLAY_SECS {
+				return;
+			}
+
+			cam.elapsed = 0.0;
+			cam.replay_requested = false;
+			cam.saw_dying = false;
 
 			if !cam.replay_pos_set {
 				let cam_y = player_tr.translation.y;
 				let replay_pos = pick_replay_pos(boss_pos, cam.kill_pos, cam_y);
 
-				player_tr.translation = replay_pos;
-
 				let to = boss_pos - replay_pos;
 				let flat_len2 = to.x * to.x + to.z * to.z;
 
-				if flat_len2 > 1e-6 {
+				let (end_yaw, end_pitch) = if flat_len2 <= 1e-6 {
+					let (y, p, _r) = player_tr.rotation.to_euler(EulerRot::YXZ);
+					(y, p.clamp(-DEATH_CAM_MAX_PITCH, DEATH_CAM_MAX_PITCH))
+				} else {
 					let dir = to.normalize();
-
-					cam.end_yaw = (-dir.x).atan2(-dir.z);
+					let yaw = (-dir.x).atan2(-dir.z);
 
 					let pitch_raw = dir.y.atan2((dir.x * dir.x + dir.z * dir.z).sqrt());
-					cam.end_pitch = pitch_raw.clamp(-DEATH_CAM_MAX_PITCH, DEATH_CAM_MAX_PITCH);
-				}
+					let pitch = pitch_raw.clamp(-DEATH_CAM_MAX_PITCH, DEATH_CAM_MAX_PITCH);
 
-				player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
+					(yaw, pitch)
+				};
+
+				player_tr.translation = replay_pos;
+				player_tr.rotation = Quat::from_euler(EulerRot::YXZ, end_yaw, end_pitch, 0.0);
+
+				cam.end_yaw = end_yaw;
+				cam.end_pitch = end_pitch;
 
 				cam.replay_pos_set = true;
-			} else {
-				player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
 			}
 
-			cam.elapsed += time.delta_secs();
-			if cam.elapsed >= cam.duration {
-				cam.elapsed = 0.0;
-				cam.duration = 0.0;
-				cam.stage = DeathCamStage::Replaying;
-			}
+			lock.0 = true;
+			cam.stage = DeathCamStage::Replaying;
 		}
 
 		DeathCamStage::Replaying => {
@@ -460,8 +424,11 @@ fn tick_death_cam(
 					}
 				}
 
+				commands
+					.entity(cam.boss_e)
+					.insert(davelib::enemies::DeathCamReplaySlow(REPLAY_SLOW_MUL));
+
 				cam.replay_requested = true;
-				cam.saw_dying = false;
 				return;
 			}
 
@@ -484,6 +451,11 @@ fn tick_death_cam(
 				let result = cam.result;
 				flow.phase = EpisodeEndPhase::Finish(result);
 			}
+		}
+
+		DeathCamStage::Turning => {
+			let result = cam.result;
+			flow.phase = EpisodeEndPhase::Finish(result);
 		}
 	}
 }
