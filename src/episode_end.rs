@@ -29,6 +29,8 @@ impl Plugin for EpisodeEndPlugin {
 struct BjDolly {
 	start: Vec3,
 	end: Vec3,
+	yaw_from: f32,
+	yaw_to: f32,
 }
 
 fn world_ready(
@@ -230,6 +232,8 @@ fn start_bj_cutscene(
 
 	lock.0 = true;
 
+	let (yaw_from, _pitch, _roll) = player_tr.rotation.to_euler(EulerRot::YXZ);
+
 	let tx_i = tx as i32;
 	let tz_i = tz as i32;
 
@@ -338,14 +342,17 @@ fn start_bj_cutscene(
 	player_tr.translation = cam_start;
 
 	let forward_to_door = -away_dir;
-	let yaw_after = forward_to_door.x.atan2(-forward_to_door.z);
-	player_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw_after, 0.0, 0.0);
+	let yaw_to = forward_to_door.x.atan2(-forward_to_door.z);
+
+	player_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw_from, 0.0, 0.0);
 
 	let cam_end = cam_start + away_dir * dolly_dist;
 
 	commands.entity(player_e).insert(BjDolly {
 		start: cam_start,
 		end: cam_end,
+		yaw_from,
+		yaw_to,
 	});
 
 	let bj_mesh = meshes.add(Rectangle::new(0.95, 1.30));
@@ -432,6 +439,9 @@ fn tick_bj_cutscene(
 					let t = t * t * (3.0 - 2.0 * t);
 
 					player_tr.translation = dolly.start + (dolly.end - dolly.start) * t;
+
+					let yaw = lerp_angle(dolly.yaw_from, dolly.yaw_to, t);
+					player_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw, 0.0, 0.0);
 				}
 
 				cut.frame_timer.tick(time.delta());
@@ -488,7 +498,7 @@ fn tick_bj_cutscene(
 					cut.jump_frame += 1;
 
 					if cut.jump_frame >= 4 {
-						const BJ_DONE_HOLD_SECS: f32 = 5.00;
+						const BJ_DONE_HOLD_SECS: f32 = 4.30;
 
 						cut.stage = BjCutsceneStage::Done;
 						cut.stage_timer = Timer::from_seconds(BJ_DONE_HOLD_SECS, TimerMode::Once);
