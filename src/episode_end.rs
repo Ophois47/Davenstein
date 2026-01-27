@@ -312,7 +312,7 @@ fn start_bj_cutscene(
 	let cam_y = player_tr.translation.y;
 
 	const DOLLY_PAD_TILES: f32 = 0.90;
-	const DOLLY_MAX: f32 = 4.35;
+	const DOLLY_MAX: f32 = 4.85;
 
 	let (away_dir, door_center, dolly_dist) = if let Some((door_x, door_z, _dist, run_away, away_step_x, away_step_z)) = best_door {
 		let away = Vec3::new(away_step_x as f32, 0.0, away_step_z as f32).normalize_or_zero();
