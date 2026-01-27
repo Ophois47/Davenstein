@@ -33,6 +33,9 @@ struct BjDolly {
 	yaw_to: f32,
 }
 
+#[derive(Component)]
+struct DeathCamLabelUi;
+
 fn world_ready(
 	map: Option<Res<MapGrid>>,
 	plane1: Option<Res<WolfPlane1>>,
@@ -242,9 +245,11 @@ fn tick_death_cam(
 	mut commands: Commands,
 	mut flow: ResMut<EpisodeEndFlow>,
 	time: Res<Time>,
+	assets: Res<AssetServer>,
 	grid: Option<Res<MapGrid>>,
 	mut lock: ResMut<PlayerControlLock>,
 	mut q_player: Query<&mut Transform, With<Player>>,
+	q_deathcam_label: Query<Entity, With<DeathCamLabelUi>>,
 	q_hitler: Query<
 		(Option<&davelib::enemies::HitlerCorpse>, Option<&davelib::enemies::HitlerDying>, &Transform),
 		(With<davelib::enemies::Hitler>, Without<Player>),
@@ -277,6 +282,49 @@ fn tick_death_cam(
 	const REPLAY_STEP_TILES: f32 = 0.0625;
 	const REPLAY_MAX_DIST_TILES: f32 = 8.0;
 	const REPLAY_SLOW_MUL: u8 = 3;
+
+	let ensure_label = |commands: &mut Commands| {
+		if q_deathcam_label.iter().next().is_some() {
+			return;
+		}
+
+		const LABEL_TEX_W: f32 = 546.0;
+		const LABEL_TEX_H: f32 = 150.0;
+		const LABEL_SCALE: f32 = 0.75;
+
+		const LABEL_TOP_PX: f32 = 20.0;
+
+		let w = LABEL_TEX_W * LABEL_SCALE;
+		let h = LABEL_TEX_H * LABEL_SCALE;
+
+		let tex: Handle<Image> = assets.load("textures/ui/episode_end/death_cam_text.png");
+
+		commands
+			.spawn((
+				DeathCamLabelUi,
+				ZIndex(1000),
+				Node {
+					width: Val::Percent(100.0),
+					height: Val::Px(h),
+					position_type: PositionType::Absolute,
+					top: Val::Px(LABEL_TOP_PX),
+					left: Val::Px(0.0),
+					justify_content: JustifyContent::Center,
+					align_items: AlignItems::Center,
+					..default()
+				},
+			))
+			.with_children(|c| {
+				c.spawn((
+					ImageNode::new(tex),
+					Node {
+						width: Val::Px(w),
+						height: Val::Px(h),
+						..default()
+					},
+				));
+			});
+	};
 
 	let Some(mut player_tr) = q_player.iter_mut().next() else {
 		let result = cam.result;
@@ -365,30 +413,42 @@ fn tick_death_cam(
 				cam.replay_pos_set = true;
 			}
 
+			ensure_label(&mut commands);
+
 			lock.0 = true;
 			cam.stage = DeathCamStage::Replaying;
 		}
 
 		DeathCamStage::Replaying => {
+			ensure_label(&mut commands);
+
 			player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
 
 			if !cam.replay_requested {
 				match cam.kind {
 					DeathCamBossKind::Hitler => {
 						commands.entity(cam.boss_e).remove::<davelib::enemies::HitlerCorpse>();
-						commands.entity(cam.boss_e).insert(davelib::enemies::HitlerDying { frame: 0, tics: 0 });
+						commands
+							.entity(cam.boss_e)
+							.insert(davelib::enemies::HitlerDying { frame: 0, tics: 0 });
 					}
 					DeathCamBossKind::Schabbs => {
 						commands.entity(cam.boss_e).remove::<davelib::enemies::SchabbsCorpse>();
-						commands.entity(cam.boss_e).insert(davelib::enemies::SchabbsDying { frame: 0, tics: 0 });
+						commands
+							.entity(cam.boss_e)
+							.insert(davelib::enemies::SchabbsDying { frame: 0, tics: 0 });
 					}
 					DeathCamBossKind::Otto => {
 						commands.entity(cam.boss_e).remove::<davelib::enemies::OttoCorpse>();
-						commands.entity(cam.boss_e).insert(davelib::enemies::OttoDying { frame: 0, tics: 0 });
+						commands
+							.entity(cam.boss_e)
+							.insert(davelib::enemies::OttoDying { frame: 0, tics: 0 });
 					}
 					DeathCamBossKind::General => {
 						commands.entity(cam.boss_e).remove::<davelib::enemies::GeneralCorpse>();
-						commands.entity(cam.boss_e).insert(davelib::enemies::GeneralDying { frame: 0, tics: 0 });
+						commands
+							.entity(cam.boss_e)
+							.insert(davelib::enemies::GeneralDying { frame: 0, tics: 0 });
 					}
 				}
 
@@ -412,6 +472,8 @@ fn tick_death_cam(
 		}
 
 		DeathCamStage::Holding => {
+			ensure_label(&mut commands);
+
 			player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
 
 			cam.elapsed += time.delta_secs();
@@ -421,6 +483,26 @@ fn tick_death_cam(
 			}
 		}
 	}
+}
+
+fn episode_end_finish_to_ui(
+	mut commands: Commands,
+	mut flow: ResMut<EpisodeEndFlow>,
+	mut music: ResMut<MusicMode>,
+	q_deathcam_label: Query<Entity, With<DeathCamLabelUi>>,
+) {
+	let EpisodeEndPhase::Finish(_result) = flow.phase else {
+		return;
+	};
+
+	for e in q_deathcam_label.iter() {
+		commands.entity(e).try_despawn();
+	}
+
+	music.0 = MusicModeKind::Scores;
+	commands.insert_resource(SplashStep::EpisodeVictory);
+
+	flow.phase = EpisodeEndPhase::Inactive;
 }
 
 fn start_bj_cutscene(
@@ -811,21 +893,6 @@ fn tick_bj_cutscene(
 
 		bj_tr.translation.y = base_pose.y + raw_off * base_pose.scale;
 	}
-}
-
-fn episode_end_finish_to_ui(
-	mut commands: Commands,
-	mut flow: ResMut<EpisodeEndFlow>,
-	mut music: ResMut<MusicMode>,
-) {
-	let EpisodeEndPhase::Finish(_result) = flow.phase else {
-		return;
-	};
-
-	music.0 = MusicModeKind::Scores;
-	commands.insert_resource(SplashStep::EpisodeVictory);
-
-	flow.phase = EpisodeEndPhase::Inactive;
 }
 
 fn world_to_tile(pos: Vec3) -> Option<(u32, u32)> {
