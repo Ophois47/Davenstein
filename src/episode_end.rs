@@ -99,6 +99,8 @@ struct DeathCam {
 	start_pitch: f32,
 	end_yaw: f32,
 	end_pitch: f32,
+    kill_pos: Vec3,
+    replay_pos_set: bool,
 	result: EpisodeEndResult,
 }
 
@@ -116,6 +118,51 @@ enum DeathCamBossKind {
 	Schabbs,
 	Otto,
 	General,
+}
+
+fn deathcam_pos_ok(grid: &MapGrid, pos: Vec3) -> bool {
+	let tx = (pos.x + 0.5).floor() as i32;
+	let tz = (pos.z + 0.5).floor() as i32;
+
+	if tx < 0 || tz < 0 || tx >= grid.width as i32 || tz >= grid.height as i32 {
+		return false;
+	}
+
+	match grid.tile(tx as usize, tz as usize) {
+		davelib::map::Tile::Wall => false,
+		davelib::map::Tile::DoorClosed => false,
+		_ => true,
+	}
+}
+
+fn deathcam_pick_replay_pos(grid: &MapGrid, boss_pos: Vec3, kill_pos: Vec3, cam_y: f32) -> Vec3 {
+	let mut dir = boss_pos - kill_pos;
+	dir.y = 0.0;
+
+	let mut dir = dir.normalize_or_zero();
+	if dir.length_squared() < 1e-6 {
+		dir = Vec3::new(0.0, 0.0, 1.0);
+	}
+
+	const MIN_DIST_TILES: f32 = 1.25;
+	const STEP_TILES: f32 = 0.0625;
+	const MAX_DIST_TILES: f32 = 8.0;
+
+	let mut dist = MIN_DIST_TILES;
+	while dist <= MAX_DIST_TILES {
+		let mut p = boss_pos - dir * dist;
+		p.y = cam_y;
+
+		if deathcam_pos_ok(grid, p) {
+			return p;
+		}
+
+		dist += STEP_TILES;
+	}
+
+	let mut p = boss_pos - dir * MIN_DIST_TILES;
+	p.y = cam_y;
+	p
 }
 
 fn start_death_cam(
@@ -188,7 +235,6 @@ fn start_death_cam(
 	} else {
 		let dir = to.normalize();
 
-		// Player forward is -Z so yaw must align -Z with dir
 		let yaw = (-dir.x).atan2(-dir.z);
 
 		let pitch_raw = dir.y.atan2((dir.x * dir.x + dir.z * dir.z).sqrt());
@@ -200,6 +246,8 @@ fn start_death_cam(
 		stage: DeathCamStage::Turning,
 		boss_e,
 		kind,
+		kill_pos: player_tr.translation,
+		replay_pos_set: false,
 		replay_requested: false,
 		saw_dying: false,
 		elapsed: 0.0,
@@ -216,6 +264,7 @@ fn tick_death_cam(
 	mut commands: Commands,
 	mut flow: ResMut<EpisodeEndFlow>,
 	time: Res<Time>,
+	grid: Option<Res<MapGrid>>,
 	mut q_player: Query<&mut Transform, With<Player>>,
 	q_hitler: Query<
 		(Option<&davelib::enemies::HitlerCorpse>, Option<&davelib::enemies::HitlerDying>, &Transform),
@@ -238,9 +287,16 @@ fn tick_death_cam(
 		return;
 	};
 
+	let Some(grid) = grid.as_ref() else {
+		return;
+	};
+
 	const DEATH_CAM_MAX_PITCH: f32 = 0.35;
 	const DEATH_CAM_PRE_REPLAY_SECS: f32 = 0.90;
 	const DEATH_CAM_POST_REPLAY_SECS: f32 = 1.10;
+	const REPLAY_MIN_DIST_TILES: f32 = 2.20;
+	const REPLAY_STEP_TILES: f32 = 0.0625;
+	const REPLAY_MAX_DIST_TILES: f32 = 8.0;
 
 	let Some(mut player_tr) = q_player.iter_mut().next() else {
 		let result = cam.result;
@@ -277,23 +333,48 @@ fn tick_death_cam(
 		return;
 	};
 
-	match cam.stage {
-		DeathCamStage::WaitForCorpse => {
-			player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
+	let pos_ok = |pos: Vec3| -> bool {
+		let tx = (pos.x + 0.5).floor() as i32;
+		let tz = (pos.z + 0.5).floor() as i32;
 
-			if !boss_is_corpse {
-				cam.elapsed = 0.0;
-				return;
-			}
-
-			cam.elapsed += time.delta_secs();
-			if cam.elapsed >= cam.duration {
-				cam.elapsed = 0.0;
-				cam.duration = 0.0;
-				cam.stage = DeathCamStage::Replaying;
-			}
+		if tx < 0 || tz < 0 || tx >= grid.width as i32 || tz >= grid.height as i32 {
+			return false;
 		}
 
+		match grid.tile(tx as usize, tz as usize) {
+			davelib::map::Tile::Wall => false,
+			davelib::map::Tile::DoorClosed => false,
+			_ => true,
+		}
+	};
+
+	let pick_replay_pos = |boss_pos: Vec3, kill_pos: Vec3, cam_y: f32| -> Vec3 {
+		let mut dir = boss_pos - kill_pos;
+		dir.y = 0.0;
+
+		let mut dir = dir.normalize_or_zero();
+		if dir.length_squared() < 1e-6 {
+			dir = Vec3::new(0.0, 0.0, 1.0);
+		}
+
+		let mut dist = REPLAY_MIN_DIST_TILES;
+		while dist <= REPLAY_MAX_DIST_TILES {
+			let mut p = boss_pos - dir * dist;
+			p.y = cam_y;
+
+			if pos_ok(p) {
+				return p;
+			}
+
+			dist += REPLAY_STEP_TILES;
+		}
+
+		let mut p = boss_pos - dir * REPLAY_MIN_DIST_TILES;
+		p.y = cam_y;
+		p
+	};
+
+	match cam.stage {
 		DeathCamStage::Turning => {
 			cam.elapsed += time.delta_secs();
 
@@ -311,38 +392,48 @@ fn tick_death_cam(
 
 			if cam.elapsed >= cam.duration {
 				cam.elapsed = 0.0;
-
 				cam.duration = DEATH_CAM_PRE_REPLAY_SECS;
 				cam.stage = DeathCamStage::WaitForCorpse;
+			}
+		}
 
-				if boss_is_corpse {
-					let (start_yaw, start_pitch_raw, _roll) =
-						player_tr.rotation.to_euler(EulerRot::YXZ);
-					let start_pitch =
-						start_pitch_raw.clamp(-DEATH_CAM_MAX_PITCH, DEATH_CAM_MAX_PITCH);
+		DeathCamStage::WaitForCorpse => {
+			if !boss_is_corpse {
+				cam.elapsed = 0.0;
+				player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
+				return;
+			}
 
-					let to = boss_pos - player_pos;
-					let flat_len2 = to.x * to.x + to.z * to.z;
+			if !cam.replay_pos_set {
+				let cam_y = player_tr.translation.y;
+				let replay_pos = pick_replay_pos(boss_pos, cam.kill_pos, cam_y);
 
-					let (end_yaw, end_pitch) = if flat_len2 <= 1e-6 {
-						(start_yaw, start_pitch)
-					} else {
-						let dir = to.normalize();
+				player_tr.translation = replay_pos;
 
-						let yaw = (-dir.x).atan2(-dir.z);
+				let to = boss_pos - replay_pos;
+				let flat_len2 = to.x * to.x + to.z * to.z;
 
-						let pitch_raw =
-							dir.y.atan2((dir.x * dir.x + dir.z * dir.z).sqrt());
-						let pitch =
-							pitch_raw.clamp(-DEATH_CAM_MAX_PITCH, DEATH_CAM_MAX_PITCH);
-						(yaw, pitch)
-					};
+				if flat_len2 > 1e-6 {
+					let dir = to.normalize();
 
-					cam.start_yaw = start_yaw;
-					cam.start_pitch = start_pitch;
-					cam.end_yaw = end_yaw;
-					cam.end_pitch = end_pitch;
+					cam.end_yaw = (-dir.x).atan2(-dir.z);
+
+					let pitch_raw = dir.y.atan2((dir.x * dir.x + dir.z * dir.z).sqrt());
+					cam.end_pitch = pitch_raw.clamp(-DEATH_CAM_MAX_PITCH, DEATH_CAM_MAX_PITCH);
 				}
+
+				player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
+
+				cam.replay_pos_set = true;
+			} else {
+				player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
+			}
+
+			cam.elapsed += time.delta_secs();
+			if cam.elapsed >= cam.duration {
+				cam.elapsed = 0.0;
+				cam.duration = 0.0;
+				cam.stage = DeathCamStage::Replaying;
 			}
 		}
 
