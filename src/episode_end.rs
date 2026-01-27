@@ -55,6 +55,7 @@ enum EpisodeEndPhase {
 }
 
 #[derive(Clone, Copy, Resource)]
+#[allow(dead_code)]
 pub struct EpisodeEndResult {
 	pub episode: u8,
 	pub score: u32,
@@ -95,8 +96,6 @@ struct DeathCam {
 	saw_dying: bool,
 	elapsed: f32,
 	duration: f32,
-	start_yaw: f32,
-	start_pitch: f32,
 	end_yaw: f32,
 	end_pitch: f32,
     kill_pos: Vec3,
@@ -106,7 +105,6 @@ struct DeathCam {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DeathCamStage {
-	Turning,
 	WaitForCorpse,
 	Replaying,
 	Holding,
@@ -135,7 +133,15 @@ fn deathcam_pos_ok(grid: &MapGrid, pos: Vec3) -> bool {
 	}
 }
 
-fn deathcam_pick_replay_pos(grid: &MapGrid, boss_pos: Vec3, kill_pos: Vec3, cam_y: f32) -> Vec3 {
+fn deathcam_pick_replay_pos(
+	grid: &MapGrid,
+	boss_pos: Vec3,
+	kill_pos: Vec3,
+	cam_y: f32,
+	min_dist_tiles: f32,
+	step_tiles: f32,
+	max_dist_tiles: f32,
+) -> Vec3 {
 	let mut dir = boss_pos - kill_pos;
 	dir.y = 0.0;
 
@@ -144,12 +150,8 @@ fn deathcam_pick_replay_pos(grid: &MapGrid, boss_pos: Vec3, kill_pos: Vec3, cam_
 		dir = Vec3::new(0.0, 0.0, 1.0);
 	}
 
-	const MIN_DIST_TILES: f32 = 1.25;
-	const STEP_TILES: f32 = 0.0625;
-	const MAX_DIST_TILES: f32 = 8.0;
-
-	let mut dist = MIN_DIST_TILES;
-	while dist <= MAX_DIST_TILES {
+	let mut dist = min_dist_tiles;
+	while dist <= max_dist_tiles {
 		let mut p = boss_pos - dir * dist;
 		p.y = cam_y;
 
@@ -157,10 +159,10 @@ fn deathcam_pick_replay_pos(grid: &MapGrid, boss_pos: Vec3, kill_pos: Vec3, cam_
 			return p;
 		}
 
-		dist += STEP_TILES;
+		dist += step_tiles;
 	}
 
-	let mut p = boss_pos - dir * MIN_DIST_TILES;
+	let mut p = boss_pos - dir * min_dist_tiles;
 	p.y = cam_y;
 	p
 }
@@ -230,8 +232,6 @@ fn start_death_cam(
 		saw_dying: false,
 		elapsed: 0.0,
 		duration: 0.0,
-		start_yaw: yaw,
-		start_pitch: pitch,
 		end_yaw: yaw,
 		end_pitch: pitch,
 		result,
@@ -311,47 +311,6 @@ fn tick_death_cam(
 		return;
 	};
 
-	let pos_ok = |pos: Vec3| -> bool {
-		let tx = (pos.x + 0.5).floor() as i32;
-		let tz = (pos.z + 0.5).floor() as i32;
-
-		if tx < 0 || tz < 0 || tx >= grid.width as i32 || tz >= grid.height as i32 {
-			return false;
-		}
-
-		match grid.tile(tx as usize, tz as usize) {
-			davelib::map::Tile::Wall => false,
-			davelib::map::Tile::DoorClosed => false,
-			_ => true,
-		}
-	};
-
-	let pick_replay_pos = |boss_pos: Vec3, kill_pos: Vec3, cam_y: f32| -> Vec3 {
-		let mut dir = boss_pos - kill_pos;
-		dir.y = 0.0;
-
-		let mut dir = dir.normalize_or_zero();
-		if dir.length_squared() < 1e-6 {
-			dir = Vec3::new(0.0, 0.0, 1.0);
-		}
-
-		let mut dist = REPLAY_MIN_DIST_TILES;
-		while dist <= REPLAY_MAX_DIST_TILES {
-			let mut p = boss_pos - dir * dist;
-			p.y = cam_y;
-
-			if pos_ok(p) {
-				return p;
-			}
-
-			dist += REPLAY_STEP_TILES;
-		}
-
-		let mut p = boss_pos - dir * REPLAY_MIN_DIST_TILES;
-		p.y = cam_y;
-		p
-	};
-
 	match cam.stage {
 		DeathCamStage::WaitForCorpse => {
 			if !boss_is_corpse {
@@ -370,7 +329,16 @@ fn tick_death_cam(
 
 			if !cam.replay_pos_set {
 				let cam_y = player_tr.translation.y;
-				let replay_pos = pick_replay_pos(boss_pos, cam.kill_pos, cam_y);
+
+				let replay_pos = deathcam_pick_replay_pos(
+					grid,
+					boss_pos,
+					cam.kill_pos,
+					cam_y,
+					REPLAY_MIN_DIST_TILES,
+					REPLAY_STEP_TILES,
+					REPLAY_MAX_DIST_TILES,
+				);
 
 				let to = boss_pos - replay_pos;
 				let flat_len2 = to.x * to.x + to.z * to.z;
@@ -451,11 +419,6 @@ fn tick_death_cam(
 				let result = cam.result;
 				flow.phase = EpisodeEndPhase::Finish(result);
 			}
-		}
-
-		DeathCamStage::Turning => {
-			let result = cam.result;
-			flow.phase = EpisodeEndPhase::Finish(result);
 		}
 	}
 }
@@ -688,19 +651,13 @@ fn tick_bj_cutscene(
 		return;
 	};
 
-	let mut bj_entity: Option<Entity> = None;
-	let mut stage = BjCutsceneStage::Done;
-	let mut turning_elapsed = 0.0f32;
-	let mut jump_frame = 0usize;
-
-	let mut finish_result: Option<EpisodeEndResult> = None;
-
-	{
+	let (bj_entity, stage, turning_elapsed, jump_frame, finish_result) = {
 		let EpisodeEndPhase::BjCutscene(cut) = &mut flow.phase else {
 			return;
 		};
 
-		bj_entity = Some(cut.bj_entity);
+		let mut turning_elapsed = 0.0f32;
+		let mut finish_result: Option<EpisodeEndResult> = None;
 
 		match cut.stage {
 			BjCutsceneStage::Turning => {
@@ -732,7 +689,10 @@ fn tick_bj_cutscene(
 					commands.entity(player_e).remove::<BjDolly>();
 					cut.stage = BjCutsceneStage::Walking;
 				}
+
+				turning_elapsed = cut.stage_timer.elapsed_secs();
 			}
+
 			BjCutsceneStage::Walking => {
 				cut.frame_timer.tick(time.delta());
 				if cut.frame_timer.just_finished() {
@@ -754,6 +714,7 @@ fn tick_bj_cutscene(
 					}
 				}
 			}
+
 			BjCutsceneStage::Jumping => {
 				if !cut.played_yeah {
 					cut.played_yeah = true;
@@ -780,6 +741,7 @@ fn tick_bj_cutscene(
 					}
 				}
 			}
+
 			BjCutsceneStage::Done => {
 				cut.stage_timer.tick(time.delta());
 				if cut.stage_timer.just_finished() {
@@ -788,16 +750,13 @@ fn tick_bj_cutscene(
 			}
 		}
 
-		stage = cut.stage;
-		jump_frame = cut.jump_frame;
-
-		if stage == BjCutsceneStage::Turning {
-			turning_elapsed = cut.stage_timer.elapsed_secs();
-		}
-	}
-
-	let Some(bj_entity) = bj_entity else {
-		return;
+		(
+			cut.bj_entity,
+			cut.stage,
+			turning_elapsed,
+			cut.jump_frame,
+			finish_result,
+		)
 	};
 
 	if let Some(result) = finish_result {
