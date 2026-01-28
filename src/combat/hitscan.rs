@@ -119,7 +119,7 @@ pub fn raycast_grid(
                     return None;
                 }
 
-                // NOTE: Intentionally Do NOT Stop on SolidStatics Here
+                // Intentionally Do NOT Stop on SolidStatics Here
                 // Statics Block Movement, Hitscan Should Pass Through Decorations
 
                 let tile = grid.tile(cx as usize, cz as usize);

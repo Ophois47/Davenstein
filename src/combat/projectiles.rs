@@ -138,12 +138,12 @@ fn tile_at_world(grid: &MapGrid, p: Vec3) -> Option<Tile> {
 /// Calculate which of 8 directional sprites to show based on:
 /// - The direction the projectile is traveling (proj_dir)
 /// - The direction from projectile to player (to_player)
-/// This matches classic Wolfenstein 3D sprite direction logic
-/// Direction 0 = facing away from player (South)
-/// Direction 4 = facing toward player (North)
-/// Directions go clockwise: 0,1,2,3,4,5,6,7
+/// Matches Classic Wolfenstein 3-D Sprite Direction Logic
+/// Direction 0 = Facing Away from Player (South)
+/// Direction 4 = Facing Toward Player (North)
+/// Directions Go Clockwise: 0,1,2,3,4,5,6,7
 fn calculate_dir8_index(proj_dir: Vec3, to_player: Vec3) -> usize {
-	// Normalize both directions in XZ plane
+	// Normalize Both Directions in XZ Plane
 	let proj_xz = Vec2::new(proj_dir.x, proj_dir.z).normalize_or_zero();
 	let player_xz = Vec2::new(to_player.x, to_player.z).normalize_or_zero();
 	

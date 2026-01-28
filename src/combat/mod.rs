@@ -38,14 +38,6 @@ use davelib::enemies::{
 };
 use davelib::map::MapGrid;
 
-#[derive(Message, Debug, Clone, Copy)]
-pub struct FireShot {
-    pub weapon: WeaponSlot,
-    pub origin: Vec3,
-    pub dir: Vec3,
-    pub max_dist: f32,
-}
-
 pub struct CombatPlugin;
 
 impl Plugin for CombatPlugin {
@@ -82,6 +74,14 @@ pub enum WeaponSlot {
     Pistol = 1,
     MachineGun = 2,
     Chaingun = 3,
+}
+
+#[derive(Message, Debug, Clone, Copy)]
+pub struct FireShot {
+    pub weapon: WeaponSlot,
+    pub origin: Vec3,
+    pub dir: Vec3,
+    pub max_dist: f32,
 }
 
 impl WeaponSlot {
