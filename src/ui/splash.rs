@@ -73,6 +73,7 @@ pub struct EpisodeEndImages {
     pub bj_victory_walk: [Handle<Image>; 4],
     pub bj_victory_jump: [Handle<Image>; 4],
     pub you_win: Handle<Image>,
+    pub end_text_pages: [[Handle<Image>; 2]; 6],
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -313,6 +314,8 @@ pub enum SplashStep {
     SkillSelect,
     Scores,
     EpisodeVictory,
+    EpisodeEndText0,
+    EpisodeEndText1,
     NameEntry,
     Done,
 }
@@ -2297,8 +2300,59 @@ fn splash_advance_on_any_input(
 
                 episode.from_pause = false;
 
+                *resources.step = SplashStep::EpisodeEndText0;
+            }
+        }
+
+        SplashStep::EpisodeEndText0 => {
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Scores;
+
+            let Some(ep_imgs) = resources.episode_end.as_ref() else { return; };
+            let episode_num = current_level.0.episode();
+            let epi_idx = episode_num.saturating_sub(1) as usize;
+            if epi_idx >= ep_imgs.end_text_pages.len() {
+                return;
+            }
+
+            if q.q_splash_roots.iter().next().is_none() {
+                let image = ep_imgs.end_text_pages[epi_idx][0].clone();
+                spawn_splash_ui(&mut commands, image, w, h);
+            }
+
+            if any_key {
+                for e in q.q_splash_roots.iter() {
+                    commands.entity(e).despawn();
+                }
+
+                *resources.step = SplashStep::EpisodeEndText1;
+            }
+        }
+
+        SplashStep::EpisodeEndText1 => {
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Scores;
+
+            let Some(ep_imgs) = resources.episode_end.as_ref() else { return; };
+            let episode_num = current_level.0.episode();
+            let epi_idx = episode_num.saturating_sub(1) as usize;
+            if epi_idx >= ep_imgs.end_text_pages.len() {
+                return;
+            }
+
+            if q.q_splash_roots.iter().next().is_none() {
+                let image = ep_imgs.end_text_pages[epi_idx][1].clone();
+                spawn_splash_ui(&mut commands, image, w, h);
+            }
+
+            if any_key {
+                for e in q.q_splash_roots.iter() {
+                    commands.entity(e).despawn();
+                }
+
+                episode.from_pause = false;
+
                 let score = resources.hud.score;
-                let episode_num = current_level.0.episode();
 
                 if resources.high_scores.qualifies(score) {
                     resources.name_entry.active = true;
@@ -2319,10 +2373,12 @@ fn splash_advance_on_any_input(
                 } else {
                     let Some(imgs) = resources.imgs.as_ref() else { return; };
 
-                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, false);
+                    let high_scores = &*resources.high_scores;
+                    spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs, high_scores);
+
                     menu.reset();
-                    *resources.step = SplashStep::Menu;
-                    resources.music_mode.0 = MusicModeKind::Menu;
+                    *resources.step = SplashStep::Scores;
+                    resources.music_mode.0 = MusicModeKind::Scores;
                 }
             }
         }
@@ -2406,6 +2462,18 @@ pub(crate) fn setup_splash(mut commands: Commands, asset_server: Res<AssetServer
             asset_server.load("textures/ui/episode_end/bj_victory_jump_3.png"),
         ],
         you_win: asset_server.load("textures/ui/episode_end/you_win.png"),
+        end_text_pages: {
+            let page0 = asset_server.load("textures/ui/episode_end/death_cam_text.png");
+            let page1 = asset_server.load("textures/ui/episode_end/story_font_black_on_white.png");
+            [
+                [page0.clone(), page1.clone()],
+                [page0.clone(), page1.clone()],
+                [page0.clone(), page1.clone()],
+                [page0.clone(), page1.clone()],
+                [page0.clone(), page1.clone()],
+                [page0, page1],
+            ]
+        },
     });
 }
 

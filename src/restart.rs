@@ -116,6 +116,7 @@ pub fn new_game_finish(
     mut latch: ResMut<PlayerDeathLatch>,
     mut death: ResMut<DeathDelay>,
     mut hud: ResMut<HudState>,
+    mut episode_stats: ResMut<davelib::level_score::EpisodeStats>,
     mut game_over: ResMut<GameOver>,
     mut death_overlay: ResMut<DeathOverlay>,
     mut win: ResMut<LevelComplete>,
@@ -128,6 +129,7 @@ pub fn new_game_finish(
     }
 
     *hud = HudState::default();
+    *episode_stats = davelib::level_score::EpisodeStats::default();
 
     *death = Default::default();
     latch.0 = false;

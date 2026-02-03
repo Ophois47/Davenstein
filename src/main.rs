@@ -181,6 +181,7 @@ fn main() {
 		.init_resource::<davelib::audio::MusicMode>()
 		.init_resource::<level_complete::LevelComplete>()
 		.init_resource::<davelib::level_score::LevelScore>()
+		.init_resource::<davelib::level_score::EpisodeStats>()
 		.init_resource::<level_complete::MissionSuccessTally>()
 		.init_resource::<level_complete::ElevatorExitDelay>()
 		.init_resource::<level_complete::PendingLevelExit>()

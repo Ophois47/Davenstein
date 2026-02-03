@@ -1,6 +1,8 @@
 /*
 Davenstein - by David Petnick
 */
+use crate::level::LevelId;
+
 use bevy::prelude::*;
 
 /// Per-Floor Tallies for Intermission ("MISSION SUCCESS") Screen
@@ -78,4 +80,91 @@ impl LevelScore {
 /// Tick Only While Gameplay is Running (We Already Gate FixedUpdate with PlayerControlLock)
 pub fn tick_level_time(time: Res<Time>, mut score: ResMut<LevelScore>) {
     score.time_secs += time.delta_secs();
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EpisodeLevelStats {
+    pub has: bool,
+    pub time_secs: f32,
+    pub kill_pct: i32,
+    pub secret_pct: i32,
+    pub treasure_pct: i32,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EpisodeSummary {
+    pub total_time_secs: f32,
+    pub avg_kill_pct: i32,
+    pub avg_secret_pct: i32,
+    pub avg_treasure_pct: i32,
+}
+
+#[derive(Resource, Clone, Debug, Default)]
+pub struct EpisodeStats {
+    pub episode: u8,
+    pub levels: [EpisodeLevelStats; 11],
+}
+
+impl EpisodeStats {
+    pub fn clear(&mut self) {
+        self.episode = 0;
+        self.levels = [EpisodeLevelStats::default(); 11];
+    }
+
+    pub fn record_level(&mut self, level: LevelId, score: &LevelScore) {
+        let ep = level.episode();
+
+        if self.episode == 0 {
+            self.episode = ep;
+        } else if self.episode != ep {
+            self.clear();
+            self.episode = ep;
+        }
+
+        let floor = level.floor_number();
+        if floor <= 0 {
+            return;
+        }
+
+        let idx = floor as usize;
+        if idx >= self.levels.len() {
+            return;
+        }
+
+        self.levels[idx] = EpisodeLevelStats {
+            has: true,
+            time_secs: score.time_secs,
+            kill_pct: score.kills_pct(),
+            secret_pct: score.secrets_pct(),
+            treasure_pct: score.treasure_pct(),
+        };
+    }
+
+    pub fn summary_for_episode(&self, episode: u8) -> EpisodeSummary {
+        if self.episode != episode {
+            return EpisodeSummary::default();
+        }
+
+        let mut sum_time = 0.0f32;
+        let mut sum_kill = 0i32;
+        let mut sum_secret = 0i32;
+        let mut sum_treasure = 0i32;
+
+        for mission in 1..=8 {
+            let s = self.levels[mission];
+            if s.has {
+                sum_time += s.time_secs;
+                sum_kill += s.kill_pct;
+                sum_secret += s.secret_pct;
+                sum_treasure += s.treasure_pct;
+            }
+        }
+
+        EpisodeSummary {
+            total_time_secs: sum_time,
+            avg_kill_pct: sum_kill / 8,
+            avg_secret_pct: sum_secret / 8,
+            avg_treasure_pct: sum_treasure / 8,
+        }
+    }
 }

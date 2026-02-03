@@ -514,32 +514,32 @@ pub fn apply_mission_success_bonus_to_player_score_once(
     mut tally: ResMut<MissionSuccessTally>,
     mut hud: ResMut<crate::ui::HudState>,
     mut sfx: MessageWriter<PlaySfx>,
+    current_level: Res<davelib::level::CurrentLevel>,
+    level_score: Res<davelib::level_score::LevelScore>,
+    mut episode_stats: ResMut<davelib::level_score::EpisodeStats>,
 ) {
-    // Only during the intermission screen
     if !win.0 {
         return;
     }
 
-    // Only once
     if tally.bonus_applied {
         return;
     }
 
-    // Only after tallying is complete (either naturally, or via skip-to-end)
     if tally.phase != MissionSuccessPhase::Done {
         return;
     }
 
     let add = tally.target_bonus.max(0);
     hud.score = hud.score.saturating_add(add);
+
+    episode_stats.record_level(current_level.0, &level_score);
     tally.bonus_applied = true;
 
     sfx.write(PlaySfx {
         kind: SfxKind::IntermissionBonusApply,
         pos: Vec3::ZERO,
     });
-
-    info!("Mission Success: applied bonus {} (new score: {})", add, hud.score);
 }
 
 pub fn start_mission_success_tally_on_win(
