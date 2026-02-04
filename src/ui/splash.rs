@@ -447,6 +447,247 @@ impl MenuLocalState {
     }
 }
 
+fn clear_splash_ui(
+    commands: &mut Commands,
+    q_splash_roots: &Query<Entity, (With<SplashUi>, Without<ChildOf>)>,
+) {
+    for e in q_splash_roots.iter() {
+        commands.entity(e).despawn();
+    }
+}
+
+fn spawn_episode_score_ui(
+    commands: &mut Commands,
+    w: f32,
+    h: f32,
+    imgs: &SplashImages,
+    episode_end: &EpisodeEndImages,
+    score: i32,
+) {
+    let ui_scale = (w / BASE_W).round().max(1.0);
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(1000),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+            ChildOf(root),
+        ))
+        .id();
+
+    commands.spawn((
+        SplashUi,
+        ImageNode::new(episode_end.you_win.clone()),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(0.0),
+            width: Val::Px(w),
+            height: Val::Px(h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    let panel_left = (16.0 * ui_scale).round();
+    let panel_top = (64.0 * ui_scale).round();
+    let panel_w = (w - (32.0 * ui_scale).round()).max(1.0);
+    let panel_h = (92.0 * ui_scale).round().max(1.0);
+
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.0, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    let title = "EPISODE COMPLETE";
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_yellow.clone(),
+        (panel_left + (10.0 * ui_scale).round()).round(),
+        (panel_top + (10.0 * ui_scale).round()).round(),
+        ui_scale,
+        title,
+        Visibility::Visible,
+    );
+
+    let line = format!("SCORE: {:06}", score.max(0));
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_white.clone(),
+        (panel_left + (10.0 * ui_scale).round()).round(),
+        (panel_top + (30.0 * ui_scale).round()).round(),
+        ui_scale,
+        &line,
+        Visibility::Visible,
+    );
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_gray.clone(),
+        (panel_left + (10.0 * ui_scale).round()).round(),
+        (panel_top + (66.0 * ui_scale).round()).round(),
+        ui_scale,
+        "Press any key",
+        Visibility::Visible,
+    );
+}
+
+fn spawn_episode_end_text_ui(
+    commands: &mut Commands,
+    w: f32,
+    h: f32,
+    imgs: &SplashImages,
+    episode_end: &EpisodeEndImages,
+    page_idx: usize,
+) {
+    let ui_scale = (w / BASE_W).round().max(1.0);
+    let page_idx = page_idx.min(1);
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(1000),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+            ChildOf(root),
+        ))
+        .id();
+
+    commands.spawn((
+        SplashUi,
+        ImageNode::new(episode_end.you_win.clone()),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(0.0),
+            width: Val::Px(w),
+            height: Val::Px(h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    let panel_left = (18.0 * ui_scale).round();
+    let panel_top = (40.0 * ui_scale).round();
+    let panel_w = (w - (36.0 * ui_scale).round()).max(1.0);
+    let panel_h = (128.0 * ui_scale).round().max(1.0);
+
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.0, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    let header = if page_idx == 0 { "STORY" } else { "STORY (2)" };
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_yellow.clone(),
+        (panel_left + (10.0 * ui_scale).round()).round(),
+        (panel_top + (10.0 * ui_scale).round()).round(),
+        ui_scale,
+        header,
+        Visibility::Visible,
+    );
+
+    let body = if page_idx == 0 {
+        "TODO: episode end text page 1"
+    } else {
+        "TODO: episode end text page 2"
+    };
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_white.clone(),
+        (panel_left + (10.0 * ui_scale).round()).round(),
+        (panel_top + (34.0 * ui_scale).round()).round(),
+        ui_scale,
+        body,
+        Visibility::Visible,
+    );
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_gray.clone(),
+        (panel_left + (10.0 * ui_scale).round()).round(),
+        (panel_top + (108.0 * ui_scale).round()).round(),
+        ui_scale,
+        "Press any key",
+        Visibility::Visible,
+    );
+}
+
+fn hud_score_u32(hud: &crate::ui::HudState) -> u32 {
+    hud.score.max(0) as u32
+}
+
 pub struct SplashPlugin;
 
 impl Plugin for SplashPlugin {
@@ -2287,19 +2528,17 @@ fn splash_advance_on_any_input(
             resources.lock.0 = true;
             resources.music_mode.0 = MusicModeKind::Scores;
 
-            let Some(ep_imgs) = resources.episode_end.as_ref() else { return; };
+            let Some(imgs) = resources.imgs.as_ref() else { return; };
+            let Some(episode_end) = resources.episode_end.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
-                spawn_episode_victory_ui(&mut commands, ep_imgs.you_win.clone(), w, h);
+                let score = resources.hud.score;
+                spawn_episode_score_ui(&mut commands, w, h, imgs, episode_end, score);
+                return;
             }
 
             if any_key {
-                for e in q.q_splash_roots.iter() {
-                    commands.entity(e).despawn();
-                }
-
-                episode.from_pause = false;
-
+                clear_splash_ui(&mut commands, &q.q_splash_roots);
                 *resources.step = SplashStep::EpisodeEndText0;
             }
         }
@@ -2308,23 +2547,16 @@ fn splash_advance_on_any_input(
             resources.lock.0 = true;
             resources.music_mode.0 = MusicModeKind::Scores;
 
-            let Some(ep_imgs) = resources.episode_end.as_ref() else { return; };
-            let episode_num = current_level.0.episode();
-            let epi_idx = episode_num.saturating_sub(1) as usize;
-            if epi_idx >= ep_imgs.end_text_pages.len() {
+            let Some(imgs) = resources.imgs.as_ref() else { return; };
+            let Some(episode_end) = resources.episode_end.as_ref() else { return; };
+
+            if q.q_splash_roots.iter().next().is_none() {
+                spawn_episode_end_text_ui(&mut commands, w, h, imgs, episode_end, 0);
                 return;
             }
 
-            if q.q_splash_roots.iter().next().is_none() {
-                let image = ep_imgs.end_text_pages[epi_idx][0].clone();
-                spawn_splash_ui(&mut commands, image, w, h);
-            }
-
             if any_key {
-                for e in q.q_splash_roots.iter() {
-                    commands.entity(e).despawn();
-                }
-
+                clear_splash_ui(&mut commands, &q.q_splash_roots);
                 *resources.step = SplashStep::EpisodeEndText1;
             }
         }
@@ -2333,52 +2565,49 @@ fn splash_advance_on_any_input(
             resources.lock.0 = true;
             resources.music_mode.0 = MusicModeKind::Scores;
 
-            let Some(ep_imgs) = resources.episode_end.as_ref() else { return; };
-            let episode_num = current_level.0.episode();
-            let epi_idx = episode_num.saturating_sub(1) as usize;
-            if epi_idx >= ep_imgs.end_text_pages.len() {
+            let Some(imgs) = resources.imgs.as_ref() else { return; };
+            let Some(episode_end) = resources.episode_end.as_ref() else { return; };
+
+            if q.q_splash_roots.iter().next().is_none() {
+                spawn_episode_end_text_ui(&mut commands, w, h, imgs, episode_end, 1);
                 return;
             }
 
-            if q.q_splash_roots.iter().next().is_none() {
-                let image = ep_imgs.end_text_pages[epi_idx][1].clone();
-                spawn_splash_ui(&mut commands, image, w, h);
-            }
-
             if any_key {
-                for e in q.q_splash_roots.iter() {
-                    commands.entity(e).despawn();
-                }
-
-                episode.from_pause = false;
+                clear_splash_ui(&mut commands, &q.q_splash_roots);
 
                 let score = resources.hud.score;
 
-                if resources.high_scores.qualifies(score) {
-                    resources.name_entry.active = true;
-                    let rank = resources
-                        .high_scores
-                        .entries
-                        .iter()
-                        .position(|e| score > e.score)
-                        .unwrap_or(resources.high_scores.entries.len());
+                let mut rank: Option<usize> = None;
+                for (i, hs) in resources.high_scores.entries.iter().enumerate() {
+                    if score >= hs.score {
+                        rank = Some(i);
+                        break;
+                    }
+                }
 
+                if rank.is_none() && resources.high_scores.entries.len() < 10 {
+                    rank = Some(resources.high_scores.entries.len());
+                }
+
+                if let Some(rank) = rank {
+                    resources.name_entry.active = true;
                     resources.name_entry.rank = rank;
                     resources.name_entry.score = score;
-                    resources.name_entry.episode = episode_num;
                     resources.name_entry.name.clear();
                     resources.name_entry.cursor_pos = 0;
 
                     *resources.step = SplashStep::NameEntry;
                 } else {
-                    let Some(imgs) = resources.imgs.as_ref() else { return; };
-
-                    let high_scores = &*resources.high_scores;
-                    spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs, high_scores);
-
-                    menu.reset();
+                    spawn_scores_ui(
+                        &mut commands,
+                        asset_server.as_ref(),
+                        w,
+                        h,
+                        imgs,
+                        &*resources.high_scores,
+                    );
                     *resources.step = SplashStep::Scores;
-                    resources.music_mode.0 = MusicModeKind::Scores;
                 }
             }
         }
