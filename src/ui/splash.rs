@@ -462,9 +462,166 @@ fn spawn_episode_score_ui(
     commands: &mut Commands,
     w: f32,
     h: f32,
-    imgs: &SplashImages,
     episode_end: &EpisodeEndImages,
     score: i32,
+) -> Entity {
+    let ui_scale = (w / BASE_W).round().max(1.0);
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(1000),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+            ChildOf(root),
+        ))
+        .id();
+
+    commands.spawn((
+        SplashUi,
+        ImageNode::new(episode_end.you_win.clone()),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(0.0),
+            width: Val::Px(w),
+            height: Val::Px(h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    let grey_left = (32.0 * ui_scale).round();
+    let grey_top = (32.0 * ui_scale).round();
+    let grey_w = (256.0 * ui_scale).round().max(1.0);
+    let grey_h = (136.0 * ui_scale).round().max(1.0);
+
+    let glyph_adv = (9.0 * ui_scale).round().max(1.0);
+    let text_h = (16.0 * ui_scale).round().max(1.0);
+
+    let measure_w = |s: &str| -> f32 { (s.chars().count() as f32 * glyph_adv).max(1.0) };
+
+    let title = "YOU WIN!";
+    let title_w = measure_w(title);
+    let title_x = (grey_left + (grey_w - title_w) * 0.5).round().max(0.0);
+    let title_y = (grey_top + (10.0 * ui_scale)).round();
+
+    commands.spawn((
+        SplashUi,
+        crate::ui::level_end_font::LevelEndBitmapText {
+            text: title.to_string(),
+            scale: ui_scale,
+        },
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(title_x),
+            top: Val::Px(title_y),
+            width: Val::Px(title_w.round()),
+            height: Val::Px(text_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    let line_y = (grey_top + (44.0 * ui_scale)).round();
+    let label_x = (grey_left + (78.0 * ui_scale)).round();
+    let right_x = (grey_left + grey_w - (16.0 * ui_scale)).round();
+
+    let score_label = "SCORE";
+    let label_w = measure_w(score_label);
+
+    commands.spawn((
+        SplashUi,
+        crate::ui::level_end_font::LevelEndBitmapText {
+            text: score_label.to_string(),
+            scale: ui_scale,
+        },
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(label_x),
+            top: Val::Px(line_y),
+            width: Val::Px(label_w.round()),
+            height: Val::Px(text_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    let score_str = format!("{:06}", score.max(0));
+    let score_w = measure_w(&score_str);
+    let score_x = (right_x - score_w).round().max(0.0);
+
+    commands.spawn((
+        SplashUi,
+        crate::ui::level_end_font::LevelEndBitmapText {
+            text: score_str,
+            scale: ui_scale,
+        },
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(score_x),
+            top: Val::Px(line_y),
+            width: Val::Px(score_w.round()),
+            height: Val::Px(text_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    let prompt = "PRESS ANY KEY";
+    let prompt_w = measure_w(prompt);
+    let prompt_x = (grey_left + (grey_w - prompt_w) * 0.5).round().max(0.0);
+    let prompt_y = (grey_top + grey_h - (18.0 * ui_scale)).round().max(0.0);
+
+    commands.spawn((
+        SplashUi,
+        crate::ui::level_end_font::LevelEndBitmapText {
+            text: prompt.to_string(),
+            scale: ui_scale,
+        },
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(prompt_x),
+            top: Val::Px(prompt_y),
+            width: Val::Px(prompt_w.round()),
+            height: Val::Px(text_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    root
+}
+
+fn spawn_episode_end_text_ui(
+    commands: &mut Commands,
+    w: f32,
+    h: f32,
+    imgs: &SplashImages,
+    episode_end: &EpisodeEndImages,
+    page_idx: usize,
 ) -> Entity {
     let ui_scale = (w / BASE_W).round().max(1.0);
 
@@ -541,166 +698,11 @@ fn spawn_episode_score_ui(
         max_line_w.max(1.0)
     };
 
-    let panel_w = (240.0 * ui_scale).round().max(1.0);
-    let panel_h = (92.0 * ui_scale).round().max(1.0);
-    let panel_left = ((w - panel_w) * 0.5).round().max(0.0);
-    let panel_top = (92.0 * ui_scale).round().max(0.0);
-
-    commands.spawn((
-        SplashUi,
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(panel_left),
-            top: Val::Px(panel_top),
-            width: Val::Px(panel_w),
-            height: Val::Px(panel_h),
-            ..default()
-        },
-        BackgroundColor(Color::BLACK),
-        ChildOf(canvas),
-    ));
-
-    let title = "EPISODE COMPLETE";
-    let title_w = measure_menu_text_width(ui_scale, title);
-    let title_x = ((w - title_w) * 0.5).round().max(0.0);
-    let title_y = (panel_top + (12.0 * ui_scale).round()).round();
-
-    spawn_menu_bitmap_text(
-        commands,
-        canvas,
-        imgs.menu_font_yellow.clone(),
-        title_x,
-        title_y,
-        ui_scale,
-        title,
-        Visibility::Visible,
-    );
-
-    let score_str = format!("SCORE: {:06}", score.max(0));
-    let score_w = measure_menu_text_width(ui_scale, &score_str);
-    let score_x = ((w - score_w) * 0.5).round().max(0.0);
-    let score_y = (panel_top + (38.0 * ui_scale).round()).round();
-
-    spawn_menu_bitmap_text(
-        commands,
-        canvas,
-        imgs.menu_font_white.clone(),
-        score_x,
-        score_y,
-        ui_scale,
-        &score_str,
-        Visibility::Visible,
-    );
-
-    let hint = "Press any key";
-    let hint_w = measure_menu_text_width(ui_scale, hint);
-    let hint_x = ((w - hint_w) * 0.5).round().max(0.0);
-    let hint_y = (panel_top + (64.0 * ui_scale).round()).round();
-
-    spawn_menu_bitmap_text(
-        commands,
-        canvas,
-        imgs.menu_font_white.clone(),
-        hint_x,
-        hint_y,
-        ui_scale,
-        hint,
-        Visibility::Visible,
-    );
-
-    root
-}
-
-fn spawn_episode_end_text_ui(
-    commands: &mut Commands,
-    w: f32,
-    h: f32,
-    imgs: &SplashImages,
-    _episode_end: &EpisodeEndImages,
-    page_idx: usize,
-) -> Entity {
-    let ui_scale = (w / BASE_W).round().max(1.0);
-
-    let root = commands
-        .spawn((
-            SplashUi,
-            ZIndex(1000),
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                top: Val::Px(0.0),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            BackgroundColor(Color::BLACK),
-        ))
-        .id();
-
-    let canvas = commands
-        .spawn((
-            SplashUi,
-            Node {
-                width: Val::Px(w),
-                height: Val::Px(h),
-                position_type: PositionType::Relative,
-                ..default()
-            },
-            BackgroundColor(Color::BLACK),
-            ChildOf(root),
-        ))
-        .id();
-
-    let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
-        let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
-
-        let mut max_line_w = 0.0f32;
-        let mut cur_line_w = 0.0f32;
-
-        for ch in text.chars() {
-            if ch == '\n' {
-                max_line_w = max_line_w.max(cur_line_w);
-                cur_line_w = 0.0;
-                continue;
-            }
-
-            if ch == ' ' {
-                cur_line_w += (MENU_FONT_SPACE_W * s).round();
-                continue;
-            }
-
-            if let Some(g) = menu_glyph(ch) {
-                cur_line_w += (g.advance * s).round();
-            }
-        }
-
-        max_line_w = max_line_w.max(cur_line_w);
-        max_line_w.max(1.0)
-    };
-
-    // White info panel (DOS-style) on the right, with a thin black border
-    let border = (2.0 * ui_scale).round().max(1.0);
-
-    let panel_left = (92.0 * ui_scale).round();
+    // This targets the centered dark-gray rectangle inside the stone border on you_win.png
+    let panel_left = (8.0 * ui_scale).round();
     let panel_top = (8.0 * ui_scale).round();
-    let panel_w = (220.0 * ui_scale).round().max(1.0);
-    let panel_h = (184.0 * ui_scale).round().max(1.0);
-
-    commands.spawn((
-        SplashUi,
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px((panel_left - border).max(0.0)),
-            top: Val::Px((panel_top - border).max(0.0)),
-            width: Val::Px(panel_w + border * 2.0),
-            height: Val::Px(panel_h + border * 2.0),
-            ..default()
-        },
-        BackgroundColor(Color::BLACK),
-        ChildOf(canvas),
-    ));
+    let panel_w = (304.0 * ui_scale).round().max(1.0);
+    let panel_h = (168.0 * ui_scale).round().max(1.0);
 
     let panel = commands
         .spawn((
@@ -724,34 +726,34 @@ fn spawn_episode_end_text_ui(
         _ => "TODO: episode end text page 2",
     };
 
+    let pad_x = (10.0 * ui_scale).round();
+    let pad_y = (10.0 * ui_scale).round();
+
     let title_w = measure_menu_text_width(ui_scale, title);
     let title_x = ((panel_w - title_w) * 0.5).round().max(0.0);
 
-    // Match screenshot: black text inside the white panel
     spawn_menu_bitmap_text(
         commands,
         panel,
         imgs.menu_font_black.clone(),
         title_x,
-        (10.0 * ui_scale).round(),
+        pad_y,
         ui_scale,
         title,
         Visibility::Visible,
     );
 
-    // Body block
     spawn_menu_bitmap_text(
         commands,
         panel,
         imgs.menu_font_black.clone(),
-        (10.0 * ui_scale).round(),
-        (40.0 * ui_scale).round(),
+        pad_x,
+        (pad_y + (26.0 * ui_scale)).round(),
         ui_scale,
         body,
         Visibility::Visible,
     );
 
-    // Prompt
     let prompt = "Press any key";
     let prompt_w = measure_menu_text_width(ui_scale, prompt);
     let prompt_x = ((panel_w - prompt_w) * 0.5).round().max(0.0);
@@ -2622,11 +2624,10 @@ fn splash_advance_on_any_input(
             resources.lock.0 = true;
             resources.music_mode.0 = MusicModeKind::Scores;
 
-            let Some(imgs) = resources.imgs.as_ref() else { return; };
             let Some(episode_end) = resources.episode_end.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
-                spawn_episode_score_ui(&mut commands, w, h, imgs, episode_end, resources.hud.score);
+                spawn_episode_score_ui(&mut commands, w, h, episode_end, resources.hud.score);
                 return;
             }
 
