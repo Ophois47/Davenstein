@@ -74,6 +74,7 @@ pub struct EpisodeEndImages {
     pub bj_victory_walk: [Handle<Image>; 4],
     pub bj_victory_jump: [Handle<Image>; 4],
     pub you_win: Handle<Image>,
+    chaingun_belt: Handle<Image>,
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -458,13 +459,32 @@ fn clear_splash_ui(
     }
 }
 
+fn load_episode_end_images(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.insert_resource(EpisodeEndImages {
+        bj_victory_walk: [
+            asset_server.load("textures/ui/episode_end/bj_victory_walk_0.png"),
+            asset_server.load("textures/ui/episode_end/bj_victory_walk_1.png"),
+            asset_server.load("textures/ui/episode_end/bj_victory_walk_2.png"),
+            asset_server.load("textures/ui/episode_end/bj_victory_walk_3.png"),
+        ],
+        bj_victory_jump: [
+            asset_server.load("textures/ui/episode_end/bj_victory_jump_0.png"),
+            asset_server.load("textures/ui/episode_end/bj_victory_jump_1.png"),
+            asset_server.load("textures/ui/episode_end/bj_victory_jump_2.png"),
+            asset_server.load("textures/ui/episode_end/bj_victory_jump_3.png"),
+        ],
+        you_win: asset_server.load("textures/ui/episode_end/you_win.png"),
+        chaingun_belt: asset_server.load("textures/ui/episode_end/bj_chaingun_belt.png"),
+    });
+}
+
 fn spawn_episode_score_ui(
     commands: &mut Commands,
     w: f32,
     h: f32,
-    episode_end: &EpisodeEndImages,
+    episode_end_images: &EpisodeEndImages,
     score: i32,
-) -> Entity {
+) {
     let ui_scale = (w / BASE_W).round().max(1.0);
 
     let root = commands
@@ -494,125 +514,99 @@ fn spawn_episode_score_ui(
                 position_type: PositionType::Relative,
                 ..default()
             },
-            BackgroundColor(Color::BLACK),
+            BackgroundColor(Color::srgb_u8(0, 170, 170)),
             ChildOf(root),
         ))
         .id();
 
+    let belt_x = (16.0 * ui_scale).round();
+    let belt_y = (20.0 * ui_scale).round();
+    let belt_w = (96.0 * ui_scale).round();
+    let belt_h = (72.0 * ui_scale).round();
+
     commands.spawn((
         SplashUi,
-        ImageNode::new(episode_end.you_win.clone()),
+        ImageNode::new(episode_end_images.chaingun_belt.clone()),
         Node {
+            width: Val::Px(belt_w),
+            height: Val::Px(belt_h),
             position_type: PositionType::Absolute,
-            left: Val::Px(0.0),
-            top: Val::Px(0.0),
-            width: Val::Px(w),
-            height: Val::Px(h),
+            left: Val::Px(belt_x),
+            top: Val::Px(belt_y),
             ..default()
         },
         ChildOf(canvas),
     ));
 
-    let grey_left = (32.0 * ui_scale).round();
-    let grey_top = (32.0 * ui_scale).round();
-    let grey_w = (256.0 * ui_scale).round().max(1.0);
-    let grey_h = (136.0 * ui_scale).round().max(1.0);
-
-    let glyph_adv = (9.0 * ui_scale).round().max(1.0);
-    let text_h = (16.0 * ui_scale).round().max(1.0);
-
-    let measure_w = |s: &str| -> f32 { (s.chars().count() as f32 * glyph_adv).max(1.0) };
-
-    let title = "YOU WIN!";
-    let title_w = measure_w(title);
-    let title_x = (grey_left + (grey_w - title_w) * 0.5).round().max(0.0);
-    let title_y = (grey_top + (10.0 * ui_scale)).round();
+    let title_top = (10.0 * ui_scale).round();
+    let title_h = (24.0 * ui_scale).round().max(1.0);
 
     commands.spawn((
         SplashUi,
         crate::ui::level_end_font::LevelEndBitmapText {
-            text: title.to_string(),
+            text: "YOU WIN!".to_string(),
             scale: ui_scale,
         },
         Node {
             position_type: PositionType::Absolute,
-            left: Val::Px(title_x),
-            top: Val::Px(title_y),
-            width: Val::Px(title_w.round()),
-            height: Val::Px(text_h),
+            left: Val::Px(0.0),
+            top: Val::Px(title_top),
+            width: Val::Px(w),
+            height: Val::Px(title_h),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::FlexStart,
             ..default()
         },
         ChildOf(canvas),
     ));
 
-    let line_y = (grey_top + (44.0 * ui_scale)).round();
-    let label_x = (grey_left + (78.0 * ui_scale)).round();
-    let right_x = (grey_left + grey_w - (16.0 * ui_scale)).round();
+    let score = score.max(0);
+    let line_top = (46.0 * ui_scale).round();
+    let line_h = (16.0 * ui_scale).round().max(1.0);
 
-    let score_label = "SCORE";
-    let label_w = measure_w(score_label);
+    let label_x = (128.0 * ui_scale).round();
+    let value_x = (248.0 * ui_scale).round();
+    let right_pad = (8.0 * ui_scale).round();
+    let label_w = (value_x - label_x).max(1.0);
+    let value_w = (w - value_x - right_pad).max(1.0);
 
     commands.spawn((
         SplashUi,
         crate::ui::level_end_font::LevelEndBitmapText {
-            text: score_label.to_string(),
+            text: "SCORE".to_string(),
             scale: ui_scale,
         },
         Node {
             position_type: PositionType::Absolute,
             left: Val::Px(label_x),
-            top: Val::Px(line_y),
-            width: Val::Px(label_w.round()),
-            height: Val::Px(text_h),
+            top: Val::Px(line_top),
+            width: Val::Px(label_w),
+            height: Val::Px(line_h),
+            justify_content: JustifyContent::FlexStart,
+            align_items: AlignItems::FlexStart,
             ..default()
         },
         ChildOf(canvas),
     ));
-
-    let score_str = format!("{:06}", score.max(0));
-    let score_w = measure_w(&score_str);
-    let score_x = (right_x - score_w).round().max(0.0);
 
     commands.spawn((
         SplashUi,
         crate::ui::level_end_font::LevelEndBitmapText {
-            text: score_str,
+            text: format!("{:06}", score),
             scale: ui_scale,
         },
         Node {
             position_type: PositionType::Absolute,
-            left: Val::Px(score_x),
-            top: Val::Px(line_y),
-            width: Val::Px(score_w.round()),
-            height: Val::Px(text_h),
+            left: Val::Px(value_x),
+            top: Val::Px(line_top),
+            width: Val::Px(value_w),
+            height: Val::Px(line_h),
+            justify_content: JustifyContent::FlexEnd,
+            align_items: AlignItems::FlexStart,
             ..default()
         },
         ChildOf(canvas),
     ));
-
-    let prompt = "PRESS ANY KEY";
-    let prompt_w = measure_w(prompt);
-    let prompt_x = (grey_left + (grey_w - prompt_w) * 0.5).round().max(0.0);
-    let prompt_y = (grey_top + grey_h - (18.0 * ui_scale)).round().max(0.0);
-
-    commands.spawn((
-        SplashUi,
-        crate::ui::level_end_font::LevelEndBitmapText {
-            text: prompt.to_string(),
-            scale: ui_scale,
-        },
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(prompt_x),
-            top: Val::Px(prompt_y),
-            width: Val::Px(prompt_w.round()),
-            height: Val::Px(text_h),
-            ..default()
-        },
-        ChildOf(canvas),
-    ));
-
-    root
 }
 
 fn spawn_episode_end_text_ui(
@@ -2769,6 +2763,7 @@ pub(crate) fn setup_splash(mut commands: Commands, asset_server: Res<AssetServer
             asset_server.load("textures/ui/episode_end/bj_victory_jump_3.png"),
         ],
         you_win: asset_server.load("textures/ui/episode_end/you_win.png"),
+        chaingun_belt: asset_server.load("textures/ui/episode_end/bj_chaingun_belt.png"),
     });
 }
 

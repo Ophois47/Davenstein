@@ -29,4 +29,4 @@ FEATURES TO BE COMPLETED:
 BUGS:
 **********************************************
 - Fix scaling from windowed to full screen on all resolutions
-- Enemies sometimes walk backwards while facing player still
+- Enemies sometimes walk backwards while still facing player
