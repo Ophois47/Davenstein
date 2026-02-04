@@ -482,131 +482,119 @@ fn spawn_episode_score_ui(
     commands: &mut Commands,
     w: f32,
     h: f32,
-    episode_end_images: &EpisodeEndImages,
-    score: i32,
-) {
-    let ui_scale = (w / BASE_W).round().max(1.0);
+    q_windows: &Query<&Window, With<PrimaryWindow>>,
+    episode_end: &EpisodeEndImages,
+    total_score: i32,
+) -> Entity {
+    use crate::ui::level_end_font::LevelEndBitmapText
+
+    const BASE_W: f32 = 320.0
+    const BASE_H: f32 = 200.0
+
+    // Canvas scale is already aspect-safe (min of width/height scales)
+    let canvas_scale_i = (w / BASE_W).round().max(1.0) as i32
+
+    // LevelEndBitmapText’s base scale is effectively width-derived
+    let win = q_windows.iter().next().expect("PrimaryWindow")
+    let win_w = win.resolution.width()
+    let width_scale_i = (win_w / BASE_W).floor().max(1.0) as i32
+
+    // Same fix used by spawn_mission_success_overlay
+    let bt_mul = (canvas_scale_i as f32) / (width_scale_i as f32)
 
     let root = commands
         .spawn((
-            SplashUi,
-            ZIndex(1000),
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
-                position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                top: Val::Px(0.0),
-                align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
                 ..default()
             },
             BackgroundColor(Color::BLACK),
+            SplashRoot,
         ))
-        .id();
+        .id()
 
-    let canvas = commands
-        .spawn((
-            SplashUi,
-            Node {
-                width: Val::Px(w),
-                height: Val::Px(h),
-                position_type: PositionType::Relative,
-                ..default()
-            },
-            BackgroundColor(Color::srgb_u8(0, 170, 170)),
-            ChildOf(root),
-        ))
-        .id();
+    commands.entity(root).with_children(|parent| {
+        parent
+            .spawn((
+                Node {
+                    width: Val::Px(w),
+                    height: Val::Px(h),
+                    position_type: PositionType::Relative,
+                    overflow: Overflow::clip(),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb_u8(0, 170, 170)),
+            ))
+            .with_children(|canvas| {
+                let ui = canvas_scale_i as f32
 
-    let belt_x = (16.0 * ui_scale).round();
-    let belt_y = (20.0 * ui_scale).round();
-    let belt_w = (96.0 * ui_scale).round();
-    let belt_h = (72.0 * ui_scale).round();
+                // Belt
+                canvas.spawn((
+                    ImageNode::new(episode_end.chaingun_belt.clone()),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px((16.0 * ui).round()),
+                        top: Val::Px((16.0 * ui).round()),
+                        width: Val::Px((88.0 * ui).round()),
+                        height: Val::Px((88.0 * ui).round()),
+                        ..default()
+                    },
+                ))
 
-    commands.spawn((
-        SplashUi,
-        ImageNode::new(episode_end_images.chaingun_belt.clone()),
-        Node {
-            width: Val::Px(belt_w),
-            height: Val::Px(belt_h),
-            position_type: PositionType::Absolute,
-            left: Val::Px(belt_x),
-            top: Val::Px(belt_y),
-            ..default()
-        },
-        ChildOf(canvas),
-    ));
+                // Title
+                canvas.spawn((
+                    Text::new("YOU WIN!"),
+                    LevelEndBitmapText {
+                        scale: 0.90 * bt_mul,
+                        ..default()
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(0.0),
+                        top: Val::Px((14.0 * ui).round()),
+                        width: Val::Px(w),
+                        height: Val::Px((16.0 * ui).round()),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                ))
 
-    let title_top = (10.0 * ui_scale).round();
-    let title_h = (24.0 * ui_scale).round().max(1.0);
+                // Total score label + value (positions are in 320x200 native coords)
+                canvas.spawn((
+                    Text::new("TOTAL SCORE"),
+                    LevelEndBitmapText {
+                        scale: 0.80 * bt_mul,
+                        ..default()
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px((120.0 * ui).round()),
+                        top: Val::Px((54.0 * ui).round()),
+                        ..default()
+                    },
+                ))
 
-    commands.spawn((
-        SplashUi,
-        crate::ui::level_end_font::LevelEndBitmapText {
-            text: "YOU WIN!".to_string(),
-            scale: ui_scale,
-        },
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(0.0),
-            top: Val::Px(title_top),
-            width: Val::Px(w),
-            height: Val::Px(title_h),
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::FlexStart,
-            ..default()
-        },
-        ChildOf(canvas),
-    ));
+                canvas.spawn((
+                    Text::new(format!("{total_score}")),
+                    LevelEndBitmapText {
+                        scale: 0.80 * bt_mul,
+                        ..default()
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px((120.0 * ui).round()),
+                        top: Val::Px((70.0 * ui).round()),
+                        ..default()
+                    },
+                ))
+            })
+    })
 
-    let score = score.max(0);
-    let line_top = (46.0 * ui_scale).round();
-    let line_h = (16.0 * ui_scale).round().max(1.0);
-
-    let label_x = (128.0 * ui_scale).round();
-    let value_x = (248.0 * ui_scale).round();
-    let right_pad = (8.0 * ui_scale).round();
-    let label_w = (value_x - label_x).max(1.0);
-    let value_w = (w - value_x - right_pad).max(1.0);
-
-    commands.spawn((
-        SplashUi,
-        crate::ui::level_end_font::LevelEndBitmapText {
-            text: "SCORE".to_string(),
-            scale: ui_scale,
-        },
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(label_x),
-            top: Val::Px(line_top),
-            width: Val::Px(label_w),
-            height: Val::Px(line_h),
-            justify_content: JustifyContent::FlexStart,
-            align_items: AlignItems::FlexStart,
-            ..default()
-        },
-        ChildOf(canvas),
-    ));
-
-    commands.spawn((
-        SplashUi,
-        crate::ui::level_end_font::LevelEndBitmapText {
-            text: format!("{:06}", score),
-            scale: ui_scale,
-        },
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(value_x),
-            top: Val::Px(line_top),
-            width: Val::Px(value_w),
-            height: Val::Px(line_h),
-            justify_content: JustifyContent::FlexEnd,
-            align_items: AlignItems::FlexStart,
-            ..default()
-        },
-        ChildOf(canvas),
-    ));
+    root
 }
 
 fn spawn_episode_end_text_ui(
