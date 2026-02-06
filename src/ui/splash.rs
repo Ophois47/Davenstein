@@ -757,40 +757,48 @@ fn spawn_episode_end_text_ui(
         ))
         .id();
 
-    let title = "CONGRATULATIONS!";
-    let body = episode_info_page(episode_num, page_idx);
+    let title = if page_idx == 0 {
+        "CONGRATULATIONS!"
+    } else {
+        "MORE WOLFENSTEIN"
+    };
 
     let pad_x = (10.0 * ui_scale).round();
     let pad_y = (10.0 * ui_scale).round();
 
-    let title_w = measure_menu_text_width(ui_scale, title);
-    let title_x = if page_idx == 0 { 
+    let _title_w = measure_menu_text_width(ui_scale, title);
+
+    let title_x = if page_idx == 0 {
         (pad_x + (96.0 * ui_scale)).round()
-    } else { 
-        ((panel_w - title_w) * 0.5).round().max(0.0)
+    } else {
+        pad_x
     };
 
-    spawn_menu_bitmap_text(
+    let title_tint = Color::srgb(0.00, 0.64, 0.56);
+
+    spawn_menu_bitmap_text_tinted(
         commands,
         panel,
-        imgs.menu_font_black.clone(),
+        imgs.menu_font_white.clone(),
         title_x,
         pad_y,
         ui_scale,
         title,
         Visibility::Visible,
+        title_tint,
     );
 
-    let body_y = (pad_y + ((MENU_FONT_HEIGHT + 1.0) * (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01))).round();
+    let body = episode_info_page(episode_num, page_idx);
 
     let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+    let body_y = (pad_y + ((MENU_FONT_HEIGHT + 1.0) * s)).round();
+
     let line_h = ((MENU_FONT_HEIGHT * s) + s).round().max(1.0);
 
     if page_idx == 0 {
         let pic_x = pad_x;
         let pic_y = pad_y;
 
-        // Wolf3D briefing art is wide, not square
         let pic_w = (88.0 * ui_scale).round();
         let pic_h = 64.0 * ui_scale;
 
@@ -902,6 +910,109 @@ fn spawn_episode_end_text_ui(
     );
 
     root
+}
+
+fn spawn_menu_bitmap_text_tinted(
+    commands: &mut Commands,
+    parent: Entity,
+    font_img: Handle<Image>,
+    left: f32,
+    top: f32,
+    ui_scale: f32,
+    text: &str,
+    visibility: Visibility,
+    tint: Color,
+) -> Entity {
+    let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+
+    let line_h = ((MENU_FONT_HEIGHT * s) + s).round().max(1.0);
+
+    let mut max_line_w = 0.0f32;
+    let mut cur_line_w = 0.0f32;
+    let mut line_count = 1;
+
+    for ch in text.chars() {
+        if ch == '\n' {
+            max_line_w = max_line_w.max(cur_line_w);
+            cur_line_w = 0.0;
+            line_count += 1;
+            continue;
+        }
+
+        if ch == ' ' {
+            cur_line_w += (MENU_FONT_SPACE_W * s).round();
+            continue;
+        }
+
+        if let Some(g) = menu_glyph(ch) {
+            cur_line_w += (g.advance * s).round();
+        }
+    }
+
+    max_line_w = max_line_w.max(cur_line_w);
+
+    let total_w = max_line_w.max(1.0);
+    let total_h = ((line_count as f32) * line_h).max(1.0);
+
+    let run = commands
+        .spawn((
+            visibility,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(left.round()),
+                top: Val::Px(top.round()),
+                width: Val::Px(total_w.round()),
+                height: Val::Px(total_h.round()),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            ChildOf(parent),
+        ))
+        .id();
+
+    let mut pen_x: f32 = 0.0;
+    let mut pen_y: f32 = 0.0;
+
+    for ch in text.chars() {
+        if ch == '\n' {
+            pen_x = 0.0;
+            pen_y += line_h;
+            continue;
+        }
+
+        if ch == ' ' {
+            pen_x += (MENU_FONT_SPACE_W * s).round();
+            continue;
+        }
+
+        let Some(g) = menu_glyph(ch) else {
+            continue;
+        };
+
+        let draw_w = (g.w * s).round().max(1.0);
+        let draw_h = (g.h * s).round().max(1.0);
+
+        let mut img = ImageNode::new(font_img.clone());
+        img.rect = Some(g.rect);
+        img.color = tint;
+
+        commands.spawn((
+            img,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(pen_x.round()),
+                top: Val::Px((pen_y + g.top_from_line_top * s).round()),
+                width: Val::Px(draw_w),
+                height: Val::Px(draw_h),
+                ..default()
+            },
+            ChildOf(run),
+        ));
+
+        pen_x += (g.advance * s).round();
+    }
+
+    run
 }
 
 pub struct SplashPlugin;
