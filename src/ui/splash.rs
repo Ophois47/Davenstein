@@ -135,13 +135,187 @@ fn menu_font_map() -> &'static PackedFontMap {
     })
 }
 
+const EPISODE_INFO_TITLES: [[&str; 2]; 6] = [
+	["CONGRATULATIONS!", "MORE WOLFENSTEIN"],
+	["CONGRATULATIONS!", "MISSION: TERMINATE HITLER"],
+	["CONGRATULATIONS!", "BUT THE ADVENTURE IS JUST BEGINNING!"],
+	["CONGRATULATIONS!", "THE NEXT ADVENTURE AWAITS!"],
+	["CONGRATULATIONS!", "THE END IS NEAR!"],
+	["CONGRATULATIONS!", "YOU DID IT!"],
+];
+
+fn episode_info_title(episode: u8, page: usize) -> &'static str {
+	let epi = (episode as usize).saturating_sub(1).min(EPISODE_INFO_TITLES.len() - 1);
+	let idx = page.min(1);
+	EPISODE_INFO_TITLES[epi][idx]
+}
+
 const EPISODE_INFO_PAGES: [[&str; 2]; 6] = [
-	["TODO EP1 PAGE 1", "TODO EP1 PAGE 2"],
-	["TODO EP2 PAGE 1", "TODO EP2 PAGE 2"],
-	["TODO EP3 PAGE 1", "TODO EP3 PAGE 2"],
-	["TODO EP4 PAGE 1", "TODO EP4 PAGE 2"],
-	["TODO EP5 PAGE 1", "TODO EP5 PAGE 2"],
-	["TODO EP6 PAGE 1", "TODO EP6 PAGE 2"],
+    // Episode 1
+	[
+		concat!(
+			"You run out of the\n",
+			"castle and hook up with\n",
+			"the Underground. They\n",
+			"inform you that the\n",
+			"rumors were true:\n",
+			"some hideous human\n",
+			"experiments were seen\n",
+			"around Castle Hollehammer. So Operation\n",
+			"Eisenfaust is real!\n",
+			"\n",
+			"You must journey there and terminate the\n",
+			"maniacal Dr. Schabbs before his undead\n",
+			"army marches against humanity!"
+		),
+		concat!(
+			"And in episode three, Hitler hides in his\n",
+			"titanic bunker as the Third Reich crumbles\n",
+			"about him. It is your job to assassinate\n",
+			"him, ending his mad reign.\n",
+			"\n",
+			"And if you like Wolfenstein, you'll love the\n",
+			"prequel trilogy of Nocturnal Missions!\n",
+			"Thirty more action-packed, super-\n",
+			"challenging levels!"
+		),
+	],
+    // Episode 2
+	[
+		concat!(
+			"You stand over Schabbs'\n",
+			"fat, evil, swollen putrid\n",
+			"body, glad your mission\n",
+			"is finally over.  All his\n",
+			"journals and equipment\n",
+			"will be destroyed.\n",
+			"Humanity is safe from\n",
+			"his hordes of hideous mutants.\n",
+			"\n",
+			"Yet the Nazi atrocities continue: thousands\n",
+			"march into death camps even as the Nazi\n",
+			"war machine falls to its knees.  There is\n",
+			"only one way to stop the madness. . . ."
+		),
+		concat!(
+			"In episode three, Hitler hides in his titanic\n",
+			"bunker as the Third Reich crumbles about\n",
+			"him.  It is your job to assassinate him,\n",
+			"ending his mad reign.  You find he has\n",
+			"escaped to the Reichstag, and there you\n",
+			"must confront him.\n",
+			"\n",
+			"And if you like Wolfenstein, you'll love the\n",
+			"prequel trilogy of \"Nocturnal Missions!\"\n",
+			"Thirty more action-packed, super-\n",
+			"challenging levels!"
+		),
+	],
+    // Episode 3
+	[
+        concat!(
+            "The absolute incarnation\n",
+            "of evil, Adolf Hitler, lies\n",
+            "at your feet in a pool\n",
+            "of his own blood.  His\n",
+            "wrinkled, crimson-\n",
+            "splattered visage still\n",
+            "strains, a jagged-\n",
+            "toothed rictus trying to cry out.  Insane\n",
+            "even in death.  Your lips pinched in bitter\n",
+            "victory, you kick his head off his remains\n",
+            "and spit on his corpse.\n",
+            "\n",
+            "Sieg heil . . . huh.  Sieg hell."
+        ),
+        concat!(
+            "And if you like Wolfenstein, you'll love the\n",
+            "prequel trilogy of \"Nocturnal Missions!\"\n",
+            "Thirty more action-packed, super-\n",
+            "challenging levels!  B.J. battles the Nazis as\n",
+            "they plan large-scale chemical warfare.\n",
+            "Fight Otto Giftmacher, Gretel Grosse, and\n",
+            "General Fettgesicht!"
+        ),
+    ],
+    // Episode 4
+	[
+        concat!(
+            "MAD OTTO GIFTMACHER IS\n",
+            "DEAD!\n",
+            "\n",
+            "The twisted scientist\n",
+            "behind the chemical war\n",
+            "lies at your feet, but\n",
+            "the fruits of his labor\n",
+            "grow elsewhere!  The\n",
+            "first wave of chemical\n",
+            "war is already underway.  In the heavily\n",
+            "guarded fortress of Erlangen are the plans\n",
+            "for the upcoming Giftkrieg (or Poison War).\n",
+            "Find them and you'll know where to find\n",
+            "General Fettgesicht, leader of the deadly\n",
+            "assault."
+        ),
+        concat!(
+            "So don't wait . . . start the next\n",
+            "adventure and find those plans!"
+        ),
+    ],
+    // Episode 5
+    [
+        concat!(
+            "Gretel Grosse the\n",
+            "giantess guard has\n",
+            "fallen.  Hope her\n",
+            "brother, Hans, doesn't\n",
+            "get mad about this....\n",
+            "\n",
+            "Now rush to the military installation at\n",
+            "Offenbach and stop the horrible attack\n",
+            "before thousands die under the deadly,\n",
+            "burning clouds of chemical war.  Only you\n",
+            "can do it, B.J.\n",
+        ),
+        concat!(
+            "Go get General Fettgeischt before he\n",
+            "begins the mad plans of pain and\n",
+            "destruction!\n",
+        )
+    ],
+    // Episode 6
+	[
+        concat!(
+            "The General gasps his\n",
+            "last breath, and the\n",
+            "free world is safe\n",
+            "from the terrifying\n",
+            "Nazi chemical war. You\n",
+            "return to Allied\n",
+            "Headquarters, a Medal\n",
+            "of Honor waiting for you.\n",
+            "\n",
+            "Allied Command informs you of some\n",
+            "nefarious activities around Castle\n",
+            "Hollehammer. Something about some\n",
+            "grey-skinned berserk soldiers . . . .\n",
+        ),
+        concat!(
+            "You have finished the sixth Wolfenstein\n",
+            "episode!\n",
+            "\n",
+            "You are truly one of the great heroes!\n",
+            "The world cheers your name! You get your\n",
+            "picture taken with the president! People\n",
+            "name their babies after you! You marry a\n",
+            "movie star! Yes! You are so cool!\n",
+            "\n",
+            "However, In the last trilogy, B.J. must\n",
+            "stop the nazis trying to fulfill Hitler's\n",
+            "legacy. Fight Joseph Schultz, Eugene Grosse,\n",
+            "and Heinrich!\n",
+        )
+    ],
 ];
 
 fn episode_info_page(episode: u8, page: usize) -> &'static str {
@@ -757,11 +931,7 @@ fn spawn_episode_end_text_ui(
         ))
         .id();
 
-    let title = if page_idx == 0 {
-        "CONGRATULATIONS!"
-    } else {
-        "MORE WOLFENSTEIN"
-    };
+    let title = episode_info_title(episode_num, page_idx);
 
     let pad_x = (10.0 * ui_scale).round();
     let pad_y = (10.0 * ui_scale).round();
@@ -791,7 +961,10 @@ fn spawn_episode_end_text_ui(
     let body = episode_info_page(episode_num, page_idx);
 
     let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
-    let body_y = (pad_y + ((MENU_FONT_HEIGHT + 1.0) * s)).round();
+    let body_y = (pad_y
+        + ((MENU_FONT_HEIGHT + 1.0) * (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01))
+        + (4.0 * ui_scale))
+        .round();
 
     let line_h = ((MENU_FONT_HEIGHT * s) + s).round().max(1.0);
 
@@ -870,21 +1043,6 @@ fn spawn_episode_end_text_ui(
             Visibility::Visible,
         );
     }
-
-    let prompt = "Press any key";
-    let prompt_w = measure_menu_text_width(ui_scale, prompt);
-    let prompt_x = ((panel_w - prompt_w) * 0.5).round().max(0.0);
-
-    spawn_menu_bitmap_text(
-        commands,
-        panel,
-        imgs.menu_font_black.clone(),
-        prompt_x,
-        (panel_h - (22.0 * ui_scale)).round().max(0.0),
-        ui_scale,
-        prompt,
-        Visibility::Visible,
-    );
 
     let page_text = format!("pg {} of 2", page_idx + 1);
     let page_w = measure_menu_text_width(ui_scale, &page_text);

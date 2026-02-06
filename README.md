@@ -31,3 +31,4 @@ BUGS:
 - Fix scaling from windowed to full screen on all resolutions
 - Enemies sometimes walk backwards while still facing player
 - Superfluous world load seems to take place upon program start
+- Some wall textures appear flipped backwards
