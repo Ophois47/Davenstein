@@ -8,6 +8,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use crate::ui::level_end_font::{LevelEndBitmapText, TextAlign};
 use davelib::audio::{
     MusicMode,
     MusicModeKind,
@@ -70,11 +71,12 @@ const EP_THUMB_X: f32 = 24.0; // left edge of the thumbnail column (in 320x200 s
 const EP_TEXT_X: f32 = 88.0;  // left edge of the episode text block (in 320x200 space)
 
 #[derive(Resource)]
-pub struct EpisodeEndImages {
+pub(crate) struct EpisodeEndImages {
     pub bj_victory_walk: [Handle<Image>; 4],
     pub bj_victory_jump: [Handle<Image>; 4],
     pub you_win: Handle<Image>,
-    chaingun_belt: Handle<Image>,
+    pub chaingun_belt: Handle<Image>,
+    pub episode_page1_pic: Handle<Image>,
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -131,6 +133,21 @@ fn menu_font_map() -> &'static PackedFontMap {
             PackedFontMap { chars: HashMap::new() }
         })
     })
+}
+
+const EPISODE_INFO_PAGES: [[&str; 2]; 6] = [
+	["TODO EP1 PAGE 1", "TODO EP1 PAGE 2"],
+	["TODO EP2 PAGE 1", "TODO EP2 PAGE 2"],
+	["TODO EP3 PAGE 1", "TODO EP3 PAGE 2"],
+	["TODO EP4 PAGE 1", "TODO EP4 PAGE 2"],
+	["TODO EP5 PAGE 1", "TODO EP5 PAGE 2"],
+	["TODO EP6 PAGE 1", "TODO EP6 PAGE 2"],
+];
+
+fn episode_info_page(episode: u8, page: usize) -> &'static str {
+	let epi = (episode as usize).saturating_sub(1).min(EPISODE_INFO_PAGES.len() - 1);
+	let idx = page.min(1);
+	EPISODE_INFO_PAGES[epi][idx]
 }
 
 struct MenuGlyph {
@@ -459,142 +476,95 @@ fn clear_splash_ui(
     }
 }
 
-fn load_episode_end_images(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.insert_resource(EpisodeEndImages {
-        bj_victory_walk: [
-            asset_server.load("textures/ui/episode_end/bj_victory_walk_0.png"),
-            asset_server.load("textures/ui/episode_end/bj_victory_walk_1.png"),
-            asset_server.load("textures/ui/episode_end/bj_victory_walk_2.png"),
-            asset_server.load("textures/ui/episode_end/bj_victory_walk_3.png"),
-        ],
-        bj_victory_jump: [
-            asset_server.load("textures/ui/episode_end/bj_victory_jump_0.png"),
-            asset_server.load("textures/ui/episode_end/bj_victory_jump_1.png"),
-            asset_server.load("textures/ui/episode_end/bj_victory_jump_2.png"),
-            asset_server.load("textures/ui/episode_end/bj_victory_jump_3.png"),
-        ],
-        you_win: asset_server.load("textures/ui/episode_end/you_win.png"),
-        chaingun_belt: asset_server.load("textures/ui/episode_end/bj_chaingun_belt.png"),
-    });
+fn spawn_episode_score_ui(
+	commands: &mut Commands,
+	w: f32,
+	h: f32,
+	ui_scale: f32,
+	episode_end: &EpisodeEndImages,
+	total_score: i32,
+) {
+	let root = commands
+		.spawn((
+			SplashUi,
+			ZIndex(1000),
+			Node {
+				width: Val::Percent(100.0),
+				height: Val::Percent(100.0),
+				position_type: PositionType::Absolute,
+				left: Val::Px(0.0),
+				top: Val::Px(0.0),
+				align_items: AlignItems::Center,
+				justify_content: JustifyContent::Center,
+				..default()
+			},
+			BackgroundColor(Color::BLACK),
+		))
+		.id();
+
+	let canvas = commands
+		.spawn((
+			SplashUi,
+			Node {
+				width: Val::Px(w),
+				height: Val::Px(h),
+				position_type: PositionType::Relative,
+				..default()
+			},
+			BackgroundColor(Color::BLACK),
+			ChildOf(root),
+		))
+		.id();
+
+	commands.entity(canvas).with_children(|p| {
+		p.spawn((
+			SplashUi,
+			Node {
+				position_type: PositionType::Absolute,
+				left: Val::Px(0.0),
+				top: Val::Px((BASE_H - 56.0) * ui_scale),
+				width: Val::Px(BASE_W * ui_scale),
+				height: Val::Px(56.0 * ui_scale),
+				..default()
+			},
+			ImageNode::new(episode_end.chaingun_belt.clone()),
+		));
+
+		spawn_bt(p, "YOU WIN!", 160.0 * ui_scale, 18.0 * ui_scale, 2.0, TextAlign::Center);
+		spawn_bt(p, "TOTAL SCORE", 160.0 * ui_scale, 102.0 * ui_scale, 1.0, TextAlign::Center);
+		spawn_bt(p, &format!("{total_score}"), 160.0 * ui_scale, 118.0 * ui_scale, 1.0, TextAlign::Center);
+		spawn_bt(p, "PRESS ANY KEY", 160.0 * ui_scale, 142.0 * ui_scale, 1.0, TextAlign::Center);
+	});
 }
 
-fn spawn_episode_score_ui(
-    commands: &mut Commands,
-    w: f32,
-    h: f32,
-    q_windows: &Query<&Window, With<PrimaryWindow>>,
-    episode_end: &EpisodeEndImages,
-    total_score: i32,
-) -> Entity {
-    use crate::ui::level_end_font::LevelEndBitmapText
+fn spawn_bt(
+	ui: &mut ChildSpawnerCommands,
+	text: impl Into<String>,
+	x: f32,
+	y: f32,
+	scale: f32,
+	align: TextAlign,
+) {
+	let (left, width, justify_content) = match align {
+		TextAlign::Center => (Val::Px(0.0), Val::Percent(100.0), JustifyContent::Center),
+		_ => (Val::Px(x), Val::Auto, JustifyContent::FlexStart),
+	};
 
-    const BASE_W: f32 = 320.0
-    const BASE_H: f32 = 200.0
-
-    // Canvas scale is already aspect-safe (min of width/height scales)
-    let canvas_scale_i = (w / BASE_W).round().max(1.0) as i32
-
-    // LevelEndBitmapText’s base scale is effectively width-derived
-    let win = q_windows.iter().next().expect("PrimaryWindow")
-    let win_w = win.resolution.width()
-    let width_scale_i = (win_w / BASE_W).floor().max(1.0) as i32
-
-    // Same fix used by spawn_mission_success_overlay
-    let bt_mul = (canvas_scale_i as f32) / (width_scale_i as f32)
-
-    let root = commands
-        .spawn((
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(Color::BLACK),
-            SplashRoot,
-        ))
-        .id()
-
-    commands.entity(root).with_children(|parent| {
-        parent
-            .spawn((
-                Node {
-                    width: Val::Px(w),
-                    height: Val::Px(h),
-                    position_type: PositionType::Relative,
-                    overflow: Overflow::clip(),
-                    ..default()
-                },
-                BackgroundColor(Color::srgb_u8(0, 170, 170)),
-            ))
-            .with_children(|canvas| {
-                let ui = canvas_scale_i as f32
-
-                // Belt
-                canvas.spawn((
-                    ImageNode::new(episode_end.chaingun_belt.clone()),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px((16.0 * ui).round()),
-                        top: Val::Px((16.0 * ui).round()),
-                        width: Val::Px((88.0 * ui).round()),
-                        height: Val::Px((88.0 * ui).round()),
-                        ..default()
-                    },
-                ))
-
-                // Title
-                canvas.spawn((
-                    Text::new("YOU WIN!"),
-                    LevelEndBitmapText {
-                        scale: 0.90 * bt_mul,
-                        ..default()
-                    },
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(0.0),
-                        top: Val::Px((14.0 * ui).round()),
-                        width: Val::Px(w),
-                        height: Val::Px((16.0 * ui).round()),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
-                ))
-
-                // Total score label + value (positions are in 320x200 native coords)
-                canvas.spawn((
-                    Text::new("TOTAL SCORE"),
-                    LevelEndBitmapText {
-                        scale: 0.80 * bt_mul,
-                        ..default()
-                    },
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px((120.0 * ui).round()),
-                        top: Val::Px((54.0 * ui).round()),
-                        ..default()
-                    },
-                ))
-
-                canvas.spawn((
-                    Text::new(format!("{total_score}")),
-                    LevelEndBitmapText {
-                        scale: 0.80 * bt_mul,
-                        ..default()
-                    },
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px((120.0 * ui).round()),
-                        top: Val::Px((70.0 * ui).round()),
-                        ..default()
-                    },
-                ))
-            })
-    })
-
-    root
+	ui.spawn((
+		Node {
+			position_type: PositionType::Absolute,
+			left,
+			top: Val::Px(y),
+			width,
+			justify_content,
+			..default()
+		},
+		LevelEndBitmapText {
+			text: text.into(),
+			scale,
+		},
+		SplashUi,
+	));
 }
 
 fn spawn_episode_end_text_ui(
@@ -603,6 +573,7 @@ fn spawn_episode_end_text_ui(
     h: f32,
     imgs: &SplashImages,
     episode_end: &EpisodeEndImages,
+    episode_num: u8,
     page_idx: usize,
 ) -> Entity {
     let ui_scale = (w / BASE_W).round().max(1.0);
@@ -680,7 +651,91 @@ fn spawn_episode_end_text_ui(
         max_line_w.max(1.0)
     };
 
-    // This targets the centered dark-gray rectangle inside the stone border on you_win.png
+    fn tokenize_for_wrap(text: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let lines: Vec<&str> = text.split('\n').collect();
+
+        for (li, line) in lines.iter().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                out.push("\n".to_string());
+            } else {
+                for w in trimmed.split_whitespace() {
+                    out.push(w.to_string());
+                }
+
+                if li + 1 < lines.len() {
+                    out.push("\n".to_string());
+                }
+            }
+        }
+
+        out
+    }
+
+    fn wrap_tokens<F: Fn(&str) -> f32>(
+        tokens: &[String],
+        mut i: usize,
+        max_w: f32,
+        max_lines: Option<usize>,
+        measure: &F,
+    ) -> (Vec<String>, usize) {
+        let mut lines: Vec<String> = Vec::new();
+        let mut cur = String::new();
+
+        let push_line = |lines: &mut Vec<String>, cur: &mut String| {
+            if !cur.is_empty() {
+                lines.push(std::mem::take(cur));
+            } else {
+                lines.push(String::new());
+            }
+        };
+
+        while i < tokens.len() {
+            if let Some(limit) = max_lines {
+                if lines.len() >= limit {
+                    break;
+                }
+            }
+
+            if tokens[i] == "\n" {
+                push_line(&mut lines, &mut cur);
+                i += 1;
+                continue;
+            }
+
+            let word = &tokens[i];
+
+            let candidate = if cur.is_empty() {
+                word.clone()
+            } else {
+                let mut s = String::with_capacity(cur.len() + 1 + word.len());
+                s.push_str(&cur);
+                s.push(' ');
+                s.push_str(word);
+                s
+            };
+
+            if measure(&candidate) <= max_w || cur.is_empty() {
+                cur = candidate;
+                i += 1;
+                continue;
+            }
+
+            push_line(&mut lines, &mut cur);
+        }
+
+        if let Some(limit) = max_lines {
+            if lines.len() < limit && !cur.is_empty() {
+                lines.push(cur);
+            }
+        } else if !cur.is_empty() {
+            lines.push(cur);
+        }
+
+        (lines, i)
+    }
+
     let panel_left = (8.0 * ui_scale).round();
     let panel_top = (8.0 * ui_scale).round();
     let panel_w = (304.0 * ui_scale).round().max(1.0);
@@ -703,16 +758,17 @@ fn spawn_episode_end_text_ui(
         .id();
 
     let title = "CONGRATULATIONS!";
-    let body = match page_idx {
-        0 => "TODO: episode end text page 1",
-        _ => "TODO: episode end text page 2",
-    };
+    let body = episode_info_page(episode_num, page_idx);
 
     let pad_x = (10.0 * ui_scale).round();
     let pad_y = (10.0 * ui_scale).round();
 
     let title_w = measure_menu_text_width(ui_scale, title);
-    let title_x = ((panel_w - title_w) * 0.5).round().max(0.0);
+    let title_x = if page_idx == 0 { 
+        (pad_x + (96.0 * ui_scale)).round()
+    } else { 
+        ((panel_w - title_w) * 0.5).round().max(0.0)
+    };
 
     spawn_menu_bitmap_text(
         commands,
@@ -725,16 +781,87 @@ fn spawn_episode_end_text_ui(
         Visibility::Visible,
     );
 
-    spawn_menu_bitmap_text(
-        commands,
-        panel,
-        imgs.menu_font_black.clone(),
-        pad_x,
-        (pad_y + (26.0 * ui_scale)).round(),
-        ui_scale,
-        body,
-        Visibility::Visible,
-    );
+    let body_y = (pad_y + ((MENU_FONT_HEIGHT + 1.0) * (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01))).round();
+
+    let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+    let line_h = ((MENU_FONT_HEIGHT * s) + s).round().max(1.0);
+
+    if page_idx == 0 {
+        let pic_x = pad_x;
+        let pic_y = pad_y;
+
+        // Wolf3D briefing art is wide, not square
+        let pic_w = (88.0 * ui_scale).round();
+        let pic_h = 64.0 * ui_scale;
+
+        let pic_gap_x = (8.0 * ui_scale).round();
+
+        commands.spawn((
+            SplashUi,
+            ImageNode::new(episode_end.episode_page1_pic.clone()),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(pic_x),
+                top: Val::Px(pic_y),
+                width: Val::Px(pic_w),
+                height: Val::Px(pic_h),
+                ..default()
+            },
+            ChildOf(panel),
+        ));
+
+        let pic_lines = ((pic_h / line_h).ceil() as usize).max(1);
+
+        let narrow_x = (pic_x + pic_w + pic_gap_x).round();
+        let narrow_w = (panel_w - narrow_x - pad_x).round().max(1.0);
+
+        let full_x = pad_x;
+        let full_w = (panel_w - (2.0 * pad_x)).round().max(1.0);
+
+        let tokens = tokenize_for_wrap(body);
+        let measure_line = |t: &str| -> f32 { measure_menu_text_width(ui_scale, t) };
+
+        let (lines_a, next_i) = wrap_tokens(&tokens, 0, narrow_w, Some(pic_lines), &measure_line);
+        let (lines_b, _) = wrap_tokens(&tokens, next_i, full_w, None, &measure_line);
+
+        if !lines_a.is_empty() {
+            spawn_menu_bitmap_text(
+                commands,
+                panel,
+                imgs.menu_font_black.clone(),
+                narrow_x,
+                body_y,
+                ui_scale,
+                &lines_a.join("\n"),
+                Visibility::Visible,
+            );
+        }
+
+        if !lines_b.is_empty() {
+            let full_y = (body_y + (pic_lines as f32 * line_h)).round();
+            spawn_menu_bitmap_text(
+                commands,
+                panel,
+                imgs.menu_font_black.clone(),
+                full_x,
+                full_y,
+                ui_scale,
+                &lines_b.join("\n"),
+                Visibility::Visible,
+            );
+        }
+    } else {
+        spawn_menu_bitmap_text(
+            commands,
+            panel,
+            imgs.menu_font_black.clone(),
+            pad_x,
+            body_y,
+            ui_scale,
+            body,
+            Visibility::Visible,
+        );
+    }
 
     let prompt = "Press any key";
     let prompt_w = measure_menu_text_width(ui_scale, prompt);
@@ -748,6 +875,29 @@ fn spawn_episode_end_text_ui(
         (panel_h - (22.0 * ui_scale)).round().max(0.0),
         ui_scale,
         prompt,
+        Visibility::Visible,
+    );
+
+    let page_text = format!("pg {} of 2", page_idx + 1);
+    let page_w = measure_menu_text_width(ui_scale, &page_text);
+    let page_h = (MENU_FONT_HEIGHT * s).round().max(1.0);
+
+    let btn_left = (200.0 * ui_scale).round();
+    let btn_top = (180.0 * ui_scale).round();
+    let btn_w = (90.0 * ui_scale).round();
+    let btn_h = (16.0 * ui_scale).round();
+
+    let page_x = (btn_left + (btn_w - page_w) * 0.5).round().max(0.0);
+    let page_y = (btn_top + (btn_h - page_h) * 0.5).round().max(0.0);
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_black.clone(),
+        page_x,
+        page_y,
+        ui_scale,
+        &page_text,
         Visibility::Visible,
     );
 
@@ -2609,7 +2759,8 @@ fn splash_advance_on_any_input(
             let Some(episode_end) = resources.episode_end.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
-                spawn_episode_score_ui(&mut commands, w, h, episode_end, resources.hud.score);
+                let ui_scale = (w / BASE_W).round().max(1.0);
+                spawn_episode_score_ui(&mut commands, w, h, ui_scale, episode_end, resources.hud.score);
                 return;
             }
 
@@ -2627,7 +2778,7 @@ fn splash_advance_on_any_input(
             let Some(episode_end) = resources.episode_end.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
-                spawn_episode_end_text_ui(&mut commands, w, h, imgs, episode_end, 0);
+                spawn_episode_end_text_ui(&mut commands, w, h, imgs, episode_end, skill.episode_num, 0);
                 return;
             }
 
@@ -2645,7 +2796,7 @@ fn splash_advance_on_any_input(
             let Some(episode_end) = resources.episode_end.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
-                spawn_episode_end_text_ui(&mut commands, w, h, imgs, episode_end, 1);
+                spawn_episode_end_text_ui(&mut commands, w, h, imgs, episode_end, skill.episode_num, 1);
                 return;
             }
 
@@ -2752,6 +2903,7 @@ pub(crate) fn setup_splash(mut commands: Commands, asset_server: Res<AssetServer
         ],
         you_win: asset_server.load("textures/ui/episode_end/you_win.png"),
         chaingun_belt: asset_server.load("textures/ui/episode_end/bj_chaingun_belt.png"),
+        episode_page1_pic: asset_server.load("textures/ui/episode_end/bj_chaingun.png"),
     });
 }
 

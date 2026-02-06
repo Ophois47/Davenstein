@@ -15,6 +15,13 @@ pub(crate) struct LevelEndBitmapText {
     pub scale: f32,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextAlign {
+    #[default]
+    Left,
+    Center,
+}
+
 fn hud_scale_i(q_windows: &Query<&Window, With<PrimaryWindow>>) -> f32 {
     const BASE_W: f32 = 320.0;
 

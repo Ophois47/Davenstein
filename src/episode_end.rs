@@ -36,6 +36,18 @@ struct BjDolly {
 #[derive(Component)]
 struct DeathCamLabelUi;
 
+#[allow(dead_code)]
+enum EpisodeEndFlowPhase {
+	Running(Option<EpisodeEndResult>),
+	Finish(EpisodeEndResult),
+}
+
+impl Default for EpisodeEndFlowPhase {
+	fn default() -> Self {
+		Self::Running(None)
+	}
+}
+
 fn world_ready(
 	map: Option<Res<MapGrid>>,
 	plane1: Option<Res<WolfPlane1>>,
@@ -486,23 +498,39 @@ fn tick_death_cam(
 }
 
 fn episode_end_finish_to_ui(
-	mut commands: Commands,
-	mut flow: ResMut<EpisodeEndFlow>,
-	mut music: ResMut<MusicMode>,
-	q_deathcam_label: Query<Entity, With<DeathCamLabelUi>>,
+    mut commands: Commands,
+    mut flow: ResMut<EpisodeEndFlow>,
+    mut splash_step: ResMut<SplashStep>,
+    mut music_mode: ResMut<MusicMode>,
+    mut lock: ResMut<PlayerControlLock>,
+    mut name_entry: ResMut<davelib::high_score::NameEntryState>,
+    q_deathcam_label: Query<(Entity, Option<&Children>), With<DeathCamLabelUi>>,
 ) {
-	let EpisodeEndPhase::Finish(_result) = flow.phase else {
-		return;
-	};
+    let EpisodeEndPhase::Finish(result) = flow.phase else {
+        return;
+    };
 
-	for e in q_deathcam_label.iter() {
-		commands.entity(e).try_despawn();
-	}
+    for (e, kids) in q_deathcam_label.iter() {
+        if let Some(kids) = kids {
+            for k in kids.iter() {
+                commands.entity(k).despawn();
+            }
+        }
+        commands.entity(e).despawn();
+    }
 
-	music.0 = MusicModeKind::Scores;
-	commands.insert_resource(SplashStep::EpisodeVictory);
+    *splash_step = SplashStep::EpisodeVictory;
+    lock.0 = true;
+    music_mode.0 = MusicModeKind::Scores;
 
-	flow.phase = EpisodeEndPhase::Inactive;
+    name_entry.active = false;
+    name_entry.name.clear();
+    name_entry.cursor_pos = 0;
+    name_entry.rank = 0;
+    name_entry.score = 0;
+    name_entry.episode = result.episode;
+
+    flow.phase = EpisodeEndPhase::Inactive;
 }
 
 fn start_bj_cutscene(
