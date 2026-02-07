@@ -781,7 +781,7 @@ fn spawn_episode_score_ui(
         pct_x,
         112.0,
         pct_w,
-        JustifyContent::FlexStart, // change this
+        JustifyContent::FlexEnd, // was FlexStart
     );
 
     spawn_bt_box(commands, "SECRET", 0.0, 128.0, label_col_w, JustifyContent::FlexEnd);
@@ -791,7 +791,7 @@ fn spawn_episode_score_ui(
         pct_x,
         128.0,
         pct_w,
-        JustifyContent::FlexStart, // change this
+        JustifyContent::FlexEnd, // was FlexStart
     );
 
     spawn_bt_box(commands, "TREASURE", 0.0, 144.0, label_col_w, JustifyContent::FlexEnd);
@@ -801,7 +801,7 @@ fn spawn_episode_score_ui(
         pct_x,
         144.0,
         pct_w,
-        JustifyContent::FlexStart, // change this
+        JustifyContent::FlexEnd, // was FlexStart
     );
 }
 
