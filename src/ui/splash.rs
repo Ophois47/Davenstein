@@ -8,7 +8,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use crate::ui::level_end_font::{LevelEndBitmapText, TextAlign};
+use crate::ui::level_end_font::LevelEndBitmapText;
 use davelib::audio::{
     MusicMode,
     MusicModeKind,
@@ -720,7 +720,7 @@ fn spawn_episode_score_ui(
     let bt_mul = (ui_scale / hud_scale).max(0.01);
     let bt_scale = TEXT_SCALE * bt_mul;
 
-    let mut spawn_bt_box =
+    let spawn_bt_box =
         |commands: &mut Commands, text: &str, x: f32, y: f32, w: f32, justify: JustifyContent| {
             commands.spawn((
                 ChildOf(canvas),
@@ -771,8 +771,8 @@ fn spawn_episode_score_ui(
     spawn_bt_box(commands, "AVERAGES", 0.0, 96.0, 320.0, JustifyContent::Center);
 
     let label_col_w = 173.0;
-    let pct_x = 195.0;
     let pct_w = 125.0;
+    let pct_x = 304.0 - pct_w;
 
     spawn_bt_box(commands, "KILL", 0.0, 112.0, label_col_w, JustifyContent::FlexEnd);
     spawn_bt_box(
@@ -781,7 +781,7 @@ fn spawn_episode_score_ui(
         pct_x,
         112.0,
         pct_w,
-        JustifyContent::FlexStart,
+        JustifyContent::FlexStart, // change this
     );
 
     spawn_bt_box(commands, "SECRET", 0.0, 128.0, label_col_w, JustifyContent::FlexEnd);
@@ -791,7 +791,7 @@ fn spawn_episode_score_ui(
         pct_x,
         128.0,
         pct_w,
-        JustifyContent::FlexStart,
+        JustifyContent::FlexStart, // change this
     );
 
     spawn_bt_box(commands, "TREASURE", 0.0, 144.0, label_col_w, JustifyContent::FlexEnd);
@@ -801,38 +801,8 @@ fn spawn_episode_score_ui(
         pct_x,
         144.0,
         pct_w,
-        JustifyContent::FlexStart,
+        JustifyContent::FlexStart, // change this
     );
-}
-
-fn spawn_bt(
-	ui: &mut ChildSpawnerCommands,
-	text: impl Into<String>,
-	x: f32,
-	y: f32,
-	scale: f32,
-	align: TextAlign,
-) {
-	let (left, width, justify_content) = match align {
-		TextAlign::Center => (Val::Px(0.0), Val::Percent(100.0), JustifyContent::Center),
-		_ => (Val::Px(x), Val::Auto, JustifyContent::FlexStart),
-	};
-
-	ui.spawn((
-		Node {
-			position_type: PositionType::Absolute,
-			left,
-			top: Val::Px(y),
-			width,
-			justify_content,
-			..default()
-		},
-		LevelEndBitmapText {
-			text: text.into(),
-			scale,
-		},
-		SplashUi,
-	));
 }
 
 fn spawn_episode_end_text_ui(
