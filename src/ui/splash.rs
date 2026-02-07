@@ -90,6 +90,7 @@ struct SplashResources<'w> {
     step: ResMut<'w, SplashStep>,
     imgs: Option<Res<'w, SplashImages>>,
     episode_end: Option<Res<'w, EpisodeEndImages>>,
+    episode_stats: Res<'w, davelib::level_score::EpisodeStats>,
     hud: Res<'w, crate::ui::HudState>,
     lock: ResMut<'w, PlayerControlLock>,
     music_mode: ResMut<'w, MusicMode>,
@@ -651,64 +652,169 @@ fn clear_splash_ui(
 }
 
 fn spawn_episode_score_ui(
-	commands: &mut Commands,
-	w: f32,
-	h: f32,
-	ui_scale: f32,
-	episode_end: &EpisodeEndImages,
-	total_score: i32,
+    commands: &mut Commands,
+    imgs: &SplashImages,
+    episode_end: &EpisodeEndImages,
+    episode_stats: &davelib::level_score::EpisodeStats,
+    episode_num: u8,
+    w: f32,
+    h: f32,
+    _total_score: i32,
 ) {
-	let root = commands
-		.spawn((
-			SplashUi,
-			ZIndex(1000),
-			Node {
-				width: Val::Percent(100.0),
-				height: Val::Percent(100.0),
-				position_type: PositionType::Absolute,
-				left: Val::Px(0.0),
-				top: Val::Px(0.0),
-				align_items: AlignItems::Center,
-				justify_content: JustifyContent::Center,
-				..default()
-			},
-			BackgroundColor(Color::BLACK),
-		))
-		.id();
+    const BASE_VIEW_H: f32 = BASE_H - BASE_HUD_H;
 
-	let canvas = commands
-		.spawn((
-			SplashUi,
-			Node {
-				width: Val::Px(w),
-				height: Val::Px(h),
-				position_type: PositionType::Relative,
-				..default()
-			},
-			BackgroundColor(Color::BLACK),
-			ChildOf(root),
-		))
-		.id();
+    let hud_scale = (w / BASE_W).floor().max(1.0);
+    let hud_h_px = (BASE_HUD_H * hud_scale).round();
+    let view_h_px = (h - hud_h_px).max(0.0);
 
-	commands.entity(canvas).with_children(|p| {
-		p.spawn((
-			SplashUi,
-			Node {
-				position_type: PositionType::Absolute,
-				left: Val::Px(0.0),
-				top: Val::Px((BASE_H - 56.0) * ui_scale),
-				width: Val::Px(BASE_W * ui_scale),
-				height: Val::Px(56.0 * ui_scale),
-				..default()
-			},
-			ImageNode::new(episode_end.chaingun_belt.clone()),
-		));
+    let max_scale_h = (view_h_px / BASE_VIEW_H).floor().max(1.0);
+    let ui_scale = hud_scale.min(max_scale_h);
 
-		spawn_bt(p, "YOU WIN!", 160.0 * ui_scale, 18.0 * ui_scale, 2.0, TextAlign::Center);
-		spawn_bt(p, "TOTAL SCORE", 160.0 * ui_scale, 102.0 * ui_scale, 1.0, TextAlign::Center);
-		spawn_bt(p, &format!("{total_score}"), 160.0 * ui_scale, 118.0 * ui_scale, 1.0, TextAlign::Center);
-		spawn_bt(p, "PRESS ANY KEY", 160.0 * ui_scale, 142.0 * ui_scale, 1.0, TextAlign::Center);
-	});
+    let canvas_w_px = (BASE_W * ui_scale).round().max(1.0);
+    let canvas_h_px = (BASE_VIEW_H * ui_scale).round().max(1.0);
+
+    let canvas_left_px = ((w - canvas_w_px) * 0.5).round();
+    let canvas_top_px = ((view_h_px - canvas_h_px) * 0.5).round();
+
+    let teal_bg = Color::srgb(0.0, 64.0 / 255.0, 64.0 / 255.0);
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(950),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                width: Val::Percent(100.0),
+                height: Val::Px(view_h_px.round()),
+                ..default()
+            },
+            BackgroundColor(teal_bg),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            ChildOf(root),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(canvas_left_px),
+                top: Val::Px(canvas_top_px),
+                width: Val::Px(canvas_w_px),
+                height: Val::Px(canvas_h_px),
+                ..default()
+            },
+        ))
+        .id();
+
+    let summary = episode_stats.summary_for_episode(episode_num);
+    let total_secs = summary.total_time_secs.max(0.0).floor() as u32;
+    let total_minutes = total_secs / 60;
+    let total_seconds = total_secs % 60;
+    let total_time_str = format!("{total_minutes}:{total_seconds:02}");
+
+    // LevelEndBitmapText already scales with the UI scale in its render path
+    // So passing ui_scale here squares the scale and blows up the text
+    let bt_scale = 1.0;
+
+    let mut spawn_bt_box =
+        |commands: &mut Commands, text: &str, x: f32, y: f32, w: f32, justify: JustifyContent| {
+            commands.spawn((
+                ChildOf(canvas),
+                LevelEndBitmapText {
+                    text: text.to_string(),
+                    scale: bt_scale,
+                },
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px((x * ui_scale).round()),
+                    top: Val::Px((y * ui_scale).round()),
+                    width: Val::Px((w * ui_scale).round().max(1.0)),
+                    justify_content: justify,
+                    ..default()
+                },
+            ));
+        };
+
+    let portrait_size = 87.0;
+    let portrait_x = 8.0;
+    let portrait_y = 4.0;
+
+    let mut portrait_img = ImageNode::new(episode_end.chaingun_belt.clone());
+    portrait_img.rect = Some(Rect::from_corners(
+        Vec2::new(25.0, 6.0),
+        Vec2::new(535.0, 516.0),
+    ));
+
+    commands.spawn((
+        ChildOf(canvas),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px((portrait_x * ui_scale).round()),
+            top: Val::Px((portrait_y * ui_scale).round()),
+            width: Val::Px((portrait_size * ui_scale).round()),
+            height: Val::Px((portrait_size * ui_scale).round()),
+            ..default()
+        },
+        BackgroundColor(Color::BLACK),
+        portrait_img,
+    ));
+
+    let right_x = 96.0;
+    let right_w = 224.0;
+
+    spawn_bt_box(commands, "YOU WIN!", right_x, 17.0, right_w, JustifyContent::Center);
+
+    spawn_bt_box(commands, "TOTAL TIME", right_x, 49.0, 192.0, JustifyContent::Center);
+    spawn_bt_box(commands, &total_time_str, 114.0, 65.0, 120.0, JustifyContent::FlexStart);
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_yellow.clone(),
+        (240.0 * ui_scale).round(),
+        (65.0 * ui_scale).round(),
+        ui_scale,
+        "CODE",
+        Visibility::Visible,
+    );
+
+    spawn_bt_box(commands, "AVERAGES", 0.0, 97.0, 320.0, JustifyContent::Center);
+
+    let label_col_w = 173.0;
+    let pct_x = 195.0;
+    let pct_w = 125.0;
+
+    spawn_bt_box(commands, "KILL", 0.0, 112.0, label_col_w, JustifyContent::FlexEnd);
+    spawn_bt_box(
+        commands,
+        &format!("{}%", summary.avg_kill_pct),
+        pct_x,
+        112.0,
+        pct_w,
+        JustifyContent::FlexStart,
+    );
+
+    spawn_bt_box(commands, "SECRET", 0.0, 128.0, label_col_w, JustifyContent::FlexEnd);
+    spawn_bt_box(
+        commands,
+        &format!("{}%", summary.avg_secret_pct),
+        pct_x,
+        128.0,
+        pct_w,
+        JustifyContent::FlexStart,
+    );
+
+    spawn_bt_box(commands, "TREASURE", 0.0, 144.0, label_col_w, JustifyContent::FlexEnd);
+    spawn_bt_box(
+        commands,
+        &format!("{}%", summary.avg_treasure_pct),
+        pct_x,
+        144.0,
+        pct_w,
+        JustifyContent::FlexStart,
+    );
 }
 
 fn spawn_bt(
@@ -3025,11 +3131,21 @@ fn splash_advance_on_any_input(
             resources.lock.0 = true;
             resources.music_mode.0 = MusicModeKind::Scores;
 
+            let Some(imgs) = resources.imgs.as_ref() else { return; };
             let Some(episode_end) = resources.episode_end.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
-                let ui_scale = (w / BASE_W).round().max(1.0);
-                spawn_episode_score_ui(&mut commands, w, h, ui_scale, episode_end, resources.hud.score);
+                let episode_num = skill.episode_num.max(1).min(6);
+                spawn_episode_score_ui(
+                    &mut commands,
+                    imgs,
+                    episode_end,
+                    &*resources.episode_stats,
+                    episode_num,
+                    w,
+                    h,
+                    resources.hud.score,
+                );
                 return;
             }
 
