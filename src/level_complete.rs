@@ -547,6 +547,7 @@ pub fn start_mission_success_tally_on_win(
     score: Res<davelib::level_score::LevelScore>,
     current_level: Res<davelib::level::CurrentLevel>,
     mut tally: ResMut<MissionSuccessTally>,
+    mut episode_stats: ResMut<davelib::level_score::EpisodeStats>,
     mut prev_win: Local<bool>,
 ) {
     if !win.0 {
@@ -560,6 +561,9 @@ pub fn start_mission_success_tally_on_win(
         return;
     }
     *prev_win = true;
+
+    // Record immediately so episode-end totals work even if the player skips the tally early
+    episode_stats.record_level(current_level.0, &score);
 
     tally.active = true;
     tally.phase = MissionSuccessPhase::Kill;

@@ -61,7 +61,7 @@ impl LevelId {
         match episode {
             // FIXME: Put Back After Testing
             1 => LevelId::E1M9,
-            2 => LevelId::E2M9,
+            2 => LevelId::E2M7,
             3 => LevelId::E3M1,
             4 => LevelId::E4M9,
             5 => LevelId::E5M1,

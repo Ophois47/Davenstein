@@ -653,7 +653,7 @@ fn clear_splash_ui(
 
 fn spawn_episode_score_ui(
     commands: &mut Commands,
-    imgs: &SplashImages,
+    _imgs: &SplashImages,
     episode_end: &EpisodeEndImages,
     episode_stats: &davelib::level_score::EpisodeStats,
     episode_num: u8,
@@ -662,10 +662,11 @@ fn spawn_episode_score_ui(
     _total_score: i32,
 ) {
     const BASE_VIEW_H: f32 = BASE_H - BASE_HUD_H;
+    const TEXT_SCALE: f32 = 0.80;
 
     let hud_scale = (w / BASE_W).floor().max(1.0);
     let hud_h_px = (BASE_HUD_H * hud_scale).round();
-    let view_h_px = (h - hud_h_px).max(0.0);
+    let view_h_px = (h - hud_h_px).max(1.0);
 
     let max_scale_h = (view_h_px / BASE_VIEW_H).floor().max(1.0);
     let ui_scale = hud_scale.min(max_scale_h);
@@ -681,13 +682,13 @@ fn spawn_episode_score_ui(
     let root = commands
         .spawn((
             SplashUi,
-            ZIndex(950),
+            ZIndex(-10),
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
                 top: Val::Px(0.0),
-                width: Val::Percent(100.0),
-                height: Val::Px(view_h_px.round()),
+                right: Val::Px(0.0),
+                bottom: Val::Px(hud_h_px),
                 ..default()
             },
             BackgroundColor(teal_bg),
@@ -714,9 +715,10 @@ fn spawn_episode_score_ui(
     let total_seconds = total_secs % 60;
     let total_time_str = format!("{total_minutes}:{total_seconds:02}");
 
-    // LevelEndBitmapText already scales with the UI scale in its render path
-    // So passing ui_scale here squares the scale and blows up the text
-    let bt_scale = 1.0;
+    // LevelEndBitmapText uses base_scale = hud_scale internally
+    // Multiply by ui_scale/hud_scale so glyphs end up at ui_scale size
+    let bt_mul = (ui_scale / hud_scale).max(0.01);
+    let bt_scale = TEXT_SCALE * bt_mul;
 
     let mut spawn_bt_box =
         |commands: &mut Commands, text: &str, x: f32, y: f32, w: f32, justify: JustifyContent| {
@@ -731,6 +733,7 @@ fn spawn_episode_score_ui(
                     left: Val::Px((x * ui_scale).round()),
                     top: Val::Px((y * ui_scale).round()),
                     width: Val::Px((w * ui_scale).round().max(1.0)),
+                    flex_direction: FlexDirection::Row,
                     justify_content: justify,
                     ..default()
                 },
@@ -741,11 +744,7 @@ fn spawn_episode_score_ui(
     let portrait_x = 8.0;
     let portrait_y = 4.0;
 
-    let mut portrait_img = ImageNode::new(episode_end.chaingun_belt.clone());
-    portrait_img.rect = Some(Rect::from_corners(
-        Vec2::new(25.0, 6.0),
-        Vec2::new(535.0, 516.0),
-    ));
+    let portrait_img = ImageNode::new(episode_end.chaingun_belt.clone());
 
     commands.spawn((
         ChildOf(canvas),
@@ -764,23 +763,12 @@ fn spawn_episode_score_ui(
     let right_x = 96.0;
     let right_w = 224.0;
 
-    spawn_bt_box(commands, "YOU WIN!", right_x, 17.0, right_w, JustifyContent::Center);
+    spawn_bt_box(commands, "YOU WIN!", right_x, 16.0, right_w, JustifyContent::Center);
 
-    spawn_bt_box(commands, "TOTAL TIME", right_x, 49.0, 192.0, JustifyContent::Center);
-    spawn_bt_box(commands, &total_time_str, 114.0, 65.0, 120.0, JustifyContent::FlexStart);
+    spawn_bt_box(commands, "TOTAL TIME", right_x, 48.0, 192.0, JustifyContent::Center);
+    spawn_bt_box(commands, &total_time_str, 114.0, 64.0, 120.0, JustifyContent::FlexStart);
 
-    spawn_menu_bitmap_text(
-        commands,
-        canvas,
-        imgs.menu_font_yellow.clone(),
-        (240.0 * ui_scale).round(),
-        (65.0 * ui_scale).round(),
-        ui_scale,
-        "CODE",
-        Visibility::Visible,
-    );
-
-    spawn_bt_box(commands, "AVERAGES", 0.0, 97.0, 320.0, JustifyContent::Center);
+    spawn_bt_box(commands, "AVERAGES", 0.0, 96.0, 320.0, JustifyContent::Center);
 
     let label_col_w = 173.0;
     let pct_x = 195.0;
