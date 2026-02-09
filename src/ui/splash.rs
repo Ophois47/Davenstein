@@ -519,6 +519,87 @@ struct EpisodeLocalState {
     from_pause: bool,
 }
 
+#[derive(Component, Clone, Copy)]
+enum EpisodeScoreStatKind {
+    Kill,
+    Secret,
+    Treasure,
+}
+
+#[derive(Component, Clone, Copy)]
+struct EpisodeScoreStatText {
+    kind: EpisodeScoreStatKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EpisodeVictoryPhase {
+    Kill,
+    Secret,
+    Treasure,
+    Done,
+}
+
+#[derive(Resource, Debug, Clone)]
+struct EpisodeVictoryTally {
+    active: bool,
+    phase: EpisodeVictoryPhase,
+
+    shown_kill: i32,
+    shown_secret: i32,
+    shown_treasure: i32,
+
+    target_kill: i32,
+    target_secret: i32,
+    target_treasure: i32,
+
+    tick: Timer,
+}
+
+impl Default for EpisodeVictoryTally {
+    fn default() -> Self {
+        Self {
+            active: false,
+            phase: EpisodeVictoryPhase::Done,
+
+            shown_kill: 0,
+            shown_secret: 0,
+            shown_treasure: 0,
+
+            target_kill: 0,
+            target_secret: 0,
+            target_treasure: 0,
+
+            tick: Timer::from_seconds(1.0 / 120.0, TimerMode::Repeating),
+        }
+    }
+}
+
+impl EpisodeVictoryTally {
+    fn begin(&mut self, summary: davelib::level_score::EpisodeSummary) {
+        self.active = true;
+        self.phase = EpisodeVictoryPhase::Kill;
+
+        self.shown_kill = 0;
+        self.shown_secret = 0;
+        self.shown_treasure = 0;
+
+        self.target_kill = summary.avg_kill_pct.clamp(0, 100);
+        self.target_secret = summary.avg_secret_pct.clamp(0, 100);
+        self.target_treasure = summary.avg_treasure_pct.clamp(0, 100);
+
+        self.tick.reset();
+    }
+
+    fn force_finish(&mut self) {
+        self.shown_kill = self.target_kill;
+        self.shown_secret = self.target_secret;
+        self.shown_treasure = self.target_treasure;
+
+        self.active = false;
+        self.phase = EpisodeVictoryPhase::Done;
+    }
+}
+
 #[derive(Default)]
 struct SkillLocalState {
     selection: usize,
@@ -715,94 +796,183 @@ fn spawn_episode_score_ui(
     let total_seconds = total_secs % 60;
     let total_time_str = format!("{total_minutes}:{total_seconds:02}");
 
-    // LevelEndBitmapText uses base_scale = hud_scale internally
-    // Multiply by ui_scale/hud_scale so glyphs end up at ui_scale size
     let bt_mul = (ui_scale / hud_scale).max(0.01);
     let bt_scale = TEXT_SCALE * bt_mul;
 
     let spawn_bt_box =
-        |commands: &mut Commands, text: &str, x: f32, y: f32, w: f32, justify: JustifyContent| {
-            commands.spawn((
-                ChildOf(canvas),
-                LevelEndBitmapText {
-                    text: text.to_string(),
-                    scale: bt_scale,
-                },
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px((x * ui_scale).round()),
-                    top: Val::Px((y * ui_scale).round()),
-                    width: Val::Px((w * ui_scale).round().max(1.0)),
-                    flex_direction: FlexDirection::Row,
-                    justify_content: justify,
-                    ..default()
-                },
-            ));
+        |commands: &mut Commands, text: &str, x: f32, y: f32, w: f32, justify: JustifyContent| -> Entity {
+            commands
+                .spawn((
+                    ChildOf(canvas),
+                    LevelEndBitmapText {
+                        text: text.to_string(),
+                        scale: bt_scale,
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px((x * ui_scale).round()),
+                        top: Val::Px((y * ui_scale).round()),
+                        width: Val::Px((w * ui_scale).round().max(1.0)),
+                        flex_direction: FlexDirection::Row,
+                        justify_content: justify,
+                        ..default()
+                    },
+                ))
+                .id()
         };
 
-    let portrait_size = 87.0;
-    let portrait_x = 8.0;
-    let portrait_y = 4.0;
-
     let portrait_img = ImageNode::new(episode_end.chaingun_belt.clone());
-
     commands.spawn((
         ChildOf(canvas),
         Node {
             position_type: PositionType::Absolute,
-            left: Val::Px((portrait_x * ui_scale).round()),
-            top: Val::Px((portrait_y * ui_scale).round()),
-            width: Val::Px((portrait_size * ui_scale).round()),
-            height: Val::Px((portrait_size * ui_scale).round()),
+            left: Val::Px((8.0 * ui_scale).round()),
+            top: Val::Px((4.0 * ui_scale).round()),
+            width: Val::Px((87.0 * ui_scale).round()),
+            height: Val::Px((87.0 * ui_scale).round()),
             ..default()
         },
         BackgroundColor(Color::BLACK),
         portrait_img,
     ));
 
-    let right_x = 96.0;
-    let right_w = 224.0;
-
-    spawn_bt_box(commands, "YOU WIN!", right_x, 16.0, right_w, JustifyContent::Center);
-
-    spawn_bt_box(commands, "TOTAL TIME", right_x, 48.0, 192.0, JustifyContent::Center);
-    spawn_bt_box(commands, &total_time_str, 114.0, 64.0, 120.0, JustifyContent::FlexStart);
-
-    spawn_bt_box(commands, "AVERAGES", 0.0, 96.0, 320.0, JustifyContent::Center);
+    let _ = spawn_bt_box(commands, "YOU WIN!", 96.0, 16.0, 224.0, JustifyContent::Center);
+    let _ = spawn_bt_box(commands, "TOTAL TIME", 96.0, 48.0, 192.0, JustifyContent::Center);
+    let _ = spawn_bt_box(commands, &total_time_str, 114.0, 64.0, 120.0, JustifyContent::FlexStart);
+    let _ = spawn_bt_box(commands, "AVERAGES", 0.0, 96.0, 320.0, JustifyContent::Center);
 
     let label_col_w = 173.0;
     let pct_w = 125.0;
     let pct_x = 304.0 - pct_w;
 
-    spawn_bt_box(commands, "KILL", 0.0, 112.0, label_col_w, JustifyContent::FlexEnd);
-    spawn_bt_box(
-        commands,
-        &format!("{}%", summary.avg_kill_pct),
-        pct_x,
-        112.0,
-        pct_w,
-        JustifyContent::FlexEnd, // was FlexStart
-    );
+    let _ = spawn_bt_box(commands, "KILL", 0.0, 112.0, label_col_w, JustifyContent::FlexEnd);
+    let e = spawn_bt_box(commands, "0%", pct_x, 112.0, pct_w, JustifyContent::FlexEnd);
+    commands.entity(e).insert(EpisodeScoreStatText { kind: EpisodeScoreStatKind::Kill });
 
-    spawn_bt_box(commands, "SECRET", 0.0, 128.0, label_col_w, JustifyContent::FlexEnd);
-    spawn_bt_box(
-        commands,
-        &format!("{}%", summary.avg_secret_pct),
-        pct_x,
-        128.0,
-        pct_w,
-        JustifyContent::FlexEnd, // was FlexStart
-    );
+    let _ = spawn_bt_box(commands, "SECRET", 0.0, 128.0, label_col_w, JustifyContent::FlexEnd);
+    let e = spawn_bt_box(commands, "0%", pct_x, 128.0, pct_w, JustifyContent::FlexEnd);
+    commands.entity(e).insert(EpisodeScoreStatText { kind: EpisodeScoreStatKind::Secret });
 
-    spawn_bt_box(commands, "TREASURE", 0.0, 144.0, label_col_w, JustifyContent::FlexEnd);
-    spawn_bt_box(
-        commands,
-        &format!("{}%", summary.avg_treasure_pct),
-        pct_x,
-        144.0,
-        pct_w,
-        JustifyContent::FlexEnd, // was FlexStart
-    );
+    let _ = spawn_bt_box(commands, "TREASURE", 0.0, 144.0, label_col_w, JustifyContent::FlexEnd);
+    let e = spawn_bt_box(commands, "0%", pct_x, 144.0, pct_w, JustifyContent::FlexEnd);
+    commands.entity(e).insert(EpisodeScoreStatText { kind: EpisodeScoreStatKind::Treasure });
+}
+
+fn tick_episode_victory_tally(
+    time: Res<Time>,
+    step: Res<SplashStep>,
+    mut tally: ResMut<EpisodeVictoryTally>,
+    mut sfx: MessageWriter<PlaySfx>,
+    mut pause_steps_local: Local<u8>,
+    mut pending_stinger_local: Local<Option<SfxKind>>,
+    mut pending_stinger_pause_local: Local<u8>,
+) {
+    if *step != SplashStep::EpisodeVictory {
+        tally.active = false;
+        tally.phase = EpisodeVictoryPhase::Done;
+        *pause_steps_local = 0;
+        *pending_stinger_local = None;
+        *pending_stinger_pause_local = 0;
+        return;
+    }
+
+    if !tally.active {
+        return;
+    }
+
+    if !tally.tick.tick(time.delta()).just_finished() {
+        return;
+    }
+
+    if *pause_steps_local > 0 {
+        *pause_steps_local = pause_steps_local.saturating_sub(1);
+        return;
+    }
+
+    if let Some(stinger) = pending_stinger_local.take() {
+        sfx.write(PlaySfx { kind: stinger, pos: Vec3::ZERO });
+        *pause_steps_local = *pending_stinger_pause_local;
+        *pending_stinger_pause_local = 0;
+        return;
+    }
+
+    let mut schedule_end = |ratio: i32, pause_after: u8, next_pause: u8| {
+        if ratio >= 100 {
+            *pending_stinger_local = Some(SfxKind::IntermissionPercent100);
+            *pending_stinger_pause_local = next_pause;
+        } else if ratio <= 0 {
+            *pending_stinger_local = Some(SfxKind::IntermissionNoBonus);
+            *pending_stinger_pause_local = next_pause;
+        } else {
+            *pending_stinger_local = Some(SfxKind::IntermissionConfirm);
+            *pending_stinger_pause_local = next_pause;
+        }
+
+        *pause_steps_local = pause_after;
+    };
+
+    match tally.phase {
+        EpisodeVictoryPhase::Kill => {
+            if tally.shown_kill < tally.target_kill {
+                tally.shown_kill = (tally.shown_kill + 2).min(tally.target_kill);
+                if tally.shown_kill % 10 == 0 {
+                    sfx.write(PlaySfx { kind: SfxKind::IntermissionTick, pos: Vec3::ZERO });
+                }
+            } else {
+                schedule_end(tally.target_kill, 10, 30);
+                tally.phase = EpisodeVictoryPhase::Secret;
+            }
+        }
+
+        EpisodeVictoryPhase::Secret => {
+            if tally.shown_secret < tally.target_secret {
+                tally.shown_secret = (tally.shown_secret + 2).min(tally.target_secret);
+                if tally.shown_secret % 10 == 0 {
+                    sfx.write(PlaySfx { kind: SfxKind::IntermissionTick, pos: Vec3::ZERO });
+                }
+            } else {
+                schedule_end(tally.target_secret, 10, 30);
+                tally.phase = EpisodeVictoryPhase::Treasure;
+            }
+        }
+
+        EpisodeVictoryPhase::Treasure => {
+            if tally.shown_treasure < tally.target_treasure {
+                tally.shown_treasure = (tally.shown_treasure + 2).min(tally.target_treasure);
+                if tally.shown_treasure % 10 == 0 {
+                    sfx.write(PlaySfx { kind: SfxKind::IntermissionTick, pos: Vec3::ZERO });
+                }
+            } else {
+                schedule_end(tally.target_treasure, 10, 30);
+                tally.active = false;
+                tally.phase = EpisodeVictoryPhase::Done;
+            }
+        }
+
+        EpisodeVictoryPhase::Done => {
+            tally.active = false;
+        }
+    }
+}
+
+fn sync_episode_victory_score_text(
+    step: Res<SplashStep>,
+    tally: Res<EpisodeVictoryTally>,
+    mut q_text: Query<(&EpisodeScoreStatText, &mut LevelEndBitmapText)>,
+) {
+    if *step != SplashStep::EpisodeVictory {
+        return;
+    }
+
+    for (tag, mut bt) in q_text.iter_mut() {
+        let v = match tag.kind {
+            EpisodeScoreStatKind::Kill => tally.shown_kill,
+            EpisodeScoreStatKind::Secret => tally.shown_secret,
+            EpisodeScoreStatKind::Treasure => tally.shown_treasure,
+        };
+
+        bt.text = format!("{v}%");
+    }
 }
 
 fn spawn_episode_end_text_ui(
@@ -1243,6 +1413,7 @@ impl Plugin for SplashPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SplashStep>();
         app.init_resource::<PsychedLoad>();
+        app.init_resource::<EpisodeVictoryTally>();
         app.configure_sets(
             Update,
             (SplashUpdateSet::AdvanceInput, SplashUpdateSet::PsychedLoading).chain_ignore_deferred(),
@@ -1250,6 +1421,14 @@ impl Plugin for SplashPlugin {
         app.add_systems(
             Update,
             splash_advance_on_any_input,
+        );
+        app.add_systems(
+            Update,
+            tick_episode_victory_tally.after(splash_advance_on_any_input),
+        );
+        app.add_systems(
+            Update,
+            sync_episode_victory_score_text.after(tick_episode_victory_tally),
         );
         app.add_systems(
             Update,
@@ -2575,6 +2754,7 @@ fn splash_advance_on_any_input(
 	mut resources: SplashResources,
 	mut menu: Local<MenuLocalState>,
     mut new_game: ResMut<crate::ui::sync::NewGameRequested>,
+    mut episode_tally: ResMut<EpisodeVictoryTally>,
     mut current_level: ResMut<davelib::level::CurrentLevel>,
 	mut episode: Local<EpisodeLocalState>,
 	mut skill: Local<SkillLocalState>,
@@ -3092,8 +3272,18 @@ fn splash_advance_on_any_input(
             let Some(imgs) = resources.imgs.as_ref() else { return; };
             let Some(episode_end) = resources.episode_end.as_ref() else { return; };
 
+            let episode_num = {
+                let from_flow = resources.name_entry.episode;
+                if (1..=6).contains(&from_flow) {
+                    from_flow
+                } else if (1..=6).contains(&resources.episode_stats.episode) {
+                    resources.episode_stats.episode
+                } else {
+                    skill.episode_num.max(1).min(6)
+                }
+            };
+
             if q.q_splash_roots.iter().next().is_none() {
-                let episode_num = skill.episode_num.max(1).min(6);
                 spawn_episode_score_ui(
                     &mut commands,
                     imgs,
@@ -3104,10 +3294,18 @@ fn splash_advance_on_any_input(
                     h,
                     resources.hud.score,
                 );
+
+                let summary = resources.episode_stats.summary_for_episode(episode_num);
+                episode_tally.begin(summary);
                 return;
             }
 
             if any_key {
+                if episode_tally.active {
+                    episode_tally.force_finish();
+                    return;
+                }
+
                 clear_splash_ui(&mut commands, &q.q_splash_roots);
                 *resources.step = SplashStep::EpisodeEndText0;
             }
