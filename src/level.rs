@@ -59,8 +59,9 @@ impl LevelId {
 
     pub const fn first_level_of_episode(episode: u8) -> Self {
         match episode {
+            // FIXME: Put Back After Testing
             1 => LevelId::E1M1,
-            2 => LevelId::E2M1,
+            2 => LevelId::E2M9,
             3 => LevelId::E3M1,
             4 => LevelId::E4M1,
             5 => LevelId::E5M1,

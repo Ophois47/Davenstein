@@ -129,6 +129,23 @@ pub(crate) fn sync_level_end_bitmap_text(
                 }
 
                 match ch {
+                    '\'' => {
+                        // apostrophe - row 3, col 8 - sample just the glyph
+                        let rect = glyph_rect_sub(3, 8, 6.0, 3.0);
+                        
+                        let mut img = ImageNode::new(font.sheet.clone());
+                        img.rect = Some(rect);
+                        
+                        ui.spawn((
+                            img,
+                            Node {
+                                width: Val::Px(px(3.0)),
+                                height: Val::Px(glyph_px),
+                                ..default()
+                            },
+                        ));
+                    }
+
                     ':' => {
                         // left half of (3,6): [0..8)
                         let rect = glyph_rect_sub(3, 6, 0.0, 8.0);

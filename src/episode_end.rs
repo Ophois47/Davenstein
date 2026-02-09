@@ -2,6 +2,7 @@
 Davenstein - by David Petnick
 */
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 
 use davelib::audio::{MusicMode, MusicModeKind, PlaySfx, SfxKind};
 use davelib::level::{CurrentLevel, LevelId, WolfPlane1};
@@ -11,6 +12,7 @@ use davelib::player::{Player, PlayerControlLock};
 use crate::ui::HudState;
 use crate::ui::SplashStep;
 use crate::ui::EpisodeEndImages;
+use crate::ui::level_end_font::LevelEndBitmapText;
 
 pub struct EpisodeEndPlugin;
 
@@ -19,6 +21,7 @@ impl Plugin for EpisodeEndPlugin {
 		app.init_resource::<EpisodeEndFlow>()
 			.add_systems(Update, start_bj_cutscene.run_if(world_ready))
 			.add_systems(Update, tick_bj_cutscene)
+			.add_systems(Update, tick_boss_death_replay_intro)
 			.add_systems(Update, start_death_cam)
 			.add_systems(Update, tick_death_cam)
 			.add_systems(Update, episode_end_finish_to_ui);
@@ -56,7 +59,7 @@ fn world_ready(
 }
 
 #[derive(Resource, Default)]
-struct EpisodeEndFlow {
+pub struct EpisodeEndFlow {
 	phase: EpisodeEndPhase,
 }
 
@@ -121,6 +124,7 @@ struct DeathCam {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum DeathCamStage {
 	WaitForCorpse,
+	ShowingReplayIntro,
 	Replaying,
 	Holding,
 }
@@ -131,6 +135,94 @@ enum DeathCamBossKind {
 	Schabbs,
 	Otto,
 	General,
+}
+
+#[derive(Component)]
+pub(crate) struct BossDeathReplayIntro;
+
+#[derive(Resource)]
+pub(crate) struct BossDeathReplayIntroTimer {
+    pub timer: Timer,
+}
+
+impl Default for BossDeathReplayIntroTimer {
+    fn default() -> Self {
+        Self {
+            timer: Timer::from_seconds(2.5, TimerMode::Once),
+        }
+    }
+}
+
+pub(crate) fn spawn_boss_death_replay_intro(
+    commands: &mut Commands,
+    win_w: f32,
+    win_h: f32,
+) {
+    const BASE_HUD_H: f32 = 44.0;
+    const HUD_W: f32 = 320.0;
+    
+    let hud_scale = (win_w / HUD_W).floor().max(1.0);
+    let hud_h = (BASE_HUD_H * hud_scale).round();
+    let view_h = (win_h - hud_h).max(0.0);
+
+    commands
+        .spawn((
+            BossDeathReplayIntro,
+            ZIndex(950),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Px(view_h),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.00, 0.25, 0.25)),
+        ))
+        .with_children(|root| {
+            root.spawn((
+                LevelEndBitmapText {
+                    text: "LET'S SEE THAT AGAIN!".to_string(),
+                    scale: 1.0,
+                },
+                Node {
+                    display: Display::Flex,
+                    flex_direction: FlexDirection::Row,
+                    ..default()
+                },
+            ));
+        });
+
+    commands.insert_resource(BossDeathReplayIntroTimer::default());
+}
+
+pub(crate) fn tick_boss_death_replay_intro(
+	mut commands: Commands,
+	time: Res<Time>,
+	timer: Option<ResMut<BossDeathReplayIntroTimer>>,
+	mut flow: ResMut<EpisodeEndFlow>,
+	q_intro: Query<Entity, With<BossDeathReplayIntro>>,
+) {
+	let Some(mut timer) = timer else { return; };
+	
+	timer.timer.tick(time.delta());
+
+	if timer.timer.just_finished() {
+		// Clean up the intro screen
+		for entity in q_intro.iter() {
+			commands.entity(entity).despawn();
+		}
+		commands.remove_resource::<BossDeathReplayIntroTimer>();
+
+		// NOW transition to Replaying stage
+		if let EpisodeEndPhase::DeathCam(cam) = &mut flow.phase {
+			if cam.stage == DeathCamStage::ShowingReplayIntro {
+				cam.stage = DeathCamStage::Replaying;
+			}
+		}
+	}
 }
 
 fn deathcam_pos_ok(grid: &MapGrid, pos: Vec3) -> bool {
@@ -260,6 +352,7 @@ fn tick_death_cam(
 	assets: Res<AssetServer>,
 	grid: Option<Res<MapGrid>>,
 	mut lock: ResMut<PlayerControlLock>,
+	q_windows: Query<&Window, With<PrimaryWindow>>,
 	mut q_player: Query<&mut Transform, With<Player>>,
 	q_deathcam_label: Query<Entity, With<DeathCamLabelUi>>,
 	q_hitler: Query<
@@ -425,10 +518,22 @@ fn tick_death_cam(
 				cam.replay_pos_set = true;
 			}
 
-			ensure_label(&mut commands);
+			// Get window dimensions
+			let (win_w, win_h) = if let Some(win) = q_windows.iter().next() {
+				(win.resolution.width(), win.resolution.height())
+			} else {
+				(320.0, 200.0) // fallback
+			};
+
+			spawn_boss_death_replay_intro(&mut commands, win_w, win_h);
 
 			lock.0 = true;
-			cam.stage = DeathCamStage::Replaying;
+			cam.stage = DeathCamStage::ShowingReplayIntro; // Transition to new stage
+		}
+
+		DeathCamStage::ShowingReplayIntro => {
+			// Wait, tick_boss_death_replay_intro system will advance
+			lock.0 = true;
 		}
 
 		DeathCamStage::Replaying => {

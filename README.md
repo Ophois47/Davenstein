@@ -31,4 +31,4 @@ BUGS:
 - Enemies sometimes walk backwards while still facing player
 - Superfluous world load seems to take place upon program start
 - Some wall textures appear flipped backwards
-- "Let's take a look at that again" screen missing before deathcam
+- Should not be able to hit ESC during death cam or episode end
