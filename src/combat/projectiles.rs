@@ -3,7 +3,7 @@ Davenstein - by David Petnick
 */
 use bevy::prelude::*;
 use bevy::render::alpha::AlphaMode;
-use rand::Rng;
+use rand::RngExt;
 
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::decorations::SolidStatics;

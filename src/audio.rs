@@ -11,7 +11,7 @@ use bevy::audio::{
     Volume,
 };
 use std::collections::HashMap;
-use rand::Rng;
+use rand::RngExt;
 
 use crate::enemies::EnemyKind;
 use crate::level::{CurrentLevel, LevelId};
@@ -810,6 +810,7 @@ pub fn play_sfx_events(
 		With<ActiveEnemyGunSfx>,
 	>,
 ) {
+    let mut rng = rand::rng();
 	let mut last_pickup: Option<PlaySfx> = None;
 	let mut non_pickups: Vec<PlaySfx> = Vec::new();
 
@@ -857,7 +858,7 @@ pub fn play_sfx_events(
 				commands.entity(ent).despawn();
 			}
 
-			let i = rand::rng().random_range(0..list.len());
+			let i = rng.random_range(0..list.len());
 			let clip = list[i].clone();
 
 			let settings = PlaybackSettings::DESPAWN
@@ -887,7 +888,7 @@ pub fn play_sfx_events(
 				commands.entity(ent).despawn();
 			}
 
-			let i = rand::rng().random_range(0..list.len());
+			let i = rng.random_range(0..list.len());
 			let clip = list[i].clone();
 
 			let settings = PlaybackSettings::DESPAWN
@@ -912,7 +913,7 @@ pub fn play_sfx_events(
 			continue;
 		}
 
-		let i = rand::rng().random_range(0..list.len());
+		let i = rng.random_range(0..list.len());
 		let clip = list[i].clone();
 
         let is_boss_voice = match e.kind {
@@ -1146,7 +1147,7 @@ if is_enemy_voice && !is_boss_voice {
 		commands.entity(ent).try_despawn();
 	}
 
-	let i = rand::rng().random_range(0..list.len());
+	let i = rng.random_range(0..list.len());
 	let clip = list[i].clone();
 
 	let settings = PlaybackSettings::DESPAWN
