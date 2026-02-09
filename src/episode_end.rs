@@ -528,7 +528,8 @@ fn tick_death_cam(
 			spawn_boss_death_replay_intro(&mut commands, win_w, win_h);
 
 			lock.0 = true;
-			cam.stage = DeathCamStage::ShowingReplayIntro; // Transition to new stage
+			// Transition to new stage
+			cam.stage = DeathCamStage::ShowingReplayIntro;
 		}
 
 		DeathCamStage::ShowingReplayIntro => {
@@ -538,7 +539,7 @@ fn tick_death_cam(
 
 		DeathCamStage::Replaying => {
 			ensure_label(&mut commands);
-
+			lock.0 = true;
 			player_tr.rotation = Quat::from_euler(EulerRot::YXZ, cam.end_yaw, cam.end_pitch, 0.0);
 
 			if !cam.replay_requested {
