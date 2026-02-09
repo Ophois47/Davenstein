@@ -44,7 +44,7 @@ const EP_LIST_TOP: f32 = 32.0;
 const EP_ROW_H: f32 = 24.0;
 
 const BASE_HUD_H: f32 = 44.0;
-const PSYCHED_DURATION_SECS: f32 = 1.2;
+const PSYCHED_DURATION_SECS: f32 = 2.5;
 const PSYCHED_SPR_W: f32 = 220.0;
 const PSYCHED_SPR_H: f32 = 40.0;
 

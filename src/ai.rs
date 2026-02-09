@@ -1559,8 +1559,17 @@ fn enemy_ai_move(
 fn player_can_be_targeted(
     lock: Res<PlayerControlLock>,
     latch: Res<PlayerDeathLatch>,
+    map: Option<Res<MapGrid>>,
+    plane1: Option<Res<crate::level::WolfPlane1>>,
 ) -> bool {
-    !lock.0 && !latch.0
+    !lock.0 && !latch.0 && map.is_some() && plane1.is_some()
+}
+
+fn world_ready(
+    map: Option<Res<MapGrid>>,
+    plane1: Option<Res<crate::level::WolfPlane1>>,
+) -> bool {
+    map.is_some() && plane1.is_some()
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
@@ -1594,7 +1603,7 @@ impl Plugin for EnemyAiPlugin {
                 )
                     .chain(),
             )
-            .add_systems(Update, attach_enemy_ai)
+            .add_systems(Update, attach_enemy_ai.run_if(world_ready))
             .add_systems(
                 FixedUpdate,
                 enemy_ai_prepare_and_activate

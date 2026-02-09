@@ -144,6 +144,33 @@ fn level_rebuild_requested(
 	r.0 || n.0 || a.0
 }
 
+#[derive(Component)]
+struct BootUiCamera;
+
+fn spawn_boot_ui_camera(mut commands: Commands) {
+	commands.spawn((
+		BootUiCamera,
+		Camera2d::default(),
+		Camera {
+			order: -10,
+			..default()
+		},
+	));
+}
+
+fn disable_boot_ui_camera_when_player_camera_ready(
+	mut q_boot: Query<&mut Camera, With<BootUiCamera>>,
+	q_ui_cam: Query<(), (With<Camera>, With<bevy::ui::prelude::IsDefaultUiCamera>, Without<BootUiCamera>)>,
+) {
+	if q_ui_cam.iter().next().is_none() {
+		return;
+	}
+
+	for mut cam in q_boot.iter_mut() {
+		cam.is_active = false;
+	}
+}
+
 fn main() {
 	info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
 	let assets_path = extract_embedded_assets_to_temp();
@@ -190,10 +217,7 @@ fn main() {
 		.add_message::<RebuildWalls>()
 		.add_systems(Startup, setup_audio)
 		.add_systems(Startup, start_music.after(setup_audio))
-		.add_systems(
-			Startup,
-			(setup, ApplyDeferred, spawn_decorations, pickups::spawn_pickups).chain(),
-		)
+		.add_systems(Startup, spawn_boot_ui_camera)
 		.add_systems(
 			Update,
 			toggle_god_mode.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
@@ -229,11 +253,12 @@ fn main() {
 				restart::restart_despawn_level,
 				setup,
 				ApplyDeferred,
+				disable_boot_ui_camera_when_player_camera_ready,
 				spawn_decorations,
 				pickups::spawn_pickups,
 			)
 				.chain()
-				.run_if(level_rebuild_requested),
+				.run_if(level_rebuild_requested)
 		)
 		.add_systems(
 			PostUpdate,
