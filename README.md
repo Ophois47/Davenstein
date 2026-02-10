@@ -8,6 +8,8 @@ NOTE! Left Control (LCtrl) releases the mouse from the window.
 -- Build on Linux with: 
 - $ cargo update && cargo build && cargo build --release
 
+-- To Cross Compile for Windows (GNU):
+- $ cross build --release --target x86_64-pc-windows-gnu
 
 -- To Cross Compile for Armv7:
 - $ cross build --release --target armv7-unknown-linux-gnueabihf
