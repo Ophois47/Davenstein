@@ -42,6 +42,7 @@ pub struct RebuildWalls {
 #[derive(Resource, Clone)]
 pub struct WallRenderCache {
     pub atlas_panels: Vec<Handle<Mesh>>,
+    pub atlas_panels_flip: Vec<Handle<Mesh>>,
     pub jamb_panel: Handle<Mesh>,
     pub wall_base: Quat,
     pub wall_mat: Handle<StandardMaterial>,
@@ -162,6 +163,10 @@ fn spawn_wall_faces_for_grid(
             let wall_mesh_light = cache.atlas_panels[light_idx].clone();
             let wall_mesh_dark = cache.atlas_panels[dark_idx].clone();
 
+            // Flipped variants for faces whose yaw rotation mirrors the texture
+            let wall_mesh_light_flip = cache.atlas_panels_flip[light_idx].clone();
+            let wall_mesh_dark_flip = cache.atlas_panels_flip[dark_idx].clone();
+
             let cx = x as f32 * TILE_SIZE;
             let cz = z as f32 * TILE_SIZE;
             let y = WALL_H * 0.5;
@@ -173,7 +178,7 @@ fn spawn_wall_faces_for_grid(
                     if neighbor_is_door {
                         jamb_mesh(DOOR_JAMB_LIGHT)
                     } else {
-                        wall_mesh_light.clone()
+                        wall_mesh_light_flip.clone()
                     },
                     if neighbor_is_door {
                         cache.wall_mat.clone()
@@ -192,7 +197,7 @@ fn spawn_wall_faces_for_grid(
                     if neighbor_is_door {
                         jamb_mesh(DOOR_JAMB_LIGHT)
                     } else {
-                        wall_mesh_light.clone()
+                        wall_mesh_light_flip.clone()
                     },
                     if neighbor_is_door {
                         cache.wall_mat.clone()
@@ -211,7 +216,7 @@ fn spawn_wall_faces_for_grid(
                     if neighbor_is_door {
                         jamb_mesh(DOOR_JAMB_DARK)
                     } else {
-                        wall_mesh_dark.clone()
+                        wall_mesh_dark_flip.clone()
                     },
                     if neighbor_is_door {
                         cache.wall_mat.clone()
@@ -230,7 +235,7 @@ fn spawn_wall_faces_for_grid(
                     if neighbor_is_door {
                         jamb_mesh(DOOR_JAMB_DARK)
                     } else {
-                        wall_mesh_dark.clone()
+                        wall_mesh_dark_flip.clone()
                     },
                     if neighbor_is_door {
                         cache.wall_mat.clone()
@@ -905,6 +910,12 @@ pub fn setup(
 		atlas_panels.push(build_atlas_panel(&mut meshes, u0, u1, v0, v1, false));
 	}
 
+    let mut atlas_panels_flip: Vec<Handle<Mesh>> = Vec::with_capacity(VSWAP_WALL_CHUNKS);
+    for i in 0..VSWAP_WALL_CHUNKS {
+        let (u0, u1, v0, v1) = atlas_uv(i);
+        atlas_panels_flip.push(build_atlas_panel(&mut meshes, u0, u1, v0, v1, true));
+    }
+
 	let door98_front = atlas_panels[DOOR_NORMAL_LIGHT].clone();
 	let door98_back = {
 		let (u0, u1, v0, v1) = atlas_uv(DOOR_NORMAL_LIGHT);
@@ -948,6 +959,7 @@ pub fn setup(
 
 	let wall_cache = WallRenderCache {
 		atlas_panels: atlas_panels.clone(),
+        atlas_panels_flip,
 		jamb_panel,
 		wall_base,
 		wall_mat: wall_mat.clone(),

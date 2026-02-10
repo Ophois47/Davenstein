@@ -8,7 +8,11 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use crate::ui::level_end_font::LevelEndBitmapText;
+use crate::ui::{
+    DeathOverlay,
+    GameOver,
+    level_end_font::LevelEndBitmapText,
+};
 use davelib::audio::{
     MusicMode,
     MusicModeKind,
@@ -97,6 +101,8 @@ struct SplashResources<'w> {
     psyched: ResMut<'w, PsychedLoad>,
     name_entry: ResMut<'w, davelib::high_score::NameEntryState>,
     high_scores: ResMut<'w, davelib::high_score::HighScores>,
+    death_overlay: Res<'w, DeathOverlay>,
+    game_over: Res<'w, GameOver>,
 }
 
 #[derive(SystemParam)]
@@ -3364,6 +3370,11 @@ fn splash_advance_on_any_input(
 
         SplashStep::Done => {
             // Gameplay -> Pause Menu ESC
+            // Block ESC during death cam or game over screen
+            if resources.death_overlay.active || resources.game_over.0 {
+                return;
+            }
+
             if keyboard.just_pressed(KeyCode::Escape) {
                 let Some(imgs) = resources.imgs.as_ref() else { return; };
 

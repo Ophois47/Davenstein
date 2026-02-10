@@ -29,5 +29,4 @@ BUGS:
 **********************************************
 - Fix scaling from windowed to full screen on all resolutions
 - Enemies sometimes walk backwards while still facing player
-- Some wall textures appear flipped backwards
-- Should not be able to hit ESC during death cam or episode end
+- Episode 5 victory animation has BJ run the wrong direction
