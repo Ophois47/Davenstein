@@ -213,17 +213,17 @@ fn spawn_pushwall_visual(
     let dark_idx = pair_base + 1;
 
     let light_panel = cache
-        .atlas_panels
+        .atlas_panels_flip
         .get(light_idx)
         .cloned()
-        .unwrap_or_else(|| cache.atlas_panels[0].clone());
+        .unwrap_or_else(|| cache.atlas_panels_flip[0].clone());
     let dark_panel = cache
-        .atlas_panels
+        .atlas_panels_flip
         .get(dark_idx)
         .cloned()
-        .unwrap_or_else(|| cache.atlas_panels[0].clone());
+        .unwrap_or_else(|| cache.atlas_panels_flip[0].clone());
 
-    // A "block" is 4 vertical planes around the tile center (like your static walls).
+    // A "block" is 4 vertical planes around the tile center (like your static walls)
     let parent = commands
         .spawn((
             PushwallVisual,
