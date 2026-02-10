@@ -76,13 +76,14 @@ pub(crate) fn boss_health(kind: EnemyKind, skill: &crate::skill::SkillLevel) -> 
         (EnemyKind::General, 2) => 1050,
         (EnemyKind::General, 3) => 1200,
         
-        // Ghost Hitler (SOD expansion - using similar scaling)
+        // Ghost Hitler
         (EnemyKind::GhostHitler, 0) => 850,
         (EnemyKind::GhostHitler, 1) => 950,
         (EnemyKind::GhostHitler, 2) => 1050,
         (EnemyKind::GhostHitler, 3) => 1200,
         
-        _ => 850, // fallback
+        // Fallback
+        _ => 850,
     }
 }
 
@@ -382,7 +383,8 @@ pub struct MutantSprites {
     pub walk: [[Handle<Image>; 8]; 4],
 
     pub shoot_front_aim: Handle<Image>,
-    pub shoot_front_fire: Handle<Image>,
+    pub shoot_front_fire_0: Handle<Image>,
+    pub shoot_front_fire_1: Handle<Image>,
 
     pub pain: Handle<Image>,
     pub dying: [Handle<Image>; 4],
@@ -441,43 +443,43 @@ impl FromWorld for MutantSprites {
     fn from_world(world: &mut World) -> Self {
         let asset_server = world.resource::<AssetServer>();
 
-        // 8-dir idle frames (your files: guard_idle_a0..a7.png)
         let idle: [Handle<Image>; 8] = std::array::from_fn(|dir| {
             asset_server.load(format!("enemies/mutant/mutant_idle_a{}.png", dir))
         });
 
-        // 4 walk frames x 8 directions (your files: guard_walk_r{row}_dir{dir}.png)
         let walk: [[Handle<Image>; 8]; 4] = std::array::from_fn(|row| {
             std::array::from_fn(|dir| {
                 asset_server.load(format!(
                     "enemies/mutant/mutant_walk_r{}_dir{}.png",
-                    row,
-                    dir,
+                    row, dir,
                 ))
             })
         });
 
-        // Single-frame states
         let pain: Handle<Image> = asset_server.load("enemies/mutant/mutant_pain.png");
 
-        // Dying
         let dying: [Handle<Image>; 4] = std::array::from_fn(|i| {
             asset_server.load(format!("enemies/mutant/mutant_death_{}.png", i))
         });
 
         let corpse: Handle<Image> = asset_server.load("enemies/mutant/mutant_corpse.png");
 
-        // Shooting
-        let shoot_front_aim: Handle<Image> =
-            asset_server.load("enemies/mutant/mutant_shoot_front_aim.png");
-        let shoot_front_fire: Handle<Image> =
-            asset_server.load("enemies/mutant/mutant_shoot_front_fire.png");
+        let shoot_front_aim: Handle<Image> = asset_server.load(
+            "enemies/mutant/mutant_shoot_front_aim.png",
+        );
+        let shoot_front_fire_0: Handle<Image> = asset_server.load(
+            "enemies/mutant/mutant_shoot_front_fire_0.png",
+        );
+        let shoot_front_fire_1: Handle<Image> = asset_server.load(
+            "enemies/mutant/mutant_shoot_front_fire_1.png",
+        );
 
         Self {
             idle,
             walk,
             shoot_front_aim,
-            shoot_front_fire,
+            shoot_front_fire_0,
+            shoot_front_fire_1,
             pain,
             dying,
             corpse,
@@ -3597,7 +3599,7 @@ pub fn update_guard_views(
         } else if pain.is_some() {
             sprites.pain.clone()
         } else if let Some(s) = shoot {
-            // GuardShoot Has Only Timer', Pick Aim vs Fire Based on Timer Progress
+            // GuardShoot Has Only Timer, Pick Aim vs Fire Based on Timer Progress
             let dur = s.timer.duration().as_secs_f32().max(1e-6);
             let t = s.timer.elapsed().as_secs_f32();
             let fire_phase = t >= (dur * 0.5);
@@ -3622,11 +3624,12 @@ pub fn update_guard_views(
     }
 }
 
-pub fn update_mutant_views(
+fn update_mutant_views(
     sprites: Res<MutantSprites>,
     q_player: Query<&GlobalTransform, With<Player>>,
     mut q: Query<
         (
+            Entity,
             Option<&Dead>,
             Option<&MutantCorpse>,
             Option<&MutantDying>,
@@ -3643,18 +3646,23 @@ pub fn update_mutant_views(
         (With<Mutant>, Without<Player>),
     >,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut last_fire_alt: Local<std::collections::HashMap<Entity, bool>>,
+    mut shooting_now: Local<std::collections::HashSet<Entity>>,
 ) {
     let Some(player_gt) = q_player.iter().next() else { return; };
     let player_pos = player_gt.translation();
 
-    for (_dead, corpse, dying, pain, walk, shoot, mv, gt, dir8, mut view, mat3d, mut tf) in q.iter_mut() {
+    shooting_now.retain(|e| q.get(*e).is_ok());
+    last_fire_alt.retain(|e, _| q.get(*e).is_ok());
+
+    for (e, _dead, corpse, dying, pain, walk, shoot, mv, gt, dir8, mut view, mat3d, mut tf) in
+        q.iter_mut()
+    {
         let enemy_pos = gt.translation();
 
-        // Compute View Index (0..7) Relative to Enemy's Facing + Player Position
         let v = quantize_view8(dir8.0, enemy_pos, player_pos);
         view.0 = v;
 
-        // Rotate Quad to Face Player
         let to_player = player_pos - enemy_pos;
         let flat_len2 = to_player.x * to_player.x + to_player.z * to_player.z;
         if flat_len2 > 1e-6 {
@@ -3662,10 +3670,18 @@ pub fn update_mutant_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
+        if shoot.is_some() {
+            if !shooting_now.contains(&e) {
+                let prev = last_fire_alt.get(&e).copied().unwrap_or(true);
+                last_fire_alt.insert(e, !prev);
+                shooting_now.insert(e);
+            }
+        } else {
+            shooting_now.remove(&e);
+        }
+
         let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
 
-        // Choose Texture in Priority Order:
-        // Corpse > Dying > Pain > Shooting > Moving (Walk) > Idle
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse.clone()
         } else if let Some(d) = dying {
@@ -3674,18 +3690,21 @@ pub fn update_mutant_views(
         } else if pain.is_some() {
             sprites.pain.clone()
         } else if let Some(s) = shoot {
-            // GuardShoot Has Only Timer', Pick Aim vs Fire Based on Timer Progress
             let dur = s.timer.duration().as_secs_f32().max(1e-6);
             let t = s.timer.elapsed().as_secs_f32();
             let fire_phase = t >= (dur * 0.5);
 
             if fire_phase {
-                sprites.shoot_front_fire.clone()
+                let alt = last_fire_alt.get(&e).copied().unwrap_or(false);
+                if alt {
+                    sprites.shoot_front_fire_1.clone()
+                } else {
+                    sprites.shoot_front_fire_0.clone()
+                }
             } else {
                 sprites.shoot_front_aim.clone()
             }
         } else if mv.is_some() {
-            // Walk Frame Index From MutantWalk.phase (4 Frames Per Tile)
             let w = walk.map(|w| w.phase).unwrap_or(0.0);
             let frame_i = (((w * 4.0).floor() as i32) & 3) as usize;
             sprites.walk[frame_i][v as usize].clone()
@@ -3716,7 +3735,7 @@ impl Plugin for EnemiesPlugin {
             .init_resource::<SchabbsSprites>()
             .init_resource::<OttoSprites>()
             .init_resource::<GeneralSprites>()
-            // Update systems - attach walk components
+            // Update Systems: Attach Walk Components
             .add_systems(Update, attach_guard_walk)
             .add_systems(Update, attach_mutant_walk)
             .add_systems(Update, attach_ss_walk)
@@ -3730,7 +3749,7 @@ impl Plugin for EnemiesPlugin {
             .add_systems(Update, attach_schabbs_walk)
             .add_systems(Update, attach_otto_walk)
             .add_systems(Update, attach_general_walk)
-            // Update systems - update views
+            // Update Systems: Update Views
             .add_systems(Update, update_guard_views)
             .add_systems(Update, update_mutant_views)
             .add_systems(Update, update_ss_views)
@@ -3744,61 +3763,61 @@ impl Plugin for EnemiesPlugin {
             .add_systems(Update, update_schabbs_views)
             .add_systems(Update, update_otto_views)
             .add_systems(Update, update_general_views)
-            // FixedUpdate systems - guards
+            // FixedUpdate Systems: Guards
             .add_systems(FixedUpdate, tick_guard_walk)
             .add_systems(FixedUpdate, tick_guard_pain)
             .add_systems(FixedUpdate, tick_guard_shoot)
             .add_systems(FixedUpdate, tick_guard_dying)
-            // FixedUpdate systems - mutants
+            // FixedUpdate Systems: Mutants
             .add_systems(FixedUpdate, tick_mutant_walk)
             .add_systems(FixedUpdate, tick_mutant_pain)
             .add_systems(FixedUpdate, tick_mutant_shoot)
             .add_systems(FixedUpdate, tick_mutant_dying)
-            // FixedUpdate systems - SS
+            // FixedUpdate Systems: SS
             .add_systems(FixedUpdate, tick_ss_walk)
             .add_systems(FixedUpdate, tick_ss_pain)
             .add_systems(FixedUpdate, tick_ss_shoot)
             .add_systems(FixedUpdate, tick_ss_dying)
-            // FixedUpdate systems - officers
+            // FixedUpdate Systems: Officers
             .add_systems(FixedUpdate, tick_officer_walk)
             .add_systems(FixedUpdate, tick_officer_pain)
             .add_systems(FixedUpdate, tick_officer_shoot)
             .add_systems(FixedUpdate, tick_officer_dying)
-            // FixedUpdate systems - dogs
+            // FixedUpdate Systems: Dogs
             .add_systems(FixedUpdate, tick_dog_walk)
             .add_systems(FixedUpdate, tick_dog_pain)
             .add_systems(FixedUpdate, tick_dog_bite_cooldown)
             .add_systems(FixedUpdate, tick_dog_bite)
             .add_systems(FixedUpdate, tick_dog_dying)
-            // FixedUpdate systems - Hans
+            // FixedUpdate Systems: Hans
             .add_systems(FixedUpdate, tick_hans_walk)
             .add_systems(FixedUpdate, tick_hans_shoot)
             .add_systems(FixedUpdate, tick_hans_dying)
-            // FixedUpdate systems - Gretel
+            // FixedUpdate Systems: Gretel
             .add_systems(FixedUpdate, tick_gretel_walk)
             .add_systems(FixedUpdate, tick_gretel_shoot)
             .add_systems(FixedUpdate, tick_gretel_dying)
-            // FixedUpdate systems - Mecha Hitler
+            // FixedUpdate Systems: Mecha Hitler
             .add_systems(FixedUpdate, tick_mecha_hitler_walk)
             .add_systems(FixedUpdate, tick_mecha_hitler_shoot)
             .add_systems(FixedUpdate, tick_mecha_hitler_dying)
-            // FixedUpdate systems - Hitler
+            // FixedUpdate Systems: Hitler
             .add_systems(FixedUpdate, tick_hitler_walk)
             .add_systems(FixedUpdate, tick_hitler_shoot)
             .add_systems(FixedUpdate, tick_hitler_dying)
-            // FixedUpdate systems - Ghost Hitler
+            // FixedUpdate Systems: Ghost Hitler
             .add_systems(FixedUpdate, tick_ghost_hitler_walk)
             .add_systems(FixedUpdate, tick_ghost_hitler_shoot)
             .add_systems(FixedUpdate, tick_ghost_hitler_dying)
-            // FixedUpdate systems - Schabbs
+            // FixedUpdate Systems: Schabbs
             .add_systems(FixedUpdate, tick_schabbs_walk)
             .add_systems(FixedUpdate, tick_schabbs_throw)
             .add_systems(FixedUpdate, tick_schabbs_dying)
-            // FixedUpdate systems - Otto
+            // FixedUpdate Systems: Otto
             .add_systems(FixedUpdate, tick_otto_walk)
             .add_systems(FixedUpdate, tick_otto_shoot)
             .add_systems(FixedUpdate, tick_otto_dying)
-            // FixedUpdate systems - General
+            // FixedUpdate Systems: General
             .add_systems(FixedUpdate, tick_general_walk)
             .add_systems(FixedUpdate, tick_general_shoot)
             .add_systems(FixedUpdate, tick_general_dying);

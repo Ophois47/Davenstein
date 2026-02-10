@@ -28,4 +28,3 @@ FEATURES TO BE COMPLETED:
 BUGS:
 **********************************************
 - Fix scaling from windowed to full screen on all resolutions
-- Enemy mutants should have three shooting frames
