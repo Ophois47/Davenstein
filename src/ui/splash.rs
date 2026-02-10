@@ -2095,8 +2095,47 @@ fn spawn_skill_select_ui(
     ));
 }
 
-fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32) {
-    commands
+fn spawn_splash_ui(
+    commands: &mut Commands,
+    image: Handle<Image>,
+    w: f32,
+    h: f32,
+    version_font_img: Option<Handle<Image>>,
+) {
+    const BUILD_VERSION: &str = concat!("V", env!("CARGO_PKG_VERSION"));
+
+    let ui_scale = (w / BASE_W).floor().max(1.0);
+
+    const VERSION_SCALE: f32 = 0.50;
+
+    let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
+        let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+
+        let mut max_line_w = 0.0f32;
+        let mut cur_line_w = 0.0f32;
+
+        for ch in text.chars() {
+            if ch == '\n' {
+                max_line_w = max_line_w.max(cur_line_w);
+                cur_line_w = 0.0;
+                continue;
+            }
+
+            if ch == ' ' {
+                cur_line_w += (MENU_FONT_SPACE_W * s).round();
+                continue;
+            }
+
+            if let Some(g) = menu_glyph(ch) {
+                cur_line_w += (g.advance * s).round();
+            }
+        }
+
+        max_line_w = max_line_w.max(cur_line_w);
+        max_line_w.max(1.0)
+    };
+
+    let root = commands
         .spawn((
             SplashUi,
             ZIndex(1000),
@@ -2112,17 +2151,54 @@ fn spawn_splash_ui(commands: &mut Commands, image: Handle<Image>, w: f32, h: f32
             },
             BackgroundColor(Color::BLACK),
         ))
-        .with_children(|root| {
-            root.spawn((
-                SplashImage,
-                ImageNode::new(image),
-                Node {
-                    width: Val::Px(w),
-                    height: Val::Px(h),
-                    ..default()
-                },
-            ));
-        });
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashImage,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            ChildOf(root),
+        ))
+        .id();
+
+    commands.spawn((
+        ImageNode::new(image),
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    let Some(font_img) = version_font_img else { return; };
+
+    let ver_ui_scale = (ui_scale * VERSION_SCALE).max(0.01);
+
+    let ver_w = measure_menu_text_width(ver_ui_scale, BUILD_VERSION);
+
+    let s = (ver_ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+    let ver_h = ((MENU_FONT_HEIGHT * s) + s).round().max(1.0);
+
+    let margin = (2.0 * ui_scale).round().max(2.0);
+    let left = (w - margin - ver_w).round().max(0.0);
+    let top = (h - margin - ver_h).round().max(0.0);
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        font_img,
+        left,
+        top,
+        ver_ui_scale,
+        BUILD_VERSION,
+        Visibility::Visible,
+    );
 }
 
 fn high_score_rank_for(high_scores: &davelib::high_score::HighScores, score: i32) -> usize {
@@ -2753,21 +2829,21 @@ fn spawn_menu_hint(
 }
 
 fn splash_advance_on_any_input(
-	mut commands: Commands,
-	asset_server: Res<AssetServer>,
-	input: SplashAdvanceInput,
-	time: Res<Time>,
-	mut resources: SplashResources,
-	mut menu: Local<MenuLocalState>,
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    input: SplashAdvanceInput,
+    time: Res<Time>,
+    mut resources: SplashResources,
+    mut menu: Local<MenuLocalState>,
     mut new_game: ResMut<crate::ui::sync::NewGameRequested>,
     mut episode_tally: ResMut<EpisodeVictoryTally>,
     mut current_level: ResMut<davelib::level::CurrentLevel>,
-	mut episode: Local<EpisodeLocalState>,
-	mut skill: Local<SkillLocalState>,
+    mut episode: Local<EpisodeLocalState>,
+    mut skill: Local<SkillLocalState>,
     mut skill_level: ResMut<davelib::skill::SkillLevel>,
-	mut sfx: MessageWriter<PlaySfx>,
-	mut app_exit: MessageWriter<bevy::app::AppExit>,
-	mut q: SplashAdvanceQueries,
+    mut sfx: MessageWriter<PlaySfx>,
+    mut app_exit: MessageWriter<bevy::app::AppExit>,
+    mut q: SplashAdvanceQueries,
 ) {
     let keyboard = &*input.keyboard;
     let mouse = &*input.mouse;
@@ -2786,12 +2862,18 @@ fn splash_advance_on_any_input(
             let Some(imgs) = resources.imgs.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
-                spawn_splash_ui(&mut commands, imgs.splash0.clone(), w, h);
+                spawn_splash_ui(
+                    &mut commands,
+                    imgs.splash0.clone(),
+                    w,
+                    h,
+                    Some(imgs.menu_font_white.clone()),
+                );
             }
 
             if any_key {
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
-                spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
+                spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h, None);
                 *resources.step = SplashStep::Splash1;
             }
         }
@@ -2803,7 +2885,7 @@ fn splash_advance_on_any_input(
             let Some(imgs) = resources.imgs.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
-                spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h);
+                spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h, None);
             }
 
             if any_key {
@@ -2811,74 +2893,112 @@ fn splash_advance_on_any_input(
                 spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, false);
                 menu.reset();
                 *resources.step = SplashStep::Menu;
+                resources.music_mode.0 = MusicModeKind::Menu;
             }
         }
 
-        SplashStep::Menu | SplashStep::PauseMenu => {
-            let is_pause = *resources.step == SplashStep::PauseMenu;
-
+        SplashStep::PauseMenu | SplashStep::Menu => {
+            resources.lock.0 = true;
             resources.music_mode.0 = MusicModeKind::Menu;
 
-            let actions: &[MenuAction] = if is_pause { &MENU_ACTIONS_PAUSE } else { &MENU_ACTIONS_MAIN };
+            let Some(imgs) = resources.imgs.as_ref() else { return; };
 
-            // If something ever nuked the menu roots, recreate
+            let is_pause = *resources.step == SplashStep::PauseMenu;
+
+            let item_count = if is_pause {
+                MENU_ACTIONS_PAUSE.len()
+            } else {
+                MENU_ACTIONS_MAIN.len()
+            };
+
+            if item_count == 0 {
+                return;
+            }
+
+            menu.selection = menu.selection.min(item_count - 1);
+
+            // Ensure menu UI exists
             if q.q_splash_roots.iter().next().is_none() {
-                if let Some(imgs) = resources.imgs.as_ref() {
-                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, is_pause);
-                    menu.reset();
-                }
-                return;
+                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, is_pause);
+                menu.reset();
+                menu.selection = menu.selection.min(item_count - 1);
             }
 
-            // ESC in pause menu resumes (DOS-ish)
-            if is_pause && keyboard.just_pressed(KeyCode::Escape) {
-                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
-                resources.lock.0 = false;
-                resources.music_mode.0 = MusicModeKind::Gameplay;
-                *resources.step = SplashStep::Done;
-                return;
-            }
-
-            let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
-            let top = ((MENU_CURSOR_TOP + menu.selection as f32 * MENU_ITEM_H) * scale).round();
-
-            for mut node in q.q_node.iter_mut() {
-                node.top = Val::Px(top);
-            }
-            for mut v in q.q_cursor_light.iter_mut() {
-                *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
-            }
-            for mut v in q.q_cursor_dark.iter_mut() {
-                *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
-            }
-
-            for (item, variant, mut vis) in q.q_episode_items.iter_mut() {
-                let want_selected = item.idx == menu.selection;
-                *vis = if variant.selected == want_selected { Visibility::Visible } else { Visibility::Hidden };
-            }
-
+            // Navigation
+            let mut moved = false;
             if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
-                if menu.selection > 0 { menu.selection -= 1; } else { menu.selection = actions.len() - 1; }
-                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+                if menu.selection > 0 {
+                    menu.selection -= 1;
+                } else {
+                    menu.selection = item_count - 1;
+                }
+                moved = true;
             }
             if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
-                menu.selection = (menu.selection + 1) % actions.len();
+                menu.selection = (menu.selection + 1) % item_count;
+                moved = true;
+            }
+            if moved {
                 sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
             }
 
+            // Update item visibility
+            for (item, variant, mut vis) in q.q_episode_items.iter_mut() {
+                let want_selected = item.idx == menu.selection;
+                *vis = if variant.selected == want_selected {
+                    Visibility::Visible
+                } else {
+                    Visibility::Hidden
+                };
+            }
+
+            // Cursor blink
+            if menu.blink.tick(time.delta()).just_finished() {
+                menu.blink_light = !menu.blink_light;
+            }
+
+            // Cursor position matches spawn_menu_hint
+            let ui_scale = (w / BASE_W).round().max(1.0);
+            let panel_left = (76.0 * ui_scale).round();
+            let cursor_w = (19.0 * ui_scale).round();
+            let cursor_x = (panel_left + (18.0 * ui_scale).round()).round();
+
+            let row_h = (MENU_ITEM_H * ui_scale).round();
+            let cursor_y0 = (MENU_CURSOR_TOP * ui_scale).round();
+            let cursor_y = (cursor_y0 + menu.selection as f32 * row_h).round();
+
+            for mut node in q.q_node.iter_mut() {
+                node.left = Val::Px(cursor_x);
+                node.top = Val::Px(cursor_y);
+                node.width = Val::Px(cursor_w);
+            }
+
+            for mut v in q.q_cursor_light.iter_mut() {
+                *v = if menu.blink_light { Visibility::Visible } else { Visibility::Hidden };
+            }
+            for mut v in q.q_cursor_dark.iter_mut() {
+                *v = if menu.blink_light { Visibility::Hidden } else { Visibility::Visible };
+            }
+
+            // Activate selection
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
             {
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
-                match actions[menu.selection] {
+                let action = if is_pause {
+                    MENU_ACTIONS_PAUSE[menu.selection]
+                } else {
+                    MENU_ACTIONS_MAIN[menu.selection]
+                };
+
+                match action {
                     MenuAction::BackToGame => {
                         for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        *resources.step = SplashStep::Done;
                         resources.lock.0 = false;
                         resources.music_mode.0 = MusicModeKind::Gameplay;
-                        *resources.step = SplashStep::Done;
                     }
 
                     MenuAction::NewGame => {
@@ -3129,7 +3249,6 @@ fn splash_advance_on_any_input(
 
             let Some(imgs) = resources.imgs.as_ref() else { return; };
 
-            // If we ever land here without an active entry, fall back to Scores
             if !resources.name_entry.active {
                 for e in q.q_splash_roots.iter() {
                     commands.entity(e).despawn();
@@ -3142,7 +3261,6 @@ fn splash_advance_on_any_input(
                 return;
             }
 
-            // Ensure name entry UI exists
             if q.q_splash_roots.iter().next().is_none() {
                 spawn_name_entry_ui(
                     &mut commands,
@@ -3244,8 +3362,6 @@ fn splash_advance_on_any_input(
         }
 
         SplashStep::Scores => {
-            // Score screen is never an input mode
-            // If we arrive here with name entry still active, shut it down
             if resources.name_entry.active {
                 resources.name_entry.active = false;
                 resources.name_entry.name.clear();
@@ -3369,8 +3485,6 @@ fn splash_advance_on_any_input(
         }
 
         SplashStep::Done => {
-            // Gameplay -> Pause Menu ESC
-            // Block ESC during death cam or game over screen
             if resources.death_overlay.active || resources.game_over.0 || resources.lock.0 {
                 return;
             }
@@ -3383,7 +3497,6 @@ fn splash_advance_on_any_input(
                 resources.lock.0 = true;
                 resources.music_mode.0 = MusicModeKind::Scores;
 
-                // If Stray Splash Roots Exist, Clear Them
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
                 spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, true);
