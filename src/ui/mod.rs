@@ -47,6 +47,7 @@ impl Plugin for UiPlugin {
 			.add_systems(Update, sync::tick_death_delay_and_request_restart)
 			.add_systems(Update, sync::game_over_input)
 			// HUD + Viewmodel systems
+			.add_systems(Update, hud::sync_hud_layout_on_window_change)
 			.add_systems(Update, hud::sync_viewmodel_size)
 			.add_systems(Update, hud::sync_viewmodel_visibility)
 			.add_systems(Update, hud::weapon_fire_and_viewmodel)
