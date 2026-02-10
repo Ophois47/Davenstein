@@ -28,5 +28,4 @@ FEATURES TO BE COMPLETED:
 BUGS:
 **********************************************
 - Fix scaling from windowed to full screen on all resolutions
-- Enemies sometimes walk backwards while still facing player
-- Episode 5 victory animation has BJ run the wrong direction
+- Pushwalls are now flipped backwards

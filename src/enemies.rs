@@ -370,7 +370,6 @@ pub struct GuardSprites {
 
     pub shoot_front_aim: Handle<Image>,
     pub shoot_front_fire: Handle<Image>,
-    pub shoot_side_fire: Handle<Image>,
 
     pub pain: Handle<Image>,
     pub dying: [Handle<Image>; 4],
@@ -384,7 +383,6 @@ pub struct MutantSprites {
 
     pub shoot_front_aim: Handle<Image>,
     pub shoot_front_fire: Handle<Image>,
-    pub shoot_side_fire: Handle<Image>,
 
     pub pain: Handle<Image>,
     pub dying: [Handle<Image>; 4],
@@ -426,15 +424,12 @@ impl FromWorld for GuardSprites {
             asset_server.load("enemies/guard/guard_shoot_front_aim.png");
         let shoot_front_fire: Handle<Image> =
             asset_server.load("enemies/guard/guard_shoot_front_fire.png");
-        let shoot_side_fire: Handle<Image> =
-            asset_server.load("enemies/guard/guard_shoot_side_fire.png");
 
         Self {
             idle,
             walk,
             shoot_front_aim,
             shoot_front_fire,
-            shoot_side_fire,
             pain,
             dying,
             corpse,
@@ -477,15 +472,12 @@ impl FromWorld for MutantSprites {
             asset_server.load("enemies/mutant/mutant_shoot_front_aim.png");
         let shoot_front_fire: Handle<Image> =
             asset_server.load("enemies/mutant/mutant_shoot_front_fire.png");
-        let shoot_side_fire: Handle<Image> =
-            asset_server.load("enemies/mutant/mutant_shoot_side_fire.png");
 
         Self {
             idle,
             walk,
             shoot_front_aim,
             shoot_front_fire,
-            shoot_side_fire,
             pain,
             dying,
             corpse,
@@ -3605,21 +3597,15 @@ pub fn update_guard_views(
         } else if pain.is_some() {
             sprites.pain.clone()
         } else if let Some(s) = shoot {
-            let frontish = matches!(v, 0 | 1 | 7);
-
             // GuardShoot Has Only Timer', Pick Aim vs Fire Based on Timer Progress
             let dur = s.timer.duration().as_secs_f32().max(1e-6);
             let t = s.timer.elapsed().as_secs_f32();
             let fire_phase = t >= (dur * 0.5);
 
-            if frontish {
-                if fire_phase {
-                    sprites.shoot_front_fire.clone()
-                } else {
-                    sprites.shoot_front_aim.clone()
-                }
+            if fire_phase {
+                sprites.shoot_front_fire.clone()
             } else {
-                sprites.shoot_side_fire.clone()
+                sprites.shoot_front_aim.clone()
             }
         } else if mv.is_some() {
             // Walk Frame Index From GuardWalk.phase (4 Frames Per Tile)
@@ -3688,21 +3674,15 @@ pub fn update_mutant_views(
         } else if pain.is_some() {
             sprites.pain.clone()
         } else if let Some(s) = shoot {
-            let frontish = matches!(v, 0 | 1 | 7);
-
             // GuardShoot Has Only Timer', Pick Aim vs Fire Based on Timer Progress
             let dur = s.timer.duration().as_secs_f32().max(1e-6);
             let t = s.timer.elapsed().as_secs_f32();
             let fire_phase = t >= (dur * 0.5);
 
-            if frontish {
-                if fire_phase {
-                    sprites.shoot_front_fire.clone()
-                } else {
-                    sprites.shoot_front_aim.clone()
-                }
+            if fire_phase {
+                sprites.shoot_front_fire.clone()
             } else {
-                sprites.shoot_side_fire.clone()
+                sprites.shoot_front_aim.clone()
             }
         } else if mv.is_some() {
             // Walk Frame Index From MutantWalk.phase (4 Frames Per Tile)

@@ -733,7 +733,6 @@ fn enemy_ai_prepare_and_activate(
                 || mutant_pain.is_some();
 
             if in_pain {
-                *dir8 = dir8_towards(my_tile, player_tile);
                 continue;
             }
 
@@ -1082,6 +1081,10 @@ fn enemy_ai_combat(
 
             if can_see && in_range {
                 if cd_now <= 0.0 && los_ready {
+                    commands
+                        .entity(e)
+                        .insert(PendingDir8(dir8_towards(my_tile, player_tile)));
+                        
                     // Ghost Hitler projectile volley
                     if matches!(*kind, EnemyKind::GhostHitler) {
                         // Tune these until it visually matches DOS Wolf3D
