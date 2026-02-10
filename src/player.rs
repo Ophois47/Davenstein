@@ -393,7 +393,7 @@ pub fn use_doors(
 
         match cur {
             Tile::DoorOpen => {
-                // DOS Wolf behavior: using an already-open door does nothing
+                // Wolfenstein 3D Behavior: Using an Already Open Door Does Nothing
                 *vis = Visibility::Hidden;
             }
             Tile::DoorClosed => {
@@ -415,7 +415,11 @@ pub fn use_doors(
     if let Some(kind) = sfx_kind {
         sfx.write(PlaySfx {
             kind,
-            pos: Vec3::new(target.x as f32 * TILE_SIZE, 0.6, target.y as f32 * TILE_SIZE),
+            pos: Vec3::new(
+                target.x as f32 * TILE_SIZE,
+                0.6,
+                target.y as f32 * TILE_SIZE,
+            ),
         });
     }
 }
@@ -423,7 +427,13 @@ pub fn use_doors(
 pub fn door_animate(
     time: Res<Time<Fixed>>,
     mut grid: ResMut<MapGrid>,
-    mut q_doors: Query<(&DoorTile, &DoorState, &mut DoorAnim, &mut Transform, &mut Visibility)>,
+    mut q_doors: Query<(
+        &DoorTile,
+        &DoorState,
+        &mut DoorAnim,
+        &mut Transform,
+        &mut Visibility,
+    )>,
 ) {
     const TILE_SIZE: f32 = 1.0;
     const SLIDE_SPEED: f32 = 2.0;

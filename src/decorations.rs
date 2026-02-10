@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use crate::map::MapGrid;
 
-/// Tile-occupancy for Blocking "Statics"
+/// Tile Occupancy for Blocking "Statics"
 /// Matches Original Wolfenstein 3D Behavior (actorat[tile]=1)
 #[derive(Component)]
 pub struct BillboardUpright;
@@ -85,12 +85,12 @@ fn stat_idx_from_plane1(code: u16) -> Option<usize> {
 fn choose_tile_path_from_plane1(code: u16) -> Option<&'static str> {
     let idx = stat_idx_from_plane1(code)?;
 
-    // Wolfenstein statics: indices 0..47 are the ones in WL_ACT1.C
+    // Wolfenstein 3D Statics: Indices 0..47 in WL_ACT1.C
     if idx > 47 {
         return None;
     }
 
-    // Use simple numeric scheme so code never depends on file ordering
+    // Use Simple Numeric Scheme so Code Never Depends on File Ordering
     const PATHS: [&str; 48] = [
         "textures/decorations/stat_00_puddle.png",
         "textures/decorations/stat_01_green_barrel.png",
@@ -146,8 +146,8 @@ fn choose_tile_path_from_plane1(code: u16) -> Option<&'static str> {
 }
 
 /// Wolf3D WL_ACT1.C statinfo[]
-/// - Block vs Dressing vs Pickup
-/// Index is: idx = plane1_code - 23
+/// Block vs Dressing vs Pickup
+/// Index: IDX = Plane1_Code - 23
 const STAT_KIND: [StatKind; 49] = [
     StatKind::Dressing, // 0 puddle
     StatKind::Block,    // 1 green barrel
@@ -208,7 +208,7 @@ pub fn billboard_floor_decals(
     let player_pos = player_tf.translation;
 
     for mut tf in q_floor.iter_mut() {
-        // Flat decal: rotate around Y so its "long axis" aims at the player
+        // Flat Decal: Rotate Around Y so "Long Axis" Aims at Player
         let mut to_player = player_pos - tf.translation;
         to_player.y = 0.0;
 
@@ -217,7 +217,7 @@ pub fn billboard_floor_decals(
             let dir = to_player / len2.sqrt();
             let yaw = dir.x.atan2(dir.z);
 
-            // Keep it flat, we want rotation = (flat on ground) * (yaw)
+            // Keep it Flat, Want Rotation = (Flat on Ground) * (Yaw)
             let flat = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
             tf.rotation = Quat::from_rotation_y(yaw) * flat;
         }
@@ -236,14 +236,13 @@ fn choose_static_path_from_plane1(code: u16) -> Option<String> {
     Some(format!("textures/decorations/stat_{:02}.png", idx))
 }
 
-/// Determines if a plane1 code should be rendered as a floor decal
+/// Determines if Plane1 Code Should be Rendered as Floor Decal
 fn is_floor_decal_plane1(code: u16) -> bool {
-    // Floor decals: puddle (23), skeleton flat (32), and a few others
     matches!(code, 23 | 32 | 61 | 63)
 }
 
-/// Spawn "statics" (decorations) from plane1 codes using WL_ACT1.C statinfo[]
-/// This does *not* spawn pickups/treasure/weapons (those are handled by pickups module)
+/// Spawn "Statics" (Decorations) From Plane1 Codes Using WL_ACT1.C statinfo[]
+/// Pickups / Treasure / Weapons Handled by Pickups Module
 pub fn spawn_decorations(
 	mut commands: Commands,
 	grid: Res<MapGrid>,
@@ -373,7 +372,7 @@ pub fn billboard_decorations(
             let dir = to_player / len2.sqrt();
             let yaw = dir.x.atan2(dir.z);
 
-            // Same billboard yaw as everything else + fixed tilt
+            // Same Billboard Yaw as Everything Else + Fixed Tilt
             tf.rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(tilt.0);
         }
     }

@@ -86,7 +86,7 @@ pub fn restart_finish(
     mut pw_occ: ResMut<PushwallOcc>,
     mut pw_clock: ResMut<PushwallClock>,
 ) {
-    // Keep lives + score, reset everything else
+    // Keep Lives + Score, Reset Everything Else
     let lives = hud.lives;
     let score = hud.score;
 
@@ -94,7 +94,7 @@ pub fn restart_finish(
     hud.lives = lives;
     hud.score = score;
 
-    // Clear death / restart bookkeeping + win state
+    // Clear Death / Restart Nookkeeping + Win State
     *death = Default::default();
     latch.0 = false;
     lock.0 = false;
@@ -104,10 +104,8 @@ pub fn restart_finish(
     pw_occ.clear();
     pw_clock.reset();
 
-    // Consume request so it runs once
+    // Consume Request so it Runs Once
     restart.0 = false;
-
-    bevy::log::info!("Restart: finished (controls unlocked, HUD reset)");
 }
 
 pub fn new_game_finish(
@@ -142,8 +140,6 @@ pub fn new_game_finish(
     pw_occ.clear();
     pw_clock.reset();
     new_game.0 = false;
-
-    bevy::log::info!("New Game: finished (fresh HUD, controls unlocked)");
 }
 
 pub fn advance_level_finish(
@@ -188,6 +184,4 @@ pub fn advance_level_finish(
 
     // Consume Request
     advance.0 = false;
-
-    bevy::log::info!("Advance Level: finished (HUD preserved, controls unlocked)");
 }

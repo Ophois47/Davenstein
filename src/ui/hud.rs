@@ -201,6 +201,18 @@ pub(crate) struct HudRoot;
 #[derive(Component)]
 pub(crate) struct MissionBjCardImage;
 
+/// Marker for the inner sized container of the mission success overlay
+#[derive(Component)]
+pub(crate) struct MissionOverlayContent;
+
+/// Stores the native (unscaled) position of a mission overlay element, so we can
+/// recompute pixel positions on window resize.
+#[derive(Component, Clone, Copy)]
+pub(crate) struct MissionOverlayNativePos {
+    pub x: f32,
+    pub y: f32,
+}
+
 #[derive(Resource, Clone)]
 pub(crate) struct MissionBjCardSprites {
     pub cards: [Handle<Image>; 3],
@@ -1662,6 +1674,81 @@ pub(super) fn sync_hud_layout_on_window_change(
     }
 }
 
+/// Recomputes all mission success overlay positions and scales when the window
+/// changes, mirroring the logic in `spawn_mission_success_overlay`.
+pub(super) fn sync_mission_overlay_layout_on_window_change(
+    q_changed: Query<&Window, (With<PrimaryWindow>, Changed<Window>)>,
+    q_win: Query<&Window, With<PrimaryWindow>>,
+    mut q_overlay: Query<&mut Node, (With<crate::level_complete::MissionSuccessOverlay>, Without<MissionOverlayContent>, Without<MissionBjCardImage>, Without<MissionOverlayNativePos>)>,
+    mut q_content: Query<&mut Node, (With<MissionOverlayContent>, Without<crate::level_complete::MissionSuccessOverlay>, Without<MissionBjCardImage>, Without<MissionOverlayNativePos>)>,
+    mut q_bj: Query<&mut Node, (With<MissionBjCardImage>, Without<crate::level_complete::MissionSuccessOverlay>, Without<MissionOverlayContent>, Without<MissionOverlayNativePos>)>,
+    mut q_text: Query<(
+        &MissionOverlayNativePos,
+        &mut Node,
+        Option<&mut crate::ui::level_end_font::LevelEndBitmapText>,
+        Option<&mut crate::level_complete::MissionStatRightAlign>,
+    ), (Without<crate::level_complete::MissionSuccessOverlay>, Without<MissionOverlayContent>, Without<MissionBjCardImage>)>,
+) {
+    if q_changed.iter().next().is_none() {
+        return;
+    }
+
+    let Some(win) = q_win.iter().next() else { return; };
+
+    // Recompute scales (same logic as spawn_mission_success_overlay)
+    const VIEW_W: f32 = 320.0;
+    const VIEW_H: f32 = 156.0;
+    const STATUS_H: f32 = 44.0;
+    const TEXT_SCALE: f32 = 0.90;
+
+    let win_w = win.resolution.width();
+    let win_h = win.resolution.height();
+
+    let width_scale_i = (win_w / VIEW_W).floor().max(1.0) as i32;
+    let status_h_px = STATUS_H * (width_scale_i as f32);
+
+    let avail_h = (win_h - status_h_px).max(1.0);
+    let max_scale_h_i = (avail_h / VIEW_H).floor().max(1.0) as i32;
+
+    let overlay_scale_i = width_scale_i.min(max_scale_h_i).max(1);
+    let overlay_scale = overlay_scale_i as f32;
+
+    let bt_mul = overlay_scale / (width_scale_i as f32);
+
+    // Update overlay root: bottom inset
+    for mut n in q_overlay.iter_mut() {
+        n.bottom = Val::Px(status_h_px);
+    }
+
+    // Update content container size
+    for mut n in q_content.iter_mut() {
+        n.width = Val::Px(VIEW_W * overlay_scale);
+        n.height = Val::Px(VIEW_H * overlay_scale);
+    }
+
+    // Update BJ card position and size
+    for mut n in q_bj.iter_mut() {
+        n.left = Val::Px(16.0 * overlay_scale);
+        n.top = Val::Px(16.0 * overlay_scale);
+        n.width = Val::Px(64.0 * overlay_scale);
+        n.height = Val::Px(80.0 * overlay_scale);
+    }
+
+    // Update all text node positions, scales, and right-align data
+    for (native_pos, mut node, bt, align) in q_text.iter_mut() {
+        node.left = Val::Px(native_pos.x * overlay_scale);
+        node.top = Val::Px(native_pos.y * overlay_scale);
+
+        if let Some(mut bt) = bt {
+            bt.scale = TEXT_SCALE * bt_mul;
+        }
+
+        if let Some(mut align) = align {
+            align.overlay_scale = overlay_scale;
+        }
+    }
+}
+
 fn spawn_status_bar(
     commands: &mut Commands,
     parent: Entity,
@@ -1679,6 +1766,7 @@ fn spawn_status_bar(
     commands.entity(parent).with_children(|ui| {
         ui.spawn((
             HudStatusBarOuter,
+            ZIndex(95),
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Px(layout.status_h_px),
@@ -1997,6 +2085,7 @@ fn spawn_mission_success_overlay(
         y: f32,
     ) {
         c.spawn((
+            MissionOverlayNativePos { x, y },
             LevelEndBitmapText {
                 text: text.to_string(),
                 scale: scale * bt_mul,
@@ -2023,6 +2112,7 @@ fn spawn_mission_success_overlay(
     ) {
         c.spawn((
             MissionStatText { kind },
+            MissionOverlayNativePos { x, y },
             LevelEndBitmapText {
                 text: text.to_string(),
                 scale: scale * bt_mul,
@@ -2054,6 +2144,7 @@ fn spawn_mission_success_overlay(
                 right_edge_native,
                 overlay_scale,
             },
+            MissionOverlayNativePos { x, y },
             LevelEndBitmapText {
                 text: text.to_string(),
                 scale: scale * bt_mul,
@@ -2086,12 +2177,14 @@ fn spawn_mission_success_overlay(
             BackgroundColor(teal.into()),
         ))
         .with_children(|over| {
-            over.spawn(Node {
+            over.spawn((
+                MissionOverlayContent,
+                Node {
                 width: Val::Px(VIEW_W * overlay_scale),
                 height: Val::Px(VIEW_H * overlay_scale),
                 position_type: PositionType::Relative,
                 ..default()
-            })
+            }))
             .with_children(|c| {
                 c.spawn((
                     MissionBjCardImage,

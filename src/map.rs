@@ -18,8 +18,8 @@ pub struct DoorState {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct DoorAnim {
     pub progress: f32,    // 0.0 = Closed, 1.0 = Open
-    pub closed_pos: Vec3, // World-space Position When Fully Closed
-    pub slide_axis: Vec3, // World-space Unit Direction to Slide Into Wall
+    pub closed_pos: Vec3, // World Space Position When Fully Closed
+    pub slide_axis: Vec3, // World Space Unit Direction to Slide Into Wall
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,9 +153,9 @@ impl MapGrid {
         out
     }
 
-    /// Convert Wolf3D plane0/plane1 data into our current collision grid + basic spawns.
-    /// - plane0: walls/doors/floors (1-63=wall, 90-95/100-101=door, otherwise walkable)
-    /// - plane1: things (19-22=player start, 108-115=guards any difficulty)
+    /// Convert Wolfenstein 3D Plane0/Plane1 Data into Current Collision Grid + Basic Spawns
+    /// - Plane0: Walls / Doors / Floors (1 - 63 = Wall, 90 - 95 / 100 - 101 = Door, Otherwise Walkable)
+    /// - Plane1: Things (19 - 22 = Player Start, 108 - 115 = Guards Any Difficulty)
     pub fn from_wolf_planes(
         width: usize,
         height: usize,
@@ -215,7 +215,7 @@ impl MapGrid {
                     tiles.push(Tile::Empty);
                 }
 
-                // Player Start: 19..=22 (N/E/S/W)
+                // Player Start: 19..=22 (N / E / S / W)
                 if (19..=22).contains(&v1) && player_spawn.is_none() {
                     let yaw = match v1 {
                         19 => 0.0,
@@ -229,7 +229,7 @@ impl MapGrid {
 
                 let t = IVec2::new(x as i32, z as i32);
 
-                // Enemies: Include any difficulty codes, plus medium/hard ranges
+                // Enemies: Include Any Difficulty Codes, Plus Medium / Hard Ranges
                 if (108..=115).contains(&v1) || (144..=151).contains(&v1) || (180..=187).contains(&v1) {
                     guards.push(t);
                 } else if (216..=223).contains(&v1) || (234..=241).contains(&v1) || (252..=259).contains(&v1) {

@@ -117,15 +117,16 @@ impl PushwallClock {
 
 #[derive(Debug)]
 pub struct ActivePushwall {
-    /// Wall texture id from plane0 (1..63 for Wolf walls).
+    /// Wall Texture ID From Plane0 (1..63 for Walls)
     pub wall_id: u16,
-    /// Base tile coordinate (Wolf's pwallx/pwally) – advances at 128-tic boundaries.
+    /// Base Tile Coordinate (Wolfenstein 3D's pwallx/pwally)
+    /// Advances at 128-tic Boundaries
     pub base: IVec2,
-    /// Cardinal direction of movement.
+    /// Cardinal Direction of Movement
     pub dir: IVec2,
-    /// "pwallstate" counter (0..=256).
+    /// "pwallstate" Counter (0..=256)
     pub state: u32,
-    /// Visual entity for the moving wall (a small 4-face "block").
+    /// Visual Entity for Moving Wall (Small 4 Face "Block")
     pub entity: Entity,
 }
 
@@ -136,7 +137,8 @@ pub struct PushwallState {
 
 fn despawn_tree(commands: &mut Commands, q_children: &Query<&Children>, e: Entity) {
     if let Ok(children) = q_children.get(e) {
-        // In this Bevy version, Children::iter() already yields Entity (copied).
+        // In Current Bevy version, Children::iter()
+        // Already Yields Entity (Copied)
         let kids: Vec<Entity> = children.iter().collect();
         for child in kids {
             despawn_tree(commands, q_children, child);
@@ -146,7 +148,7 @@ fn despawn_tree(commands: &mut Commands, q_children: &Query<&Children>, e: Entit
 }
 
 fn cardinal_from_fwd(fwd: Vec3) -> IVec2 {
-    // Determine dominant axis (Wolf is 4-way).
+    // Determine Dominant Axis (Wolfenstein 3D is 4 Way)
     if fwd.x.abs() > fwd.z.abs() {
         if fwd.x >= 0.0 {
             IVec2::new(1, 0)
@@ -206,7 +208,7 @@ fn spawn_pushwall_visual(
     wall_id: u16,
     start_center: Vec3,
 ) -> Entity {
-    // Recreate the same wall chunk mapping used in world.rs
+    // Recreate Same Wall Chunk Mapping Used in world.rs
     let wall_type = (wall_id.saturating_sub(1)) as usize;
     let pair_base = wall_type * 2;
     let light_idx = pair_base;
@@ -223,7 +225,7 @@ fn spawn_pushwall_visual(
         .cloned()
         .unwrap_or_else(|| cache.atlas_panels_flip[0].clone());
 
-    // A "block" is 4 vertical planes around the tile center (like your static walls)
+    // A "Block" is 4 Vertical Planes Around Tile Center (Like Static Walls)
     let parent = commands
         .spawn((
             PushwallVisual,
@@ -232,7 +234,7 @@ fn spawn_pushwall_visual(
             Visibility::Visible,
         ))
         .with_children(|p| {
-            // North (-Z) light
+            // North (-Z) Light
             p.spawn((
                 Mesh3d(light_panel.clone()),
                 MeshMaterial3d(cache.wall_mat.clone()),
@@ -243,7 +245,7 @@ fn spawn_pushwall_visual(
                 },
                 Visibility::Visible,
             ));
-            // South (+Z) light
+            // South (+Z) Light
             p.spawn((
                 Mesh3d(light_panel.clone()),
                 MeshMaterial3d(cache.wall_mat.clone()),
@@ -254,7 +256,7 @@ fn spawn_pushwall_visual(
                 },
                 Visibility::Visible,
             ));
-            // East (+X) dark
+            // East (+X) Dark
             p.spawn((
                 Mesh3d(dark_panel.clone()),
                 MeshMaterial3d(cache.wall_mat_dark.clone()),
@@ -265,7 +267,7 @@ fn spawn_pushwall_visual(
                 },
                 Visibility::Visible,
             ));
-            // West (-X) dark
+            // West (-X) Dark
             p.spawn((
                 Mesh3d(dark_panel.clone()),
                 MeshMaterial3d(cache.wall_mat_dark.clone()),
@@ -282,7 +284,8 @@ fn spawn_pushwall_visual(
     parent
 }
 
-/// Player "use" handler: attempts to start a pushwall. Plays "no way" when blocked.
+/// Player "Use" Handler: Attempts to Start Pushwall
+/// Plays "No Way" When Blocked
 pub fn use_pushwalls(
     keys: Res<ButtonInput<KeyCode>>,
     lock: Res<PlayerControlLock>,
@@ -437,8 +440,8 @@ pub fn tick_pushwalls(
         return;
     };
 
-    // One extra FixedUpdate tick of visual lifetime avoids a 1-frame gap at the final boundary
-    // RebuildWalls is processed in FixedUpdate before this system, so we despawn on the next tick
+    // One Extra FixedUpdate Tick of Visual Lifetime Avoids 1 Frame Gap at Final Boundary
+    // RebuildWalls is Processed in FixedUpdate Before this System, so Despawn on Next Tick
     if active.state > PUSHWALL_TOTAL_TICS {
         despawn_tree(&mut commands, &q_children, active.entity);
         pws.active = None;
@@ -448,7 +451,7 @@ pub fn tick_pushwalls(
 
     clock.accum += time.delta_secs();
 
-    // Process multiple 70Hz tics if FixedUpdate is slow
+    // Process Multiple 70Hz Tics if FixedUpdate is Slow
     while clock.accum >= WOLF_TIC_SECS {
         clock.accum -= WOLF_TIC_SECS;
 
@@ -456,15 +459,15 @@ pub fn tick_pushwalls(
         active.state += 1;
         let new_block = active.state / PUSHWALL_TICS_PER_TILE;
 
-        // Boundary crossing (every 128 tics)
+        // Boundary Crossing (Every 128 Tics)
         if new_block != old_block {
-            // Tile behind becomes empty
+            // Tile Behind Becomes Empty
             if in_bounds(&grid, active.base) {
                 grid.set_tile(active.base.x as usize, active.base.y as usize, Tile::Empty);
                 grid.set_plane0_code(active.base.x as usize, active.base.y as usize, 0);
             }
 
-            // Stop after exactly 2 tiles
+            // Stop After Exactly 2 Tiles
             if active.state >= PUSHWALL_TOTAL_TICS {
                 let dest = active.base + active.dir;
                 if in_bounds(&grid, dest) {
@@ -472,8 +475,8 @@ pub fn tick_pushwalls(
                     grid.set_plane0_code(dest.x as usize, dest.y as usize, active.wall_id);
                 }
 
-                // Hold the visual on the destination tile until the next FixedUpdate tick
-                // This prevents the last-step flicker caused by rebuilding walls on the following frame
+                // Hold Visual on Destination Tile Until Next FixedUpdate Tick
+                // Prevents Last Step Flicker Caused by Rebuilding Walls on Following Frame
                 active.base = dest;
                 active.state = PUSHWALL_TOTAL_TICS + 1;
 
@@ -482,20 +485,20 @@ pub fn tick_pushwalls(
                 break;
             }
 
-            // Continue: advance base by 1 tile
+            // Continue: Advance Base by 1 Tile
             active.base += active.dir;
 
-            // Block base + ahead tile
+            // Block Base + Ahead Tile
             occ.set(active.base, active.base + active.dir);
 
-            // Rebuild walls skipping new base tile (moving wall renders it)
+            // Rebuild Walls Skipping New Base Tile (Moving Wall Renders it)
             rebuild.write(RebuildWalls {
                 skip: Some(active.base),
             });
         }
     }
 
-    // Visual interpolation inside current tile segment
+    // Visual Interpolation Inside Current Tile Segment
     let base_center = Vec3::new(active.base.x as f32, 0.5, active.base.y as f32);
 
     let pos = if active.state > PUSHWALL_TOTAL_TICS {

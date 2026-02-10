@@ -5,14 +5,14 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Original Wolf3D had 7 high score slots
+/// Wolfenstein 3D had 7 High Score Slots
 pub const MAX_SCORES: usize = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HighScoreEntry {
-    pub name: String,      // 3-letter initials (Wolf3D style)
-    pub score: i32,        // Final score when game ended
-    pub episode: u8,       // Which episode (1-6)
+    pub name: String,      // 3 Letter Initials
+    pub score: i32,        // Final Score When Game Ended
+    pub episode: u8,       // Which Episode (1 - 6)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Resource)]
@@ -22,7 +22,7 @@ pub struct HighScores {
 
 impl Default for HighScores {
     fn default() -> Self {
-        // Match original Wolf3D default high scores
+        // Match Original Wolfenstein 3D Default High Scores
         Self {
             entries: vec![
                 HighScoreEntry { name: "IDS".into(), score: 10000, episode: 1 },
@@ -41,14 +41,14 @@ impl HighScores {
     fn config_path() -> Option<PathBuf> {
         #[cfg(debug_assertions)]
         {
-            // Debug builds: save in project directory
+            // Debug Builds: Save in Project Directory
             let mut p = std::env::current_dir().ok()?;
             p.push("highscores.ron");
             Some(p)
         }
         #[cfg(not(debug_assertions))]
         {
-            // Release builds: save in AppData
+            // Release Builds: Save in AppData
             dirs::config_dir().and_then(|mut p| {
                 p.push("Davenstein");
                 std::fs::create_dir_all(&p).ok()?;
@@ -73,13 +73,13 @@ impl HighScores {
         }
     }
 
-    /// Check if a score qualifies for the high score list
+    /// Check if Score Qualifies for High Score List
     pub fn qualifies(&self, score: i32) -> bool {
         self.entries.len() < MAX_SCORES || score > self.entries.last().unwrap().score
     }
 
-    /// Add a new high score entry
-    /// Returns the rank (0-6) if it qualified, None otherwise
+    /// Add New High Score Entry
+    /// Returns Rank (0 - 6) if Qualified, None Otherwise
     pub fn add(&mut self, name: String, score: i32, episode: u8) -> Option<usize> {
     if !self.qualifies(score) {
         return None;
@@ -87,14 +87,14 @@ impl HighScores {
 
     let entry = HighScoreEntry { 
         name: name.chars()
-            .filter(|c| !c.is_control())  // Filter out ALL control chars including \n
+            .filter(|c| !c.is_control()) // Filter ALL Control Chars Including \n
             .take(3)
             .collect(),
         score, 
         episode 
     };
         
-        // Find insertion point
+        // Find Insertion Point
         let rank = self.entries.iter()
             .position(|e| score > e.score)
             .unwrap_or(self.entries.len());
@@ -107,7 +107,7 @@ impl HighScores {
     }
 }
 
-/// Resource to trigger high score check flow
+/// Resource to Trigger High Score Check Flow
 #[derive(Resource, Debug, Clone)]
 pub struct CheckHighScore {
     pub score: i32,
@@ -115,15 +115,15 @@ pub struct CheckHighScore {
     pub checked: bool,
 }
 
-/// Resource to manage name entry state
+/// Resource to Manage Name Entry State
 #[derive(Resource, Debug, Clone)]
 pub struct NameEntryState {
     pub active: bool,
-    pub name: String,       // Current name being typed (max 3 chars)
+    pub name: String,       // Current Name Being Typed (Max 3 Chars)
     pub cursor_pos: usize,  // 0, 1, or 2
-    pub rank: usize,        // Where this score will be inserted (0-6)
-    pub score: i32,         // Score to be saved
-    pub episode: u8,        // Episode number
+    pub rank: usize,        // Where This Score Will be Inserted (0 - 6)
+    pub score: i32,         // Score to be Saved
+    pub episode: u8,        // Episode Number
 }
 
 impl Default for NameEntryState {

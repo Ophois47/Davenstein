@@ -370,7 +370,7 @@ pub fn drop_guard_ammo(
     // Depth Tweak: with AlphaMode::Mask this Will Actually Affect Depth Testing
     const DROP_DEPTH_BIAS: f32 = -250.0;
 
-    // Tiny Lift to Avoid Z-Fighting with Floor
+    // Tiny Lift to Avoid Z Fighting with Floor
     const DROP_Y_LIFT: f32 = 0.01;
 
     for (e, gt) in q_corpses.iter() {
@@ -430,7 +430,7 @@ pub fn drop_mutant_ammo(
     // Depth Tweak: with AlphaMode::Mask this Will Actually Affect Depth Testing
     const DROP_DEPTH_BIAS: f32 = -250.0;
 
-    // Tiny Lift to Avoid Z-Fighting with Floor
+    // Tiny Lift to Avoid Z Fighting with Floor
     const DROP_Y_LIFT: f32 = 0.01;
 
     for (e, gt) in q_corpses.iter() {
@@ -491,7 +491,7 @@ pub fn drop_ss_loot(
     // Depth Tweak: with AlphaMode::Mask this will actually affect depth testing
     const DROP_DEPTH_BIAS: f32 = -250.0;
 
-    // Tiny Lift to Avoid Z-Fighting With Floor
+    // Tiny Lift to Avoid Z Fighting With Floor
     const DROP_Y_LIFT: f32 = 0.01;
 
     let has_machinegun = hud.owns(WeaponSlot::MachineGun);
@@ -558,7 +558,7 @@ pub fn drop_officer_ammo(
     // Depth Tweak: with AlphaMode::Mask this Will Actually Affect Depth Testing
     const DROP_DEPTH_BIAS: f32 = -250.0;
 
-    // Tiny Lift to Avoid Z-Fighting with Floor
+    // Tiny Lift to Avoid Z Fighting with Floor
     const DROP_Y_LIFT: f32 = 0.01;
 
     for (e, gt) in q_corpses.iter() {
@@ -578,8 +578,8 @@ pub fn drop_officer_ammo(
         let mat = materials.add(StandardMaterial {
             base_color_texture: Some(tex),
 
-            // Mask writes depth, so corpse can't overwrite later
-            // Choose Cutoff that Keeps Edges Crisp. Adjust to 0.25 if "holes"
+            // Mask Writes Depth, Corpse Can't Overwrite Later
+            // Keep Edges Crisp. Adjust to 0.25 if "Holes"
             alpha_mode: AlphaMode::Mask(0.5),
 
             unlit: true,
@@ -615,10 +615,9 @@ pub fn drop_hans_key(
     mut materials: ResMut<Assets<StandardMaterial>>,
     q_corpses: Query<(Entity, &GlobalTransform), (With<HansCorpse>, Without<DroppedLoot>)>,
 ) {
-    // Depth Tweak: with AlphaMode::Mask this will actually affect depth testing
     const DROP_DEPTH_BIAS: f32 = -250.0;
 
-    // Tiny Lift to Avoid Z-Fighting With Floor
+    // Tiny Lift to Avoid Z Fighting With Floor
     const DROP_Y_LIFT: f32 = 0.01;
 
     let kind = PickupKind::Key(KeyKind::Gold);
@@ -669,7 +668,7 @@ pub fn drop_gretel_key(
     // Depth Tweak: with AlphaMode::Mask this will actually affect depth testing
     const DROP_DEPTH_BIAS: f32 = -250.0;
 
-    // Tiny Lift to Avoid Z-Fighting With Floor
+    // Tiny Lift to Avoid Z Fighting With Floor
     const DROP_Y_LIFT: f32 = 0.01;
 
     let kind = PickupKind::Key(KeyKind::Gold);
@@ -779,12 +778,13 @@ pub fn collect_pickups(
     mut sfx: MessageWriter<PlaySfx>,
     mut level_score: ResMut<davelib::level_score::LevelScore>,
 ) {
-    const WEAPON_PICKUP_BULLETS: i32 = 6; // MG/Chaingun give 6 bullets
+    // MG / Chaingun Give 6 Bullets
+    const WEAPON_PICKUP_BULLETS: i32 = 6;
 
-    // Tune this to match your key pickup wav length so the key sound stays dominant
+    // Tune to Match Key Pickup WAV Length so Key Sound Stays Dominant
     const KEY_PICKUP_SFX_BLOCK_SECS: f32 = 0.75;
 
-    // Tick down the block timer and flush one queued pickup SFX when it expires
+    // Tick Down Block Timer and Flush One Queued Pickup SFX When it Expires
     let dt = time.delta_secs();
     if *key_sfx_block_secs > 0.0 {
         *key_sfx_block_secs = (*key_sfx_block_secs - dt).max(0.0);
@@ -814,7 +814,7 @@ pub fn collect_pickups(
             pos: player_tf.translation,
         };
 
-        // Keys get highest priority - play immediately and block other sounds
+        // Keys get Highest Priority. Play Immediately and Block Other Sounds
         if kind == SfxKind::PickupKey {
             sfx.write(msg);
             *key_sfx_block_secs = KEY_PICKUP_SFX_BLOCK_SECS;
@@ -822,16 +822,16 @@ pub fn collect_pickups(
             return;
         }
 
-        // Chaingun gets second priority - play immediately and block other sounds
-        // (shorter block time than keys since chaingun sound is shorter)
+        // Chaingun Gets Second Priority. Play Immediately and Block Other Sounds
         if kind == SfxKind::PickupChaingun {
             sfx.write(msg);
-            *key_sfx_block_secs = 2.0; // Chaingun sound duration
+            // Chaingun Sound Duration
+            *key_sfx_block_secs = 2.0;
             *queued_pickup_sfx = None;
             return;
         }
 
-        // If blocked by key or chaingun sound, queue this sound
+        // If Blocked by Key or Chaingun Sound, Queue This Sound
         if *key_sfx_block_secs > 0.0 {
             *queued_pickup_sfx = Some(msg);
             return;
@@ -864,7 +864,7 @@ pub fn collect_pickups(
                         let gain = WEAPON_PICKUP_BULLETS.min(AMMO_MAX - hud.ammo);
                         hud.ammo += gain;
 
-                        // When you already own the weapon, it just gives ammo
+                        // When Already Own Weapon, Just Give Ammo
                         emit_pickup_sfx(SfxKind::PickupAmmo);
                     }
                 } else {
@@ -909,7 +909,8 @@ pub fn collect_pickups(
                 emit_pickup_sfx(kind);
 
                 hud.score += t.points();
-                level_score.treasure_found += 1; // Intermission tally
+                // Intermission Tally
+                level_score.treasure_found += 1;
             }
 
             PickupKind::Health(hk) => {

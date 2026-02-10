@@ -69,10 +69,10 @@ impl LevelId {
         }
     }
 
-    /// Episode progression (normal exits, not secret)
+    /// Episode Progression (Normal Exits, Not Secret)
     pub const fn next_normal(self) -> Self {
         match self {
-            // Episode 1 (has secret level E1M10)
+            // Episode 1
             LevelId::E1M1 => LevelId::E1M2,
             LevelId::E1M2 => LevelId::E1M3,
             LevelId::E1M3 => LevelId::E1M4,
@@ -144,11 +144,6 @@ impl LevelId {
             LevelId::E6M9 => LevelId::E6M1,
             LevelId::E6M10 => LevelId::E6M4,
         }
-    }
-
-    // Keep old function name for compatibility
-    pub const fn next_e1_normal(self) -> Self {
-        self.next_normal()
     }
 }
 

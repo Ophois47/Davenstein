@@ -9,12 +9,9 @@ use crate::enemies::{Dir8, EnemyKind};
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct Patrol;
 
-/// Wolf plane1 path arrow codes (90..=97) to our Dir8 convention
-///
-/// Wolf arrow meanings (map-space): N, E, S, W, NE, SE, SW, NW
-///
-/// In our map:
-/// - +Y is "south", so N is (0,-1) => Dir8(4)
+/// Plane1 Path Arrow Codes (90..=97) to Dir8 Convention
+/// Wolf Arrow Meanings (Map-Space): N, E, S, W, NE, SE, SW, NW
+/// - +Y is "South", so N is (0,-1) => Dir8(4)
 /// - E is (+1,0) => Dir8(2)
 /// - S is (0,+1) => Dir8(0)
 /// - W is (-1,0) => Dir8(6)
@@ -47,7 +44,7 @@ pub fn patrol_step_8way(dir: Dir8) -> IVec2 {
 }
 
 fn wolf_dir4_to_dir8(dir4: u8) -> Dir8 {
-    // Wolf's 4 directions are N/E/S/W
+    // 4 Directions N/E/S/W
     match dir4 & 3 {
         0 => Dir8(4), // N => -Y / -Z
         1 => Dir8(2), // E => +X
@@ -58,7 +55,7 @@ fn wolf_dir4_to_dir8(dir4: u8) -> Dir8 {
 }
 
 fn spawn_dir_and_patrol_from_bands(code: u16, base: u16) -> Option<(Dir8, bool)> {
-    // Wolf difficulty bands: base, base+36, base+72
+    // Difficulty Bands: Base, Base+36, Base+72
     for off in [0u16, 36u16, 72u16] {
         let start = base + off;
         if (start..=start + 7).contains(&code) {
@@ -71,7 +68,7 @@ fn spawn_dir_and_patrol_from_bands(code: u16, base: u16) -> Option<(Dir8, bool)>
     None
 }
 
-/// For a spawned enemy, derive (initial facing, patrol?) from the raw Wolf plane1 code
+/// For Spawned Enemy, Derive From Raw Wolfenstein 3D Plane1 Code
 pub fn spawn_dir_and_patrol_for_kind(kind: EnemyKind, code: u16) -> Option<(Dir8, bool)> {
     match kind {
         EnemyKind::Guard => spawn_dir_and_patrol_from_bands(code, 108),

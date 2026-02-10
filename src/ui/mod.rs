@@ -17,7 +17,8 @@ pub use state::PickupFlash;
 
 pub use splash::SplashStep;
 
-// Re-export episode-end UI assets so gameplay modules can use them without making splash module public
+// Re-Export Episode End UI Assets so Gameplay Modules can use
+// Them Without Making Splash Module Public
 pub(crate) use splash::EpisodeEndImages;
 
 pub(crate) use hud::HudFaceOverride;
@@ -40,14 +41,15 @@ impl Plugin for UiPlugin {
 			.add_plugins(splash::SplashPlugin)
 			.add_systems(Startup, hud::setup_hud)
 			.add_systems(Startup, splash::setup_splash)
-			// Core State / Sync systems
+			// Core State / Sync Systems
 			.add_systems(Update, sync::apply_enemy_fire_to_player_vitals)
 			.add_systems(Update, sync::sync_player_hp_with_hud)
 			.add_systems(Update, sync::handle_player_death_once)
 			.add_systems(Update, sync::tick_death_delay_and_request_restart)
 			.add_systems(Update, sync::game_over_input)
-			// HUD + Viewmodel systems
+			// HUD + Viewmodel Systems
 			.add_systems(Update, hud::sync_hud_layout_on_window_change)
+			.add_systems(Update, hud::sync_mission_overlay_layout_on_window_change)
 			.add_systems(Update, hud::sync_viewmodel_size)
 			.add_systems(Update, hud::sync_viewmodel_visibility)
 			.add_systems(Update, hud::weapon_fire_and_viewmodel)
@@ -59,7 +61,7 @@ impl Plugin for UiPlugin {
 			.add_systems(Update, hud::sync_hud_icons)
 			.add_systems(Update, hud::tick_hud_face_timers)
 			.add_systems(Update, hud::sync_hud_face)
-			// Overlay systems
+			// Overlay Systems
 			.add_systems(Update, hud::flash_on_hp_drop)
 			.add_systems(Update, hud::ensure_pickup_flash_overlay)
 			.add_systems(Update, hud::tick_pickup_flash)

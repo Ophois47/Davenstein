@@ -5,7 +5,7 @@ use crate::level::LevelId;
 
 use bevy::prelude::*;
 
-/// Per-Floor Tallies for Intermission ("MISSION SUCCESS") Screen
+/// Per Floor Tallies for Intermission ("MISSION SUCCESS") Screen
 #[derive(Resource, Debug, Clone)]
 pub struct LevelScore {
     pub kills_found: i32,

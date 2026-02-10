@@ -4,63 +4,62 @@ Davenstein - by David Petnick
 use bevy::prelude::*;
 
 /// Selected Skill Level (Difficulty)
-/// Maps to Wolfenstein 3D's 4 difficulty settings
+/// Maps to Wolfenstein 3D's 4 Difficulty Settings
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SkillLevel(pub u8);
 
 impl Default for SkillLevel {
     fn default() -> Self {
-        // Default to "Don't hurt me" (level 1)
+        // Default to "Don't Hurt Me"
         Self(1)
     }
 }
 
 impl SkillLevel {
-    /// Can I play, Daddy? (Easiest)
+    /// Can I Play, Daddy? (Easiest)
     pub const DADDY: u8 = 0;
     
-    /// Don't hurt me (Easy)
+    /// Don't Hurt Me (Easy)
     pub const DONT_HURT_ME: u8 = 1;
     
-    /// Bring 'em on! (Medium)
+    /// Bring 'Em On! (Medium)
     pub const BRING_EM_ON: u8 = 2;
     
-    /// I am Death incarnate! (Hardest)
+    /// I Am Death Incarnate! (Hardest)
     pub const DEATH_INCARNATE: u8 = 3;
 
-    /// Get the plane1 spawn offset for this difficulty
-    /// Wolf3D uses 3 spawn density bands spaced by +36:
-    /// - Easy (levels 0-1): offset 0
-    /// - Medium (level 2): offset 36
-    /// - Hard (level 3): offset 72
+    /// Get Plane1 Spawn Offset for This Difficulty
+    /// Wolfenstein 3D Uses 3 Spawn Density Bands Spaced by +36:
+    /// - Easy (Levels 0 - 1): Offset 0
+    /// - Medium (Level 2): Offset 36
+    /// - Hard (Level 3): Offset 72
     pub fn spawn_offset(&self) -> u16 {
         match self.0 {
-            0 | 1 => 0,   // Easy difficulties use base spawn codes
-            2 => 36,      // Medium uses +36 offset
-            3 => 72,      // Hard uses +72 offset
-            _ => 0,       // Fallback to easy
+            0 | 1 => 0,   // Easy Difficulties use Base Spawn Codes
+            2 => 36,      // Medium Uses +36 Offset
+            3 => 72,      // Hard Uses +72 Offset
+            _ => 0,       // Fallback to Easy
         }
     }
 
-    /// Get damage multiplier for this difficulty
-    /// Wolf3D reduces enemy damage on easier difficulties
+    /// Get Damage Multiplier for Difficulty
+    /// Wolfenstein 3D Reduces Enemy Damage on Easier Difficulties
     pub fn damage_multiplier(&self) -> f32 {
         match self.0 {
-            0 => 0.5,  // Daddy: 50% damage
-            1 => 0.75, // Don't hurt me: 75% damage
-            2 => 1.0,  // Bring 'em on: 100% damage
-            3 => 1.0,  // Death incarnate: 100% damage
+            0 => 0.5,  // Can I Play Daddy: 50% damage
+            1 => 0.75, // Don't Hurt Me: 75% damage
+            2 => 1.0,  // Bring 'Em On: 100% damage
+            3 => 1.0,  // Death Incarnate: 100% damage
             _ => 1.0,
         }
     }
 
-    /// Should enemies have faster reaction times?
-    /// Wolf3D uses faster enemy AI on harder difficulties
+    /// Wolfenstein 3D Uses Faster Enemy AI on Harder Difficulties
     pub fn fast_enemies(&self) -> bool {
         self.0 >= 3
     }
 
-    /// Get the difficulty name
+    /// Get Difficulty Name
     pub fn name(&self) -> &'static str {
         match self.0 {
             0 => "Can I play, Daddy?",
@@ -71,7 +70,7 @@ impl SkillLevel {
         }
     }
 
-    /// Create from menu selection index (0-3)
+    /// Create From Menu Selection Index (0 - 3)
     pub fn from_selection(selection: usize) -> Self {
         Self(selection.min(3) as u8)
     }
