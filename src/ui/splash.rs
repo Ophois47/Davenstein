@@ -3371,7 +3371,7 @@ fn splash_advance_on_any_input(
         SplashStep::Done => {
             // Gameplay -> Pause Menu ESC
             // Block ESC during death cam or game over screen
-            if resources.death_overlay.active || resources.game_over.0 {
+            if resources.death_overlay.active || resources.game_over.0 || resources.lock.0 {
                 return;
             }
 

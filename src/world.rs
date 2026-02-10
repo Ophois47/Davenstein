@@ -160,9 +160,6 @@ fn spawn_wall_faces_for_grid(
             let light_idx = pair_base.min(max_i);
             let dark_idx = (pair_base + 1).min(max_i);
 
-            let wall_mesh_light = cache.atlas_panels[light_idx].clone();
-            let wall_mesh_dark = cache.atlas_panels[dark_idx].clone();
-
             // Flipped variants for faces whose yaw rotation mirrors the texture
             let wall_mesh_light_flip = cache.atlas_panels_flip[light_idx].clone();
             let wall_mesh_dark_flip = cache.atlas_panels_flip[dark_idx].clone();
