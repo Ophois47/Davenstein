@@ -6,12 +6,12 @@ NOTE! Left Control (LCtrl) releases the mouse from the window.
 
 
 -- Build on Linux with: 
-- $ cargo update && cargo build && cargo build --release
+- $ cargo update && cargo build --release
 
 -- To Cross Compile for Windows (GNU):
 - $ cross build --release --target x86_64-pc-windows-gnu
 
--- To Cross Compile for Armv7:
+-- To Cross Compile for Linux Armv7 (GNU):
 - $ cross build --release --target armv7-unknown-linux-gnueabihf
 
 -- Then Run:
@@ -29,3 +29,5 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
+- Currently spawning a PointLight with shadows_enabled: true in world::setup
+- Enemy sprite materials use AlphaMode::Blend

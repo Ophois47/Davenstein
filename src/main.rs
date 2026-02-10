@@ -185,6 +185,7 @@ fn main() {
 				})
 				.set(ImagePlugin::default_nearest()),
 		)
+		.add_plugins(davelib::perf_overlay::PerfOverlayPlugin)
 		.add_plugins(ui::UiPlugin)
 		.add_plugins(EnemiesPlugin)
 		.add_plugins(EnemyAiPlugin)
