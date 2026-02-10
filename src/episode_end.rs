@@ -773,18 +773,15 @@ fn start_bj_cutscene(
 
 		(away, door_center, dist)
 	} else {
-		// No door found in a straight cardinal line.
-	    // Use the player's current facing direction as "toward door"
-	    // (they just walked onto the tile, so they face the way they came from)
 	    let forward = (player_tr.rotation * Vec3::NEG_Z).normalize_or_zero();
-	    let away = Vec3::new(-forward.x, 0.0, -forward.z).normalize_or_zero();
+	    // Camera retreats in the direction the player is facing
+	    let away = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
 
-	    // Dolly distance: use longest free run in the away direction
 	    let away_step_x = if away.x.abs() > 0.5 { away.x.signum() as i32 } else { 0 };
 	    let away_step_z = if away.z.abs() > 0.5 { away.z.signum() as i32 } else { 0 };
 	    let run = free_run(away_step_x, away_step_z);
 
-	    let door_center = Vec3::new(tx_i as f32, cam_y, tz_i as f32) + forward;
+	    let door_center = Vec3::new(tx_i as f32, cam_y, tz_i as f32) - away;
 	    let dist = ((run as f32) - DOLLY_PAD_TILES).clamp(0.0, DOLLY_MAX);
 
 	    (away, door_center, dist)
