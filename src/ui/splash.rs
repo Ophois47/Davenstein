@@ -2457,10 +2457,9 @@ fn spawn_splash_ui(
     version_font_img: Option<Handle<Image>>,
 ) {
     const BUILD_VERSION: &str = concat!("V", env!("CARGO_PKG_VERSION"));
+    const VERSION_SCALE: f32 = 0.50;
 
     let ui_scale = (w / BASE_W).floor().max(1.0);
-
-    const VERSION_SCALE: f32 = 0.50;
 
     let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
         let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
@@ -2539,16 +2538,30 @@ fn spawn_splash_ui(
     let s = (ver_ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
     let ver_h = ((MENU_FONT_HEIGHT * s) + s).round().max(1.0);
 
+    // Anchor a small container to the bottom-right of the splash canvas
+    // This avoids any mismatch between our placement math and spawn_menu_bitmap_text scaling
     let margin = (2.0 * ui_scale).round().max(2.0);
-    let left = (w - margin - ver_w).round().max(0.0);
-    let top = (h - margin - ver_h).round().max(0.0);
+
+    let ver_root = commands
+        .spawn((
+            Node {
+                width: Val::Px(ver_w),
+                height: Val::Px(ver_h),
+                position_type: PositionType::Absolute,
+                right: Val::Px(margin),
+                bottom: Val::Px(margin),
+                ..default()
+            },
+            ChildOf(canvas),
+        ))
+        .id();
 
     spawn_menu_bitmap_text(
         commands,
-        canvas,
+        ver_root,
         font_img,
-        left,
-        top,
+        0.0,
+        0.0,
         ver_ui_scale,
         BUILD_VERSION,
         Visibility::Visible,
@@ -3375,7 +3388,23 @@ fn splash_advance_on_any_input(
                     }
 
                     MenuAction::ChangeView => {
+                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
+                        change_view.selection = 0;
+
+                        if let Some(imgs) = resources.imgs.as_ref() {
+                            spawn_change_view_ui(
+                                &mut commands,
+                                &asset_server,
+                                w, h, scale,
+                                imgs,
+                                change_view.selection,
+                                win.present_mode,
+                            );
+
+                            *resources.step = SplashStep::ChangeView;
+                            resources.music_mode.0 = MusicModeKind::Menu;
+                        }
                     }
 
                     MenuAction::ViewScores => {
