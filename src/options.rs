@@ -54,20 +54,13 @@ pub enum DisplayMode {
 }
 
 impl DisplayMode {
-	/// All variants in menu-cycle order
-	pub const ALL: [DisplayMode; 3] = [
-		DisplayMode::Windowed,
-		DisplayMode::BorderlessFullscreen,
-		DisplayMode::ExclusiveFullscreen,
-	];
-
 	/// True if Exclusive Fullscreen Should Be Skipped
 	/// (Wayland Does Not Support It)
 	fn skip_exclusive() -> bool {
 		std::env::var("WAYLAND_DISPLAY").is_ok()
 	}
 
-	/// Cycle forward through display modes (wraps around)
+	/// Cycle Forward Through Display Modes (Wraps Around)
 	/// Skips Exclusive Fullscreen on Wayland
 	pub fn next(self) -> Self {
 		let skip = Self::skip_exclusive();
@@ -106,6 +99,7 @@ impl DisplayMode {
 /// Which MSAA Preset User has Chosen
 /// Bevy 0.18 Treats 'MSAA' as a *Camera Component*, so Apply System
 /// Will Insert / Mutate it on any Camera Entity Tagged
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MsaaSetting {
 	#[default]
@@ -462,16 +456,13 @@ fn apply_video_settings_on_change(
 	}
 }
 
-/// Apply Classic Wolf3D "View Size" by Setting Camera Viewport
-///
+/// Apply Classic Wolfenstein 3D "View Size" by Setting Camera Viewport
 /// view_size 20 = Full Viewport (No Border)
 /// view_size 4  = Maximum Border (~80% Inset)
-///
 /// The Camera Viewport is Inset Symmetrically, Leaving a Border Area
-/// That Shows the Window's Clear Color (Typically Dark Gray or Black).
-///
+/// That Shows the Window's Clear Color (Typically Dark Gray or Black)
 /// The Status Bar (44 Native Pixels) is Accounted For: the Viewport
-/// Only Shrinks the Area *Above* the Status Bar.
+/// Only Shrinks the Area *Above* the Status Bar
 fn apply_view_size_on_change(
 	settings: Res<VideoSettings>,
 	q_window: Query<&Window, With<PrimaryWindow>>,
@@ -493,28 +484,28 @@ fn apply_view_size_on_change(
 	let vs = settings.view_size.clamp(4, 20) as f32;
 
 	if vs >= 20.0 {
-		// Full viewport — remove any viewport restriction
+		// Full Viewport: Remove any Viewport Restriction
 		for mut cam in q_camera.iter_mut() {
 			cam.viewport = None;
 		}
 		return;
 	}
 
-	// Status bar height in physical pixels
+	// Status Bar Height in Physical Pixels
 	const HUD_W: f32 = 320.0;
 	const STATUS_H: f32 = 44.0;
 	let hud_scale = (win_w as f32 / HUD_W).floor().max(1.0);
 	let status_h_phys = (STATUS_H * hud_scale) as u32;
 
-	// Available area above the status bar
+	// Available Area Above Status Bar
 	let view_h = win_h.saturating_sub(status_h_phys);
 	if view_h == 0 {
 		return;
 	}
 
-	// Inset fraction: at view_size 4 we inset ~50%, at 19 we inset ~3%
-	// Linear mapping: fraction = (20 - view_size) / 32
-	// This gives a subtle border at 19 and a large border at 4
+	// Inset Fraction: at view_size 4 Inset ~50%, at 19 Inset ~3%
+	// Linear Mapping: Fraction = (20 - view_size) / 32
+	// This Gives a Subtle Border at 19 and Large Border at 4
 	let inset_frac = (20.0 - vs) / 32.0;
 
 	let inset_x = (win_w as f32 * inset_frac).round() as u32;
@@ -605,6 +596,7 @@ fn apply_control_settings_on_change(
 }
 
 //  Public Helpers for Player Controller
+#[allow(dead_code)]
 impl ControlSettings {
 	/// Returns Sensitivity Scaled, Invert Aware Look Delta
 	/// From Raw 'MouseMotion' Input. Feed Result Straight
@@ -666,6 +658,7 @@ impl VideoSettings {
 	}
 }
 
+#[allow(dead_code)]
 impl SoundSettings {
 	/// Quick Check SFX Spawning Systems Should Call Before
 	/// Spawning New Sound Entity
