@@ -59,6 +59,7 @@ mod ui;
 
 use bevy::prelude::*;
 use bevy::asset::AssetPlugin;
+use bevy::window::{PresentMode, WindowPlugin};
 use include_dir::{include_dir, Dir};
 use std::path::PathBuf;
 
@@ -183,7 +184,14 @@ fn main() {
 					file_path: assets_path,
 					..default()
 				})
-				.set(ImagePlugin::default_nearest()),
+				.set(ImagePlugin::default_nearest())
+				.set(WindowPlugin {
+					primary_window: Some(Window {
+						present_mode: PresentMode::AutoNoVsync,
+						..default()
+					}),
+					..default()
+				}),
 		)
 		.add_plugins(davelib::perf_overlay::PerfOverlayPlugin)
 		.add_plugins(ui::UiPlugin)
