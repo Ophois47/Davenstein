@@ -651,23 +651,40 @@ struct SkillLocalState {
 enum MenuAction {
     BackToGame,
     NewGame,
+    ChangeView,
     ViewScores,
     Quit,
 }
 
-const MENU_ACTIONS_MAIN: [MenuAction; 3] = [
+const MENU_ACTIONS_MAIN: [MenuAction; 4] = [
     MenuAction::NewGame,
+    MenuAction::ChangeView,
     MenuAction::ViewScores,
     MenuAction::Quit,
 ];
-const MENU_ACTIONS_PAUSE: [MenuAction; 4] = [
+
+const MENU_ACTIONS_PAUSE: [MenuAction; 5] = [
     MenuAction::NewGame,
+    MenuAction::ChangeView,
     MenuAction::ViewScores,
     MenuAction::BackToGame,
     MenuAction::Quit,
 ];
-const MENU_LABELS_MAIN: [&str; 3] = ["New Game", "View Scores", "Quit"];
-const MENU_LABELS_PAUSE: [&str; 4] = ["New Game", "View Scores", "Return to Game", "Quit"];
+
+const MENU_LABELS_MAIN: [&str; 4] = [
+    "New Game",
+    "Change View",
+    "View Scores",
+    "Quit",
+];
+
+const MENU_LABELS_PAUSE: [&str; 5] = [
+    "New Game",
+    "Change View",
+    "View Scores",
+    "Return to Game",
+    "Quit",
+];
 
 #[derive(Resource)]
 struct SplashImages {
@@ -3355,6 +3372,10 @@ fn splash_advance_on_any_input(
                             );
                             *resources.step = SplashStep::EpisodeSelect;
                         }
+                    }
+
+                    MenuAction::ChangeView => {
+
                     }
 
                     MenuAction::ViewScores => {
