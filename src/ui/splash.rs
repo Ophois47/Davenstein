@@ -338,15 +338,15 @@ fn episode_info_page(episode: u8, page: usize) -> &'static str {
 }
 
 struct MenuGlyph {
-    rect: Rect,      // pixel rect in atlas (we use bbox)
+    rect: Rect, // Pixel Rect in Atlas (bbox)
     w: f32,
     h: f32,
     advance: f32,
-    top_from_line_top: f32, // baseline alignment
+    top_from_line_top: f32, // Baseline Alignment
 }
 
 fn menu_glyph(ch: char) -> Option<MenuGlyph> {
-    // Space: advance only
+    // Space: Advance Only
     if ch == ' ' {
         return Some(MenuGlyph {
             rect: Rect::from_corners(Vec2::ZERO, Vec2::ZERO),
@@ -360,7 +360,7 @@ fn menu_glyph(ch: char) -> Option<MenuGlyph> {
     let map = menu_font_map();
     let key = ch.to_string();
 
-    // Fallback to '?' if unknown
+    // Fallback to '?' if Unknown
     let g = map
         .chars
         .get(&key)
@@ -370,7 +370,7 @@ fn menu_glyph(ch: char) -> Option<MenuGlyph> {
     let bwf = bw as f32;
     let bhf = bh as f32;
 
-    // Half-texel inset to avoid sampling borders
+    // Half Texel Inset to Avoid Sampling Borders
     let x0 = bx as f32 + 0.5;
     let y0 = by as f32 + 0.5;
     let x1 = (bx as f32 + bwf - 0.5).max(x0 + 0.01);
@@ -399,10 +399,10 @@ fn spawn_menu_bitmap_text(
 ) -> Entity {
     let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
 
-    // Keep line step based on the row height (not bbox), so multi-line stays stable
+    // Keep Line Step Based on Row Height (not bbox), so Multi Line Stays Stable
     let line_h = ((MENU_FONT_HEIGHT * s) + s).round().max(1.0);
 
-    // Measure: compute total width/height using glyph advances
+    // Measure: Compute Total Width / Height Using Glyph Advances
     let mut max_line_w = 0.0f32;
     let mut cur_line_w = 0.0f32;
     let mut line_count = 1;
@@ -446,7 +446,7 @@ fn spawn_menu_bitmap_text(
         ))
         .id();
 
-    // Draw pass
+    // Draw Pass
     let mut pen_x: f32 = 0.0;
     let mut pen_y: f32 = 0.0;
 
@@ -593,31 +593,31 @@ struct EpisodeScoreStatText {
 #[derive(Default)]
 struct ChangeViewLocalState {
     selection: usize,
-    /// When true, the Resolution sub-list is open
+    /// When True, Resolution Sub List is Open
     res_submenu_open: bool,
-    /// Currently highlighted index in the resolution sub-list
+    /// Currently Highlighted Index in Resolution Sub List
     res_submenu_idx: usize,
-    /// Track last window size to detect when display mode change completes
-    /// and a UI respawn is needed
+    /// Track Last Window Size to Detect When Display Mode Change
+    /// Completes and UI Respawn is Needed
     needs_respawn: bool,
-    /// True if we entered Change View from the Pause Menu
+    /// True if Entered Change View From Pause Menu
     from_pause: bool,
-    /// Hold-repeat state for left/right on numeric values (FOV, View Size)
-    /// Direction: -1 = left held, +1 = right held, 0 = not held
+    /// Hold Repeat State for Left / Right on Numeric Values (FOV, View Size)
+    /// Direction: -1 = Left Held, +1 = Right Held, 0 = Not Held
     hold_dir: i8,
-    /// Seconds accumulated since last repeat tick
+    /// Seconds Accumulated Since Last Repeat Tick
     hold_accum: f32,
-    /// Current repeat interval (starts slow, speeds up)
+    /// Current Repeat Interval (Starts Slow, Speeds Up)
     hold_interval: f32,
-    /// How many ticks have fired in this hold
+    /// How Many Ticks Have Fired in This Hold
     hold_ticks: u32,
 }
 
-/// Initial delay before hold-repeat starts (seconds)
+/// Initial Delay Before Hold Repeat Starts (Seconds)
 const HOLD_REPEAT_INITIAL: f32 = 0.35;
-/// Fastest repeat interval (seconds)
+/// Fastest Repeat Interval (Seconds)
 const HOLD_REPEAT_FAST: f32 = 0.03;
-/// Interval decreases by this factor each tick
+/// Interval Decreases by This Factor Each Tick
 const HOLD_REPEAT_ACCEL: f32 = 0.85;
 
 #[derive(Component)]
@@ -668,7 +668,10 @@ impl Default for EpisodeVictoryTally {
             target_secret: 0,
             target_treasure: 0,
 
-            tick: Timer::from_seconds(1.0 / 120.0, TimerMode::Repeating),
+            tick: Timer::from_seconds(
+                1.0 / 120.0,
+                TimerMode::Repeating,
+            ),
         }
     }
 }
@@ -709,35 +712,45 @@ struct SkillLocalState {
 enum MenuAction {
     BackToGame,
     NewGame,
+    Sound,
+    Control,
     ChangeView,
     ViewScores,
     Quit,
 }
 
-const MENU_ACTIONS_MAIN: [MenuAction; 4] = [
+const MENU_ACTIONS_MAIN: [MenuAction; 6] = [
     MenuAction::NewGame,
+    MenuAction::Sound,
+    MenuAction::Control,
     MenuAction::ChangeView,
     MenuAction::ViewScores,
     MenuAction::Quit,
 ];
 
-const MENU_ACTIONS_PAUSE: [MenuAction; 5] = [
+const MENU_ACTIONS_PAUSE: [MenuAction; 7] = [
     MenuAction::NewGame,
+    MenuAction::Sound,
+    MenuAction::Control,
     MenuAction::ChangeView,
     MenuAction::ViewScores,
     MenuAction::BackToGame,
     MenuAction::Quit,
 ];
 
-const MENU_LABELS_MAIN: [&str; 4] = [
+const MENU_LABELS_MAIN: [&str; 6] = [
     "New Game",
+    "Sound",
+    "Control",
     "Change View",
     "View Scores",
     "Quit",
 ];
 
-const MENU_LABELS_PAUSE: [&str; 5] = [
+const MENU_LABELS_PAUSE: [&str; 7] = [
     "New Game",
+    "Sound",
+    "Control",
     "Change View",
     "View Scores",
     "Return to Game",
@@ -811,7 +824,10 @@ struct PsychedLoad {
 impl Default for PsychedLoad {
     fn default() -> Self {
         Self {
-            timer: Timer::from_seconds(PSYCHED_DURATION_SECS, TimerMode::Once),
+            timer: Timer::from_seconds(
+                PSYCHED_DURATION_SECS,
+                TimerMode::Once,
+            ),
             active: false,
         }
     }
@@ -833,11 +849,13 @@ struct MenuLocalState {
 impl MenuLocalState {
     fn reset(&mut self) {
         self.selection = 0;
-        self.blink = Timer::from_seconds(0.12, TimerMode::Repeating);
+        self.blink = Timer::from_seconds(
+            0.12,
+            TimerMode::Repeating,
+        );
         self.blink_light = true;
     }
 }
-
 
 fn clear_splash_ui(
     commands: &mut Commands,
@@ -848,9 +866,10 @@ fn clear_splash_ui(
     }
 }
 
-/// Build the dynamic item list for Change View based on current VideoSettings.
-/// Resolution row is hidden when not in Windowed mode.
-/// Returns Vec<String> of labels and a mapping of visual-row-index to logical item kind.
+/// Build Dynamic Item List for Change View Based on Current VideoSettings
+/// Resolution Row Hidden When Not in Windowed Mode
+/// Returns Vec<String> of Labels and Mapping of Visual Row
+/// Index to Logical Item Kind
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ChangeViewKind {
     Vsync,
@@ -877,7 +896,7 @@ fn build_change_view_items(
         format!("Display: {}", video.display_mode.label()),
     ));
 
-    // Resolution (only shown in Windowed mode)
+    // Resolution (Only Shown in Windowed Mode)
     if video.display_mode == DisplayMode::Windowed {
         let res_idx = res_list.index_of(video.resolution);
         items.push((
@@ -996,7 +1015,7 @@ fn spawn_change_view_ui(
         Visibility::Visible,
     );
 
-    // Bottom hint geometry
+    // Bottom Hint Geometry
     let hint_native_w = 103.0;
     let hint_native_h = 12.0;
     let hint_bottom_pad = 6.0;
@@ -1006,7 +1025,7 @@ fn spawn_change_view_ui(
     let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
     let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
 
-    // Panel geometry matches Episode Select style
+    // Panel Geometry Matches Episode Select Style
     let panel_left = (18.0 * ui_scale).round();
     let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
     let panel_right = ((BASE_W - 18.0) * ui_scale).round();
@@ -1017,7 +1036,7 @@ fn spawn_change_view_ui(
 
     let border_w = (2.0 * ui_scale).round().max(1.0);
 
-    // Main panel background
+    // Main Panel Background
     commands.spawn((
         SplashUi,
         Node {
@@ -1032,7 +1051,7 @@ fn spawn_change_view_ui(
         ChildOf(canvas),
     ));
 
-    // Top shadow
+    // Top Shadow
     commands.spawn((
         SplashUi,
         Node {
@@ -1047,7 +1066,7 @@ fn spawn_change_view_ui(
         ChildOf(canvas),
     ));
 
-    // Left shadow
+    // Left Shadow
     commands.spawn((
         SplashUi,
         Node {
@@ -1062,7 +1081,7 @@ fn spawn_change_view_ui(
         ChildOf(canvas),
     ));
 
-    // Bottom highlight
+    // Bottom Highlight
     commands.spawn((
         SplashUi,
         Node {
@@ -1077,7 +1096,7 @@ fn spawn_change_view_ui(
         ChildOf(canvas),
     ));
 
-    // Right highlight
+    // Right Highlight
     commands.spawn((
         SplashUi,
         Node {
@@ -1092,7 +1111,7 @@ fn spawn_change_view_ui(
         ChildOf(canvas),
     ));
 
-    // Option list text centered in panel
+    // Option List Text Centered in Panel
     let item_labels: Vec<&str> = items.iter().map(|(_, s)| s.as_str()).collect();
 
     let cursor_w = (19.0 * ui_scale).round();
@@ -1145,7 +1164,7 @@ fn spawn_change_view_ui(
         ));
     }
 
-    // Gun cursor
+    // Gun Cursor
     let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
     let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
 
@@ -1185,7 +1204,7 @@ fn spawn_change_view_ui(
         ChildOf(canvas),
     ));
 
-    // Bottom hint
+    // Bottom Hint
     let hint = asset_server.load(MENU_HINT_PATH);
     commands.spawn((
         ImageNode::new(hint),
@@ -1201,8 +1220,8 @@ fn spawn_change_view_ui(
     ));
 }
 
-/// Spawn the Resolution sub-menu: a list of all available resolutions
-/// using the same panel style as Change View, with the current resolution highlighted.
+/// Spawn Resolution Sub Menu: List of All Available Resolutions
+/// Using Same Panel Style as Change View, With Current Resolution Highlighted
 fn spawn_resolution_submenu_ui(
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
@@ -1253,9 +1272,18 @@ fn spawn_resolution_submenu_ui(
         let mut max_line_w = 0.0f32;
         let mut cur_line_w = 0.0f32;
         for ch in text.chars() {
-            if ch == '\n' { max_line_w = max_line_w.max(cur_line_w); cur_line_w = 0.0; continue; }
-            if ch == ' ' { cur_line_w += (MENU_FONT_SPACE_W * s).round(); continue; }
-            if let Some(g) = menu_glyph(ch) { cur_line_w += (g.advance * s).round(); }
+            if ch == '\n' { 
+                max_line_w = max_line_w.max(cur_line_w);
+                cur_line_w = 0.0;
+                continue;
+            }
+            if ch == ' ' {
+                cur_line_w += (MENU_FONT_SPACE_W * s).round();
+                continue;
+            }
+            if let Some(g) = menu_glyph(ch) {
+                cur_line_w += (g.advance * s).round();
+            }
         }
         max_line_w = max_line_w.max(cur_line_w);
         max_line_w.max(1.0)
@@ -1279,7 +1307,7 @@ fn spawn_resolution_submenu_ui(
         Visibility::Visible,
     );
 
-    // Bottom hint geometry
+    // Bottom Hint Geometry
     let hint_native_w = 103.0;
     let hint_native_h = 12.0;
     let hint_bottom_pad = 6.0;
@@ -1288,7 +1316,7 @@ fn spawn_resolution_submenu_ui(
     let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
     let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
 
-    // Panel geometry
+    // Panel Geometry
     let panel_left = (18.0 * ui_scale).round();
     let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
     let panel_right = ((BASE_W - 18.0) * ui_scale).round();
@@ -1297,7 +1325,7 @@ fn spawn_resolution_submenu_ui(
     let panel_h = (panel_bottom - panel_top).max(1.0);
     let border_w = (2.0 * ui_scale).round().max(1.0);
 
-    // Panel background + borders (same style as Change View)
+    // Panel Background + Borders (Same Style as Change View)
     commands.spawn((SplashUi, Node {
         position_type: PositionType::Absolute,
         left: Val::Px(panel_left), top: Val::Px(panel_top),
@@ -1328,7 +1356,7 @@ fn spawn_resolution_submenu_ui(
         width: Val::Px(border_w), height: Val::Px(panel_h), ..default()
     }, BackgroundColor(Color::srgb(0.70, 0.0, 0.0)), ChildOf(canvas)));
 
-    // Resolution list
+    // Resolution List
     let labels: Vec<String> = (0..item_count).map(|i| res_list.label_at(i)).collect();
 
     let cursor_w = (19.0 * ui_scale).round();
@@ -1370,7 +1398,7 @@ fn spawn_resolution_submenu_ui(
         ));
     }
 
-    // Gun cursor
+    // Gun Cursor
     let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
     let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
     let cursor_y = (list_top + selection as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
@@ -1397,7 +1425,7 @@ fn spawn_resolution_submenu_ui(
         ChildOf(canvas),
     ));
 
-    // Bottom hint
+    // Bottom Hint
     let hint = asset_server.load(MENU_HINT_PATH);
     commands.spawn((
         ImageNode::new(hint),
@@ -3704,6 +3732,10 @@ fn splash_advance_on_any_input(
                             *resources.step = SplashStep::EpisodeSelect;
                         }
                     }
+
+                    MenuAction::Sound => {}
+                    
+                    MenuAction::Control => {}
 
                     MenuAction::ChangeView => {
                         for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }

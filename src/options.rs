@@ -65,9 +65,13 @@ impl DisplayMode {
 	pub fn next(self) -> Self {
 		let skip = Self::skip_exclusive();
 		match self {
-			DisplayMode::Windowed            => DisplayMode::BorderlessFullscreen,
+			DisplayMode::Windowed => DisplayMode::BorderlessFullscreen,
 			DisplayMode::BorderlessFullscreen => {
-				if skip { DisplayMode::Windowed } else { DisplayMode::ExclusiveFullscreen }
+				if skip {
+					DisplayMode::Windowed
+				} else {
+					DisplayMode::ExclusiveFullscreen
+				}
 			}
 			DisplayMode::ExclusiveFullscreen  => DisplayMode::Windowed,
 		}
@@ -79,19 +83,23 @@ impl DisplayMode {
 		let skip = Self::skip_exclusive();
 		match self {
 			DisplayMode::Windowed => {
-				if skip { DisplayMode::BorderlessFullscreen } else { DisplayMode::ExclusiveFullscreen }
+				if skip {
+					DisplayMode::BorderlessFullscreen
+				} else {
+					DisplayMode::ExclusiveFullscreen
+				}
 			}
 			DisplayMode::BorderlessFullscreen => DisplayMode::Windowed,
-			DisplayMode::ExclusiveFullscreen  => DisplayMode::BorderlessFullscreen,
+			DisplayMode::ExclusiveFullscreen => DisplayMode::BorderlessFullscreen,
 		}
 	}
 
 	/// Human readable label for the menu
 	pub fn label(self) -> &'static str {
 		match self {
-			DisplayMode::Windowed            => "Windowed",
+			DisplayMode::Windowed => "Windowed",
 			DisplayMode::BorderlessFullscreen => "Borderless",
-			DisplayMode::ExclusiveFullscreen  => "Fullscreen",
+			DisplayMode::ExclusiveFullscreen => "Fullscreen",
 		}
 	}
 }
@@ -129,8 +137,8 @@ impl Default for VideoSettings {
 		Self {
 			vsync: true,
 			display_mode: DisplayMode::default(),
-			resolution: (1280, 720),
-			fov: 90.0,
+			resolution: (1024, 768),
+			fov: 60.0,
 			view_size: 20,
 			msaa: MsaaSetting::Off,
 		}
@@ -218,8 +226,8 @@ impl Default for KeyBindings {
 			move_backward: KeyCode::KeyS,
 			strafe_left:   KeyCode::KeyA,
 			strafe_right:  KeyCode::KeyD,
-			fire:          KeyCode::Space,
-			use_door:      KeyCode::KeyE,
+			fire:          KeyCode::ControlLeft,
+			use_door:      KeyCode::Space,
 			run:           KeyCode::ShiftLeft,
 			weapon_1:      KeyCode::Digit1,
 			weapon_2:      KeyCode::Digit2,
@@ -320,7 +328,6 @@ fn debug_toggle_vsync(
 }
 
 //  VIDEO: Apply Systems
-
 /// Try to Populate Resolution List from Monitor's Reported Video Modes
 /// Falls Back to Default Preset List if Query Returns Nothing
 fn populate_resolution_list(
