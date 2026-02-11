@@ -1,6 +1,6 @@
 [package]
 name = "Davenstein"
-version = "0.15.0"
+version = "0.15.5"
 edition = "2024"
 
 [lib]
@@ -12,10 +12,15 @@ name = "Davenstein"
 path = "src/main.rs"
 doc = false
 
+[[bin]]
+name = "pak_builder"
+path = "src/pak_builder.rs"
+
 [dependencies]
 bevy = { version = "0.18", features = ["wav", "debug"] }
 dirs = "6"
-include_dir = "0.7"
+futures-lite = "2"
+memmap2 = "0.9"
 rand = "0.10"
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }

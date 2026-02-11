@@ -38,70 +38,123 @@ impl Default for HighScores {
 }
 
 impl HighScores {
-    fn config_path() -> Option<PathBuf> {
+    fn install_highscores_path() -> Option<PathBuf> {
+        let exe = std::env::current_exe().ok()?;
+        let mut p = exe.parent()?.to_path_buf();
+        p.push("data");
+        std::fs::create_dir_all(&p).ok()?;
+        p.push("highscores.ron");
+        Some(p)
+    }
+
+    fn legacy_highscores_path() -> Option<PathBuf> {
         #[cfg(debug_assertions)]
         {
-            // Debug Builds: Save in Project Directory
             let mut p = std::env::current_dir().ok()?;
             p.push("highscores.ron");
-            Some(p)
+            return Some(p);
         }
+
         #[cfg(not(debug_assertions))]
         {
-            // Release Builds: Save in AppData
-            dirs::config_dir().and_then(|mut p| {
+            return dirs::config_dir().and_then(|mut p| {
                 p.push("Davenstein");
                 std::fs::create_dir_all(&p).ok()?;
                 p.push("highscores.ron");
                 Some(p)
-            })
+            });
         }
+    }
+
+    fn load_candidates() -> Vec<PathBuf> {
+        let mut out = Vec::new();
+
+        if let Some(p) = Self::install_highscores_path() {
+            out.push(p);
+        }
+
+        if let Some(p) = Self::legacy_highscores_path() {
+            if !out.iter().any(|x| x == &p) {
+                out.push(p);
+            }
+        }
+
+        out
+    }
+
+    fn save_path() -> Option<PathBuf> {
+        Self::install_highscores_path().or_else(Self::legacy_highscores_path)
+    }
+
+    fn atomic_write(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+        let tmp = path.with_extension("ron.tmp");
+        std::fs::write(&tmp, contents)?;
+
+        #[cfg(windows)]
+        {
+            let _ = std::fs::remove_file(path);
+        }
+
+        std::fs::rename(tmp, path)?;
+        Ok(())
     }
 
     pub fn load() -> Self {
-        Self::config_path()
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .and_then(|contents| ron::from_str(&contents).ok())
-            .unwrap_or_default()
+        for path in Self::load_candidates() {
+            let Ok(contents) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+
+            let Ok(scores) = ron::from_str::<Self>(&contents) else {
+                continue;
+            };
+
+            return scores;
+        }
+
+        Self::default()
     }
 
     pub fn save(&self) {
-        if let Some(path) = Self::config_path() {
-            if let Ok(contents) = ron::ser::to_string_pretty(self, Default::default()) {
-                let _ = std::fs::write(path, contents);
-            }
-        }
+        let Some(path) = Self::save_path() else {
+            return;
+        };
+
+        let Ok(contents) = ron::ser::to_string_pretty(self, Default::default()) else {
+            return;
+        };
+
+        let _ = Self::atomic_write(&path, &contents);
     }
 
-    /// Check if Score Qualifies for High Score List
     pub fn qualifies(&self, score: i32) -> bool {
         self.entries.len() < MAX_SCORES || score > self.entries.last().unwrap().score
     }
 
-    /// Add New High Score Entry
-    /// Returns Rank (0 - 6) if Qualified, None Otherwise
     pub fn add(&mut self, name: String, score: i32, episode: u8) -> Option<usize> {
-    if !self.qualifies(score) {
-        return None;
-    }
+        if !self.qualifies(score) {
+            return None;
+        }
 
-    let entry = HighScoreEntry { 
-        name: name.chars()
-            .filter(|c| !c.is_control()) // Filter ALL Control Chars Including \n
-            .take(3)
-            .collect(),
-        score, 
-        episode 
-    };
-        
-        // Find Insertion Point
-        let rank = self.entries.iter()
+        let entry = HighScoreEntry {
+            name: name
+                .chars()
+                .filter(|c| !c.is_control()) // Filter ALL Control Chars Including \n
+                .take(3)
+                .collect(),
+            score,
+            episode,
+        };
+
+        let rank = self
+            .entries
+            .iter()
             .position(|e| score > e.score)
             .unwrap_or(self.entries.len());
-        
+
         self.entries.insert(rank, entry);
         self.entries.truncate(MAX_SCORES);
-        
+
         self.save();
         Some(rank)
     }

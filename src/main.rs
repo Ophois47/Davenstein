@@ -54,15 +54,17 @@ mod combat;
 mod episode_end;
 mod level_complete;
 mod options;
+mod pak_assets;
 mod pickups;
 mod restart;
 mod ui;
 
 use bevy::prelude::*;
-use bevy::asset::AssetPlugin;
+use bevy::asset::{
+	AssetMetaCheck,
+	AssetPlugin,
+};
 use bevy::window::{PresentMode, WindowPlugin};
-use include_dir::{include_dir, Dir};
-use std::path::PathBuf;
 
 use davelib::ai::EnemyAiPlugin;
 use davelib::map::MapGrid;
@@ -102,28 +104,6 @@ use davelib::world::{
     rebuild_wall_faces_on_request,
     RebuildWalls,
 };
-
-// Iterate over dir as normal and include files that way fs_read_dir
-static ASSETS: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets");
-
-fn extract_embedded_assets_to_temp() -> String {
-    // Location of Extracted Assets
-    let out_dir: PathBuf = std::env::temp_dir().join(format!(
-        "{}_assets_{}",
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_PKG_VERSION"),
-    ));
-
-    // Dir::extract() Fails if Files Already Exist. Clear First
-    let _ = std::fs::remove_dir_all(&out_dir);
-    std::fs::create_dir_all(&out_dir).expect("create temp assets dir");
-
-    ASSETS
-        .extract(&out_dir)
-        .expect("extract embedded assets");
-
-    out_dir.to_string_lossy().to_string()
-}
 
 /// Gate Gameplay Systems Until World Resources Exist
 // Introduced new transition path for level advance (AdvanceLevelRequested) and 
@@ -176,14 +156,21 @@ fn disable_boot_ui_camera_when_player_camera_ready(
 
 fn main() {
 	info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
-	let assets_path = extract_embedded_assets_to_temp();
+	let asset_file_path = if cfg!(debug_assertions) {
+		"assets".to_string()
+	} else {
+		".".to_string()
+	};
 	let high_scores = davelib::high_score::HighScores::load();
 
 	App::new()
+		.add_plugins(pak_assets::PakAssetsPlugin)
 		.add_plugins(
 			DefaultPlugins
 				.set(AssetPlugin {
-					file_path: assets_path,
+					file_path: asset_file_path,
+					meta_check: AssetMetaCheck::Never,
+					watch_for_changes_override: Some(cfg!(debug_assertions)),
 					..default()
 				})
 				.set(ImagePlugin::default_nearest())
