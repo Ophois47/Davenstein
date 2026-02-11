@@ -68,7 +68,7 @@ fn perf_overlay_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 				Text::new("FPS: "),
 				TextFont {
 					font: ui_font.clone(),
-					font_size: 16.0,
+					font_size: 32.0,
 					..default()
 				},
 				TextColor(Color::srgba(1.0, 1.0, 1.0, 1.0)),
@@ -77,7 +77,7 @@ fn perf_overlay_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 				TextSpan::default(),
 				TextFont {
 					font: ui_font.clone(),
-					font_size: 16.0,
+					font_size: 32.0,
 					..default()
 				},
 				TextColor(Color::srgba(1.0, 1.0, 1.0, 1.0)),
@@ -88,7 +88,7 @@ fn perf_overlay_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 				Text::new("Frame ms: "),
 				TextFont {
 					font: ui_font.clone(),
-					font_size: 16.0,
+					font_size: 32.0,
 					..default()
 				},
 				TextColor(Color::srgba(1.0, 1.0, 1.0, 1.0)),
@@ -97,7 +97,7 @@ fn perf_overlay_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 				TextSpan::default(),
 				TextFont {
 					font: ui_font.clone(),
-					font_size: 16.0,
+					font_size: 32.0,
 					..default()
 				},
 				TextColor(Color::srgba(1.0, 1.0, 1.0, 1.0)),
@@ -108,7 +108,7 @@ fn perf_overlay_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 				Text::new("Entities: "),
 				TextFont {
 					font: ui_font.clone(),
-					font_size: 16.0,
+					font_size: 32.0,
 					..default()
 				},
 				TextColor(Color::srgba(1.0, 1.0, 1.0, 1.0)),
@@ -117,7 +117,7 @@ fn perf_overlay_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 				TextSpan::default(),
 				TextFont {
 					font: ui_font.clone(),
-					font_size: 16.0,
+					font_size: 32.0,
 					..default()
 				},
 				TextColor(Color::srgba(1.0, 1.0, 1.0, 1.0)),

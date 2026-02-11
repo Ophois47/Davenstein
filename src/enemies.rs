@@ -1625,7 +1625,7 @@ pub fn spawn_hans(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,
         cull_mode: None,
         ..default()
@@ -1660,7 +1660,7 @@ pub fn spawn_gretel(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,
         cull_mode: None,
         ..default()
@@ -1695,7 +1695,7 @@ pub fn spawn_hitler(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,
         cull_mode: None,
         ..default()
@@ -1731,7 +1731,7 @@ pub fn spawn_mecha_hitler(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,
         cull_mode: None,
         ..default()
@@ -1766,7 +1766,7 @@ pub fn spawn_ghost_hitler(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,
         cull_mode: None,
         ..default()
@@ -1801,7 +1801,7 @@ pub fn spawn_schabbs(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,
         cull_mode: None,
         ..default()
@@ -1837,7 +1837,7 @@ pub fn spawn_otto(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,
         cull_mode: None,
         ..default()
@@ -1873,7 +1873,7 @@ pub fn spawn_general(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,
         cull_mode: None,
         ..default()
@@ -3024,7 +3024,7 @@ pub fn spawn_guard(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,       // No Lighting on Sprites
         cull_mode: None,   // Safe for Billboards
         ..default()
@@ -3059,7 +3059,7 @@ pub fn spawn_mutant(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,       // No Lighting on Sprites
         cull_mode: None,   // Safe for Billboards
         ..default()
@@ -3093,7 +3093,7 @@ pub fn spawn_ss(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,
         cull_mode: None,
         ..default()
@@ -3127,7 +3127,7 @@ pub fn spawn_officer(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,
         cull_mode: None,
         ..default()
@@ -3305,7 +3305,7 @@ pub fn spawn_dog(
     let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
     let mat = materials.add(StandardMaterial {
         base_color_texture: Some(sprites.idle[0].clone()),
-        alpha_mode: AlphaMode::Blend,
+        alpha_mode: AlphaMode::Mask(0.5),
         unlit: true,
         cull_mode: None,
         ..default()

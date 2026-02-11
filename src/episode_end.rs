@@ -807,7 +807,7 @@ fn start_bj_cutscene(
 	let bj_mesh = meshes.add(Rectangle::new(0.95, 1.30));
 	let bj_mat = materials.add(StandardMaterial {
 		base_color_texture: Some(images.bj_victory_walk[0].clone()),
-		alpha_mode: AlphaMode::Blend,
+		alpha_mode: AlphaMode::Mask(0.5),
 		unlit: true,
 		double_sided: true,
 		..default()

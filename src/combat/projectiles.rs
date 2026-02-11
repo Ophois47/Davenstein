@@ -207,7 +207,7 @@ fn spawn_rocket_impact(
 ) {
 	let mat = mats.add(StandardMaterial {
 		base_color_texture: Some(assets.rocket_impact[0].clone()),
-		alpha_mode: AlphaMode::Blend,
+		alpha_mode: AlphaMode::Mask(0.5),
 		unlit: true,
 		cull_mode: None,
 		..default()
@@ -336,7 +336,7 @@ pub fn spawn_projectiles(
 
 		let mat = mats.add(StandardMaterial {
 			base_color_texture: Some(tex0),
-			alpha_mode: AlphaMode::Blend,
+			alpha_mode: AlphaMode::Mask(0.5),
 			unlit: true,
 			cull_mode: None,
 			..default()
@@ -548,7 +548,7 @@ pub fn tick_projectiles(
 
 				let mat = mats.add(StandardMaterial {
 					base_color_texture: Some(assets.rocket_smoke[0].clone()),
-					alpha_mode: AlphaMode::Blend,
+					alpha_mode: AlphaMode::Mask(0.5),
 					unlit: true,
 					cull_mode: None,
 					..default()
