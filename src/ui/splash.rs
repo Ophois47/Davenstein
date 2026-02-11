@@ -5,7 +5,6 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::window::{
     PrimaryWindow,
-    PresentMode,
     WindowResized,
 };
 use serde::Deserialize;
@@ -24,6 +23,7 @@ use davelib::audio::{
     SfxKind,
 };
 use davelib::player::PlayerControlLock;
+use crate::options::{DisplayMode, ResolutionList, VideoSettings};
 
 pub const SPLASH_0_PATH: &str = "textures/ui/splash0.png";
 pub const SPLASH_1_PATH: &str = "textures/ui/splash1.png";
@@ -107,6 +107,8 @@ struct SplashResources<'w> {
     high_scores: ResMut<'w, davelib::high_score::HighScores>,
     death_overlay: Res<'w, DeathOverlay>,
     game_over: Res<'w, GameOver>,
+    video_settings: ResMut<'w, VideoSettings>,
+    res_list: Res<'w, ResolutionList>,
 }
 
 #[derive(SystemParam)]
@@ -591,7 +593,32 @@ struct EpisodeScoreStatText {
 #[derive(Default)]
 struct ChangeViewLocalState {
     selection: usize,
+    /// When true, the Resolution sub-list is open
+    res_submenu_open: bool,
+    /// Currently highlighted index in the resolution sub-list
+    res_submenu_idx: usize,
+    /// Track last window size to detect when display mode change completes
+    /// and a UI respawn is needed
+    needs_respawn: bool,
+    /// True if we entered Change View from the Pause Menu
+    from_pause: bool,
+    /// Hold-repeat state for left/right on numeric values (FOV, View Size)
+    /// Direction: -1 = left held, +1 = right held, 0 = not held
+    hold_dir: i8,
+    /// Seconds accumulated since last repeat tick
+    hold_accum: f32,
+    /// Current repeat interval (starts slow, speeds up)
+    hold_interval: f32,
+    /// How many ticks have fired in this hold
+    hold_ticks: u32,
 }
+
+/// Initial delay before hold-repeat starts (seconds)
+const HOLD_REPEAT_INITIAL: f32 = 0.35;
+/// Fastest repeat interval (seconds)
+const HOLD_REPEAT_FAST: f32 = 0.03;
+/// Interval decreases by this factor each tick
+const HOLD_REPEAT_ACCEL: f32 = 0.85;
 
 #[derive(Component)]
 struct ChangeViewItem {
@@ -821,6 +848,62 @@ fn clear_splash_ui(
     }
 }
 
+/// Build the dynamic item list for Change View based on current VideoSettings.
+/// Resolution row is hidden when not in Windowed mode.
+/// Returns Vec<String> of labels and a mapping of visual-row-index to logical item kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChangeViewKind {
+    Vsync,
+    DisplayMode,
+    Resolution,
+    Fov,
+    ViewSize,
+    Back,
+}
+
+fn build_change_view_items(
+    video: &VideoSettings,
+    res_list: &ResolutionList,
+) -> Vec<(ChangeViewKind, String)> {
+    let mut items = Vec::new();
+
+    // VSync
+    let vsync_label = if video.vsync { "VSync: ON" } else { "VSync: OFF" };
+    items.push((ChangeViewKind::Vsync, vsync_label.to_string()));
+
+    // Display Mode
+    items.push((
+        ChangeViewKind::DisplayMode,
+        format!("Display: {}", video.display_mode.label()),
+    ));
+
+    // Resolution (only shown in Windowed mode)
+    if video.display_mode == DisplayMode::Windowed {
+        let res_idx = res_list.index_of(video.resolution);
+        items.push((
+            ChangeViewKind::Resolution,
+            format!("Resolution: {}", res_list.label_at(res_idx)),
+        ));
+    }
+
+    // FOV
+    items.push((
+        ChangeViewKind::Fov,
+        format!("FOV: {}", video.fov_label()),
+    ));
+
+    // View Size
+    items.push((
+        ChangeViewKind::ViewSize,
+        format!("View Size: {}", video.view_size_label()),
+    ));
+
+    // Back
+    items.push((ChangeViewKind::Back, "Back".to_string()));
+
+    items
+}
+
 fn spawn_change_view_ui(
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
@@ -829,9 +912,12 @@ fn spawn_change_view_ui(
     scale: f32,
     imgs: &SplashImages,
     selection: usize,
-    present_mode: PresentMode,
+    video: &VideoSettings,
+    res_list: &ResolutionList,
 ) {
-    let selection = selection.min(3);
+    let items = build_change_view_items(video, res_list);
+    let item_count = items.len();
+    let selection = selection.min(item_count.saturating_sub(1));
 
     let root = commands
         .spawn((
@@ -1007,32 +1093,24 @@ fn spawn_change_view_ui(
     ));
 
     // Option list text centered in panel
-    let vsync_on = matches!(present_mode, PresentMode::AutoVsync);
-    let vsync_line = if vsync_on { "VSync: ON" } else { "VSync: OFF" };
-
-    let items: [&str; 4] = [
-        vsync_line,
-        "Fullscreen: TODO",
-        "Render Scale: TODO",
-        "Back",
-    ];
+    let item_labels: Vec<&str> = items.iter().map(|(_, s)| s.as_str()).collect();
 
     let cursor_w = (19.0 * ui_scale).round();
     let cursor_h = (10.0 * ui_scale).round();
     let row_h = (16.0 * ui_scale).round().max(1.0);
 
     let mut max_item_w = 0.0f32;
-    for t in items {
+    for t in &item_labels {
         max_item_w = max_item_w.max(measure_menu_text_width(ui_scale, t));
     }
 
-    let list_h = (items.len() as f32 * row_h).round();
+    let list_h = (item_count as f32 * row_h).round();
     let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
 
     let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
     let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
 
-    for idx in 0..items.len() {
+    for idx in 0..item_count {
         let y = (list_top + idx as f32 * row_h).round();
         let is_selected = idx == selection;
 
@@ -1043,7 +1121,7 @@ fn spawn_change_view_ui(
             text_x,
             y,
             ui_scale,
-            items[idx],
+            item_labels[idx],
             if is_selected { Visibility::Hidden } else { Visibility::Visible },
         );
         commands.entity(gray_run).insert((
@@ -1058,7 +1136,7 @@ fn spawn_change_view_ui(
             text_x,
             y,
             ui_scale,
-            items[idx],
+            item_labels[idx],
             if is_selected { Visibility::Visible } else { Visibility::Hidden },
         );
         commands.entity(white_run).insert((
@@ -1118,6 +1196,215 @@ fn spawn_change_view_ui(
             width: Val::Px(hint_w),
             height: Val::Px(hint_h),
             ..default()
+        },
+        ChildOf(canvas),
+    ));
+}
+
+/// Spawn the Resolution sub-menu: a list of all available resolutions
+/// using the same panel style as Change View, with the current resolution highlighted.
+fn spawn_resolution_submenu_ui(
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    w: f32,
+    h: f32,
+    scale: f32,
+    imgs: &SplashImages,
+    selection: usize,
+    res_list: &ResolutionList,
+) {
+    let item_count = res_list.entries.len();
+    let selection = selection.min(item_count.saturating_sub(1));
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(1000),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
+            ChildOf(root),
+        ))
+        .id();
+
+    let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
+        let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+        let mut max_line_w = 0.0f32;
+        let mut cur_line_w = 0.0f32;
+        for ch in text.chars() {
+            if ch == '\n' { max_line_w = max_line_w.max(cur_line_w); cur_line_w = 0.0; continue; }
+            if ch == ' ' { cur_line_w += (MENU_FONT_SPACE_W * s).round(); continue; }
+            if let Some(g) = menu_glyph(ch) { cur_line_w += (g.advance * s).round(); }
+        }
+        max_line_w = max_line_w.max(cur_line_w);
+        max_line_w.max(1.0)
+    };
+
+    let ui_scale = (w / BASE_W).round().max(1.0);
+
+    // Title
+    let title = "Resolution";
+    let title_w = measure_menu_text_width(scale, title);
+    let title_x = ((w - title_w) * 0.5).round().max(0.0);
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_yellow.clone(),
+        title_x,
+        (EP_TITLE_TOP * scale).round(),
+        scale,
+        title,
+        Visibility::Visible,
+    );
+
+    // Bottom hint geometry
+    let hint_native_w = 103.0;
+    let hint_native_h = 12.0;
+    let hint_bottom_pad = 6.0;
+    let hint_w = (hint_native_w * ui_scale).round();
+    let hint_h = (hint_native_h * ui_scale).round();
+    let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
+    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+
+    // Panel geometry
+    let panel_left = (18.0 * ui_scale).round();
+    let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
+    let panel_right = ((BASE_W - 18.0) * ui_scale).round();
+    let panel_w = (panel_right - panel_left).max(1.0);
+    let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
+    let panel_h = (panel_bottom - panel_top).max(1.0);
+    let border_w = (2.0 * ui_scale).round().max(1.0);
+
+    // Panel background + borders (same style as Change View)
+    commands.spawn((SplashUi, Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(panel_left), top: Val::Px(panel_top),
+        width: Val::Px(panel_w), height: Val::Px(panel_h), ..default()
+    }, BackgroundColor(Color::srgb(0.40, 0.0, 0.0)), ChildOf(canvas)));
+
+    commands.spawn((SplashUi, Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(panel_left), top: Val::Px(panel_top),
+        width: Val::Px(panel_w), height: Val::Px(border_w), ..default()
+    }, BackgroundColor(Color::srgb(0.20, 0.0, 0.0)), ChildOf(canvas)));
+
+    commands.spawn((SplashUi, Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(panel_left), top: Val::Px(panel_top),
+        width: Val::Px(border_w), height: Val::Px(panel_h), ..default()
+    }, BackgroundColor(Color::srgb(0.20, 0.0, 0.0)), ChildOf(canvas)));
+
+    commands.spawn((SplashUi, Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(panel_left), top: Val::Px(panel_top + panel_h - border_w),
+        width: Val::Px(panel_w), height: Val::Px(border_w), ..default()
+    }, BackgroundColor(Color::srgb(0.70, 0.0, 0.0)), ChildOf(canvas)));
+
+    commands.spawn((SplashUi, Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(panel_left + panel_w - border_w), top: Val::Px(panel_top),
+        width: Val::Px(border_w), height: Val::Px(panel_h), ..default()
+    }, BackgroundColor(Color::srgb(0.70, 0.0, 0.0)), ChildOf(canvas)));
+
+    // Resolution list
+    let labels: Vec<String> = (0..item_count).map(|i| res_list.label_at(i)).collect();
+
+    let cursor_w = (19.0 * ui_scale).round();
+    let cursor_h = (10.0 * ui_scale).round();
+    let row_h = (16.0 * ui_scale).round().max(1.0);
+
+    let mut max_item_w = 0.0f32;
+    for t in &labels {
+        max_item_w = max_item_w.max(measure_menu_text_width(ui_scale, t));
+    }
+
+    let list_h = (item_count as f32 * row_h).round();
+    let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
+    let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
+    let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
+
+    for idx in 0..item_count {
+        let y = (list_top + idx as f32 * row_h).round();
+        let is_selected = idx == selection;
+
+        let gray_run = spawn_menu_bitmap_text(
+            commands, canvas, imgs.menu_font_gray.clone(),
+            text_x, y, ui_scale, &labels[idx],
+            if is_selected { Visibility::Hidden } else { Visibility::Visible },
+        );
+        commands.entity(gray_run).insert((
+            ChangeViewItem { idx },
+            ChangeViewTextVariant { selected: false },
+        ));
+
+        let white_run = spawn_menu_bitmap_text(
+            commands, canvas, imgs.menu_font_white.clone(),
+            text_x, y, ui_scale, &labels[idx],
+            if is_selected { Visibility::Visible } else { Visibility::Hidden },
+        );
+        commands.entity(white_run).insert((
+            ChangeViewItem { idx },
+            ChangeViewTextVariant { selected: true },
+        ));
+    }
+
+    // Gun cursor
+    let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
+    let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
+    let cursor_y = (list_top + selection as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
+
+    commands.spawn((
+        SplashUi, MenuCursor, MenuCursorLight, Visibility::Visible,
+        ImageNode::new(cursor_light),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x), top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w), height: Val::Px(cursor_h), ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    commands.spawn((
+        SplashUi, MenuCursor, MenuCursorDark, Visibility::Hidden,
+        ImageNode::new(cursor_dark),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x), top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w), height: Val::Px(cursor_h), ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    // Bottom hint
+    let hint = asset_server.load(MENU_HINT_PATH);
+    commands.spawn((
+        ImageNode::new(hint),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(hint_x), top: Val::Px(hint_y),
+            width: Val::Px(hint_w), height: Val::Px(hint_h), ..default()
         },
         ChildOf(canvas),
     ));
@@ -3422,6 +3709,9 @@ fn splash_advance_on_any_input(
                         for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
                         change_view.selection = 0;
+                        change_view.res_submenu_open = false;
+                        change_view.needs_respawn = false;
+                        change_view.from_pause = is_pause;
 
                         if let Some(imgs) = resources.imgs.as_ref() {
                             spawn_change_view_ui(
@@ -3430,7 +3720,8 @@ fn splash_advance_on_any_input(
                                 w, h, scale,
                                 imgs,
                                 change_view.selection,
-                                win.present_mode,
+                                &resources.video_settings,
+                                &resources.res_list,
                             );
 
                             *resources.step = SplashStep::ChangeView;
@@ -3668,27 +3959,291 @@ fn splash_advance_on_any_input(
 
             let Some(imgs) = resources.imgs.as_ref() else { return; };
 
+            // Deferred respawn: after a display mode change, the window size
+            // updates on the next frame. Respawn the menu UI with correct dims.
+            if change_view.needs_respawn {
+                change_view.needs_respawn = false;
+
+                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                spawn_change_view_ui(
+                    &mut commands, &asset_server,
+                    w, h, scale, imgs,
+                    change_view.selection,
+                    &resources.video_settings, &resources.res_list,
+                );
+                return;
+            }
+
+            // Build the dynamic item list to know what kind each row is
+            let items = build_change_view_items(&resources.video_settings, &resources.res_list);
+            let item_count = items.len();
+
+            // Clamp selection in case item count changed (e.g. Resolution row appeared/disappeared)
+            if change_view.selection >= item_count {
+                change_view.selection = item_count.saturating_sub(1);
+            }
+
+            let current_kind = items.get(change_view.selection).map(|(k, _)| *k);
+
+            // --- Resolution Sub-Menu Mode ---
+            if change_view.res_submenu_open {
+                if keyboard.just_pressed(KeyCode::Escape) {
+                    sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+                    change_view.res_submenu_open = false;
+
+                    for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                    spawn_change_view_ui(
+                        &mut commands, &asset_server,
+                        w, h, scale, imgs,
+                        change_view.selection,
+                        &resources.video_settings, &resources.res_list,
+                    );
+                    return;
+                }
+
+                let res_count = resources.res_list.entries.len();
+
+                if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+                    if change_view.res_submenu_idx > 0 {
+                        change_view.res_submenu_idx -= 1;
+                    } else {
+                        change_view.res_submenu_idx = res_count.saturating_sub(1);
+                    }
+                    sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+                }
+
+                if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+                    change_view.res_submenu_idx = (change_view.res_submenu_idx + 1) % res_count;
+                    sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+                }
+
+                if keyboard.just_pressed(KeyCode::Enter)
+                    || keyboard.just_pressed(KeyCode::NumpadEnter)
+                    || keyboard.just_pressed(KeyCode::Space)
+                {
+                    sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+
+                    if let Some(&(rw, rh)) = resources.res_list.entries.get(change_view.res_submenu_idx) {
+                        resources.video_settings.resolution = (rw, rh);
+                    }
+
+                    change_view.res_submenu_open = false;
+
+                    for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                    spawn_change_view_ui(
+                        &mut commands, &asset_server,
+                        w, h, scale, imgs,
+                        change_view.selection,
+                        &resources.video_settings, &resources.res_list,
+                    );
+                    return;
+                }
+
+                // Update highlight/cursor for sub-menu
+                // (Resolution sub-menu reuses the same ChangeViewItem query
+                //  since we respawn UI when entering/leaving sub-menu)
+                for (item, variant, mut vis) in q.q_change_view_items.iter_mut() {
+                    let want_selected = item.idx == change_view.res_submenu_idx;
+                    *vis = if variant.selected == want_selected { Visibility::Visible } else { Visibility::Hidden };
+                }
+
+                let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
+                for mut v in q.q_cursor_light.iter_mut() {
+                    *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
+                }
+                for mut v in q.q_cursor_dark.iter_mut() {
+                    *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
+                }
+
+                // Cursor positioning for sub-menu
+                let ui_scale = (w / BASE_W).round().max(1.0);
+                let hint_native_h = 12.0;
+                let hint_bottom_pad = 6.0;
+                let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+                let panel_left = (18.0 * ui_scale).round();
+                let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
+                let panel_right = ((BASE_W - 18.0) * ui_scale).round();
+                let panel_w = (panel_right - panel_left).max(1.0);
+                let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
+                let panel_h = (panel_bottom - panel_top).max(1.0);
+                let cursor_w = (19.0 * ui_scale).round();
+                let cursor_h = (10.0 * ui_scale).round();
+                let row_h = (16.0 * ui_scale).round().max(1.0);
+                let sub_count = resources.res_list.entries.len();
+                let list_h = (sub_count as f32 * row_h).round();
+                let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
+
+                // Measure max width of sub-menu items
+                let mut max_item_w = 0.0f32;
+                for idx in 0..sub_count {
+                    let label = resources.res_list.label_at(idx);
+                    let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+                    let mut lw = 0.0f32;
+                    for ch in label.chars() {
+                        if ch == ' ' { lw += (MENU_FONT_SPACE_W * s).round(); continue; }
+                        if let Some(g) = menu_glyph(ch) { lw += (g.advance * s).round(); }
+                    }
+                    max_item_w = max_item_w.max(lw.max(1.0));
+                }
+
+                let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
+                let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
+                let cursor_y = (list_top + change_view.res_submenu_idx as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
+
+                for mut node in q.q_node.iter_mut() {
+                    node.left = Val::Px(cursor_x);
+                    node.top = Val::Px(cursor_y);
+                }
+
+                return;
+            }
+
+            // --- Normal Change View Mode ---
             if keyboard.just_pressed(KeyCode::Escape) {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
-                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, false);
+                let back_to_pause = change_view.from_pause;
+                change_view.from_pause = false;
+                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
                 menu.reset();
-                *resources.step = SplashStep::Menu;
+                *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                 return;
             }
 
             let mut moved = false;
 
             if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
-                if change_view.selection > 0 { change_view.selection -= 1; } else { change_view.selection = 3; }
+                if change_view.selection > 0 { change_view.selection -= 1; } else { change_view.selection = item_count - 1; }
                 moved = true;
             }
 
             if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
-                change_view.selection = (change_view.selection + 1) % 4;
+                change_view.selection = (change_view.selection + 1) % item_count;
                 moved = true;
+            }
+
+            // Left/Right for inline-adjustable items (with hold-to-accelerate)
+            // A/D trigger a single nudge on press; arrow keys support hold-repeat
+            let left_just = keyboard.just_pressed(KeyCode::ArrowLeft) || keyboard.just_pressed(KeyCode::KeyA);
+            let right_just = keyboard.just_pressed(KeyCode::ArrowRight) || keyboard.just_pressed(KeyCode::KeyD);
+            let left_held = keyboard.pressed(KeyCode::ArrowLeft);
+            let right_held = keyboard.pressed(KeyCode::ArrowRight);
+
+            let is_nudgeable = matches!(
+                current_kind,
+                Some(ChangeViewKind::Fov) | Some(ChangeViewKind::ViewSize)
+            );
+
+            // Track hold state for nudgeable items
+            if is_nudgeable && (left_held || right_held) {
+                let dir: i8 = if right_held { 1 } else { -1 };
+
+                if left_just || right_just {
+                    // Fresh press: immediate first tick, reset hold state
+                    change_view.hold_dir = dir;
+                    change_view.hold_accum = 0.0;
+                    change_view.hold_interval = HOLD_REPEAT_INITIAL;
+                    change_view.hold_ticks = 0;
+                } else if dir == change_view.hold_dir {
+                    // Continuing hold: accumulate time
+                    change_view.hold_accum += time.delta_secs();
+                } else {
+                    // Direction changed mid-hold
+                    change_view.hold_dir = dir;
+                    change_view.hold_accum = 0.0;
+                    change_view.hold_interval = HOLD_REPEAT_INITIAL;
+                    change_view.hold_ticks = 0;
+                }
+            } else {
+                // Released
+                change_view.hold_dir = 0;
+                change_view.hold_accum = 0.0;
+                change_view.hold_interval = HOLD_REPEAT_INITIAL;
+                change_view.hold_ticks = 0;
+            }
+
+            // Determine how many nudge ticks to fire this frame
+            let mut nudge_ticks: u32 = 0;
+
+            if is_nudgeable && change_view.hold_dir != 0 {
+                if left_just || right_just {
+                    // First press always fires one tick immediately
+                    nudge_ticks = 1;
+                } else {
+                    // Hold repeat: fire ticks based on accumulated time
+                    while change_view.hold_accum >= change_view.hold_interval {
+                        change_view.hold_accum -= change_view.hold_interval;
+                        nudge_ticks += 1;
+                        change_view.hold_ticks += 1;
+                        // Accelerate: shrink interval, floor at FAST
+                        change_view.hold_interval = (change_view.hold_interval * HOLD_REPEAT_ACCEL)
+                            .max(HOLD_REPEAT_FAST);
+                    }
+                }
+            }
+
+            // Handle non-nudgeable left/right (DisplayMode cycles on just_pressed only)
+            let left_pressed = left_just;
+            let right_pressed = right_just;
+
+            let mut value_changed = false;
+
+            if left_pressed || right_pressed {
+                match current_kind {
+                    Some(ChangeViewKind::DisplayMode) => {
+                        resources.video_settings.display_mode = if right_pressed {
+                            resources.video_settings.display_mode.next()
+                        } else {
+                            resources.video_settings.display_mode.prev()
+                        };
+                        // Don't respawn now — window dimensions will change next
+                        // frame after apply system runs. Set flag for deferred respawn.
+                        change_view.needs_respawn = true;
+                        sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+
+            // Apply nudge ticks for FOV / View Size
+            if nudge_ticks > 0 {
+                let dir = change_view.hold_dir;
+                for _ in 0..nudge_ticks {
+                    match current_kind {
+                        Some(ChangeViewKind::Fov) => {
+                            resources.video_settings.nudge_fov(dir as f32);
+                        }
+                        Some(ChangeViewKind::ViewSize) => {
+                            resources.video_settings.nudge_view_size(dir);
+                        }
+                        _ => {}
+                    }
+                }
+                value_changed = true;
+            }
+
+            if value_changed {
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+
+                // Respawn UI to reflect new values and possibly changed item count
+                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+
+                // Rebuild items to get new count (Resolution row may appear/disappear)
+                let new_items = build_change_view_items(&resources.video_settings, &resources.res_list);
+                if change_view.selection >= new_items.len() {
+                    change_view.selection = new_items.len().saturating_sub(1);
+                }
+
+                spawn_change_view_ui(
+                    &mut commands, &asset_server,
+                    w, h, scale, imgs,
+                    change_view.selection,
+                    &resources.video_settings, &resources.res_list,
+                );
+                return;
             }
 
             if moved {
@@ -3709,54 +4264,55 @@ fn splash_advance_on_any_input(
                 *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
             }
 
-            // Cursor Positioning Uses Same Math as spawn_change_view_ui
-            let ui_scale = (w / BASE_W).round().max(1.0);
+            // Only reposition cursor when user navigated (up/down).
+            // spawn_change_view_ui already places it correctly at spawn time,
+            // so redundant repositioning every frame causes drift during
+            // display mode transitions when w/h are shifting.
+            if moved {
+                // Cursor Positioning Uses Same Math as spawn_change_view_ui
+                let ui_scale = (w / BASE_W).round().max(1.0);
 
-            let hint_native_h = 12.0;
-            let hint_bottom_pad = 6.0;
-            let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+                let hint_native_h = 12.0;
+                let hint_bottom_pad = 6.0;
+                let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
 
-            let panel_left = (18.0 * ui_scale).round();
-            let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
-            let panel_right = ((BASE_W - 18.0) * ui_scale).round();
-            let panel_w = (panel_right - panel_left).max(1.0);
+                let panel_left = (18.0 * ui_scale).round();
+                let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
+                let panel_right = ((BASE_W - 18.0) * ui_scale).round();
+                let panel_w = (panel_right - panel_left).max(1.0);
 
-            let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
-            let panel_h = (panel_bottom - panel_top).max(1.0);
+                let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
+                let panel_h = (panel_bottom - panel_top).max(1.0);
 
-            let cursor_w = (19.0 * ui_scale).round();
-            let cursor_h = (10.0 * ui_scale).round();
-            let row_h = (16.0 * ui_scale).round().max(1.0);
+                let cursor_w = (19.0 * ui_scale).round();
+                let cursor_h = (10.0 * ui_scale).round();
+                let row_h = (16.0 * ui_scale).round().max(1.0);
 
-            let list_h = (4.0 * row_h).round();
-            let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
+                let list_h = (item_count as f32 * row_h).round();
+                let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
 
-            let vsync_on = matches!(q.q_win.iter().next().map(|w| w.present_mode), Some(PresentMode::AutoVsync));
-            let vsync_line = if vsync_on { "VSync: ON" } else { "VSync: OFF" };
-
-            let items: [&str; 4] = [vsync_line, "Fullscreen: TODO", "Render Scale: TODO", "Back"];
-
-            let mut max_item_w = 0.0f32;
-            for t in items {
-                max_item_w = max_item_w.max({
+                // Measure max width for cursor X positioning
+                let item_labels: Vec<String> = items.iter().map(|(_, s)| s.clone()).collect();
+                let mut max_item_w = 0.0f32;
+                for t in &item_labels {
                     let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
-                    let mut w = 0.0f32;
+                    let mut lw = 0.0f32;
                     for ch in t.chars() {
-                        if ch == ' ' { w += (MENU_FONT_SPACE_W * s).round(); continue; }
-                        if let Some(g) = menu_glyph(ch) { w += (g.advance * s).round(); }
+                        if ch == ' ' { lw += (MENU_FONT_SPACE_W * s).round(); continue; }
+                        if let Some(g) = menu_glyph(ch) { lw += (g.advance * s).round(); }
                     }
-                    w.max(1.0)
-                });
-            }
+                    max_item_w = max_item_w.max(lw.max(1.0));
+                }
 
-            let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
-            let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
+                let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
+                let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
 
-            let cursor_y = (list_top + change_view.selection as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
+                let cursor_y = (list_top + change_view.selection as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
 
-            for mut node in q.q_node.iter_mut() {
-                node.left = Val::Px(cursor_x);
-                node.top = Val::Px(cursor_y);
+                for mut node in q.q_node.iter_mut() {
+                    node.left = Val::Px(cursor_x);
+                    node.top = Val::Px(cursor_y);
+                }
             }
 
             if keyboard.just_pressed(KeyCode::Enter)
@@ -3765,34 +4321,45 @@ fn splash_advance_on_any_input(
             {
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
-                // Selection 0 Toggles VSYNC by Flipping present_mode and Respawning UI
-                if change_view.selection == 0 {
-                    let Some(mut win) = q.q_win.iter_mut().next() else { return; };
+                match current_kind {
+                    Some(ChangeViewKind::Vsync) => {
+                        resources.video_settings.vsync = !resources.video_settings.vsync;
 
-                    win.present_mode = if matches!(win.present_mode, PresentMode::AutoVsync) {
-                        PresentMode::AutoNoVsync
-                    } else {
-                        PresentMode::AutoVsync
-                    };
+                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        spawn_change_view_ui(
+                            &mut commands, &asset_server,
+                            w, h, scale, imgs,
+                            change_view.selection,
+                            &resources.video_settings, &resources.res_list,
+                        );
+                    }
 
-                    for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                    Some(ChangeViewKind::Resolution) => {
+                        // Open the resolution sub-menu
+                        change_view.res_submenu_open = true;
+                        change_view.res_submenu_idx = resources.res_list.index_of(resources.video_settings.resolution);
 
-                    spawn_change_view_ui(
-                        &mut commands,
-                        &asset_server,
-                        w, h, scale,
-                        imgs,
-                        change_view.selection,
-                        win.present_mode,
-                    );
-                }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        spawn_resolution_submenu_ui(
+                            &mut commands, &asset_server,
+                            w, h, scale, imgs,
+                            change_view.res_submenu_idx,
+                            &resources.res_list,
+                        );
+                    }
 
-                if change_view.selection == 3 {
-                    for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                    Some(ChangeViewKind::Back) => {
+                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
-                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, false);
-                    menu.reset();
-                    *resources.step = SplashStep::Menu;
+                        let back_to_pause = change_view.from_pause;
+                        change_view.from_pause = false;
+                        spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                        menu.reset();
+                        *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
+                    }
+
+                    // DisplayMode, FOV, ViewSize are adjusted by Left/Right, Enter does nothing extra
+                    _ => {}
                 }
             }
         }

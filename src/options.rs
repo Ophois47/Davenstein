@@ -1,9 +1,11 @@
 /*
 Davenstein - by David Petnick
 */
+use bevy::camera;
 use bevy::prelude::*;
 use bevy::audio::{AudioSinkPlayback, Volume};
 use bevy::window::{
+	Monitor,
 	MonitorSelection,
 	PresentMode,
 	PrimaryWindow,
@@ -20,14 +22,17 @@ impl Plugin for OptionsPlugin {
 			.init_resource::<VideoSettings>()
 			.init_resource::<ControlSettings>()
 			.init_resource::<SoundSettings>()
+			.init_resource::<ResolutionList>()
 			// Startup: Apply All Settings Once on Launch
 			.add_systems(Startup, (
+				populate_resolution_list,
 				apply_video_settings_startup,
 				apply_sound_settings_startup,
-			))
+			).chain())
 			// Update: Deal With Changes
 			.add_systems(Update, (
 				apply_video_settings_on_change,
+				apply_view_size_on_change,
 				apply_sound_settings_on_change,
 				apply_control_settings_on_change,
 			))
@@ -46,6 +51,56 @@ pub enum DisplayMode {
 	#[default]
 	BorderlessFullscreen,
 	ExclusiveFullscreen,
+}
+
+impl DisplayMode {
+	/// All variants in menu-cycle order
+	pub const ALL: [DisplayMode; 3] = [
+		DisplayMode::Windowed,
+		DisplayMode::BorderlessFullscreen,
+		DisplayMode::ExclusiveFullscreen,
+	];
+
+	/// True if Exclusive Fullscreen Should Be Skipped
+	/// (Wayland Does Not Support It)
+	fn skip_exclusive() -> bool {
+		std::env::var("WAYLAND_DISPLAY").is_ok()
+	}
+
+	/// Cycle forward through display modes (wraps around)
+	/// Skips Exclusive Fullscreen on Wayland
+	pub fn next(self) -> Self {
+		let skip = Self::skip_exclusive();
+		match self {
+			DisplayMode::Windowed            => DisplayMode::BorderlessFullscreen,
+			DisplayMode::BorderlessFullscreen => {
+				if skip { DisplayMode::Windowed } else { DisplayMode::ExclusiveFullscreen }
+			}
+			DisplayMode::ExclusiveFullscreen  => DisplayMode::Windowed,
+		}
+	}
+
+	/// Cycle backward through display modes (wraps around)
+	/// Skips Exclusive Fullscreen on Wayland
+	pub fn prev(self) -> Self {
+		let skip = Self::skip_exclusive();
+		match self {
+			DisplayMode::Windowed => {
+				if skip { DisplayMode::BorderlessFullscreen } else { DisplayMode::ExclusiveFullscreen }
+			}
+			DisplayMode::BorderlessFullscreen => DisplayMode::Windowed,
+			DisplayMode::ExclusiveFullscreen  => DisplayMode::BorderlessFullscreen,
+		}
+	}
+
+	/// Human readable label for the menu
+	pub fn label(self) -> &'static str {
+		match self {
+			DisplayMode::Windowed            => "Windowed",
+			DisplayMode::BorderlessFullscreen => "Borderless",
+			DisplayMode::ExclusiveFullscreen  => "Fullscreen",
+		}
+	}
 }
 
 /// Which MSAA Preset User has Chosen
@@ -84,6 +139,63 @@ impl Default for VideoSettings {
 			fov: 90.0,
 			view_size: 20,
 			msaa: MsaaSetting::Off,
+		}
+	}
+}
+
+/// List of Available Resolutions for Windowed Mode
+/// Populated at Startup from Monitor Query, Falls Back to
+/// Common 16:9 Presets if Query Yields Nothing
+#[derive(Resource, Clone)]
+pub struct ResolutionList {
+	pub entries: Vec<(u32, u32)>,
+}
+
+impl Default for ResolutionList {
+	fn default() -> Self {
+		Self {
+			entries: vec![
+				(640, 480),
+				(800, 600),
+				(1024, 768),
+				(1280, 720),
+				(1366, 768),
+				(1600, 900),
+				(1920, 1080),
+				(2560, 1440),
+				(3840, 2160),
+			],
+		}
+	}
+}
+
+impl ResolutionList {
+	/// Find the Index of the Given Resolution, or the Closest Match
+	pub fn index_of(&self, res: (u32, u32)) -> usize {
+		self.entries
+			.iter()
+			.position(|&r| r == res)
+			.unwrap_or_else(|| {
+				// Find closest by total pixel count
+				let target = res.0 as i64 * res.1 as i64;
+				self.entries
+					.iter()
+					.enumerate()
+					.min_by_key(|(_, r)| {
+						let (w, h) = **r;
+						((w as i64 * h as i64) - target).abs()
+					})
+					.map(|(i, _)| i)
+					.unwrap_or(0)
+			})
+	}
+
+	/// Format a Resolution as a Menu Label
+	pub fn label_at(&self, idx: usize) -> String {
+		if let Some(&(w, h)) = self.entries.get(idx) {
+			format!("{}x{}", w, h)
+		} else {
+			"???".to_string()
 		}
 	}
 }
@@ -214,6 +326,40 @@ fn debug_toggle_vsync(
 }
 
 //  VIDEO: Apply Systems
+
+/// Try to Populate Resolution List from Monitor's Reported Video Modes
+/// Falls Back to Default Preset List if Query Returns Nothing
+fn populate_resolution_list(
+	mut res_list: ResMut<ResolutionList>,
+	q_monitors: Query<&Monitor>,
+) {
+	let mut found: Vec<(u32, u32)> = Vec::new();
+
+	for monitor in q_monitors.iter() {
+		for mode in &monitor.video_modes {
+			let w = mode.physical_size.x;
+			let h = mode.physical_size.y;
+			if w >= 640 && h >= 480 {
+				let pair = (w, h);
+				if !found.contains(&pair) {
+					found.push(pair);
+				}
+			}
+		}
+	}
+
+	if found.is_empty() {
+		info!("No monitor video modes found, using fallback resolution list");
+		return; // Keep the default list
+	}
+
+	// Sort by total pixels (ascending)
+	found.sort_by_key(|&(w, h)| (w as u64) * (h as u64));
+
+	info!("Populated resolution list with {} modes from monitor", found.len());
+	res_list.entries = found;
+}
+
 fn desired_present_mode(s: &VideoSettings) -> PresentMode {
 	if s.vsync {
 		PresentMode::AutoVsync
@@ -246,7 +392,7 @@ fn desired_msaa(s: &VideoSettings) -> Msaa {
 fn apply_video_settings_startup(
 	settings: Res<VideoSettings>,
 	mut q_window: Query<&mut Window, With<PrimaryWindow>>,
-	mut q_camera: Query<&mut Msaa, With<Camera>>,
+	mut q_camera: Query<(&mut Msaa, &mut Projection), With<Camera>>,
 ) {
 	if let Some(mut window) = q_window.iter_mut().next() {
 		window.present_mode = desired_present_mode(&settings);
@@ -258,33 +404,135 @@ fn apply_video_settings_startup(
 	}
 
 	let msaa = desired_msaa(&settings);
-	for mut cam_msaa in q_camera.iter_mut() {
+	let want_fov = settings.fov_radians();
+	for (mut cam_msaa, mut projection) in q_camera.iter_mut() {
 		*cam_msaa = msaa;
+		if let Projection::Perspective(ref mut persp) = *projection {
+			persp.fov = want_fov;
+		}
 	}
 }
 
 /// React Whenever *ANY* Field in 'VideoSettings' is Mutated
+/// Only Write Fields That Differ From Current Window State
+/// to Avoid Unnecessary Mode Switches / Resize Cascades
 fn apply_video_settings_on_change(
 	settings: Res<VideoSettings>,
 	mut q_window: Query<&mut Window, With<PrimaryWindow>>,
-	mut q_camera: Query<&mut Msaa, With<Camera>>,
+	mut q_camera: Query<(&mut Msaa, &mut Projection), With<Camera>>,
 ) {
 	if !settings.is_changed() {
 		return;
 	}
 
 	if let Some(mut window) = q_window.iter_mut().next() {
-		window.present_mode = desired_present_mode(&settings);
-		window.mode = desired_window_mode(&settings);
+		let want_present = desired_present_mode(&settings);
+		if window.present_mode != want_present {
+			window.present_mode = want_present;
+		}
+
+		let want_mode = desired_window_mode(&settings);
+		if std::mem::discriminant(&window.mode) != std::mem::discriminant(&want_mode) {
+			window.mode = want_mode;
+		}
+
 		if settings.display_mode == DisplayMode::Windowed {
 			let (w, h) = settings.resolution;
-			window.resolution.set(w as f32, h as f32);
+			let (cur_w, cur_h) = (
+				window.resolution.width() as u32,
+				window.resolution.height() as u32,
+			);
+			if cur_w != w || cur_h != h {
+				window.resolution.set(w as f32, h as f32);
+			}
 		}
 	}
 
 	let msaa = desired_msaa(&settings);
-	for mut cam_msaa in q_camera.iter_mut() {
-		*cam_msaa = msaa;
+	let want_fov = settings.fov_radians();
+	for (mut cam_msaa, mut projection) in q_camera.iter_mut() {
+		if *cam_msaa != msaa {
+			*cam_msaa = msaa;
+		}
+		if let Projection::Perspective(ref mut persp) = *projection {
+			if (persp.fov - want_fov).abs() > 0.001 {
+				persp.fov = want_fov;
+			}
+		}
+	}
+}
+
+/// Apply Classic Wolf3D "View Size" by Setting Camera Viewport
+///
+/// view_size 20 = Full Viewport (No Border)
+/// view_size 4  = Maximum Border (~80% Inset)
+///
+/// The Camera Viewport is Inset Symmetrically, Leaving a Border Area
+/// That Shows the Window's Clear Color (Typically Dark Gray or Black).
+///
+/// The Status Bar (44 Native Pixels) is Accounted For: the Viewport
+/// Only Shrinks the Area *Above* the Status Bar.
+fn apply_view_size_on_change(
+	settings: Res<VideoSettings>,
+	q_window: Query<&Window, With<PrimaryWindow>>,
+	mut q_camera: Query<&mut Camera, With<Camera3d>>,
+) {
+	if !settings.is_changed() {
+		return;
+	}
+
+	let Some(window) = q_window.iter().next() else { return; };
+
+	let win_w = window.resolution.physical_width();
+	let win_h = window.resolution.physical_height();
+
+	if win_w == 0 || win_h == 0 {
+		return;
+	}
+
+	let vs = settings.view_size.clamp(4, 20) as f32;
+
+	if vs >= 20.0 {
+		// Full viewport — remove any viewport restriction
+		for mut cam in q_camera.iter_mut() {
+			cam.viewport = None;
+		}
+		return;
+	}
+
+	// Status bar height in physical pixels
+	const HUD_W: f32 = 320.0;
+	const STATUS_H: f32 = 44.0;
+	let hud_scale = (win_w as f32 / HUD_W).floor().max(1.0);
+	let status_h_phys = (STATUS_H * hud_scale) as u32;
+
+	// Available area above the status bar
+	let view_h = win_h.saturating_sub(status_h_phys);
+	if view_h == 0 {
+		return;
+	}
+
+	// Inset fraction: at view_size 4 we inset ~50%, at 19 we inset ~3%
+	// Linear mapping: fraction = (20 - view_size) / 32
+	// This gives a subtle border at 19 and a large border at 4
+	let inset_frac = (20.0 - vs) / 32.0;
+
+	let inset_x = (win_w as f32 * inset_frac).round() as u32;
+	let inset_y = (view_h as f32 * inset_frac).round() as u32;
+
+	let vp_x = inset_x;
+	let vp_y = inset_y;
+	let vp_w = win_w.saturating_sub(inset_x * 2).max(1);
+	let vp_h = view_h.saturating_sub(inset_y * 2).max(1);
+
+	let viewport = camera::Viewport {
+		physical_position: UVec2::new(vp_x, vp_y),
+		physical_size: UVec2::new(vp_w, vp_h),
+		..default()
+	};
+
+	for mut cam in q_camera.iter_mut() {
+		cam.viewport = Some(viewport.clone());
 	}
 }
 
@@ -394,6 +642,27 @@ impl VideoSettings {
 	/// 'PerspectiveProjection { fov, .. }'
 	pub fn fov_radians(&self) -> f32 {
 		self.fov.clamp(60.0, 120.0).to_radians()
+	}
+
+	/// Nudge FOV by `delta` Degrees, Clamped to 60..=120
+	pub fn nudge_fov(&mut self, delta: f32) {
+		self.fov = (self.fov + delta).clamp(60.0, 120.0);
+	}
+
+	/// Nudge View Size by `delta`, Clamped to 4..=20
+	pub fn nudge_view_size(&mut self, delta: i8) {
+		let new_val = (self.view_size as i16 + delta as i16).clamp(4, 20) as u8;
+		self.view_size = new_val;
+	}
+
+	/// Format FOV as Menu Label
+	pub fn fov_label(&self) -> String {
+		format!("{}", self.fov.clamp(60.0, 120.0) as u32)
+	}
+
+	/// Format View Size as Menu Label
+	pub fn view_size_label(&self) -> String {
+		format!("{}", self.view_size)
 	}
 }
 
