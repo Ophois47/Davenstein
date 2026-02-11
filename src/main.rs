@@ -53,6 +53,7 @@ Davenstein - by David Petnick
 mod combat;
 mod episode_end;
 mod level_complete;
+mod options;
 mod pickups;
 mod restart;
 mod ui;
@@ -187,12 +188,13 @@ fn main() {
 				.set(ImagePlugin::default_nearest())
 				.set(WindowPlugin {
 					primary_window: Some(Window {
-						present_mode: PresentMode::AutoNoVsync,
+						present_mode: PresentMode::AutoVsync,
 						..default()
 					}),
 					..default()
 				}),
 		)
+		.add_plugins(options::OptionsPlugin)
 		.add_plugins(davelib::perf_overlay::PerfOverlayPlugin)
 		.add_plugins(ui::UiPlugin)
 		.add_plugins(EnemiesPlugin)

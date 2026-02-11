@@ -1,4 +1,11 @@
-use bevy::diagnostic::{DiagnosticsStore, EntityCountDiagnosticsPlugin, FrameTimeDiagnosticsPlugin};
+/*
+Davenstein - by David Petnick
+*/
+use bevy::diagnostic::{
+	DiagnosticsStore,
+	EntityCountDiagnosticsPlugin,
+	FrameTimeDiagnosticsPlugin,
+};
 use bevy::prelude::*;
 
 pub const PERF_OVERLAY_TOGGLE_KEY: KeyCode = KeyCode::F3;
@@ -45,7 +52,7 @@ struct PerfFrameMsText;
 struct PerfEntityCountText;
 
 fn perf_overlay_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-	let ui_font = asset_server.load("fonts/font.ttf");
+	let ui_font = asset_server.load("fonts/honda_font.ttf");
 
 	commands
 		.spawn((
