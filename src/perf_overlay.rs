@@ -150,9 +150,11 @@ fn update_perf_overlay_text(
 	time: Res<Time>,
 	mut state: ResMut<PerfOverlayState>,
 	diagnostics: Res<DiagnosticsStore>,
-	mut q_fps: Query<&mut TextSpan, With<PerfFpsText>>,
-	mut q_ms: Query<&mut TextSpan, With<PerfFrameMsText>>,
-	mut q_entities: Query<&mut TextSpan, With<PerfEntityCountText>>,
+	mut spans: ParamSet<(
+		Query<&mut TextSpan, With<PerfFpsText>>,
+		Query<&mut TextSpan, With<PerfFrameMsText>>,
+		Query<&mut TextSpan, With<PerfEntityCountText>>,
+	)>,
 ) {
 	if !state.enabled {
 		return;
@@ -174,15 +176,15 @@ fn update_perf_overlay_text(
 		.get(&EntityCountDiagnosticsPlugin::ENTITY_COUNT)
 		.and_then(|d| d.smoothed());
 
-	if let Ok(mut span) = q_fps.single_mut() {
+	if let Some(mut span) = spans.p0().iter_mut().next() {
 		span.0 = fps.map(|v| format!("{v:5.1}")).unwrap_or_else(|| "  n/a".to_string());
 	}
 
-	if let Ok(mut span) = q_ms.single_mut() {
+	if let Some(mut span) = spans.p1().iter_mut().next() {
 		span.0 = frame_ms.map(|v| format!("{v:5.2}")).unwrap_or_else(|| "  n/a".to_string());
 	}
 
-	if let Ok(mut span) = q_entities.single_mut() {
+	if let Some(mut span) = spans.p2().iter_mut().next() {
 		span.0 = entities
 			.map(|v| format!("{:6}", v.round() as u64))
 			.unwrap_or_else(|| "   n/a".to_string());
