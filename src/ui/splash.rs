@@ -3,7 +3,11 @@ Davenstein - by David Petnick
 */
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::window::{PrimaryWindow, WindowResized};
+use bevy::window::{
+    PrimaryWindow,
+    PresentMode,
+    WindowResized,
+};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -487,7 +491,7 @@ fn spawn_menu_bitmap_text(
 
 #[derive(SystemParam)]
 struct SplashAdvanceQueries<'w, 's> {
-    q_win: Query<'w, 's, &'static Window, With<PrimaryWindow>>,
+    q_win: Query<'w, 's, &'static mut Window, With<PrimaryWindow>>,
     q_splash_roots: Query<'w, 's, Entity, (With<SplashUi>, Without<ChildOf>)>,
     q_node: Query<'w, 's, &'static mut Node, (With<MenuCursor>, Without<EpisodeHighlight>)>,
     q_cursor_light: Query<'w, 's, &'static mut Visibility, (With<MenuCursorLight>, Without<MenuCursorDark>)>,
@@ -495,6 +499,21 @@ struct SplashAdvanceQueries<'w, 's> {
     q_episode_items: Query<'w, 's, (&'static EpisodeItem, &'static EpisodeTextVariant, &'static mut Visibility), (Without<MenuCursorLight>, Without<MenuCursorDark>, Without<SkillItem>)>,
     q_skill_items: Query<'w, 's, (&'static SkillItem, &'static SkillTextVariant, &'static mut Visibility), (Without<MenuCursorLight>, Without<MenuCursorDark>, Without<EpisodeItem>)>,
     q_skill_face: Query<'w, 's, &'static mut ImageNode, With<SkillFace>>,
+    q_change_view_items: Query<
+        'w,
+        's,
+        (
+            &'static ChangeViewItem,
+            &'static ChangeViewTextVariant,
+            &'static mut Visibility
+        ),
+        (
+            Without<MenuCursorLight>,
+            Without<MenuCursorDark>,
+            Without<EpisodeItem>,
+            Without<SkillItem>
+        ),
+    >,
 }
 
 #[derive(Component)]
@@ -516,6 +535,7 @@ pub enum SplashStep {
     EpisodeEndText0,
     EpisodeEndText1,
     NameEntry,
+    ChangeView,
     Done,
 }
 
@@ -535,6 +555,21 @@ enum EpisodeScoreStatKind {
 #[derive(Component, Clone, Copy)]
 struct EpisodeScoreStatText {
     kind: EpisodeScoreStatKind,
+}
+
+#[derive(Default)]
+struct ChangeViewLocalState {
+    selection: usize,
+}
+
+#[derive(Component)]
+struct ChangeViewItem {
+    idx: usize,
+}
+
+#[derive(Component, Clone, Copy)]
+struct ChangeViewTextVariant {
+    selected: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -736,6 +771,308 @@ fn clear_splash_ui(
     for e in q_splash_roots.iter() {
         commands.entity(e).despawn();
     }
+}
+
+fn spawn_change_view_ui(
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    w: f32,
+    h: f32,
+    scale: f32,
+    imgs: &SplashImages,
+    selection: usize,
+    present_mode: PresentMode,
+) {
+    let selection = selection.min(3);
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(1000),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
+            ChildOf(root),
+        ))
+        .id();
+
+    let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
+        let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+
+        let mut max_line_w = 0.0f32;
+        let mut cur_line_w = 0.0f32;
+
+        for ch in text.chars() {
+            if ch == '\n' {
+                max_line_w = max_line_w.max(cur_line_w);
+                cur_line_w = 0.0;
+                continue;
+            }
+
+            if ch == ' ' {
+                cur_line_w += (MENU_FONT_SPACE_W * s).round();
+                continue;
+            }
+
+            if let Some(g) = menu_glyph(ch) {
+                cur_line_w += (g.advance * s).round();
+            }
+        }
+
+        max_line_w = max_line_w.max(cur_line_w);
+        max_line_w.max(1.0)
+    };
+
+    let ui_scale = (w / BASE_W).round().max(1.0);
+
+    // Title
+    let title = "Change View";
+    let title_w = measure_menu_text_width(scale, title);
+    let title_x = ((w - title_w) * 0.5).round().max(0.0);
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_yellow.clone(),
+        title_x,
+        (EP_TITLE_TOP * scale).round(),
+        scale,
+        title,
+        Visibility::Visible,
+    );
+
+    // Bottom hint geometry
+    let hint_native_w = 103.0;
+    let hint_native_h = 12.0;
+    let hint_bottom_pad = 6.0;
+
+    let hint_w = (hint_native_w * ui_scale).round();
+    let hint_h = (hint_native_h * ui_scale).round();
+    let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
+    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+
+    // Panel geometry matches Episode Select style
+    let panel_left = (18.0 * ui_scale).round();
+    let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
+    let panel_right = ((BASE_W - 18.0) * ui_scale).round();
+
+    let panel_w = (panel_right - panel_left).max(1.0);
+    let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
+    let panel_h = (panel_bottom - panel_top).max(1.0);
+
+    let border_w = (2.0 * ui_scale).round().max(1.0);
+
+    // Main panel background
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.40, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Top shadow
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(border_w),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.20, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Left shadow
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(border_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.20, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Bottom highlight
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top + panel_h - border_w),
+            width: Val::Px(panel_w),
+            height: Val::Px(border_w),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.70, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Right highlight
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left + panel_w - border_w),
+            top: Val::Px(panel_top),
+            width: Val::Px(border_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.70, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Option list text centered in panel
+    let vsync_on = matches!(present_mode, PresentMode::AutoVsync);
+    let vsync_line = if vsync_on { "VSync: ON" } else { "VSync: OFF" };
+
+    let items: [&str; 4] = [
+        vsync_line,
+        "Fullscreen: TODO",
+        "Render Scale: TODO",
+        "Back",
+    ];
+
+    let cursor_w = (19.0 * ui_scale).round();
+    let cursor_h = (10.0 * ui_scale).round();
+    let row_h = (16.0 * ui_scale).round().max(1.0);
+
+    let mut max_item_w = 0.0f32;
+    for t in items {
+        max_item_w = max_item_w.max(measure_menu_text_width(ui_scale, t));
+    }
+
+    let list_h = (items.len() as f32 * row_h).round();
+    let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
+
+    let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
+    let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
+
+    for idx in 0..items.len() {
+        let y = (list_top + idx as f32 * row_h).round();
+        let is_selected = idx == selection;
+
+        let gray_run = spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_gray.clone(),
+            text_x,
+            y,
+            ui_scale,
+            items[idx],
+            if is_selected { Visibility::Hidden } else { Visibility::Visible },
+        );
+        commands.entity(gray_run).insert((
+            ChangeViewItem { idx },
+            ChangeViewTextVariant { selected: false },
+        ));
+
+        let white_run = spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_white.clone(),
+            text_x,
+            y,
+            ui_scale,
+            items[idx],
+            if is_selected { Visibility::Visible } else { Visibility::Hidden },
+        );
+        commands.entity(white_run).insert((
+            ChangeViewItem { idx },
+            ChangeViewTextVariant { selected: true },
+        ));
+    }
+
+    // Gun cursor
+    let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
+    let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
+
+    let cursor_y = (list_top + selection as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
+
+    commands.spawn((
+        SplashUi,
+        MenuCursor,
+        MenuCursorLight,
+        Visibility::Visible,
+        ImageNode::new(cursor_light),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    commands.spawn((
+        SplashUi,
+        MenuCursor,
+        MenuCursorDark,
+        Visibility::Hidden,
+        ImageNode::new(cursor_dark),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    // Bottom hint
+    let hint = asset_server.load(MENU_HINT_PATH);
+    commands.spawn((
+        ImageNode::new(hint),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(hint_x),
+            top: Val::Px(hint_y),
+            width: Val::Px(hint_w),
+            height: Val::Px(hint_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
 }
 
 fn spawn_episode_score_ui(
@@ -2844,6 +3181,7 @@ fn splash_advance_on_any_input(
     mut sfx: MessageWriter<PlaySfx>,
     mut app_exit: MessageWriter<bevy::app::AppExit>,
     mut q: SplashAdvanceQueries,
+    mut change_view: Local<ChangeViewLocalState>,
 ) {
     let keyboard = &*input.keyboard;
     let mouse = &*input.mouse;
@@ -3243,6 +3581,141 @@ fn splash_advance_on_any_input(
             }
         }
 
+        SplashStep::ChangeView => {
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Menu;
+
+            let Some(imgs) = resources.imgs.as_ref() else { return; };
+
+            if keyboard.just_pressed(KeyCode::Escape) {
+                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+
+                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+
+                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, false);
+                menu.reset();
+                *resources.step = SplashStep::Menu;
+                return;
+            }
+
+            let mut moved = false;
+
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+                if change_view.selection > 0 { change_view.selection -= 1; } else { change_view.selection = 3; }
+                moved = true;
+            }
+
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+                change_view.selection = (change_view.selection + 1) % 4;
+                moved = true;
+            }
+
+            if moved {
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+            }
+
+            for (item, variant, mut vis) in q.q_change_view_items.iter_mut() {
+                let want_selected = item.idx == change_view.selection;
+                *vis = if variant.selected == want_selected { Visibility::Visible } else { Visibility::Hidden };
+            }
+
+            let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
+
+            for mut v in q.q_cursor_light.iter_mut() {
+                *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
+            }
+            for mut v in q.q_cursor_dark.iter_mut() {
+                *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
+            }
+
+            // Cursor positioning uses the same math as spawn_change_view_ui
+            let ui_scale = (w / BASE_W).round().max(1.0);
+
+            let hint_native_h = 12.0;
+            let hint_bottom_pad = 6.0;
+            let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+
+            let panel_left = (18.0 * ui_scale).round();
+            let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
+            let panel_right = ((BASE_W - 18.0) * ui_scale).round();
+            let panel_w = (panel_right - panel_left).max(1.0);
+
+            let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
+            let panel_h = (panel_bottom - panel_top).max(1.0);
+
+            let cursor_w = (19.0 * ui_scale).round();
+            let cursor_h = (10.0 * ui_scale).round();
+            let row_h = (16.0 * ui_scale).round().max(1.0);
+
+            let list_h = (4.0 * row_h).round();
+            let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
+
+            let vsync_on = matches!(q.q_win.iter().next().map(|w| w.present_mode), Some(PresentMode::AutoVsync));
+            let vsync_line = if vsync_on { "VSync: ON" } else { "VSync: OFF" };
+
+            let items: [&str; 4] = [vsync_line, "Fullscreen: TODO", "Render Scale: TODO", "Back"];
+
+            let mut max_item_w = 0.0f32;
+            for t in items {
+                max_item_w = max_item_w.max({
+                    let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+                    let mut w = 0.0f32;
+                    for ch in t.chars() {
+                        if ch == ' ' { w += (MENU_FONT_SPACE_W * s).round(); continue; }
+                        if let Some(g) = menu_glyph(ch) { w += (g.advance * s).round(); }
+                    }
+                    w.max(1.0)
+                });
+            }
+
+            let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
+            let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
+
+            let cursor_y = (list_top + change_view.selection as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
+
+            for mut node in q.q_node.iter_mut() {
+                node.left = Val::Px(cursor_x);
+                node.top = Val::Px(cursor_y);
+            }
+
+            if keyboard.just_pressed(KeyCode::Enter)
+                || keyboard.just_pressed(KeyCode::NumpadEnter)
+                || keyboard.just_pressed(KeyCode::Space)
+            {
+                sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+
+                // Selection 0 Toggles VSYNC by Flipping present_mode and Respawning UI
+                if change_view.selection == 0 {
+                    let Some(mut win) = q.q_win.iter_mut().next() else { return; };
+
+                    win.present_mode = if matches!(win.present_mode, PresentMode::AutoVsync) {
+                        PresentMode::AutoNoVsync
+                    } else {
+                        PresentMode::AutoVsync
+                    };
+
+                    for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+
+                    spawn_change_view_ui(
+                        &mut commands,
+                        &asset_server,
+                        w, h, scale,
+                        imgs,
+                        change_view.selection,
+                        win.present_mode,
+                    );
+                }
+
+                if change_view.selection == 3 {
+                    for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+
+                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, false);
+                    menu.reset();
+                    *resources.step = SplashStep::Menu;
+                }
+            }
+        }
+
         SplashStep::NameEntry => {
             resources.lock.0 = true;
             resources.music_mode.0 = MusicModeKind::Scores;
@@ -3405,6 +3878,8 @@ fn splash_advance_on_any_input(
                 }
             };
 
+            resources.name_entry.episode = episode_num;
+
             if q.q_splash_roots.iter().next().is_none() {
                 spawn_episode_score_ui(
                     &mut commands,
@@ -3440,8 +3915,10 @@ fn splash_advance_on_any_input(
             let Some(imgs) = resources.imgs.as_ref() else { return; };
             let Some(episode_end) = resources.episode_end.as_ref() else { return; };
 
+            let episode_num = resources.name_entry.episode.max(1).min(6);
+
             if q.q_splash_roots.iter().next().is_none() {
-                spawn_episode_end_text_ui(&mut commands, w, h, imgs, episode_end, skill.episode_num, 0);
+                spawn_episode_end_text_ui(&mut commands, w, h, imgs, episode_end, episode_num, 0);
                 return;
             }
 
@@ -3458,8 +3935,10 @@ fn splash_advance_on_any_input(
             let Some(imgs) = resources.imgs.as_ref() else { return; };
             let Some(episode_end) = resources.episode_end.as_ref() else { return; };
 
+            let episode_num = resources.name_entry.episode.max(1).min(6);
+
             if q.q_splash_roots.iter().next().is_none() {
-                spawn_episode_end_text_ui(&mut commands, w, h, imgs, episode_end, skill.episode_num, 1);
+                spawn_episode_end_text_ui(&mut commands, w, h, imgs, episode_end, episode_num, 1);
                 return;
             }
 
@@ -3472,7 +3951,7 @@ fn splash_advance_on_any_input(
                     resources.name_entry.active = true;
                     resources.name_entry.rank = high_score_rank_for(&resources.high_scores, score);
                     resources.name_entry.score = score;
-                    resources.name_entry.episode = skill.episode_num.max(1).min(6);
+                    resources.name_entry.episode = episode_num;
                     resources.name_entry.name.clear();
                     resources.name_entry.cursor_pos = 0;
 
@@ -3495,7 +3974,7 @@ fn splash_advance_on_any_input(
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
                 resources.lock.0 = true;
-                resources.music_mode.0 = MusicModeKind::Scores;
+                resources.music_mode.0 = MusicModeKind::Menu;
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 

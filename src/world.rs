@@ -729,15 +729,15 @@ pub fn setup(
 
 	// Make Map Available for Collision / Doors / Raycasts
 	commands.insert_resource(grid.clone());
-	// Blocking statics (decorations) occupancy
+	// Blocking Statics (Decorations) Occupancy
 	commands.insert_resource(crate::decorations::SolidStatics::new(
 		grid.width,
 		grid.height,
 	));
-	// Pushwall markers (plane1 == 98)
+	// Pushwall Markers (Plane1 == 98)
 	commands.insert_resource(pushwall_markers);
 
-	// --- Assets / materials ---
+	// Assets / Materials
 	let assets = load_assets(&asset_server);
 	let wall_tex = assets.wall_tex.clone();
 	let floor_tex = assets.floor_tex.clone();
@@ -758,7 +758,7 @@ pub fn setup(
 		..default()
 	});
 
-	// Doors use the SAME atlas texture as walls (wolf_walls.png)
+	// Doors Use SAME Atlas Texture as Walls
 	let door_mat = materials.add(StandardMaterial {
 		base_color_texture: Some(wall_tex.clone()),
 		unlit: true,
@@ -788,7 +788,7 @@ pub fn setup(
 		Transform::from_translation(room_center + Vec3::new(0.0, 6.0, 0.0)),
 	));
 
-	    // Floor + ceiling share the same mesh handle
+	    // Floor + Ceiling Share Same Mesh Handle
     let floor_mesh = meshes.add(
         Plane3d::default()
             .mesh()

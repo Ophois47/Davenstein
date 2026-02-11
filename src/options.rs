@@ -306,8 +306,8 @@ fn apply_sound_settings_startup(
 fn apply_sound_settings_on_change(
 	settings: Res<SoundSettings>,
 	mut global_vol: ResMut<GlobalVolume>,
-	mut q_music: Query<&mut AudioSink, With<MusicTrack>>,
-	mut q_sfx:   Query<&mut AudioSink, With<SfxSound>>,
+	mut q_music: Query<&mut AudioSink, (With<MusicTrack>, Without<SfxSound>)>,
+	mut q_sfx:   Query<&mut AudioSink, (With<SfxSound>, Without<MusicTrack>)>,
 ) {
 	if !settings.is_changed() {
 		return;

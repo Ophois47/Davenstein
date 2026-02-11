@@ -29,5 +29,3 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
-- Currently spawning a PointLight with shadows_enabled: true in world::setup
-- Enemy sprite materials use AlphaMode::Blend

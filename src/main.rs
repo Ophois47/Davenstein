@@ -103,6 +103,7 @@ use davelib::world::{
     RebuildWalls,
 };
 
+// Iterate over dir as normal and include files that way fs_read_dir
 static ASSETS: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets");
 
 fn extract_embedded_assets_to_temp() -> String {
