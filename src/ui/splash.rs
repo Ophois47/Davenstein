@@ -496,9 +496,40 @@ struct SplashAdvanceQueries<'w, 's> {
     q_node: Query<'w, 's, &'static mut Node, (With<MenuCursor>, Without<EpisodeHighlight>)>,
     q_cursor_light: Query<'w, 's, &'static mut Visibility, (With<MenuCursorLight>, Without<MenuCursorDark>)>,
     q_cursor_dark: Query<'w, 's, &'static mut Visibility, (With<MenuCursorDark>, Without<MenuCursorLight>)>,
-    q_episode_items: Query<'w, 's, (&'static EpisodeItem, &'static EpisodeTextVariant, &'static mut Visibility), (Without<MenuCursorLight>, Without<MenuCursorDark>, Without<SkillItem>)>,
-    q_skill_items: Query<'w, 's, (&'static SkillItem, &'static SkillTextVariant, &'static mut Visibility), (Without<MenuCursorLight>, Without<MenuCursorDark>, Without<EpisodeItem>)>,
-    q_skill_face: Query<'w, 's, &'static mut ImageNode, With<SkillFace>>,
+    q_episode_items: Query<
+        'w,
+        's,
+        (
+            &'static EpisodeItem,
+            &'static EpisodeTextVariant,
+            &'static mut Visibility
+        ),
+        (
+            Without<MenuCursorLight>,
+            Without<MenuCursorDark>,
+            Without<SkillItem>
+        )
+    >,
+    q_skill_items: Query<
+        'w,
+        's,
+        (
+            &'static SkillItem,
+            &'static SkillTextVariant,
+            &'static mut Visibility
+        ),
+        (
+            Without<MenuCursorLight>,
+            Without<MenuCursorDark>,
+            Without<EpisodeItem>
+        )
+    >,
+    q_skill_face: Query<
+        'w,
+        's,
+        &'static mut ImageNode,
+        With<SkillFace>
+    >,
     q_change_view_items: Query<
         'w,
         's,
@@ -2538,8 +2569,8 @@ fn spawn_splash_ui(
     let s = (ver_ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
     let ver_h = ((MENU_FONT_HEIGHT * s) + s).round().max(1.0);
 
-    // Anchor a small container to the bottom-right of the splash canvas
-    // This avoids any mismatch between our placement math and spawn_menu_bitmap_text scaling
+    // Anchor Small Container to Bottom Right of Splash Canvas
+    // This Avoids Any Mismatch Between Placement Math and spawn_menu_bitmap_text Scaling
     let margin = (2.0 * ui_scale).round().max(2.0);
 
     let ver_root = commands
@@ -3285,7 +3316,7 @@ fn splash_advance_on_any_input(
 
             menu.selection = menu.selection.min(item_count - 1);
 
-            // Ensure menu UI exists
+            // Ensure Menu UI Exists
             if q.q_splash_roots.iter().next().is_none() {
                 spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, is_pause);
                 menu.reset();
@@ -3310,7 +3341,7 @@ fn splash_advance_on_any_input(
                 sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
             }
 
-            // Update item visibility
+            // Update Item Visibility
             for (item, variant, mut vis) in q.q_episode_items.iter_mut() {
                 let want_selected = item.idx == menu.selection;
                 *vis = if variant.selected == want_selected {
@@ -3320,12 +3351,12 @@ fn splash_advance_on_any_input(
                 };
             }
 
-            // Cursor blink
+            // Cursor Blink
             if menu.blink.tick(time.delta()).just_finished() {
                 menu.blink_light = !menu.blink_light;
             }
 
-            // Cursor position matches spawn_menu_hint
+            // Cursor Position Matches spawn_menu_hint
             let ui_scale = (w / BASE_W).round().max(1.0);
             let panel_left = (76.0 * ui_scale).round();
             let cursor_w = (19.0 * ui_scale).round();
@@ -3348,7 +3379,7 @@ fn splash_advance_on_any_input(
                 *v = if menu.blink_light { Visibility::Hidden } else { Visibility::Visible };
             }
 
-            // Activate selection
+            // Activate Selection
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
@@ -3678,7 +3709,7 @@ fn splash_advance_on_any_input(
                 *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
             }
 
-            // Cursor positioning uses the same math as spawn_change_view_ui
+            // Cursor Positioning Uses Same Math as spawn_change_view_ui
             let ui_scale = (w / BASE_W).round().max(1.0);
 
             let hint_native_h = 12.0;

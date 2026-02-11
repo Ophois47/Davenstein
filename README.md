@@ -20,11 +20,16 @@ NOTE! Left Control (LCtrl) releases the mouse from the window.
 -- OR --
 - $ ./target/release/Davenstein
 
+-- To Build or Rebuild the Assets Pak
+- $ cargo run --bin pak_builder --release -- --root assets --out dist/assets.pak
+
+-- To Build or Rebuild Assets Pak in Release Dir
+- $ cargo run --bin pak_builder --release -- --root assets --out target/release/assets.pak
+
 **********************************************
 FEATURES TO BE COMPLETED:
 **********************************************
 1. Save and load game functionality
-2. Options menu
 
 **********************************************
 BUGS:
