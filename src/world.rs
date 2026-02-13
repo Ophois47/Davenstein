@@ -1167,8 +1167,17 @@ pub fn setup(
 
 	let player_pos = Vec3::new(spawn.x as f32 * TILE_SIZE, 0.5, spawn.y as f32 * TILE_SIZE);
 
+	// Spawn camera with appropriate FOV for Wolfenstein-style gameplay
+	// Using 40° vertical FOV (can be adjusted in options menu: 40-120°)
+	let fov_degrees = 40.0_f32;
+	let fov_radians = fov_degrees.to_radians();
+	
 	commands.spawn((
 		Camera3d::default(),
+		Projection::Perspective(PerspectiveProjection {
+			fov: fov_radians,
+			..default()
+		}),
 		IsDefaultUiCamera,
 		Player,
 		PlayerKeys::default(),

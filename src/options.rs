@@ -138,7 +138,7 @@ impl Default for VideoSettings {
 			vsync: true,
 			display_mode: DisplayMode::default(),
 			resolution: (1024, 768),
-			fov: 60.0,
+			fov: 40.0,
 			view_size: 20,
 			msaa: MsaaSetting::Off,
 		}
@@ -470,12 +470,22 @@ fn apply_video_settings_on_change(
 /// That Shows the Window's Clear Color (Typically Dark Gray or Black)
 /// The Status Bar (44 Native Pixels) is Accounted For: the Viewport
 /// Only Shrinks the Area *Above* the Status Bar
+/// 
+/// IMPORTANT: Only Applies During Gameplay (When Player Exists)
+/// This Prevents View Size Changes in Menus From Affecting Menu Rendering
 fn apply_view_size_on_change(
 	settings: Res<VideoSettings>,
+	player_query: Query<(), With<davelib::player::Player>>,
 	q_window: Query<&Window, With<PrimaryWindow>>,
 	mut q_camera: Query<&mut Camera, With<Camera3d>>,
 ) {
 	if !settings.is_changed() {
+		return;
+	}
+
+	// Only Apply View Size Changes During Gameplay (When Player Exists)
+	// In Menus, Always Use Full Viewport
+	if player_query.is_empty() {
 		return;
 	}
 
@@ -563,12 +573,13 @@ fn apply_sound_settings_on_change(
 	global_vol.volume = Volume::Linear(settings.master_volume);
 
 	// Music Sinks
+	// In Bevy 0.18, AudioSink implements AudioSinkPlayback trait
 	for mut sink in q_music.iter_mut() {
 		sink.set_volume(Volume::Linear(settings.music_volume));
 		if settings.music_enabled {
-			sink.play();
+			AudioSinkPlayback::play(&*sink);
 		} else {
-			sink.pause();
+			AudioSinkPlayback::pause(&*sink);
 		}
 	}
 
@@ -640,12 +651,12 @@ impl VideoSettings {
 	/// Returns FOV in *Radians*, Clamped, Ready for
 	/// 'PerspectiveProjection { fov, .. }'
 	pub fn fov_radians(&self) -> f32 {
-		self.fov.clamp(60.0, 120.0).to_radians()
+		self.fov.clamp(40.0, 120.0).to_radians()
 	}
 
-	/// Nudge FOV by `delta` Degrees, Clamped to 60..=120
+	/// Nudge FOV by `delta` Degrees, Clamped to 40..=120
 	pub fn nudge_fov(&mut self, delta: f32) {
-		self.fov = (self.fov + delta).clamp(60.0, 120.0);
+		self.fov = (self.fov + delta).clamp(40.0, 120.0);
 	}
 
 	/// Nudge View Size by `delta`, Clamped to 4..=20
@@ -656,7 +667,7 @@ impl VideoSettings {
 
 	/// Format FOV as Menu Label
 	pub fn fov_label(&self) -> String {
-		format!("{}", self.fov.clamp(60.0, 120.0) as u32)
+		format!("{}", self.fov.clamp(40.0, 120.0) as u32)
 	}
 
 	/// Format View Size as Menu Label

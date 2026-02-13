@@ -36,3 +36,5 @@ BUGS:
 **********************************************
 - Change window size does not respect menu UI
 - Cursor will sometimes become offset when switching display modes
+- Options get set upon going into and then leaving options menu
+- Other window resolutions do not show up outside of native resolution 
