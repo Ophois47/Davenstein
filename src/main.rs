@@ -53,7 +53,6 @@ Davenstein - by David Petnick
 mod combat;
 mod episode_end;
 mod level_complete;
-mod options;
 mod pak_assets;
 mod pickups;
 mod restart;
@@ -182,7 +181,7 @@ fn main() {
 					..default()
 				}),
 		)
-		.add_plugins(options::OptionsPlugin)
+		.add_plugins(davelib::options::OptionsPlugin)
 		.add_plugins(davelib::perf_overlay::PerfOverlayPlugin)
 		.add_plugins(ui::UiPlugin)
 		.add_plugins(EnemiesPlugin)

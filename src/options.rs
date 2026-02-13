@@ -13,6 +13,8 @@ use bevy::window::{
 	WindowMode,
 };
 
+use crate::player;
+
 pub struct OptionsPlugin;
 
 impl Plugin for OptionsPlugin {
@@ -475,7 +477,7 @@ fn apply_video_settings_on_change(
 /// This Prevents View Size Changes in Menus From Affecting Menu Rendering
 fn apply_view_size_on_change(
 	settings: Res<VideoSettings>,
-	player_query: Query<(), With<davelib::player::Player>>,
+	player_query: Query<(), With<player::Player>>,
 	q_window: Query<&Window, With<PrimaryWindow>>,
 	mut q_camera: Query<&mut Camera, With<Camera3d>>,
 ) {

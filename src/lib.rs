@@ -13,6 +13,7 @@ pub mod high_score;
 pub mod level;
 pub mod level_score;
 pub mod map;
+pub mod options;
 pub mod perf_overlay;
 pub mod player;
 pub mod pushwalls;

@@ -15,6 +15,7 @@ use rand::RngExt;
 
 use crate::enemies::EnemyKind;
 use crate::level::{CurrentLevel, LevelId};
+use crate::options::{SoundSettings, MusicTrack, SfxSound};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SfxKind {
@@ -596,9 +597,14 @@ pub fn start_music(
     mut commands: Commands,
     audio: Res<GameAudio>,
     mode: Res<MusicMode>,
+    settings: Res<SoundSettings>,
     q_music: Query<(), With<Music>>,
 ) {
     if q_music.iter().next().is_some() {
+        return;
+    }
+
+    if !settings.music_enabled {
         return;
     }
 
@@ -616,8 +622,9 @@ pub fn start_music(
 
     commands.spawn((
         Music,
+        MusicTrack,
         AudioPlayer::new(clip),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(0.45)),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(settings.effective_music_volume())),
     ));
 }
 
@@ -625,6 +632,7 @@ pub fn sync_boot_music(
     mut commands: Commands,
     audio: Res<GameAudio>,
     mode: Res<MusicMode>,
+    settings: Res<SoundSettings>,
     q_music: Query<Entity, With<Music>>,
     mut last: Local<Option<MusicModeKind>>,
 ) {
@@ -641,6 +649,11 @@ pub fn sync_boot_music(
         commands.entity(e).try_despawn();
     }
 
+    if !settings.music_enabled {
+        *last = Some(mode.0);
+        return;
+    }
+
     let clip = match mode.0 {
         MusicModeKind::Splash => audio.music_splash.clone(),
         MusicModeKind::Menu => audio.music_main_menu.clone(),
@@ -651,8 +664,9 @@ pub fn sync_boot_music(
 
     commands.spawn((
         Music,
+        MusicTrack,
         AudioPlayer::new(clip),
-        PlaybackSettings::LOOP.with_volume(Volume::Linear(1.4)),
+        PlaybackSettings::LOOP.with_volume(Volume::Linear(settings.effective_music_volume())),
     ));
 
     *last = Some(mode.0);
@@ -662,6 +676,7 @@ pub fn sync_level_music(
     mut commands: Commands,
     audio: Res<GameAudio>,
     mode: Res<MusicMode>,
+    settings: Res<SoundSettings>,
     level: Res<CurrentLevel>,
     music: Query<Entity, With<Music>>,
     mut last: Local<Option<LevelId>>,
@@ -683,14 +698,21 @@ pub fn sync_level_music(
         commands.entity(e).try_despawn();
     }
 
+    if !settings.music_enabled {
+        *last = Some(level.0);
+        return;
+    }
+
     let track = track_for_level(level.0);
 
     if let Some(handle) = audio.music_levels.get(&track).cloned() {
         commands.spawn((
             Music,
+            MusicTrack,
             AudioPlayer::new(handle),
             PlaybackSettings {
                 mode: PlaybackMode::Loop,
+                volume: Volume::Linear(settings.effective_music_volume()),
                 ..default()
             },
         ));
@@ -795,6 +817,7 @@ pub fn tick_auto_stop_sfx(
 
 pub fn play_sfx_events(
 	lib: Res<SfxLibrary>,
+	settings: Res<SoundSettings>,
 	mut commands: Commands,
 	mut ev: MessageReader<PlaySfx>,
 	q_active_pickup: Query<Entity, With<ActivePickupSfx>>,
@@ -861,15 +884,17 @@ pub fn play_sfx_events(
 			let i = rng.random_range(0..list.len());
 			let clip = list[i].clone();
 
-			let settings = PlaybackSettings::DESPAWN
+			let sfx_vol = settings.effective_sfx_volume();
+			let playback_settings = PlaybackSettings::DESPAWN
 				.with_spatial(false)
-				.with_volume(Volume::Linear(1.0));
+				.with_volume(Volume::Linear(sfx_vol));
 
 			commands.spawn((
 				ActiveMenuSfx,
+				SfxSound,
 				Transform::from_translation(e.pos),
 				AudioPlayer::new(clip),
-				settings,
+				playback_settings,
 			));
 
 			continue;
@@ -891,17 +916,24 @@ pub fn play_sfx_events(
 			let i = rng.random_range(0..list.len());
 			let clip = list[i].clone();
 
-			let settings = PlaybackSettings::DESPAWN
+			let sfx_vol = settings.effective_sfx_volume();
+			let playback_settings = PlaybackSettings::DESPAWN
 				.with_spatial(false)
-				.with_volume(Volume::Linear(1.0));
+				.with_volume(Volume::Linear(sfx_vol));
 
 			commands.spawn((
 				ActiveIntermissionSfx,
+				SfxSound,
 				Transform::from_translation(e.pos),
 				AudioPlayer::new(clip),
-				settings,
+				playback_settings,
 			));
 
+			continue;
+		}
+
+		// Check if SFX should play at all (respects sfx_enabled flag)
+		if !settings.should_play_sfx() {
 			continue;
 		}
 
@@ -956,7 +988,9 @@ if is_enemy_voice && !is_boss_voice {
 			}
 		}
 
-		let settings = match e.kind {
+		let sfx_vol = settings.effective_sfx_volume();
+
+		let playback_settings = match e.kind {
 			SfxKind::DoorOpen
 			| SfxKind::DoorClose
 			| SfxKind::NoWay
@@ -964,12 +998,12 @@ if is_enemy_voice && !is_boss_voice {
 			| SfxKind::ElevatorSwitch => PlaybackSettings::DESPAWN
 				.with_spatial(true)
 				.with_spatial_scale(SpatialScale::new(0.12))
-				.with_volume(Volume::Linear(1.0)),
+				.with_volume(Volume::Linear(1.0 * sfx_vol)),
 
             SfxKind::RocketImpact => PlaybackSettings::DESPAWN
                 .with_spatial(true)
                 .with_spatial_scale(SpatialScale::new(0.10))
-                .with_volume(Volume::Linear(2.5)),
+                .with_volume(Volume::Linear(2.5 * sfx_vol)),
 
 			SfxKind::KnifeSwing
 			| SfxKind::PistolFire
@@ -977,7 +1011,7 @@ if is_enemy_voice && !is_boss_voice {
 			| SfxKind::ChaingunFire => PlaybackSettings::DESPAWN
 				.with_spatial(true)
 				.with_spatial_scale(SpatialScale::new(0.12))
-				.with_volume(Volume::Linear(1.3)),
+				.with_volume(Volume::Linear(1.3 * sfx_vol)),
 
 			SfxKind::PickupHealthFirstAid
 			| SfxKind::PickupHealthDinner
@@ -985,7 +1019,7 @@ if is_enemy_voice && !is_boss_voice {
 			| SfxKind::PickupOneUp => PlaybackSettings::DESPAWN
 				.with_spatial(true)
 				.with_spatial_scale(SpatialScale::new(0.10))
-				.with_volume(Volume::Linear(1.25)),
+				.with_volume(Volume::Linear(1.25 * sfx_vol)),
 
 			SfxKind::PickupTreasureCross
 			| SfxKind::PickupTreasureChalice
@@ -993,7 +1027,7 @@ if is_enemy_voice && !is_boss_voice {
 			| SfxKind::PickupTreasureCrown => PlaybackSettings::DESPAWN
 				.with_spatial(true)
 				.with_spatial_scale(SpatialScale::new(0.15))
-				.with_volume(Volume::Linear(1.7)),
+				.with_volume(Volume::Linear(1.7 * sfx_vol)),
 
 			SfxKind::EnemyAlert(kind) => {
                 // Boss alerts use priority playback (non-spatial, interrupts everything)
@@ -1011,19 +1045,19 @@ if is_enemy_voice && !is_boss_voice {
                 if is_boss {
                     PlaybackSettings::DESPAWN
                         .with_spatial(false)
-                        .with_volume(Volume::Linear(1.4))
+                        .with_volume(Volume::Linear(1.4 * sfx_vol))
                 } else {
                     PlaybackSettings::DESPAWN
                         .with_spatial(true)
                         .with_spatial_scale(SpatialScale::new(0.05))
-                        .with_volume(Volume::Linear(1.4))
+                        .with_volume(Volume::Linear(1.4 * sfx_vol))
                 }
             }
 
 			SfxKind::EnemyShoot(_) => PlaybackSettings::DESPAWN
 				.with_spatial(true)
 				.with_spatial_scale(SpatialScale::new(0.05))
-				.with_volume(Volume::Linear(1.6)),
+				.with_volume(Volume::Linear(1.6 * sfx_vol)),
 
 			SfxKind::EnemyDeath(kind) => {
                 // Boss deaths use priority playback (non-spatial, interrupts everything)
@@ -1041,12 +1075,12 @@ if is_enemy_voice && !is_boss_voice {
                 if is_boss {
                     PlaybackSettings::DESPAWN
                         .with_spatial(false)
-                        .with_volume(Volume::Linear(1.4))
+                        .with_volume(Volume::Linear(1.4 * sfx_vol))
                 } else {
                     PlaybackSettings::DESPAWN
                         .with_spatial(true)
                         .with_spatial_scale(SpatialScale::new(0.05))
-                        .with_volume(Volume::Linear(1.4))
+                        .with_volume(Volume::Linear(1.4 * sfx_vol))
                 }
             }
 
@@ -1056,7 +1090,7 @@ if is_enemy_voice && !is_boss_voice {
 			| SfxKind::PickupKey => PlaybackSettings::DESPAWN
 				.with_spatial(true)
 				.with_spatial_scale(SpatialScale::new(0.12))
-				.with_volume(Volume::Linear(1.15)),
+				.with_volume(Volume::Linear(1.15 * sfx_vol)),
 
 			SfxKind::MenuMove
 			| SfxKind::MenuSelect
@@ -1064,7 +1098,7 @@ if is_enemy_voice && !is_boss_voice {
 
             SfxKind::EpisodeVictoryYea => PlaybackSettings::DESPAWN
                 .with_spatial(false)
-                .with_volume(Volume::Linear(1.4)),
+                .with_volume(Volume::Linear(1.4 * sfx_vol)),
 
 			SfxKind::IntermissionTick
 			| SfxKind::IntermissionConfirm
@@ -1079,14 +1113,14 @@ if is_enemy_voice && !is_boss_voice {
                     ActiveBossDeathSfx,
                     Transform::from_translation(e.pos),
                     AudioPlayer::new(clip),
-                    settings,
+                    playback_settings,
                 ));
             } else {
                 commands.spawn((
                     ActiveEnemyVoiceSfx,
                     Transform::from_translation(e.pos),
                     AudioPlayer::new(clip),
-                    settings,
+                    playback_settings,
                 ));
             }
             continue;
@@ -1097,7 +1131,7 @@ if is_enemy_voice && !is_boss_voice {
 				ActiveEnemyGunSfx,
 				Transform::from_translation(e.pos),
 				AudioPlayer::new(clip),
-				settings,
+				playback_settings,
 			));
 
 			if matches!(
@@ -1128,11 +1162,16 @@ if is_enemy_voice && !is_boss_voice {
 		commands.spawn((
 			Transform::from_translation(e.pos),
 			AudioPlayer::new(clip),
-			settings,
+			playback_settings,
 		));
 	}
 
 	let Some(e) = last_pickup else { return; };
+
+	// Check if SFX should play
+	if !settings.should_play_sfx() {
+		return;
+	}
 
 	let Some(list) = lib.map.get(&e.kind) else {
 		warn!("Missing SFX for {:?}", e.kind);
@@ -1150,15 +1189,16 @@ if is_enemy_voice && !is_boss_voice {
 	let i = rng.random_range(0..list.len());
 	let clip = list[i].clone();
 
-	let settings = PlaybackSettings::DESPAWN
+	let sfx_vol = settings.effective_sfx_volume();
+	let playback_settings = PlaybackSettings::DESPAWN
 		.with_spatial(true)
 		.with_spatial_scale(SpatialScale::new(0.12))
-		.with_volume(Volume::Linear(1.15));
+		.with_volume(Volume::Linear(1.15 * sfx_vol));
 
 	commands.spawn((
 		ActivePickupSfx,
 		Transform::from_translation(e.pos),
 		AudioPlayer::new(clip),
-		settings,
+		playback_settings,
 	));
 }

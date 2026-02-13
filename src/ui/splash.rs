@@ -23,7 +23,13 @@ use davelib::audio::{
     SfxKind,
 };
 use davelib::player::PlayerControlLock;
-use crate::options::{DisplayMode, ResolutionList, VideoSettings, SoundSettings, ControlSettings};
+use davelib::options::{
+    DisplayMode,
+    ResolutionList,
+    VideoSettings,
+    SoundSettings,
+    ControlSettings,
+};
 
 pub const SPLASH_0_PATH: &str = "textures/ui/splash0.png";
 pub const SPLASH_1_PATH: &str = "textures/ui/splash1.png";
@@ -109,8 +115,8 @@ struct SplashResources<'w> {
     game_over: Res<'w, GameOver>,
     video_settings: ResMut<'w, VideoSettings>,
     res_list: Res<'w, ResolutionList>,
-    sound_settings: ResMut<'w, crate::options::SoundSettings>,
-    control_settings: ResMut<'w, crate::options::ControlSettings>,
+    sound_settings: ResMut<'w, SoundSettings>,
+    control_settings: ResMut<'w, ControlSettings>,
 }
 
 #[derive(SystemParam)]
