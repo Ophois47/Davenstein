@@ -20,6 +20,7 @@ use crate::map::{
 	MapGrid,
 	Tile,
 };
+use crate::options::ControlSettings;
 
 #[derive(Component)]
 pub struct Player;
@@ -42,17 +43,19 @@ impl LookAngles {
     }
 }
 
+/// Base sensitivity scalar applied after ControlSettings multiplier.
+/// ControlSettings.mouse_sensitivity (default 1.0) scales on top of this.
+const BASE_SENSITIVITY: f32 = 0.002;
+
 #[derive(Resource)]
 pub struct PlayerSettings {
 	speed: f32,
-	sensitivity: f32,
 }
 
 impl Default for PlayerSettings {
 	fn default() -> Self {
 		Self {
 			speed: 3.5,
-			sensitivity: 0.002,
 		}
 	}
 }
@@ -130,7 +133,7 @@ pub fn mouse_look(
     cursor_options: Single<&CursorOptions>,
     mouse_motion: Res<AccumulatedMouseMotion>,
     mut q: Query<(&mut Transform, &mut LookAngles), With<Player>>,
-    settings: Res<PlayerSettings>,
+    controls: Res<ControlSettings>,
     lock: Res<PlayerControlLock>,
 ) {
     if lock.0 {
@@ -150,8 +153,10 @@ pub fn mouse_look(
         return;
     };
 
-    look.yaw -= delta.x * settings.sensitivity;
-    look.pitch -= delta.y * settings.sensitivity;
+    // scaled_mouse_look applies sensitivity multiplier + invert_y
+    let (dx, dy) = controls.scaled_mouse_look(delta);
+    look.yaw -= dx * BASE_SENSITIVITY;
+    look.pitch -= dy * BASE_SENSITIVITY;
     // ~ +/- 88 Degrees
     look.pitch = look.pitch.clamp(-1.54, 1.54);
 
@@ -167,6 +172,7 @@ pub fn player_move(
     q_enemies: Query<&OccupiesTile, Without<Dead>>,
     mut q_player: Query<&mut Transform, With<Player>>,
     settings: Res<PlayerSettings>,
+    controls: Res<ControlSettings>,
     push_occ: Res<crate::pushwalls::PushwallOcc>,
 ) {
     if lock.0 {
@@ -193,17 +199,18 @@ pub fn player_move(
     right.y = 0.0;
     right = right.normalize_or_zero();
 
+    let kb = &controls.key_bindings;
     let mut wish = Vec3::ZERO;
-    if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
+    if keys.pressed(kb.move_forward) || keys.pressed(KeyCode::ArrowUp) {
         wish += forward;
     }
-    if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
+    if keys.pressed(kb.move_backward) || keys.pressed(KeyCode::ArrowDown) {
         wish -= forward;
     }
-    if keys.pressed(KeyCode::KeyD) {
+    if keys.pressed(kb.strafe_right) {
         wish += right;
     }
-    if keys.pressed(KeyCode::KeyA) {
+    if keys.pressed(kb.strafe_left) {
         wish -= right;
     }
 
@@ -212,7 +219,7 @@ pub fn player_move(
         return;
     }
 
-    let running = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let running = keys.pressed(kb.run) || keys.pressed(KeyCode::ShiftRight);
     let speed = if running {
         settings.speed * RUN_MULTIPLIER
     } else {
@@ -313,6 +320,7 @@ pub fn player_move(
 pub fn use_doors(
     keys: Res<ButtonInput<KeyCode>>,
     lock: Res<PlayerControlLock>,
+    controls: Res<ControlSettings>,
     grid: ResMut<MapGrid>,
     q_player: Query<&Transform, With<Player>>,
     q_keys: Query<&PlayerKeys, With<Player>>,
@@ -326,7 +334,7 @@ pub fn use_doors(
     const TILE_SIZE: f32 = 1.0;
     const DOOR_OPEN_SECS: f32 = 4.5;
 
-    if !keys.just_pressed(KeyCode::Space) {
+    if !keys.just_pressed(controls.key_bindings.use_door) {
         return;
     }
 
