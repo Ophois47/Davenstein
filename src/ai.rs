@@ -20,8 +20,7 @@ For this AI system, we split into:
 3. enemy_ai_movement - Handle pathfinding and movement scheduling
 
 These run in sequence via .chain() to maintain the original execution order.
-*/
-/*
+
 1) Bevy validates ECS borrows at schedule initialization time
    If a single system function has conflicting access to the same component type
    Example Query<&Transform, ...> plus Query<&mut Transform, ...> in one system
@@ -31,17 +30,18 @@ These run in sequence via .chain() to maintain the original execution order.
    - Merge conflicting queries into a ParamSet and ensure you do not use them simultaneously
    Reference https://bevy.org/learn/errors/b0001
 
-2) Compiler dead_code warnings are a real gameplay signal in ECS projects
+2) Compiler dead_code Warnings are Real Gameplay Signal in ECS Projects
    If a system like attach_enemy_ai is never used, it is not registered into any schedule
    That can silently break gameplay because queries stop matching any entities
    In this incident, enemies had EnemyKind but never received EnemyAi
    Result AI systems ran but affected zero enemies so nobody chased or shot
 
-3) Commands are deferred
+3) Commands Deferred
    Inserting components via Commands does not make them visible to later systems in the same schedule run
    chain() enforces execution order but does not auto-flush deferred Commands
    If same-tick visibility is required, add an apply_deferred boundary between producer and consumer
 */
+
 use bevy::prelude::*;
 use std::collections::{HashSet, HashMap};
 
@@ -75,7 +75,7 @@ const AI_TIC_SECS: f32 = 1.0 / 70.0;
 const DOOR_OPEN_SECS: f32 = 4.5;
 const CLAIM_TILE_EARLY: bool = true;
 
-// Shooting constants
+// Shooting Constants
 const GUARD_SHOOT_MAX_DIST_TILES: i32 = 7;
 const GUARD_SHOOT_PAUSE_SECS: f32 = 0.25;
 const MUTANT_SHOOT_PAUSE_SECS: f32 = 0.15;
@@ -140,7 +140,8 @@ pub struct EnemyMove {
     pub speed_tps: f32,
 }
 
-// Temporary component to communicate Dir8 changes from movement system
+// Temporary Component to Communicate Dir8
+// Changes From Movement System
 #[derive(Component, Debug, Clone, Copy)]
 struct PendingDir8(Dir8);
 
@@ -151,7 +152,7 @@ pub struct BurstFire {
     next_tics: u32,
 }
 
-// Resource to share data between the split AI systems
+// Resource to Share Data Between Split AI Systems
 #[derive(Resource, Default)]
 struct AiSharedData {
     occupied: HashSet<IVec2>,
@@ -569,7 +570,7 @@ fn wolf_boss_damage(dist_tiles: i32) -> i32 {
     }
 }
 
-// SYSTEM 1: Prepare shared data and handle activation/patrol
+// SYSTEM 1: Prepare Shared Data and Handle Activation / Patrol
 fn enemy_ai_prepare_and_activate(
     mut commands: Commands,
     time: Res<Time>,
@@ -835,7 +836,7 @@ fn enemy_ai_prepare_and_activate(
     }
 }
 
-// SYSTEM 2: Handle combat (shooting, dog bites, burst fire)
+// SYSTEM 2: Handle Combat (Shooting, Dog Bites, Burst Fire)
 fn enemy_ai_combat(
     mut commands: Commands,
     time: Res<Time>,
@@ -888,7 +889,7 @@ fn enemy_ai_combat(
 
         let cd_now = shoot_cd.get(&e).copied().unwrap_or(0.0);
 
-        // Burst continuation must run even while cd is active
+        // Burst Continuation Must Run Even While cd is Active
         if let Some(b) = bursts.get_mut(&e) {
             let dx = (player_tile.x - my_tile.x).abs();
             let dy = (player_tile.y - my_tile.y).abs();
@@ -903,7 +904,7 @@ fn enemy_ai_combat(
                 if b.next_tics > 0 {
                     b.next_tics -= 1;
                 } else {
-                    // Ghost Hitler uses projectile volleys, everyone else stays hitscan
+                    // Ghost Hitler Uses Projectile Volleys, Everyone Else Stays Hitscan
                     if matches!(*kind, EnemyKind::GhostHitler) {
                         let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
                         let mut dir = player_pos - origin;
@@ -915,7 +916,7 @@ fn enemy_ai_combat(
                                 dir: dir.normalize(),
                             });
                         }
-                    // Schabbs syringe throw (single shot, not a volley)
+                    // Schabbs Syringe Throw (Single Shot, Not a Volley)
                     } else if matches!(*kind, EnemyKind::Schabbs) {
                         let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
                         let mut dir = player_pos - origin;
@@ -939,7 +940,7 @@ fn enemy_ai_combat(
                         });
 
                         continue;
-                    // Otto Rocket Shoot (single shot rocket only)
+                    // Otto Rocket Shoot (Single Shot Rocket Only)
                     } else if matches!(*kind, EnemyKind::Otto) {
                         let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
                         let mut dir = player_pos - origin;
@@ -963,9 +964,9 @@ fn enemy_ai_combat(
                         });
 
                         continue;
-                    // General - Chaingun volley continuation (after initial rocket)
+                    // General Chaingun Volley Continuation (After Initial Rocket)
                     } else if matches!(*kind, EnemyKind::General) {
-                        // General fires 4 chaingun bullets in rapid succession
+                        // General Fires 4 Chaingun Bullets in Rapid Succession
                         let hits = wolf_far_miss_gate(shoot_dist);
                         let damage = if hits {
                             wolf_boss_damage(shoot_dist)
@@ -975,15 +976,15 @@ fn enemy_ai_combat(
 
                         enemy_fire.write(EnemyFire { kind: *kind, damage });
 
-                        // Insert/update the chaingun volley component for view tracking
+                        // Insert / Update Chaingun Volley Component for View Tracking
                         commands.entity(e).insert(crate::enemies::GeneralChaingunVolley {
                             shots_remaining: b.shots_left,
                         });
 
-                        // Remove rocket shoot component so we transition to chaingun sprites
+                        // Remove Rocket Shoot Component so we Transition to Chaingun Sprites
                         commands.entity(e).remove::<crate::enemies::GeneralShoot>();
 
-                        // Play chaingun sound on first shot of the volley
+                        // Play Chaingun Sound on First Shot of Volley
                         if b.shots_left == 4 {
                             sfx.write(PlaySfx {
                                 kind: SfxKind::EnemyShoot(EnemyKind::Hans),  // Use Hans chaingun sound
@@ -1016,7 +1017,7 @@ fn enemy_ai_combat(
 
             if b.shots_left == 0 {
                 bursts.remove(&e);
-                // Clean up General's chaingun volley component when burst completes
+                // Clean up General's Chaingun Volley Component When Burst Completes
                 if matches!(*kind, EnemyKind::General) {
                     commands.entity(e).remove::<crate::enemies::GeneralChaingunVolley>();
                 }
@@ -1025,17 +1026,17 @@ fn enemy_ai_combat(
             continue;
         }
 
-        // Dog bite state gate
+        // Dog Bite State Gate
         if matches!(*kind, EnemyKind::Dog) && dog_bite.is_some() {
             continue;
         }
 
-        // Stop to shoot gate
+        // Stop to Shoot Gate
         if cd_now > GUARD_SHOOT_COOLDOWN_SECS {
             continue;
         }
 
-        // Start attacks only when not moving
+        // Start Attacks Only When Not Moving
         if moving_now {
             continue;
         }
@@ -1059,7 +1060,7 @@ fn enemy_ai_combat(
             }
         }
 
-        // Shoot logic (non-dogs)
+        // Shoot Logic (Non Dogs)
         if !matches!(*kind, EnemyKind::Dog) {
             let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
 
@@ -1085,9 +1086,9 @@ fn enemy_ai_combat(
                         .entity(e)
                         .insert(PendingDir8(dir8_towards(my_tile, player_tile)));
                         
-                    // Ghost Hitler projectile volley
+                    // Ghost Hitler Projectile Volley
                     if matches!(*kind, EnemyKind::GhostHitler) {
-                        // Tune these until it visually matches DOS Wolf3D
+                        // Tune These Until it Visually Matches DOS Wolfenstein 3-D
                         let shots = 14;
                         let every_tics = 2;
                         let post_cd_secs = 0.95;
@@ -1127,7 +1128,7 @@ fn enemy_ai_combat(
                         continue;
                     }
 
-                    // Schabbs syringe throw (single shot, not a volley)
+                    // Schabbs Syringe Throw (Single Shot, Not a Volley)
                     if matches!(*kind, EnemyKind::Schabbs) {
                         let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
                         let mut dir = player_pos - origin;
@@ -1154,7 +1155,7 @@ fn enemy_ai_combat(
                         continue;
                     }
 
-                    // Otto and General Rocket Fire (single shot, not a volley)
+                    // Otto and General Rocket Fire (Single Shot, Not a Volley)
                     if matches!(*kind, EnemyKind::Otto) {
                         let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
                         let mut dir = player_pos - origin;
@@ -1181,13 +1182,13 @@ fn enemy_ai_combat(
                         continue;
                     }
 
-                    // General Fettgesicht - Fires 1 rocket then 4 chaingun bullets per volley
+                    // General Fettgesicht Fires 1 Rocket Then 4 Chaingun Bullets Per Volley
                     if matches!(*kind, EnemyKind::General) {
                         let origin = Vec3::new(tf.translation.x, 0.55, tf.translation.z);
                         let mut dir = player_pos - origin;
                         dir.y = 0.0;
 
-                        // Fire the rocket first
+                        // Fire Rocket First
                         if dir.length_squared() > 1e-6 {
                             enemy_rocket.write(EnemyRocketShot {
                                 origin,
@@ -1195,24 +1196,24 @@ fn enemy_ai_combat(
                             });
                         }
 
-                        // Play rocket fire sound
+                        // Play Rocket Fire Sound
                         sfx.write(PlaySfx {
                             kind: SfxKind::EnemyShoot(EnemyKind::General),
                             pos: tf.translation,
                         });
 
-                        // Set up rocket animation component
+                        // Set Up Rocket Animation Component
                         commands.entity(e).insert(crate::enemies::GeneralShoot {
                             t: Timer::from_seconds(crate::enemies::GENERAL_SHOOT_SECS, TimerMode::Once),
                         });
 
-                        // Queue up 4 chaingun shots in a burst
-                        // Tune these values to match Wolf3D feel
+                        // Queue Up 4 Chaingun Shots in Burst
                         let shots = 4;
-                        let every_tics = 4;  // Spacing between chaingun shots
+                        // Spacing Between Chaingun Shots
+                        let every_tics = 4;
                         
-                        // CRITICAL: Delay first chaingun shot until AFTER rocket animation
-                        // Convert rocket animation time to tics
+                        // Delay First Chaingun Shot Until AFTER Rocket Animation
+                        // Convert Rocket Animation Time to Tics
                         let rocket_anim_tics = (crate::enemies::GENERAL_SHOOT_SECS / AI_TIC_SECS).ceil() as u32;
 
                         bursts.insert(
@@ -1220,11 +1221,11 @@ fn enemy_ai_combat(
                             BurstFire {
                                 shots_left: shots,
                                 every_tics,
-                                next_tics: rocket_anim_tics,  // Wait for rocket to finish!
+                                next_tics: rocket_anim_tics,  // Wait for Rocket to Finish
                             },
                         );
 
-                        // Total duration = rocket animation + chaingun burst + post cooldown
+                        // Total Duration = Rocket Animation + Chaingun Burst + Post Cooldown
                         let burst_secs = (shots as f32) * (every_tics as f32) * AI_TIC_SECS;
                         let rocket_secs = crate::enemies::GENERAL_SHOOT_SECS;
                         let post_cd_secs = 0.45;
@@ -1233,7 +1234,7 @@ fn enemy_ai_combat(
                         continue;
                     }
 
-                    // Regular hitscan shooting
+                    // Regular Hitscan Shooting
                     shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
                     let hits = wolf_far_miss_gate(shoot_dist);
@@ -1324,7 +1325,7 @@ fn enemy_ai_combat(
     }
 }
 
-// SYSTEM 3: Handle movement (pathfinding and door opening)
+// SYSTEM 3: Handle Movement (Pathfinding and Door Opening)
 fn enemy_ai_movement(
     mut commands: Commands,
     grid: Res<MapGrid>,
@@ -1455,14 +1456,15 @@ fn enemy_ai_movement(
             }
         }
 
-        // Fallback pathfinding
+        // Fallback Pathfinding
         if !moved_or_acted {
             match pick_chase_step(&grid, &solid, &shared.occupied, my_tile, player_tile, ai.last_step) {
                 ChasePick::MoveTo(dest) => {
                     if dest != player_tile && !shared.occupied.contains(&dest) {
                         let step = dest - my_tile;
                         let new_dir = dir8_from_step(step);
-                        commands.entity(e).insert(PendingDir8(new_dir));  // Insert pending instead of mutating
+                        // Insert Pending Instead of Mutating
+                        commands.entity(e).insert(PendingDir8(new_dir));
                         ai.last_step = step;
 
                         if CLAIM_TILE_EARLY {
@@ -1496,7 +1498,7 @@ fn enemy_ai_movement(
     }
 }
 
-// SYSTEM 4: Apply pending Dir8 changes
+// SYSTEM 4: Apply Pending Dir8 Changes
 fn apply_pending_dir8(
     mut commands: Commands,
     mut q: Query<(Entity, &PendingDir8, &mut Dir8)>,

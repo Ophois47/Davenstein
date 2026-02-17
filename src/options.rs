@@ -336,31 +336,40 @@ fn populate_resolution_list(
 	mut res_list: ResMut<ResolutionList>,
 	q_monitors: Query<&Monitor>,
 ) {
-	let mut found: Vec<(u32, u32)> = Vec::new();
+	use std::collections::BTreeSet;
+
+	let mut merged: BTreeSet<(u32, u32)> = res_list.entries.iter().copied().collect();
+	let before = merged.len();
+
+	let mut monitor_found = 0usize;
 
 	for monitor in q_monitors.iter() {
 		for mode in &monitor.video_modes {
 			let w = mode.physical_size.x;
 			let h = mode.physical_size.y;
 			if w >= 640 && h >= 480 {
-				let pair = (w, h);
-				if !found.contains(&pair) {
-					found.push(pair);
-				}
+				monitor_found += 1;
+				merged.insert((w, h));
 			}
 		}
 	}
 
-	if found.is_empty() {
-		info!("No monitor video modes found, using fallback resolution list");
-		return; // Keep the default list
+	if monitor_found == 0 {
+		info!("No Monitor Video Modes Found, Keeping Fallback Resolution List");
+		return;
 	}
 
-	// Sort by total pixels (ascending)
-	found.sort_by_key(|&(w, h)| (w as u64) * (h as u64));
+	let mut out: Vec<(u32, u32)> = merged.into_iter().collect();
+	out.sort_by_key(|&(w, h)| ((w as u64) * (h as u64), w as u64, h as u64));
 
-	info!("Populated resolution list with {} modes from monitor", found.len());
-	res_list.entries = found;
+	info!(
+		"Resolution list merged: {} -> {} entries ({} monitor modes seen)",
+		before,
+		out.len(),
+		monitor_found
+	);
+
+	res_list.entries = out;
 }
 
 fn desired_present_mode(s: &VideoSettings) -> PresentMode {
@@ -475,19 +484,37 @@ fn apply_video_settings_on_change(
 /// 
 /// IMPORTANT: Only Applies During Gameplay (When Player Exists)
 /// This Prevents View Size Changes in Menus From Affecting Menu Rendering
+///
+/// Tracks Last Applied State so the Viewport is Also Set When
+/// Entering Gameplay From the Menu (Not Just on Settings Change)
 fn apply_view_size_on_change(
 	settings: Res<VideoSettings>,
 	player_query: Query<(), With<player::Player>>,
 	q_window: Query<&Window, With<PrimaryWindow>>,
 	mut q_camera: Query<&mut Camera, With<Camera3d>>,
+	mut last_applied: Local<Option<(u8, bool)>>,
 ) {
-	if !settings.is_changed() {
+	let has_player = !player_query.is_empty();
+	let current = (settings.view_size, has_player);
+
+	// Check if anything changed: settings, player existence, or first frame
+	let needs_apply = match *last_applied {
+		None => true,
+		Some(prev) => prev != current || settings.is_changed(),
+	};
+
+	if !needs_apply {
 		return;
 	}
 
+	*last_applied = Some(current);
+
 	// Only Apply View Size Changes During Gameplay (When Player Exists)
 	// In Menus, Always Use Full Viewport
-	if player_query.is_empty() {
+	if !has_player {
+		for mut cam in q_camera.iter_mut() {
+			cam.viewport = None;
+		}
 		return;
 	}
 

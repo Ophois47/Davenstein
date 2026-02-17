@@ -61,6 +61,8 @@ impl Plugin for UiPlugin {
 			.add_systems(Update, hud::sync_hud_icons)
 			.add_systems(Update, hud::tick_hud_face_timers)
 			.add_systems(Update, hud::sync_hud_face)
+			// View Size Border (Classic Wolf3D Teal Border)
+			.add_systems(Update, hud::sync_view_size_border)
 			// Overlay Systems
 			.add_systems(Update, hud::flash_on_hp_drop)
 			.add_systems(Update, hud::ensure_pickup_flash_overlay)

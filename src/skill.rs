@@ -4,7 +4,7 @@ Davenstein - by David Petnick
 use bevy::prelude::*;
 
 /// Selected Skill Level (Difficulty)
-/// Maps to Wolfenstein 3D's 4 Difficulty Settings
+/// Maps to Wolfenstein 3-D's 4 Difficulty Settings
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SkillLevel(pub u8);
 
@@ -29,7 +29,7 @@ impl SkillLevel {
     pub const DEATH_INCARNATE: u8 = 3;
 
     /// Get Plane1 Spawn Offset for This Difficulty
-    /// Wolfenstein 3D Uses 3 Spawn Density Bands Spaced by +36:
+    /// Wolfenstein 3-D Uses 3 Spawn Density Bands Spaced by +36:
     /// - Easy (Levels 0 - 1): Offset 0
     /// - Medium (Level 2): Offset 36
     /// - Hard (Level 3): Offset 72
@@ -43,7 +43,7 @@ impl SkillLevel {
     }
 
     /// Get Damage Multiplier for Difficulty
-    /// Wolfenstein 3D Reduces Enemy Damage on Easier Difficulties
+    /// Wolfenstein 3-D Reduces Enemy Damage on Easier Difficulties
     pub fn damage_multiplier(&self) -> f32 {
         match self.0 {
             0 => 0.5,  // Can I Play Daddy: 50% damage
@@ -54,7 +54,7 @@ impl SkillLevel {
         }
     }
 
-    /// Wolfenstein 3D Uses Faster Enemy AI on Harder Difficulties
+    /// Wolfenstein 3-D Uses Faster Enemy AI on Harder Difficulties
     pub fn fast_enemies(&self) -> bool {
         self.0 >= 3
     }

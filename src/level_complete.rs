@@ -131,40 +131,40 @@ impl Default for ElevatorExitDelay {
     fn default() -> Self {
         Self {
             active: false,
-            // Tune: start small. This is just “long enough to see the flip”.
+            // Just Long Enough to See Flip
             timer: Timer::from_seconds(0.35, TimerMode::Once),
         }
     }
 }
 
-/// When the player hits the elevator switch:
-/// - we lock immediately
-/// - we flip + rebuild immediately
-/// - we delay showing the intermission overlay (win.0) until this timer completes
+/// When Player Hits Elevator Switch:
+/// - Lock Immediately
+/// - Flip + Rebuild Immediately
+/// - Delay Showing Intermission Overlay (win.0) Until Timer Completes
 pub fn tick_elevator_exit_delay(
     time: Res<Time>,
     mut delay: ResMut<ElevatorExitDelay>,
     mut win: ResMut<LevelComplete>,
     mut lock: ResMut<PlayerControlLock>,
 ) {
-    // If we’re not waiting to show the win screen, nothing to do.
+    // Not Waiting to Show Win Screen? Nothing to Do
     if !delay.active {
         return;
     }
 
-    // If win is already up, clear pending state (safety).
+    // If Win is Already up, Clear Pending State (Safety)
     if win.0 {
         delay.active = false;
         return;
     }
 
-    // Keep gameplay frozen during the delay.
+    // Keep Gameplay Frozen During Delay
     lock.0 = true;
 
     delay.timer.tick(time.delta());
 
     if delay.timer.is_finished() && delay.timer.just_finished() {
-        // NOW show the intermission overlay.
+        // NOW Show Intermission Overlay
         win.0 = true;
         delay.active = false;
     }
@@ -182,7 +182,8 @@ pub fn use_elevator_exit(
     mut exit_delay: ResMut<ElevatorExitDelay>,
     mut pending_exit: ResMut<PendingLevelExit>,
 ) {
-    // If gameplay is already locked, or win screen already up, or we're already delaying, do nothing
+    // If Gameplay Already Locked, or Win Screen Already up, or
+    // We're Already Delaying, Do Nothing
     if lock.0 || win.0 || exit_delay.active {
         return;
     }
@@ -205,7 +206,7 @@ pub fn use_elevator_exit(
         return;
     }
 
-    // 4-way Facing (Same as Doors)
+    // 4 Way Facing (Same as Doors)
     let mut fwd = player_tf.rotation * Vec3::NEG_Z;
     fwd.y = 0.0;
     if fwd.length_squared() < 1e-6 {
@@ -239,7 +240,7 @@ pub fn use_elevator_exit(
         return;
     }
 
-    // Latch whether this is a secret exit based on the tile under the player
+    // Latch Whether This is Secret Exit Based on Tile Under Player
     let (px, pz) = (player_tile.x as usize, player_tile.y as usize);
     let under_player = grid.plane0_code(px, pz);
     pending_exit.0 = if under_player == ALT_ELEVATOR_FLOOR_CODE {
@@ -260,22 +261,22 @@ pub fn use_elevator_exit(
         pos: Vec3::new(target.x as f32, 0.6, target.y as f32),
     });
 
-    // Freeze gameplay immediately
+    // Freeze Gameplay Immediately
     lock.0 = true;
 
-    // Hard cut to end level music immediately
+    // Hard Cut to End Level Music Immediately
     music_mode.0 = davelib::audio::MusicModeKind::LevelEnd;
 
-    // IMPORTANT: Delay showing the score screen so the flip can render
+    // IMPORTANT: Delay Showing Score Screen so Flip Can Render
     exit_delay.active = true;
     exit_delay.timer.reset();
 
-    // NOTE: We DO NOT set win.0 here anymore
+    // NOTE: DO NOT set win.0 Here Anymore
 }
 
 fn par_seconds_ep1(floor: i32) -> Option<u32> {
-    // Wolf3D Episode 1 PAR times (floors 1..=8)
-    // Boss/secret floors have no par
+    // Wolf3D Episode 1 PAR Times (Floors 1..=8)
+    // Boss / Secret Floors Have No Par
     // 1:30, 2:00, 2:00, 3:30, 3:00, 3:00, 2:30, 2:30  (E1)
     match floor {
         1 => Some(1 * 60 + 30),
@@ -286,7 +287,7 @@ fn par_seconds_ep1(floor: i32) -> Option<u32> {
         6 => Some(3 * 60 + 0),
         7 => Some(2 * 60 + 30),
         8 => Some(2 * 60 + 30),
-        _ => None, // 9/10 (boss/secret) => no PAR
+        _ => None, // 9/10 (Boss / Secret) => no PAR
     }
 }
 
@@ -300,14 +301,14 @@ const PERCENT100AMT: i32 = 10_000;
 fn compute_target_bonus(score: &davelib::level_score::LevelScore, floor: i32) -> i32 {
     let time_secs = score.time_secs.max(0.0).floor() as i32;
 
-    // Time-under-par bonus
+    // Time Under Par Bonus
     let mut bonus = 0;
     if let Some(par) = par_seconds_ep1(floor) {
         let under = (par as i32 - time_secs).max(0);
         bonus += under * PAR_AMOUNT;
     }
 
-    // +10,000 for each category exactly 100%
+    // +10,000 for Each Category Exactly 100%
     if score.kills_pct() == 100 {
         bonus += PERCENT100AMT;
     }
@@ -372,7 +373,7 @@ pub fn sync_mission_success_stats_text(
         w
     }
 
-    // Match the bitmap font renderer’s "base_scale" (same 320-wide logic).
+    // Match Bitmap Font Renderer's "base_scale"
     fn hud_scale_i(q_windows: &Query<&Window, With<bevy::window::PrimaryWindow>>) -> f32 {
         const BASE_W: f32 = 320.0;
         let Some(win) = q_windows.iter().next() else { return 1.0; };
@@ -429,9 +430,9 @@ pub fn sync_mission_success_stats_text(
         };
 
         if let Some(align) = align {
-            // IMPORTANT: bitmap text is rendered at (base_scale * bt.scale) pixels per native glyph,
-            // while your overlay positions are in (align.overlay_scale) pixels per native unit.
-            // Convert rendered width back into native overlay units before right-aligning.
+            // IMPORTANT: Bitmap Text Rendered at (base_scale * bt.scale) Pixels Per Native Glyph,
+            // While Overlay Positions are in (align.overlay_scale) Pixels Per Native Unit
+            // Convert Rendered Width Back into Native Overlay Units Before Right Aligning
             let w_native = text_w_native_px(&s);
 
             let effective_w_native = if let Some(bt_ref) = bt.as_ref() {
@@ -498,15 +499,9 @@ pub fn mission_success_input(
     };
 
     pending_exit.0 = LevelExitKind::Normal;
-
     music_mode.0 = davelib::audio::MusicModeKind::Gameplay;
     current_level.0 = to;
     advance.0 = true;
-
-    info!(
-        "Mission Success: advancing {:?} -> {:?} -> advance level requested",
-        from, to
-    );
 }
 
 pub fn apply_mission_success_bonus_to_player_score_once(
@@ -562,7 +557,8 @@ pub fn start_mission_success_tally_on_win(
     }
     *prev_win = true;
 
-    // Record immediately so episode-end totals work even if the player skips the tally early
+    // Record Immediately so Episode End Totals Work Even
+    // if Player Skips Tally Early
     episode_stats.record_level(current_level.0, &score);
 
     tally.active = true;
@@ -607,19 +603,20 @@ pub fn tick_mission_success_tally(
     mut tally: ResMut<MissionSuccessTally>,
     mut sfx: MessageWriter<PlaySfx>,
 
-    // Local-only state (so we don't have to change MissionSuccessTally's struct again)
+    // Local Only State (so MissionSuccessTally's
+    // Struct Doesn't Have to Change Again)
     mut pause_steps_local: Local<i32>,
     mut pending_sound_local: Local<Option<SfxKind>>,
     mut pending_next_phase_local: Local<Option<MissionSuccessPhase>>,
     mut pending_post_pause_local: Local<i32>,
 
-    // NEW: bonus delta to apply right after the queued stinger plays
+    // Bonus Delta to Apply Right After Queued Stinger Plays
     mut pending_bonus_local: Local<i32>,
 
-    // One-time init so TIME is immediately up + intro pause happens once
+    // One Time Init so TIME is Immediately up + Intro Pause Happens Once
     mut did_init_local: Local<bool>,
 ) {
-    // If we're not tallying, reset local state
+    // If Not Tallying, Reset Local State
     if !win.0 || !tally.active {
         *pause_steps_local = 0;
         *pending_sound_local = None;
@@ -630,7 +627,7 @@ pub fn tick_mission_success_tally(
         return;
     }
 
-    // --- Tick-rate-aware pause tuning ---
+    // Tick Rate Aware Pause Tuning
     let step_dt = tally.tick.duration().as_secs_f32().max(0.000_1);
     let secs_to_steps = |secs: f32| -> i32 {
         if secs <= 0.0 {
@@ -640,7 +637,7 @@ pub fn tick_mission_success_tally(
         }
     };
 
-    // --- Tuneables (in seconds) ---
+    // Tuneables (Seconds)
     const INTRO_PAUSE_SECS: f32 = 0.85;
     const PRE_STINGER_GAP_SECS: f32 = 0.08;
     const BETWEEN_PHASE_PAUSE_SECS: f32 = 1.10;
@@ -650,8 +647,12 @@ pub fn tick_mission_success_tally(
     let intro_steps = secs_to_steps(INTRO_PAUSE_SECS);
     let pre_stinger_steps = secs_to_steps(PRE_STINGER_GAP_SECS);
     let between_phase_steps = secs_to_steps(BETWEEN_PHASE_PAUSE_SECS);
-    let post_percent100_steps = secs_to_steps(BETWEEN_PHASE_PAUSE_SECS + POST_PERCENT100_PAD_SECS);
-    let post_no_bonus_steps = secs_to_steps(BETWEEN_PHASE_PAUSE_SECS + POST_NO_BONUS_PAD_SECS);
+    let post_percent100_steps = secs_to_steps(
+        BETWEEN_PHASE_PAUSE_SECS + POST_PERCENT100_PAD_SECS,
+    );
+    let post_no_bonus_steps = secs_to_steps(
+        BETWEEN_PHASE_PAUSE_SECS + POST_NO_BONUS_PAD_SECS,
+    );
 
     const PCT_STEP: i32 = 2;
 
@@ -681,9 +682,9 @@ pub fn tick_mission_success_tally(
     let pending_post_pause: &mut i32 = &mut *pending_post_pause_local;
     let pending_bonus: &mut i32 = &mut *pending_bonus_local;
 
-    // One-time init:
-    // - TIME is immediately up (no counting)
-    // - Intro pause before first stat starts
+    // One Time Init:
+    // - TIME is Immediately Up (No Counting)
+    // - Intro Pause Before First Stat Starts
     if !*did_init_local {
         tally.shown_time_secs = tally.target_time_secs;
         tally.time_step_accum = 0;
@@ -704,14 +705,13 @@ pub fn tick_mission_success_tally(
                         pending_bonus: &mut i32,
                         sfx: &mut MessageWriter<PlaySfx>,
                         emitted: &mut bool| {
-        // Reset any previously queued bonus delta
+        // Reset Any Previously Queued Bonus Delta
         *pending_bonus = 0;
 
-        // Choose completion sound based on final ratio
+        // Choose Completion Sound Based on Final Ratio
         let (sound, pre_steps, post_steps) = if ratio == 100 {
-            // Queue +10,000 to be applied right after the 100% stinger plays
+            // Queue +10,000 to be Applied Right After the 100% Stinger Plays
             *pending_bonus = PERCENT100AMT;
-
             (SfxKind::IntermissionPercent100, pre_stinger_steps, post_percent100_steps)
         } else if ratio == 0 {
             (SfxKind::IntermissionNoBonus, pre_stinger_steps, post_no_bonus_steps)
@@ -733,7 +733,7 @@ pub fn tick_mission_success_tally(
         }
     };
 
-    // Drive from the existing timer
+    // Drive From Existing Timer
     tally.tick.tick(time.delta());
     let mut steps = tally.tick.times_finished_this_tick();
     if steps == 0 {
@@ -743,16 +743,17 @@ pub fn tick_mission_success_tally(
     steps = steps.min(6);
 
     for _ in 0..(steps as i32) {
-        // Pause gate
+        // Pause Gate
         if *pause_steps > 0 {
             *pause_steps -= 1;
 
             if *pause_steps == 0 {
-                // If a stinger is queued after a pre-pause, play it now then start post-pause.
+                // If Stinger is Queued After a Pre Pause,
+                // Play Now Then Start Post Pause
                 if let Some(k) = pending_sound.take() {
                     emit_once(k, &mut sfx, &mut emitted_this_call);
 
-                    // NEW: after playing the 100% stinger, add its bonus chunk now
+                    // After Playing 100% Stinger, Add its Bonus Chunk
                     if *pending_bonus > 0 {
                         tally.shown_bonus = tally
                             .shown_bonus
@@ -766,7 +767,7 @@ pub fn tick_mission_success_tally(
                         *pending_post_pause = 0;
                     }
                 } else {
-                    // Post-sound pause ended; advance to next phase.
+                    // Post Sound Pause Ended, Advance to Next Phase
                     if let Some(next) = pending_next_phase.take() {
                         tally.phase = next;
                         if tally.phase == MissionSuccessPhase::Done {
@@ -831,7 +832,11 @@ pub fn tick_mission_success_tally(
                     let prev = tally.shown_treasure;
                     tally.shown_treasure = (tally.shown_treasure + PCT_STEP).min(tally.target_treasure);
 
-                    if tally.shown_treasure < tally.target_treasure && crossed_multiple(prev, tally.shown_treasure, 10) {
+                    if tally.shown_treasure < tally.target_treasure && crossed_multiple(
+                        prev,
+                        tally.shown_treasure,
+                        10,
+                    ) {
                         emit_once(SfxKind::IntermissionTick, &mut sfx, &mut emitted_this_call);
                     }
                 } else {

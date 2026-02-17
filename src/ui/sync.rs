@@ -58,7 +58,7 @@ pub fn apply_enemy_fire_to_player_vitals(
     god: Res<davelib::player::GodMode>,
     mut enemy_fire: MessageReader<EnemyFire>,
 ) {
-    // God Mode: ignore damage (but drain events)
+    // God Mode: Ignore Damage (But Drain Events)
     if god.0 {
         for _ in enemy_fire.read() {}
         return;
@@ -162,7 +162,7 @@ pub fn tick_death_delay_and_request_restart(
     if hud.lives > 0 {
         restart.0 = true;
     } else {
-        // Check for high score before showing game over
+        // Check for High Score Before Showing Game Over
         commands.insert_resource(davelib::high_score::CheckHighScore {
             score: hud.score,
             episode: current_level.0.episode(),
@@ -173,7 +173,7 @@ pub fn tick_death_delay_and_request_restart(
 }
 
 // In Game Over, Wait for Player Input
-// Then check if score qualifies for high scores
+// Then Check if Score Qualifies for High Scores
 pub fn game_over_input(
     keys: Res<ButtonInput<KeyCode>>,
     game_over: Res<GameOver>,
@@ -188,7 +188,7 @@ pub fn game_over_input(
         return;
     }
 
-    // Critical guard: do not allow Enter to re-arm name entry while in menu/scores UIs
+    // Do Not Allow Enter to Re-Arm Name Entry While in Menu / Scores UI
     if *splash_step != crate::ui::SplashStep::Done {
         return;
     }
@@ -197,18 +197,16 @@ pub fn game_over_input(
         return;
     }
 
-    // Check if score qualifies for high scores
+    // Check if Score Qualifies for High Scores
     if high_scores.qualifies(hud.score) {
-        // Find rank
+        // Find Rank
         let rank = high_scores
             .entries
             .iter()
             .position(|e| hud.score > e.score)
             .unwrap_or(high_scores.entries.len());
 
-        info!("NEW HIGH SCORE! Rank {} with score {}", rank + 1, hud.score);
-
-        // Activate name entry
+        // Activate Name Entry
         name_entry.active = true;
         name_entry.name.clear();
         name_entry.cursor_pos = 0;
@@ -218,13 +216,8 @@ pub fn game_over_input(
 
         *splash_step = crate::ui::SplashStep::NameEntry;
     } else {
-        // Score doesn't qualify, go straight to menu
+        // Score Doesn't Qualify, Straight to Menu
         new_game.0 = true;
         *splash_step = crate::ui::SplashStep::Menu;
-
-        info!(
-            "Game Over: returning to menu (score {} doesn't qualify)",
-            hud.score
-        );
     }
 }

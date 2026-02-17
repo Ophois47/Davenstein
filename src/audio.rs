@@ -932,7 +932,7 @@ pub fn play_sfx_events(
 			continue;
 		}
 
-		// Check if SFX should play at all (respects sfx_enabled flag)
+		// Check if SFX Should Play at All (Respects sfx_enabled flag)
 		if !settings.should_play_sfx() {
 			continue;
 		}
@@ -965,10 +965,11 @@ pub fn play_sfx_events(
         let is_enemy_voice = matches!(e.kind, SfxKind::EnemyAlert(_) | SfxKind::EnemyDeath(_));
         let is_enemy_gun = matches!(e.kind, SfxKind::EnemyShoot(_));
 
-// Boss deaths don't get interrupted by regular enemy sounds
+// Boss Deaths Don't Get Interrupted by Regular Enemy Sounds
 if is_enemy_voice && !is_boss_voice {
     for ent in q_active_enemy_voice.iter() {
-        // Use try_despawn to handle race condition when entity already despawned
+        // Use try_despawn to Handle Race Condition
+        // When Entity Already Despawned
         commands.entity(ent).try_despawn();
     }
 }
@@ -982,8 +983,8 @@ if is_enemy_voice && !is_boss_voice {
 					sink.stop();
 				}
 
-				// Use try_despawn to handle race condition when entity already despawned
-				// This happens when multiple enemies fire simultaneously (e.g., General's rapid dual-weapon attack)
+				// Use try_despawn to Handle Race Condition When Entity Already Despawned
+				// This Happens When Multiple Enemies Fire Simultaneously
 				commands.entity(ent).try_despawn();
 			}
 		}
@@ -1030,7 +1031,8 @@ if is_enemy_voice && !is_boss_voice {
 				.with_volume(Volume::Linear(1.7 * sfx_vol)),
 
 			SfxKind::EnemyAlert(kind) => {
-                // Boss alerts use priority playback (non-spatial, interrupts everything)
+                // Boss Alerts Use Priority Playback
+                // Non Spatial, Interrupts Everything
                 let is_boss = matches!(kind,
                     EnemyKind::Hans |
                     EnemyKind::Gretel |
@@ -1060,7 +1062,8 @@ if is_enemy_voice && !is_boss_voice {
 				.with_volume(Volume::Linear(1.6 * sfx_vol)),
 
 			SfxKind::EnemyDeath(kind) => {
-                // Boss deaths use priority playback (non-spatial, interrupts everything)
+                // Boss Deaths Use Priority Playback
+                // Non Spatial, Interrupts Everything
                 let is_boss = matches!(kind,
                     EnemyKind::Hans |
                     EnemyKind::Gretel |
@@ -1168,7 +1171,7 @@ if is_enemy_voice && !is_boss_voice {
 
 	let Some(e) = last_pickup else { return; };
 
-	// Check if SFX should play
+	// Check if SFX Should Play
 	if !settings.should_play_sfx() {
 		return;
 	}
@@ -1182,7 +1185,8 @@ if is_enemy_voice && !is_boss_voice {
 	}
 
 	for ent in q_active_pickup.iter() {
-		// Use try_despawn to handle race condition when entity already despawned
+		// Use try_despawn to Handle Race Condition
+        // When Entity Already Despawned
 		commands.entity(ent).try_despawn();
 	}
 

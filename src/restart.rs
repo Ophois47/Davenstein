@@ -32,16 +32,16 @@ use crate::{
     },
 };
 
-// Commands are deferred. Resources/entities inserted via Commands during level
-// setup or restart are not available to later systems until after apply_deferred
-// Systems that read level resources must either:
-// (1) run only after an apply_deferred boundary, and/or
-// (2) use Option<Res<T>> and early-return, and/or
-// (3) be gated by a WorldReady run condition.
-// Missing-resource panics are treated as regressions; always add gating before adding new Res dependencies
+// Commands are Deferred. Resources / Entities Inserted via Commands During Level
+// Setup or Restart are Not Available to Later Systems Until After apply_deferred
+// Systems that Read Level Resources Must Either:
+// (1) Run Only After apply_deferred Boundary, and / or
+// (2) use Option<Res<T>> and Early Return, and / or
+// (3) be Gated by WorldReady Run Condition
+// Missing-resource Panics Treated as Regressions. Add Gating Before Adding New Res Dependencies
 
-// Despawn what should NOT persist across a life restart
-// Leave UI / resources alone, rebuild entire 3D world + actors
+// Despawn What Should NOT Persist Across Life Restart
+// Leave UI / Resources Alone, Rebuild Entire 3D World + Actors
 pub fn restart_despawn_level(
     mut commands: Commands,
     q_mesh_roots: Query<Entity, (With<Mesh3d>, Without<ChildOf>)>,
@@ -53,7 +53,7 @@ pub fn restart_despawn_level(
 ) {
     fn despawn_tree(commands: &mut Commands, q_children: &Query<&Children>, e: Entity) {
         if let Ok(children) = q_children.get(e) {
-            // Children::iter() yields Entity in this Bevy version
+            // Children::iter() Yields Entity in Bevy
             let kids: Vec<Entity> = children.iter().collect();
             for child in kids {
                 despawn_tree(commands, q_children, child);

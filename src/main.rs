@@ -1,55 +1,57 @@
 /*
 Davenstein - by David Petnick
+
+IMPORTANT: Level rebuild scheduling + Bevy 0.18 ordering pitfalls (read before touching schedules)
+
+Context
+- This project builds the "world" (MapGrid, WolfPlane1, etc.) inside davelib::world::setup using Commands
+- During level transitions (RestartRequested / NewGameRequested / AdvanceLevelRequested) we despawn and rebuild the world at runtime
+
+
+1) Resource validation panic (runtime)
+   - Symptom: panic in a system like pickups::spawn_pickups
+       "Parameter Res<MapGrid> failed validation: Resource does not exist"
+   - Cause: Bevy validates system params before running system code. If a system has strict Res/ResMut and the resource
+     is not currently present, the system panics before your code can early-return
+   - Why it happened here:
+     - davelib::world::setup inserts MapGrid / WolfPlane1 via Commands
+     - Commands are applied later (deferred). During rebuild frames, resources can be temporarily absent
+     - If any system that requires Res<MapGrid> runs during that gap, it crashes
+   - Fix strategy:
+     - Gate gameplay systems behind a run condition that checks resource existence using Option<Res<T>>
+     - Do NOT “just make every parameter Option<Res<T>>” inside systems; that doesn’t help if other params remain strict
+     - Use a single world_ready() predicate to guard all systems that assume world resources exist
+
+2) Schedule initialization panic (startup, before gameplay)
+   - Symptom: panic while initializing schedule PostUpdate
+       "Tried to order against SystemTypeSet(... davelib::world::setup ...) in a schedule that has more than one instance"
+   - Cause: In Bevy 0.18, ordering against a SystemTypeSet becomes ambiguous if the same system type is registered
+     more than once in the same schedule. Bevy refuses to build the schedule and panics
+   - Why it happened here:
+     - We registered davelib::world::setup multiple times in PostUpdate (once per rebuild path)
+     - Then we tried to use `.after(setup)` to guarantee ordering for spawn_decorations / spawn_pickups
+     - With multiple setup instances in PostUpdate, `.after(setup)` is ambiguous, so Bevy panics at schedule build time
+   - Fix strategy (the correct pattern for this codebase):
+     - Register the rebuild pipeline systems (despawn -> setup -> decorations -> pickups) exactly ONCE per schedule
+     - Gate that pipeline with a single run_if predicate that detects ANY rebuild request:
+         level_rebuild_requested = RestartRequested || NewGameRequested || AdvanceLevelRequested
+     - Keep the per-request “finish” systems (restart_finish / new_game_finish / advance_level_finish) separate and gated individually
+     - This avoids duplicate SystemTypeSet instances and preserves deterministic ordering with `.after(...)`
+
+Additional landmines hit (lessons learned)
+- Bevy 0.18+ API surface changes: don’t assume helper functions exist (ex: apply_deferred import failed on Linux build)
+- Don’t assume crate-local modules exist (crate::map / crate::level) after refactors; this project’s source of truth
+  for MapGrid/WolfPlane1 is davelib (use davelib::map::MapGrid and davelib::level::WolfPlane1)
+- Avoid “just chain systems” advice; it can be incompatible with the project’s current Bevy version and can break wiring
+- Make changes surgical: do not remove or unhook existing systems; fix only the minimal scheduling/ordering needed
+
+Summary (what to do going forward)
+- World-building resources are created via Commands inside setup and may not exist during transitions
+- Guard gameplay systems with world_ready() so they never run without MapGrid/WolfPlane1
+- In PostUpdate, do NOT register multiple instances of setup/spawn systems and then order “after setup”
+- Instead: one rebuild pipeline gated by level_rebuild_requested(), plus per-request finish systems gated individually
 */
-// IMPORTANT: Level rebuild scheduling + Bevy 0.18 ordering pitfalls (read before touching schedules)
-//
-// Context
-// - This project builds the "world" (MapGrid, WolfPlane1, etc.) inside davelib::world::setup using Commands
-// - During level transitions (RestartRequested / NewGameRequested / AdvanceLevelRequested) we despawn and rebuild the world at runtime
-//
-//
-// 1) Resource validation panic (runtime)
-//    - Symptom: panic in a system like pickups::spawn_pickups
-//        "Parameter Res<MapGrid> failed validation: Resource does not exist"
-//    - Cause: Bevy validates system params before running system code. If a system has strict Res/ResMut and the resource
-//      is not currently present, the system panics before your code can early-return
-//    - Why it happened here:
-//      - davelib::world::setup inserts MapGrid / WolfPlane1 via Commands
-//      - Commands are applied later (deferred). During rebuild frames, resources can be temporarily absent
-//      - If any system that requires Res<MapGrid> runs during that gap, it crashes
-//    - Fix strategy:
-//      - Gate gameplay systems behind a run condition that checks resource existence using Option<Res<T>>
-//      - Do NOT “just make every parameter Option<Res<T>>” inside systems; that doesn’t help if other params remain strict
-//      - Use a single world_ready() predicate to guard all systems that assume world resources exist
-//
-// 2) Schedule initialization panic (startup, before gameplay)
-//    - Symptom: panic while initializing schedule PostUpdate
-//        "Tried to order against SystemTypeSet(... davelib::world::setup ...) in a schedule that has more than one instance"
-//    - Cause: In Bevy 0.18, ordering against a SystemTypeSet becomes ambiguous if the same system type is registered
-//      more than once in the same schedule. Bevy refuses to build the schedule and panics
-//    - Why it happened here:
-//      - We registered davelib::world::setup multiple times in PostUpdate (once per rebuild path)
-//      - Then we tried to use `.after(setup)` to guarantee ordering for spawn_decorations / spawn_pickups
-//      - With multiple setup instances in PostUpdate, `.after(setup)` is ambiguous, so Bevy panics at schedule build time
-//    - Fix strategy (the correct pattern for this codebase):
-//      - Register the rebuild pipeline systems (despawn -> setup -> decorations -> pickups) exactly ONCE per schedule
-//      - Gate that pipeline with a single run_if predicate that detects ANY rebuild request:
-//          level_rebuild_requested = RestartRequested || NewGameRequested || AdvanceLevelRequested
-//      - Keep the per-request “finish” systems (restart_finish / new_game_finish / advance_level_finish) separate and gated individually
-//      - This avoids duplicate SystemTypeSet instances and preserves deterministic ordering with `.after(...)`
-//
-// Additional landmines hit (lessons learned)
-// - Bevy 0.18+ API surface changes: don’t assume helper functions exist (ex: apply_deferred import failed on Linux build)
-// - Don’t assume crate-local modules exist (crate::map / crate::level) after refactors; this project’s source of truth
-//   for MapGrid/WolfPlane1 is davelib (use davelib::map::MapGrid and davelib::level::WolfPlane1)
-// - Avoid “just chain systems” advice; it can be incompatible with the project’s current Bevy version and can break wiring
-// - Make changes surgical: do not remove or unhook existing systems; fix only the minimal scheduling/ordering needed
-//
-// Summary (what to do going forward)
-// - World-building resources are created via Commands inside setup and may not exist during transitions
-// - Guard gameplay systems with world_ready() so they never run without MapGrid/WolfPlane1
-// - In PostUpdate, do NOT register multiple instances of setup/spawn systems and then order “after setup”
-// - Instead: one rebuild pipeline gated by level_rebuild_requested(), plus per-request finish systems gated individually
+
 mod combat;
 mod episode_end;
 mod level_complete;

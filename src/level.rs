@@ -159,22 +159,22 @@ pub const fn next_secret(from: LevelId) -> LevelId {
     }
 }
 
-// Wolf3D MS-DOS ceiling colors per level (Episodes 1-6, Floors 1-10)
-// Each entry is (r,g,b) in 8-bit RGB, derived from Wolf3D's vgaCeiling + GAMEPAL
+// Wolfenstein 3-D MS-DOS Ceiling Colors per Level (Episodes 1-6, Floors 1-10)
+// Each Entry is (r,g,b) in 8-bit RGB, Derived From Wolfenstein 3-D's vgaCeiling + GAMEPAL
 // Wolf3D WL6 ceiling palette indices (vgaCeiling) by episode and floor
 // Source is Wolf4SDL's vgaCeiling table for Wolf3D (not Spear)
 const VGA_CEILING_PAL: [u8; 60] = [
-    // Episode 1 floors 1-10
+    // Episode 1 Floors 1-10
     0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0xbf,
-    // Episode 2 floors 1-10
+    // Episode 2 Floors 1-10
     0x4e, 0x4e, 0x4e, 0x1d, 0x8d, 0x4e, 0x1d, 0x2d, 0x1d, 0x8d,
-    // Episode 3 floors 1-10
+    // Episode 3 Floors 1-10
     0x1d, 0x1d, 0x1d, 0x1d, 0x1d, 0x2d, 0xdd, 0x1d, 0x1d, 0x98,
-    // Episode 4 floors 1-10
+    // Episode 4 Floors 1-10
     0x1d, 0x9d, 0x2d, 0xdd, 0xdd, 0x9d, 0x2d, 0x4d, 0x1d, 0xdd,
-    // Episode 5 floors 1-10
+    // Episode 5 Floors 1-10
     0x7d, 0x1d, 0x2d, 0x2d, 0xdd, 0xd7, 0x1d, 0x1d, 0x1d, 0x2d,
-    // Episode 6 floors 1-10
+    // Episode 6 Floors 1-10
     0x1d, 0x1d, 0x1d, 0x1d, 0xdd, 0xdd, 0x7d, 0xdd, 0xdd, 0xdd,
 ];
 
@@ -184,7 +184,7 @@ const fn pal6_to_u8(v: u8) -> u8 {
 
 const fn gamepal_rgb_u8(idx: u8) -> (u8, u8, u8) {
     match idx {
-        // Index -> (r,g,b) in Wolf3D GAMEPAL 6-bit, scaled to 8-bit by *4
+        // Index -> (r,g,b) in Wolfenstein 3-D GAMEPAL 6-bit, Scaled to 8-bit by *4
         0x00 => (0, 0, 0),
 
         0x1d => (pal6_to_u8(14), pal6_to_u8(14), pal6_to_u8(14)),

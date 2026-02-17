@@ -35,6 +35,16 @@ pub(super) struct DeathOverlayOverlay;
 #[derive(Component)]
 pub(super) struct GameOverOverlay;
 
+/// Marker for the root node of the Wolf3D view-size teal border overlay.
+/// This is the classic border that shrinks the 3D viewport and fills the
+/// surrounding area with the teal (0,64,64) border color + beveled frame.
+#[derive(Component)]
+pub(crate) struct ViewSizeBorderRoot;
+
+/// Individual pieces of the view-size border frame
+#[derive(Component)]
+pub(crate) struct ViewSizeBorderPiece;
+
 #[derive(Component)]
 pub(super) struct ViewModelImage;
 
@@ -2379,6 +2389,244 @@ fn spawn_game_over_overlay(commands: &mut Commands, parent: Entity, ui_font: Han
                 },
                 TextColor(Color::WHITE),
                 TextLayout::new_with_justify(Justify::Center),
+            ));
+        });
+    });
+}
+
+/// Sync the classic Wolf3D view-size border.
+/// When view_size < 20, the 3D viewport is inset and a teal border with a
+/// beveled 3D frame fills the surrounding area, matching the original 1992
+/// MS-DOS look. The border lives in the view area above the status bar.
+///
+/// Layout (all absolute-positioned inside HudRoot):
+///   - 4 teal fill bars (top, bottom, left, right of viewport)
+///   - Bevel: dark (black) line on top + left inner edge,
+///            lighter teal on bottom + right inner edge
+///
+/// When view_size >= 20 or no player exists, the border is hidden/despawned.
+pub(crate) fn sync_view_size_border(
+    mut commands: Commands,
+    settings: Res<davelib::options::VideoSettings>,
+    player_query: Query<(), With<Player>>,
+    q_window: Query<&Window, With<PrimaryWindow>>,
+    q_border_root: Query<Entity, With<ViewSizeBorderRoot>>,
+    q_hud_root: Query<Entity, With<HudRoot>>,
+    mut last_state: Local<Option<(u8, bool, u32, u32)>>,
+) {
+    let has_player = !player_query.is_empty();
+    let Some(window) = q_window.iter().next() else { return; };
+    let win_w = window.resolution.width();
+    let win_h = window.resolution.height();
+
+    let vs = settings.view_size.clamp(4, 20);
+    let current = (vs, has_player, win_w as u32, win_h as u32);
+
+    // Early out if nothing changed
+    if let Some(prev) = *last_state {
+        if prev == current && !settings.is_changed() {
+            return;
+        }
+    }
+    *last_state = Some(current);
+
+    // Despawn old border
+    for e in q_border_root.iter() {
+        commands.entity(e).despawn();
+    }
+
+    // No border needed: full viewport or no player
+    if vs >= 20 || !has_player {
+        return;
+    }
+
+    let Some(hud_root) = q_hud_root.iter().next() else { return; };
+
+    // --- Compute border geometry (matches options.rs viewport math) ---
+    const HUD_W: f32 = 320.0;
+    const STATUS_H: f32 = 44.0;
+    let hud_scale = (win_w / HUD_W).floor().max(1.0);
+    let status_h_px = STATUS_H * hud_scale;
+
+    // Play area = everything above the status bar
+    let play_h = (win_h - status_h_px).max(0.0);
+    if play_h <= 0.0 {
+        return;
+    }
+
+    let inset_frac = (20.0 - vs as f32) / 32.0;
+    let inset_x = (win_w * inset_frac).round();
+    let inset_y = (play_h * inset_frac).round();
+
+    // Viewport rectangle within the play area (in logical px from top-left)
+    let vp_left = inset_x;
+    let vp_top = inset_y;
+    let vp_w = (win_w - inset_x * 2.0).max(1.0);
+    let vp_h = (play_h - inset_y * 2.0).max(1.0);
+
+    // Bevel thickness: 1 native pixel scaled
+    let bevel = hud_scale;
+
+    // Wolf3D border colors
+    // bordercol = VGA palette 0x29 → dark teal (0, 64, 64)
+    let teal: Color = Srgba::new(0.0, 64.0 / 255.0, 64.0 / 255.0, 1.0).into();
+    // Top-left bevel: black (color 0 in original)
+    let bevel_dark: Color = Srgba::new(0.0, 0.0, 0.0, 1.0).into();
+    // Bottom-right bevel: bordercol - 2 → slightly lighter teal
+    let bevel_light: Color = Srgba::new(0.0, 48.0 / 255.0, 48.0 / 255.0, 1.0).into();
+
+    // Spawn border root as child of HudRoot, positioned absolute over the play area
+    commands.entity(hud_root).with_children(|ui| {
+        ui.spawn((
+            ViewSizeBorderRoot,
+            ZIndex(90), // Below status bar (95) but above nothing
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                width: Val::Percent(100.0),
+                height: Val::Px(play_h),
+                ..default()
+            },
+        ))
+        .with_children(|border| {
+            // --- 4 teal fill bars ---
+
+            // Top bar
+            if vp_top > 0.0 {
+                border.spawn((
+                    ViewSizeBorderPiece,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(0.0),
+                        top: Val::Px(0.0),
+                        width: Val::Percent(100.0),
+                        height: Val::Px(vp_top),
+                        ..default()
+                    },
+                    BackgroundColor(teal),
+                ));
+            }
+
+            // Bottom bar
+            let bottom_h = play_h - vp_top - vp_h;
+            if bottom_h > 0.0 {
+                border.spawn((
+                    ViewSizeBorderPiece,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(0.0),
+                        top: Val::Px(vp_top + vp_h),
+                        width: Val::Percent(100.0),
+                        height: Val::Px(bottom_h),
+                        ..default()
+                    },
+                    BackgroundColor(teal),
+                ));
+            }
+
+            // Left bar (between top and bottom bars)
+            if vp_left > 0.0 {
+                border.spawn((
+                    ViewSizeBorderPiece,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(0.0),
+                        top: Val::Px(vp_top),
+                        width: Val::Px(vp_left),
+                        height: Val::Px(vp_h),
+                        ..default()
+                    },
+                    BackgroundColor(teal),
+                ));
+            }
+
+            // Right bar (between top and bottom bars)
+            let right_w = win_w - vp_left - vp_w;
+            if right_w > 0.0 {
+                border.spawn((
+                    ViewSizeBorderPiece,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(vp_left + vp_w),
+                        top: Val::Px(vp_top),
+                        width: Val::Px(right_w),
+                        height: Val::Px(vp_h),
+                        ..default()
+                    },
+                    BackgroundColor(teal),
+                ));
+            }
+
+            // --- Beveled 3D frame around the viewport ---
+            // Top bevel (dark/black) — sits on the inner top edge of the viewport
+            border.spawn((
+                ViewSizeBorderPiece,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(vp_left - bevel),
+                    top: Val::Px(vp_top - bevel),
+                    width: Val::Px(vp_w + bevel),
+                    height: Val::Px(bevel),
+                    ..default()
+                },
+                BackgroundColor(bevel_dark),
+            ));
+
+            // Left bevel (dark/black)
+            border.spawn((
+                ViewSizeBorderPiece,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(vp_left - bevel),
+                    top: Val::Px(vp_top - bevel),
+                    width: Val::Px(bevel),
+                    height: Val::Px(vp_h + bevel),
+                    ..default()
+                },
+                BackgroundColor(bevel_dark),
+            ));
+
+            // Bottom bevel (lighter teal)
+            border.spawn((
+                ViewSizeBorderPiece,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(vp_left),
+                    top: Val::Px(vp_top + vp_h),
+                    width: Val::Px(vp_w + bevel),
+                    height: Val::Px(bevel),
+                    ..default()
+                },
+                BackgroundColor(bevel_light),
+            ));
+
+            // Right bevel (lighter teal)
+            border.spawn((
+                ViewSizeBorderPiece,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(vp_left + vp_w),
+                    top: Val::Px(vp_top),
+                    width: Val::Px(bevel),
+                    height: Val::Px(vp_h + 2.0 * bevel),
+                    ..default()
+                },
+                BackgroundColor(bevel_light),
+            ));
+
+            // Corner highlight: lower-left corner (darkest)
+            border.spawn((
+                ViewSizeBorderPiece,
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(vp_left - bevel),
+                    top: Val::Px(vp_top + vp_h),
+                    width: Val::Px(bevel),
+                    height: Val::Px(bevel),
+                    ..default()
+                },
+                BackgroundColor(bevel_dark),
             ));
         });
     });

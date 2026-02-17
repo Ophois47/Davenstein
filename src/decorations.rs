@@ -16,7 +16,7 @@ pub struct BillboardFloor;
 #[derive(Component)]
 pub struct FloorDecal;
 
-// Radians Around X, 0 = Upright, -PI/2 = Flat
+// Radians Around X, 0 = Upright, -PI / 2 = Flat
 #[derive(Component, Copy, Clone)]
 pub struct BillboardTilt(pub f32);
 

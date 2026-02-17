@@ -639,6 +639,9 @@ struct OptionsMenusLocalState {
     change_view: ChangeViewLocalState,
     sound: SoundOptionsLocalState,
     control: ControlOptionsLocalState,
+    /// Cached (w, h) from compute_scaled_size so we can detect window resizes
+    /// and respawn menu UI. (0, 0) means not yet initialized.
+    last_scaled_size: (f32, f32),
 }
 
 #[derive(Default)]
@@ -4336,6 +4339,19 @@ fn splash_advance_on_any_input(
     let (w, h) = compute_scaled_size(win.width(), win.height());
     let scale = w / BASE_W;
 
+    // Detect window resize: if the scaled size changed since last frame,
+    // despawn all menu UI so it gets respawned at the correct dimensions.
+    // Skip on first frame (last_scaled_size is (0,0)) to avoid false trigger.
+    let size_changed = options.last_scaled_size != (0.0, 0.0)
+        && (options.last_scaled_size.0 != w || options.last_scaled_size.1 != h);
+    options.last_scaled_size = (w, h);
+
+    if size_changed && *resources.step != SplashStep::Done {
+        for e in q.q_splash_roots.iter() {
+            commands.entity(e).despawn();
+        }
+    }
+
     let any_key = keyboard.get_just_pressed().len() > 0 || mouse.get_just_pressed().len() > 0;
 
     match *resources.step {
@@ -4604,6 +4620,18 @@ fn splash_advance_on_any_input(
             resources.lock.0 = true;
             resources.music_mode.0 = MusicModeKind::Menu;
 
+            // Auto-respawn UI after window resize
+            if q.q_splash_roots.iter().next().is_none() {
+                if let Some(imgs) = resources.imgs.as_ref() {
+                    spawn_episode_select_ui(
+                        &mut commands, &asset_server,
+                        w, h, scale, imgs,
+                        episode.selection,
+                    );
+                }
+                return;
+            }
+
             if keyboard.just_pressed(KeyCode::Escape) {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
@@ -4691,6 +4719,16 @@ fn splash_advance_on_any_input(
             resources.music_mode.0 = MusicModeKind::Menu;
 
             let Some(imgs) = resources.imgs.as_ref() else { return; };
+
+            // Auto-respawn UI after window resize
+            if q.q_splash_roots.iter().next().is_none() {
+                spawn_skill_select_ui(
+                    &mut commands, &asset_server,
+                    w, h, scale, imgs,
+                    skill.selection,
+                );
+                return;
+            }
 
             if keyboard.just_pressed(KeyCode::Escape) {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
@@ -4807,6 +4845,19 @@ fn splash_advance_on_any_input(
 
             let Some(imgs) = resources.imgs.as_ref() else { return; };
 
+            // Auto-respawn UI after window resize
+            if q.q_splash_roots.iter().next().is_none() {
+                options.change_view.res_submenu_open = false;
+                options.change_view.needs_respawn = false;
+                spawn_change_view_ui(
+                    &mut commands, &asset_server,
+                    w, h, scale, imgs,
+                    options.change_view.selection,
+                    &resources.video_settings, &resources.res_list,
+                );
+                return;
+            }
+
             // Deferred respawn: after a display mode change, the window size
             // updates on the next frame. Respawn the menu UI with correct dims.
             if options.change_view.needs_respawn {
@@ -4833,7 +4884,7 @@ fn splash_advance_on_any_input(
 
             let current_kind = items.get(options.change_view.selection).map(|(k, _)| *k);
 
-            // --- Resolution Sub-Menu Mode ---
+            // Resolution Sub-Menu Mode
             if options.change_view.res_submenu_open {
                 if keyboard.just_pressed(KeyCode::Escape) {
                     sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
@@ -4873,24 +4924,17 @@ fn splash_advance_on_any_input(
 
                     if let Some(&(rw, rh)) = resources.res_list.entries.get(options.change_view.res_submenu_idx) {
                         resources.video_settings.resolution = (rw, rh);
-                        resources.video_settings.set_changed(); // Explicitly mark as changed
+                        resources.video_settings.set_changed();
                     }
 
                     options.change_view.res_submenu_open = false;
-
-                    for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
-                    spawn_change_view_ui(
-                        &mut commands, &asset_server,
-                        w, h, scale, imgs,
-                        options.change_view.selection,
-                        &resources.video_settings, &resources.res_list,
-                    );
+                    options.change_view.needs_respawn = true;
                     return;
                 }
 
-                // Update highlight/cursor for sub-menu
-                // (Resolution sub-menu reuses the same ChangeViewItem query
-                //  since we respawn UI when entering/leaving sub-menu)
+                // Update Highlight / Cursor for Sub-Menu
+                // (Resolution Sub-Menu Reuses Same ChangeViewItem Query
+                // Since UI is Respawned When Entering / Leaving Sub-Menu)
                 for (item, variant, mut vis) in q.q_change_view_items.iter_mut() {
                     let want_selected = item.idx == options.change_view.res_submenu_idx;
                     *vis = if variant.selected == want_selected { Visibility::Visible } else { Visibility::Hidden };
@@ -4904,7 +4948,7 @@ fn splash_advance_on_any_input(
                     *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
                 }
 
-                // Cursor positioning for sub-menu
+                // Cursor Positioning for Sub-Menu
                 let ui_scale = (w / BASE_W).round().max(1.0);
                 let hint_native_h = 12.0;
                 let hint_bottom_pad = 6.0;
@@ -4922,7 +4966,7 @@ fn splash_advance_on_any_input(
                 let list_h = (sub_count as f32 * row_h).round();
                 let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
 
-                // Measure max width of sub-menu items
+                // Measure Max Width of Sub-Menu Items
                 let mut max_item_w = 0.0f32;
                 for idx in 0..sub_count {
                     let label = resources.res_list.label_at(idx);
@@ -4947,7 +4991,7 @@ fn splash_advance_on_any_input(
                 return;
             }
 
-            // --- Normal Change View Mode ---
+            // Normal Change View Mode
             if keyboard.just_pressed(KeyCode::Escape) {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
@@ -4973,8 +5017,8 @@ fn splash_advance_on_any_input(
                 moved = true;
             }
 
-            // Left/Right for inline-adjustable items (with hold-to-accelerate)
-            // A/D trigger a single nudge on press; arrow keys support hold-repeat
+            // Left / Right for Inline Adjustable Items (With Hold-to-Accelerate)
+            // A / D Trigger a Single Nudge on Press. Arrow Keys Support Hold Repeat
             let left_just = keyboard.just_pressed(KeyCode::ArrowLeft) || keyboard.just_pressed(KeyCode::KeyA);
             let right_just = keyboard.just_pressed(KeyCode::ArrowRight) || keyboard.just_pressed(KeyCode::KeyD);
             let left_held = keyboard.pressed(KeyCode::ArrowLeft);
@@ -4985,21 +5029,21 @@ fn splash_advance_on_any_input(
                 Some(ChangeViewKind::Fov) | Some(ChangeViewKind::ViewSize)
             );
 
-            // Track hold state for nudgeable items
+            // Track Hold State for Nudgeable Items
             if is_nudgeable && (left_held || right_held) {
                 let dir: i8 = if right_held { 1 } else { -1 };
 
                 if left_just || right_just {
-                    // Fresh press: immediate first tick, reset hold state
+                    // Fresh Press: Immediate First Tick, Reset Hold State
                     options.change_view.hold_dir = dir;
                     options.change_view.hold_accum = 0.0;
                     options.change_view.hold_interval = HOLD_REPEAT_INITIAL;
                     options.change_view.hold_ticks = 0;
                 } else if dir == options.change_view.hold_dir {
-                    // Continuing hold: accumulate time
+                    // Continuing Hold: Accumulate Time
                     options.change_view.hold_accum += time.delta_secs();
                 } else {
-                    // Direction changed mid-hold
+                    // Direction Changed Mid-Hold
                     options.change_view.hold_dir = dir;
                     options.change_view.hold_accum = 0.0;
                     options.change_view.hold_interval = HOLD_REPEAT_INITIAL;
@@ -5013,27 +5057,27 @@ fn splash_advance_on_any_input(
                 options.change_view.hold_ticks = 0;
             }
 
-            // Determine how many nudge ticks to fire this frame
+            // Determine How Many Nudge Ticks to Fire This Frame
             let mut nudge_ticks: u32 = 0;
 
             if is_nudgeable && options.change_view.hold_dir != 0 {
                 if left_just || right_just {
-                    // First press always fires one tick immediately
+                    // First Press Always Fires One Tick Immediately
                     nudge_ticks = 1;
                 } else {
-                    // Hold repeat: fire ticks based on accumulated time
+                    // Hold Repeat: Fire Ticks Based on Accumulated Time
                     while options.change_view.hold_accum >= options.change_view.hold_interval {
                         options.change_view.hold_accum -= options.change_view.hold_interval;
                         nudge_ticks += 1;
                         options.change_view.hold_ticks += 1;
-                        // Accelerate: shrink interval, floor at FAST
+                        // Accelerate: Shrink Interval, Floor at FAST
                         options.change_view.hold_interval = (options.change_view.hold_interval * HOLD_REPEAT_ACCEL)
                             .max(HOLD_REPEAT_FAST);
                     }
                 }
             }
 
-            // Handle non-nudgeable left/right (DisplayMode cycles on just_pressed only)
+            // Handle Non-Nudgeable Left / Right (DisplayMode Cycles on just_pressed Only)
             let left_pressed = left_just;
             let right_pressed = right_just;
 
@@ -5047,9 +5091,9 @@ fn splash_advance_on_any_input(
                         } else {
                             resources.video_settings.display_mode.prev()
                         };
-                        resources.video_settings.set_changed(); // Explicitly mark as changed
-                        // Don't respawn now — window dimensions will change next
-                        // frame after apply system runs. Set flag for deferred respawn.
+                        resources.video_settings.set_changed(); // Explicitly Mark as Changed
+                        // Don't Respawn Now, Window Dimensions Will Change Next
+                        // Frame After Apply System Runs. Set Flag for Deferred Respawn
                         options.change_view.needs_respawn = true;
                         sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
                         return;
@@ -5058,7 +5102,7 @@ fn splash_advance_on_any_input(
                 }
             }
 
-            // Apply nudge ticks for FOV / View Size
+            // Apply Nudge Ticks for FOV / View Size
             if nudge_ticks > 0 {
                 let dir = options.change_view.hold_dir;
                 for _ in 0..nudge_ticks {
@@ -5072,17 +5116,18 @@ fn splash_advance_on_any_input(
                         _ => {}
                     }
                 }
-                resources.video_settings.set_changed(); // Explicitly mark as changed
+                // Explicitly Mark as Changed
+                resources.video_settings.set_changed();
                 value_changed = true;
             }
 
             if value_changed {
                 sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
 
-                // Respawn UI to reflect new values and possibly changed item count
+                // Respawn UI to Reflect New Values and Possibly Changed Item Count
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
 
-                // Rebuild items to get new count (Resolution row may appear/disappear)
+                // Rebuild Items to Get New Count (Resolution Row May Appear / Disappear)
                 let new_items = build_change_view_items(&resources.video_settings, &resources.res_list);
                 if options.change_view.selection >= new_items.len() {
                     options.change_view.selection = new_items.len().saturating_sub(1);
@@ -5115,10 +5160,10 @@ fn splash_advance_on_any_input(
                 *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
             }
 
-            // Only reposition cursor when user navigated (up/down).
-            // spawn_change_view_ui already places it correctly at spawn time,
-            // so redundant repositioning every frame causes drift during
-            // display mode transitions when w/h are shifting.
+            // Only Reposition Cursor When User Navigated (Up / Down)
+            // spawn_change_view_ui Already Places it Correctly at Spawn Time
+            // so Redundant Repositioning Every Frame Causes Drift During
+            // Display Mode Transitions when W / H are Shifting
             if moved {
                 // Cursor Positioning Uses Same Math as spawn_change_view_ui
                 let ui_scale = (w / BASE_W).round().max(1.0);
@@ -5142,7 +5187,7 @@ fn splash_advance_on_any_input(
                 let list_h = (item_count as f32 * row_h).round();
                 let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
 
-                // Measure max width for cursor X positioning
+                // Measure Max Width for Cursor X Positioning
                 let item_labels: Vec<String> = items.iter().map(|(_, s)| s.clone()).collect();
                 let mut max_item_w = 0.0f32;
                 for t in &item_labels {
@@ -5175,7 +5220,8 @@ fn splash_advance_on_any_input(
                 match current_kind {
                     Some(ChangeViewKind::Vsync) => {
                         resources.video_settings.vsync = !resources.video_settings.vsync;
-                        resources.video_settings.set_changed(); // Explicitly mark as changed
+                        // Explicitly Mark as Changed
+                        resources.video_settings.set_changed();
 
                         for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
                         spawn_change_view_ui(
@@ -5187,7 +5233,7 @@ fn splash_advance_on_any_input(
                     }
 
                     Some(ChangeViewKind::Resolution) => {
-                        // Open the resolution sub-menu
+                        // Open Resolution Sub-Menu
                         options.change_view.res_submenu_open = true;
                         options.change_view.res_submenu_idx = resources.res_list.index_of(resources.video_settings.resolution);
 
@@ -5210,7 +5256,7 @@ fn splash_advance_on_any_input(
                         *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                     }
 
-                    // DisplayMode, FOV, ViewSize are adjusted by Left/Right, Enter does nothing extra
+                    // DisplayMode, FOV, ViewSize are Adjusted by Left / Right, Enter Does Nothing Extra
                     _ => {}
                 }
             }
@@ -5221,6 +5267,17 @@ fn splash_advance_on_any_input(
             resources.music_mode.0 = MusicModeKind::Menu;
 
             let Some(imgs) = resources.imgs.as_ref() else { return; };
+
+            // Auto Respawn UI After Window Resize
+            if q.q_splash_roots.iter().next().is_none() {
+                spawn_sound_options_ui(
+                    &mut commands, &asset_server,
+                    w, h, scale, imgs,
+                    options.sound.selection,
+                    &resources.sound_settings,
+                );
+                return;
+            }
 
             let items = build_sound_options_items(&resources.sound_settings);
             let item_count = items.len();
@@ -5257,7 +5314,7 @@ fn splash_advance_on_any_input(
                 moved = true;
             }
 
-            // Left/Right for volume sliders
+            // Left / Right for Volume Sliders
             let left_just = keyboard.just_pressed(KeyCode::ArrowLeft) || keyboard.just_pressed(KeyCode::KeyA);
             let right_just = keyboard.just_pressed(KeyCode::ArrowRight) || keyboard.just_pressed(KeyCode::KeyD);
             let left_held = keyboard.pressed(KeyCode::ArrowLeft);
@@ -5313,24 +5370,27 @@ fn splash_advance_on_any_input(
                         for _ in 0..nudge_ticks {
                             resources.sound_settings.master_volume = (resources.sound_settings.master_volume + delta).clamp(0.0, 1.0);
                         }
-                        resources.sound_settings.set_changed(); // Explicitly mark as changed
+                        // Explicitly Mark as Changed
+                        resources.sound_settings.set_changed();
                     }
                     Some(SoundOptionKind::MusicVolume) => {
                         for _ in 0..nudge_ticks {
                             resources.sound_settings.music_volume = (resources.sound_settings.music_volume + delta).clamp(0.0, 1.0);
                         }
-                        resources.sound_settings.set_changed(); // Explicitly mark as changed
+                        // Explicitly Mark as Changed
+                        resources.sound_settings.set_changed();
                     }
                     Some(SoundOptionKind::SfxVolume) => {
                         for _ in 0..nudge_ticks {
                             resources.sound_settings.sfx_volume = (resources.sound_settings.sfx_volume + delta).clamp(0.0, 1.0);
                         }
-                        resources.sound_settings.set_changed(); // Explicitly mark as changed
+                        // Explicitly Mark as Changed
+                        resources.sound_settings.set_changed();
                     }
                     _ => {}
                 }
 
-                // Respawn UI with updated labels
+                // Respawn UI with Updated Labels
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
                 spawn_sound_options_ui(
                     &mut commands, &asset_server,
@@ -5345,7 +5405,7 @@ fn splash_advance_on_any_input(
                 sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
             }
 
-            // Update item visibility
+            // Update Item Visibility
             for (item, variant, mut vis) in q.q_sound_options_items.iter_mut() {
                 let want_selected = item.idx == options.sound.selection;
                 *vis = if variant.selected == want_selected {
@@ -5355,7 +5415,7 @@ fn splash_advance_on_any_input(
                 };
             }
 
-            // Cursor blink
+            // Cursor Blink
             let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
             for mut v in q.q_cursor_light.iter_mut() {
                 *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
@@ -5364,7 +5424,7 @@ fn splash_advance_on_any_input(
                 *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
             }
 
-            // Cursor positioning
+            // Cursor Positioning
             let ui_scale = (w / BASE_W).round().max(1.0);
             let hint_native_h = 12.0;
             let hint_bottom_pad = 6.0;
@@ -5405,7 +5465,7 @@ fn splash_advance_on_any_input(
                 node.top = Val::Px(cursor_y);
             }
 
-            // Enter = Toggle bools or Back
+            // Enter = Toggle Bools or Back
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
@@ -5415,7 +5475,8 @@ fn splash_advance_on_any_input(
                 match current_kind {
                     Some(SoundOptionKind::MusicEnabled) => {
                         resources.sound_settings.music_enabled = !resources.sound_settings.music_enabled;
-                        resources.sound_settings.set_changed(); // Explicitly mark as changed
+                        // Explicitly Mark as Changed
+                        resources.sound_settings.set_changed();
 
                         for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
                         spawn_sound_options_ui(
@@ -5428,7 +5489,8 @@ fn splash_advance_on_any_input(
 
                     Some(SoundOptionKind::SfxEnabled) => {
                         resources.sound_settings.sfx_enabled = !resources.sound_settings.sfx_enabled;
-                        resources.sound_settings.set_changed(); // Explicitly mark as changed
+                        // Explicitly Mark as Changed
+                        resources.sound_settings.set_changed();
 
                         for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
                         spawn_sound_options_ui(
@@ -5459,6 +5521,17 @@ fn splash_advance_on_any_input(
             resources.music_mode.0 = MusicModeKind::Menu;
 
             let Some(imgs) = resources.imgs.as_ref() else { return; };
+
+            // Auto Respawn UI After Window Resize
+            if q.q_splash_roots.iter().next().is_none() {
+                spawn_control_options_ui(
+                    &mut commands, &asset_server,
+                    w, h, scale, imgs,
+                    options.control.selection,
+                    &resources.control_settings,
+                );
+                return;
+            }
 
             let items = build_control_options_items(&resources.control_settings);
             let item_count = items.len();
@@ -5495,7 +5568,7 @@ fn splash_advance_on_any_input(
                 moved = true;
             }
 
-            // Left/Right for numeric settings
+            // Left / Right for Numeric Settings
             let left_just = keyboard.just_pressed(KeyCode::ArrowLeft) || keyboard.just_pressed(KeyCode::KeyA);
             let right_just = keyboard.just_pressed(KeyCode::ArrowRight) || keyboard.just_pressed(KeyCode::KeyD);
             let left_held = keyboard.pressed(KeyCode::ArrowLeft);
@@ -5550,26 +5623,29 @@ fn splash_advance_on_any_input(
                         for _ in 0..nudge_ticks {
                             resources.control_settings.mouse_sensitivity = (resources.control_settings.mouse_sensitivity + delta).clamp(0.1, 10.0);
                         }
-                        resources.control_settings.set_changed(); // Explicitly mark as changed
+                        // Explicitly Mark as Changed
+                        resources.control_settings.set_changed();
                     }
                     Some(ControlOptionKind::GamepadSensitivity) => {
                         let delta = if options.control.hold_dir > 0 { 0.1 } else { -0.1 };
                         for _ in 0..nudge_ticks {
                             resources.control_settings.gamepad_sensitivity = (resources.control_settings.gamepad_sensitivity + delta).clamp(0.1, 10.0);
                         }
-                        resources.control_settings.set_changed(); // Explicitly mark as changed
+                        // Explicitly Mark as Changed
+                        resources.control_settings.set_changed();
                     }
                     Some(ControlOptionKind::GamepadDeadzone) => {
                         let delta = if options.control.hold_dir > 0 { 0.01 } else { -0.01 };
                         for _ in 0..nudge_ticks {
                             resources.control_settings.gamepad_deadzone = (resources.control_settings.gamepad_deadzone + delta).clamp(0.0, 0.5);
                         }
-                        resources.control_settings.set_changed(); // Explicitly mark as changed
+                        // Explicitly Mark as Changed
+                        resources.control_settings.set_changed();
                     }
                     _ => {}
                 }
 
-                // Respawn UI with updated labels
+                // Respawn UI With Updated Labels
                 for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
                 spawn_control_options_ui(
                     &mut commands, &asset_server,
@@ -5584,7 +5660,7 @@ fn splash_advance_on_any_input(
                 sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
             }
 
-            // Update item visibility
+            // Update Item Visibility
             for (item, variant, mut vis) in q.q_control_options_items.iter_mut() {
                 let want_selected = item.idx == options.control.selection;
                 *vis = if variant.selected == want_selected {
@@ -5594,7 +5670,7 @@ fn splash_advance_on_any_input(
                 };
             }
 
-            // Cursor blink
+            // Cursor Blink
             let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
             for mut v in q.q_cursor_light.iter_mut() {
                 *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
@@ -5603,7 +5679,7 @@ fn splash_advance_on_any_input(
                 *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
             }
 
-            // Cursor positioning
+            // Cursor Positioning
             let ui_scale = (w / BASE_W).round().max(1.0);
             let hint_native_h = 12.0;
             let hint_bottom_pad = 6.0;
@@ -5803,6 +5879,14 @@ fn splash_advance_on_any_input(
                 resources.name_entry.active = false;
                 resources.name_entry.name.clear();
                 resources.name_entry.cursor_pos = 0;
+            }
+
+            // Auto-respawn UI after window resize
+            if q.q_splash_roots.iter().next().is_none() {
+                if let Some(imgs) = resources.imgs.as_ref() {
+                    spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &resources.high_scores);
+                }
+                return;
             }
 
             if any_key {
@@ -6109,8 +6193,8 @@ fn tick_get_psyched_loading(
         return;
     }
 
-    // While GET PSYCHED is up, force controls locked (prevents mouse clicks from acting
-    // on gameplay or UI underneath), even if other systems temporarily unlock
+    // While GET PSYCHED is up, Force Controls
+    // Locked Even if Other Systems Temporarily Unlock
     lock.0 = true;
 
     psyched.timer.tick(time.delta());

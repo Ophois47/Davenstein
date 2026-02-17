@@ -390,8 +390,8 @@ pub fn drop_guard_ammo(
         let mat = materials.add(StandardMaterial {
             base_color_texture: Some(tex),
 
-            // Mask writes depth, so corpse can't overwrite later
-            // Choose Cutoff that Keeps Edges Crisp. Adjust to 0.25 if "holes"
+            // Mask Writes Depth, so Corpse Can't Overwrite Later
+            // Choose Cutoff that Keeps Edges Crisp
             alpha_mode: AlphaMode::Mask(0.5),
 
             unlit: true,
@@ -450,8 +450,8 @@ pub fn drop_mutant_ammo(
         let mat = materials.add(StandardMaterial {
             base_color_texture: Some(tex),
 
-            // Mask writes depth, so corpse can't overwrite later
-            // Choose Cutoff that Keeps Edges Crisp. Adjust to 0.25 if "holes"
+            // Mask Writes Depth, so Corpse Can't Overwrite Later
+            // Choose Cutoff that Keeps Edges Crisp
             alpha_mode: AlphaMode::Mask(0.5),
 
             unlit: true,
@@ -488,9 +488,7 @@ pub fn drop_ss_loot(
     hud: Res<HudState>,
     q_corpses: Query<(Entity, &GlobalTransform), (With<SsCorpse>, Without<DroppedLoot>)>,
 ) {
-    // Depth Tweak: with AlphaMode::Mask this will actually affect depth testing
     const DROP_DEPTH_BIAS: f32 = -250.0;
-
     // Tiny Lift to Avoid Z Fighting With Floor
     const DROP_Y_LIFT: f32 = 0.01;
 

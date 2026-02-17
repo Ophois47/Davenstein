@@ -43,8 +43,8 @@ impl LookAngles {
     }
 }
 
-/// Base sensitivity scalar applied after ControlSettings multiplier.
-/// ControlSettings.mouse_sensitivity (default 1.0) scales on top of this.
+/// Base Sensitivity Scalar Applied After ControlSettings Multiplier
+/// ControlSettings.mouse_sensitivity (Default 1.0) Scales on Top of This
 const BASE_SENSITIVITY: f32 = 0.002;
 
 #[derive(Resource)]
@@ -77,7 +77,7 @@ impl Default for PlayerVitals {
 #[derive(Resource, Default)]
 pub struct PlayerControlLock(pub bool);
 
-/// Prevents Decrementing Lives Every Frame While hp == 0
+/// Prevents Decrementing Lives Every Frame While HP == 0
 /// False = Alive (or not yet processed), True = Death Handled
 #[derive(Resource, Default)]
 pub struct PlayerDeathLatch(pub bool);
@@ -108,7 +108,7 @@ pub fn grab_mouse(
         return;
     };
 
-    // Release: LAlt
+    // Release: LCtrl
     // Works Even While Menus Up / Controls Locked
     if keys.just_pressed(KeyCode::ControlLeft) {
         cursor.visible = true;
@@ -153,7 +153,7 @@ pub fn mouse_look(
         return;
     };
 
-    // scaled_mouse_look applies sensitivity multiplier + invert_y
+    // scaled_mouse_look Applies Sensitivity Multiplier + Invert_y
     let (dx, dy) = controls.scaled_mouse_look(delta);
     look.yaw -= dx * BASE_SENSITIVITY;
     look.pitch -= dy * BASE_SENSITIVITY;

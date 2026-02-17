@@ -34,8 +34,8 @@ pub struct WallFace;
 
 #[derive(Message, Clone, Copy, Debug)]
 pub struct RebuildWalls {
-    /// Optional tile to treat as a wall for adjacency tests, but NOT spawned
-    /// as a static wall face (the moving pushwall will render it)
+    /// Optional Tile to Treat as Wall for Adjacency Tests, But NOT Spawned
+    /// as Static Wall Face (Moving Pushwall Will Render It)
     pub skip: Option<IVec2>,
 }
 
@@ -50,7 +50,6 @@ pub struct WallRenderCache {
     pub jamb_mat: Handle<StandardMaterial>,
 }
 
-// ---------- Assets ----------
 #[derive(Resource)]
 pub struct GameAssets {
     pub wall_tex: Handle<Image>,
@@ -59,8 +58,8 @@ pub struct GameAssets {
 
 fn load_assets(asset_server: &AssetServer) -> GameAssets {
     GameAssets {
-        // Wolf wall-sheet (top-left 8x8 = the 64 wall textures in index order)
-        // We remap UVs per wall ID, so this is shared by all wall materials
+        // Wolfenstein 3-D Wall Sheet (Top Left 8x8 = the 64 Wall Textures in Index Order)
+        // We Remap UVs Per Wall ID, so This is Shared by All Wall Materials
         wall_tex: asset_server.load("textures/walls/wolf_walls.png"),
         floor_tex: asset_server.load("textures/floors/floor.png"),
     }
@@ -72,7 +71,7 @@ fn spawn_wall_faces_for_grid(
     cache: &WallRenderCache,
     skip: Option<IVec2>,
 ) {
-    // Real wall test from the grid
+    // Real Wall Test From the Grid
     let is_wall_real = |xx: i32, zz: i32| -> bool {
         if xx < 0 || zz < 0 {
             return false;
@@ -84,9 +83,9 @@ fn spawn_wall_faces_for_grid(
         matches!(grid.tile(xu, zu), Tile::Wall)
     };
 
-    // Neighbor-wall test for face culling.
-    // IMPORTANT: if the neighbor is the moving pushwall tile (skip), treat it as EMPTY
-    // so adjacent walls will still spawn their faces toward the moving pushwall
+    // Neighbor Wall Test for Face Culling
+    // If the Neighbor is the Moving Pushwall Tile (Skip), Treat as EMPTY
+    // so Adjacent Walls Will Still Spawn Their Faces Toward the Moving Pushwall
     let is_wall_neighbor = |xx: i32, zz: i32| -> bool {
         if let Some(st) = skip {
             if st.x == xx && st.y == zz {
@@ -122,7 +121,7 @@ fn spawn_wall_faces_for_grid(
             ));
         };
 
-    // Helper: fetch a jamb mesh from the atlas, with a safe fallback.
+    // Fetch Jamb Mesh From Atlas, With a Safe Fallback
     let jamb_mesh = |idx: usize| -> Handle<Mesh> {
         cache
             .atlas_panels
@@ -133,14 +132,14 @@ fn spawn_wall_faces_for_grid(
 
     for z in 0..grid.height {
         for x in 0..grid.width {
-            // Never spawn static faces for the moving pushwall tile itself.
+            // Never Spawn Static Faces for the Moving Pushwall Tile Itself
             if let Some(st) = skip {
                 if st.x == x as i32 && st.y == z as i32 {
                     continue;
                 }
             }
 
-            // Only actual wall tiles spawn wall faces.
+            // Only Actual Wall Tiles Spawn Wall Faces
             if !matches!(grid.tile(x, z), Tile::Wall) {
                 continue;
             }
@@ -150,7 +149,7 @@ fn spawn_wall_faces_for_grid(
                 continue;
             }
 
-            // Wolf-style paired light/dark chunks in VSWAP order.
+            // Wolfenstein 3-D Style Paired Light / Dark Chunks in VSWAP Order
             let wall_type = (wall_id as usize).saturating_sub(1);
             let pair_base = wall_type.saturating_mul(2);
             if cache.atlas_panels.is_empty() {
@@ -160,7 +159,7 @@ fn spawn_wall_faces_for_grid(
             let light_idx = pair_base.min(max_i);
             let dark_idx = (pair_base + 1).min(max_i);
 
-            // Flipped variants for faces whose yaw rotation mirrors the texture
+            // Flipped Variants for Faces Whose Yaw Rotation Mirrors the Texture
             let wall_mesh_light_flip = cache.atlas_panels_flip[light_idx].clone();
             let wall_mesh_dark_flip = cache.atlas_panels_flip[dark_idx].clone();
 
@@ -254,7 +253,8 @@ pub fn rebuild_wall_faces_on_request(
     mut msgs: MessageReader<RebuildWalls>,
     q_faces: Query<Entity, With<WallFace>>,
 ) {
-    // Coalesce all rebuild requests this frame; last one wins for skip.
+    // Coalesce All Rebuild Requests this Frame
+    // Last One Wins for Skip
     let mut any = false;
     let mut skip = None;
     for m in msgs.read() {
@@ -282,7 +282,7 @@ pub fn setup(
 	mut level_score: ResMut<crate::level_score::LevelScore>,
 	skill_level: Res<crate::skill::SkillLevel>,
 ) {
-	// --- Map Load (Wolf Planes) ---
+	// Map Load (Wolfenstein 3-D Planes)
 	let (plane0_text, plane1_text) = match current_level.0 {
 		// Episode 1
 		crate::level::LevelId::E1M1 => (
@@ -541,16 +541,16 @@ pub fn setup(
 	let plane0 = MapGrid::parse_u16_grid(plane0_text, 64, 64);
 	let plane1 = MapGrid::parse_u16_grid(plane1_text, 64, 64);
 
-	// Make plane1 available as the single source of truth for decorations/pickups later
+	// Make plane1 Available as Single Source of Truth for Decorations / Pickups Later
 	commands.insert_resource(crate::level::WolfPlane1(plane1.clone()));
 
 	let pushwall_markers = PushwallMarkers::from_wolf_plane1(64, 64, &plane1);
 	let (grid, spawn, guards, mutants, ss, officers, dogs, hans, gretel, mecha_hitler, ghost_hitler, schabbs, otto, general) =
 		MapGrid::from_wolf_planes(64, 64, &plane0, &plane1);
 
-	// --- Enemy difficulty selection ---
-	// Wolf thing codes repeat in 3 bands spaced by +36
-	// base = 0, mid = 36, hard = 72
+	// Enemy Difficulty Selection
+	// Wolfenstein 3-D Codes Repeat in 3 Bands Spaced by +36
+	// Base = 0, Mid = 36, Hard = 72
 	let skill_off = skill_level.spawn_offset();
 
 	let idx = |t: IVec2| -> usize { (t.y as usize) * 64 + (t.x as usize) };
@@ -674,33 +674,6 @@ pub fn setup(
 
 	let hitler_phase2_total = mecha_hitler.len();
 
-	info!(
-		"Enemy Spawns: Guards={}, Mutants={}, SS={}, Officers={}, Dogs={}, Ghost Hitler={}",
-		guards.len(),
-        mutants.len(),
-		ss.len(),
-		officers.len(),
-		dogs.len(),
-        ghost_hitler.len(),
-	);
-
-	info!(
-		"Boss Spawns: Hans={}, Gretel={}, Mecha Hitler={} (implies Hitler Phase II={}), Schabbs={}, Otto={}, General={}",
-		hans.len(),
-		gretel.len(),
-		mecha_hitler.len(),
-		hitler_phase2_total,
-        schabbs.len(),
-		otto.len(),
-        general.len(),
-	);
-
-	info!(
-		"Difficulty: {} (spawn_offset={})",
-		skill_level.name(),
-		skill_level.spawn_offset()
-	);
-
 	// Intermission Screen Totals
     // FIXME: Is this right? Should bosses be counted in this way?
 	let kills_total = guards.len()
@@ -806,7 +779,7 @@ pub fn setup(
         Transform::from_translation(room_center),
     ));
 
-    // Ceiling Plane Tinted per Level
+    // Ceiling Plane Tinted Per Level
     let ceiling_mat = materials.add(StandardMaterial {
         base_color: current_level.0.ceiling_color(),
         unlit: true,
@@ -822,7 +795,7 @@ pub fn setup(
             .with_rotation(Quat::from_rotation_x(PI)),
     ));
 
-	// --- Wall atlas mapping (WL6 VSWAP walls 0..105 packed 16x7, 64x64 each) ---
+	// Wall Atlas Mapping (WL6 VSWAP Walls 0..105 Packed 16x7, 64x64 Each)
 	const VSWAP_WALL_CHUNKS: usize = 106;
 	const ATLAS_COLS: usize = 16;
 	const ATLAS_ROWS: usize = (VSWAP_WALL_CHUNKS + ATLAS_COLS - 1) / ATLAS_COLS;
@@ -965,7 +938,7 @@ pub fn setup(
 	};
 	commands.insert_resource(wall_cache.clone());
 
-	// --- Doors from grid ---
+	// Doors From Grid
 	for z in 0..grid.height {
 		for x in 0..grid.width {
 			let tile = grid.tile(x, z);
@@ -975,7 +948,7 @@ pub fn setup(
 
 			let is_open = matches!(tile, Tile::DoorOpen);
 
-			// Determine orientation from adjacent walls
+			// Determine Orientation From Adjacent Walls
 			let left_wall = x > 0 && matches!(grid.tile(x - 1, z), Tile::Wall);
 			let right_wall = x + 1 < grid.width && matches!(grid.tile(x + 1, z), Tile::Wall);
 			let up_wall = z > 0 && matches!(grid.tile(x, z - 1), Tile::Wall);
@@ -1008,12 +981,12 @@ pub fn setup(
 				z as f32 * TILE_SIZE,
 			);
 
-			// Door slides along local +X after yaw
-			// Using yaw (not yaw_base) preserves the pre-regression sign convention
+			// Door Slides Along Local +X After Yaw
+			// Using Yaw (Not yaw_base) Preserves Pre-Regression Sign Convention
 			let mut slide_axis = Quat::from_rotation_y(yaw) * Vec3::X;
 
-			// Wolf door codes are paired per lock type for which side they retract into
-			// Odd partner flips the retract direction on the same axis
+			// Wolfenstein 3-D Door Codes are Paired Per Lock Type for 
+            // Which Side They Retract Into. Odd Partner Flips Retract Direction on Same Axis
 			let is_paired_door_code = matches!(code, 90..=95 | 100 | 101);
 			if is_paired_door_code && ((code & 1) == 1) {
 				slide_axis = -slide_axis;
@@ -1023,12 +996,12 @@ pub fn setup(
 			let start_pos = center + slide_axis * (progress * TILE_SIZE);
 			let vis = if is_open { Visibility::Hidden } else { Visibility::Visible };
 
-			// Choose door atlas tile by Wolf plane0 door code + axis
+			// Choose Door Atlas Tile by Wolfenstein 3-D plane0 Door Code + Axis
 			// Codes:
-			//   90/91 normal door
-			//   92/93 gold key
-			//   94/95 silver key
-			//   100/101 elevator door
+			//   90 / 91 - Normal Door
+			//   92 / 93 - Gold Key
+			//   94 / 95 - Silver Key
+			//   100 / 101 - Elevator Door
 			let eps = 0.001;
 			let yaw_n = yaw_base.rem_euclid(PI);
 			let is_z_axis = yaw_n.abs() < eps;
@@ -1114,7 +1087,7 @@ pub fn setup(
 		}
 	}
 
-	// Static wall faces (includes door jamb faces)
+	// Static Wall Faces (Includes Door Jamb Faces)
 	spawn_wall_faces_for_grid(&mut commands, &grid, &wall_cache, None);
 
 	for g in guards {
@@ -1167,8 +1140,8 @@ pub fn setup(
 
 	let player_pos = Vec3::new(spawn.x as f32 * TILE_SIZE, 0.5, spawn.y as f32 * TILE_SIZE);
 
-	// Spawn camera with appropriate FOV for Wolfenstein-style gameplay
-	// Using 40° vertical FOV (can be adjusted in options menu: 40-120°)
+	// Spawn Camera with Appropriate FOV for Wolfenstein 3-D Gameplay
+	// Using 40 Degree Vertical FOV
 	let fov_degrees = 40.0_f32;
 	let fov_radians = fov_degrees.to_radians();
 	

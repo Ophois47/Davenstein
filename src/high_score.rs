@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Wolfenstein 3D had 7 High Score Slots
+/// Wolfenstein 3-D had 7 High Score Slots
 pub const MAX_SCORES: usize = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,7 +22,7 @@ pub struct HighScores {
 
 impl Default for HighScores {
     fn default() -> Self {
-        // Match Original Wolfenstein 3D Default High Scores
+        // Match Original Wolfenstein 3-D Default High Scores
         Self {
             entries: vec![
                 HighScoreEntry { name: "IDS".into(), score: 10000, episode: 1 },
