@@ -20,6 +20,7 @@ use davelib::player::{
     Player,
     PlayerControlLock,
 };
+use davelib::options::ControlSettings;
 use davelib::level::CurrentLevel;
 
 #[derive(Component)]
@@ -473,12 +474,21 @@ pub(crate) fn sync_viewmodel_size(
     node.height = Val::Px(gun_px);
 }
 
+#[derive(Default)]
+pub(super) struct WeaponFireLocals {
+    armed: bool,
+    fire_anim_accum: f32,
+    last_weapon: Option<crate::combat::WeaponSlot>,
+    auto_linger: f32,
+}
+
 pub(crate) fn weapon_fire_and_viewmodel(
     time: Res<Time>,
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     cursor: Single<&CursorOptions>,
     lock: Res<PlayerControlLock>,
+    controls: Res<ControlSettings>,
     sprites: Option<Res<ViewModelSprites>>,
     mut weapon: ResMut<WeaponState>,
     mut hud: ResMut<HudState>,
@@ -486,10 +496,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     q_player: Query<&Transform, With<Player>>,
     mut sfx: MessageWriter<PlaySfx>,
     mut fire_ev: MessageWriter<crate::combat::FireShot>,
-    mut armed: Local<bool>,
-    mut fire_anim_accum: Local<f32>,
-    mut last_weapon: Local<Option<crate::combat::WeaponSlot>>,
-    mut auto_linger: Local<f32>,
+    mut locals: Local<WeaponFireLocals>,
 ) {
     use crate::combat::WeaponSlot;
 
@@ -501,9 +508,9 @@ pub(crate) fn weapon_fire_and_viewmodel(
     // Only Allow Weapon Selection / Firing While Mouse is Locked
     let locked = cursor.grab_mode == CursorGrabMode::Locked;
     if !locked {
-        *armed = false;
-        *fire_anim_accum = 0.0;
-        *last_weapon = Some(hud.selected);
+        locals.armed = false;
+        locals.fire_anim_accum = 0.0;
+        locals.last_weapon = Some(hud.selected);
 
         // Hard Snap Viewmodel to Idle if Unlocked
         weapon.fire_cycle = 0;
@@ -516,9 +523,9 @@ pub(crate) fn weapon_fire_and_viewmodel(
 
     // Block Selection / Firing While Dead (Input Lock)
     if lock.0 {
-        *fire_anim_accum = 0.0;
-        *last_weapon = Some(hud.selected);
-        *auto_linger = 0.0;
+        locals.fire_anim_accum = 0.0;
+        locals.last_weapon = Some(hud.selected);
+        locals.auto_linger = 0.0;
 
         weapon.fire_cycle = 0;
         weapon.showing_fire = false;
@@ -531,42 +538,48 @@ pub(crate) fn weapon_fire_and_viewmodel(
     }
 
     // Prevent Very First Click (Used to Grab Cursor) From Also Firing
-    if !*armed {
-        *armed = true;
-        *fire_anim_accum = 0.0;
-        *last_weapon = Some(hud.selected);
+    if !locals.armed {
+        locals.armed = true;
+        locals.fire_anim_accum = 0.0;
+        locals.last_weapon = Some(hud.selected);
         return;
     }
 
-    // Weapon Selection (1–4)
-    for code in [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4] {
+    // Weapon Selection (1–4) — reads from ControlSettings key bindings
+    // Positional: weapon_1 = Knife, weapon_2 = Pistol, etc.
+    let kb = &controls.key_bindings;
+    let weapon_keys = [
+        (kb.weapon_1, WeaponSlot::Knife),
+        (kb.weapon_2, WeaponSlot::Pistol),
+        (kb.weapon_3, WeaponSlot::MachineGun),
+        (kb.weapon_4, WeaponSlot::Chaingun),
+    ];
+    for (code, slot) in weapon_keys {
         if keys.just_pressed(code) {
-            if let Some(slot) = WeaponSlot::from_digit_key(code) {
-                if hud.owns(slot) {
-                    hud.selected = slot;
-                    weapon.showing_fire = false;
-                    weapon.fire_cycle = 0;
-                    weapon.flash.reset();
-                    let dur = weapon.cooldown.duration();
-                    weapon.cooldown.set_elapsed(dur);
-                    *fire_anim_accum = 0.0;
-                    *last_weapon = Some(hud.selected);
-                    *auto_linger = 0.0;
-                    if let Ok(mut img) = vm_q.single_mut() {
-                        img.image = sprites.idle(hud.selected);
-                    }
+            if hud.owns(slot) {
+                hud.selected = slot;
+                weapon.showing_fire = false;
+                weapon.fire_cycle = 0;
+                weapon.flash.reset();
+                let dur = weapon.cooldown.duration();
+                weapon.cooldown.set_elapsed(dur);
+                locals.fire_anim_accum = 0.0;
+                locals.last_weapon = Some(hud.selected);
+                locals.auto_linger = 0.0;
+                if let Ok(mut img) = vm_q.single_mut() {
+                    img.image = sprites.idle(hud.selected);
                 }
             }
         }
     }
 
     // If Weapon Changed Externally Somehow, Reset Anim Accumulator
-    if last_weapon.map(|w| w != hud.selected).unwrap_or(true) {
-        *fire_anim_accum = 0.0;
+    if locals.last_weapon.map(|w| w != hud.selected).unwrap_or(true) {
+        locals.fire_anim_accum = 0.0;
         weapon.fire_cycle = 0;
         weapon.showing_fire = false;
-        *last_weapon = Some(hud.selected);
-        *auto_linger = 0.0;
+        locals.last_weapon = Some(hud.selected);
+        locals.auto_linger = 0.0;
         if let Ok(mut img) = vm_q.single_mut() {
             img.image = sprites.idle(hud.selected);
         }
@@ -669,7 +682,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     let firing_anim_tic_secs = 12.0 * TIC;
 
     if is_chaingun && trigger_down && has_ammo {
-        *auto_linger = 0.0;
+        locals.auto_linger = 0.0;
 
         if weapon.fire_cycle == 0 {
             weapon.showing_fire = true;
@@ -678,10 +691,10 @@ pub(crate) fn weapon_fire_and_viewmodel(
             }
         }
 
-        *fire_anim_accum += dt_secs;
+        locals.fire_anim_accum += dt_secs;
 
-        if *fire_anim_accum >= firing_anim_tic_secs {
-            *fire_anim_accum -= firing_anim_tic_secs;
+        if locals.fire_anim_accum >= firing_anim_tic_secs {
+            locals.fire_anim_accum -= firing_anim_tic_secs;
 
             weapon.fire_cycle = weapon.fire_cycle.wrapping_add(1);
             weapon.showing_fire = true;
@@ -691,11 +704,11 @@ pub(crate) fn weapon_fire_and_viewmodel(
             }
         }
     } else {
-        *fire_anim_accum = 0.0;
+        locals.fire_anim_accum = 0.0;
 
         if is_chaingun && (!trigger_down || !has_ammo) {
-            if *auto_linger > 0.0 {
-                *auto_linger = (*auto_linger - dt_secs).max(0.0);
+            if locals.auto_linger > 0.0 {
+                locals.auto_linger = (locals.auto_linger - dt_secs).max(0.0);
 
                 if weapon.fire_cycle != 0 {
                     weapon.showing_fire = true;
@@ -711,7 +724,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
                 }
             }
         } else {
-            *auto_linger = 0.0;
+            locals.auto_linger = 0.0;
         }
     }
 
@@ -728,7 +741,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     if is_machinegun && !trigger_down {
         weapon.showing_fire = false;
         weapon.fire_cycle = 0;
-        *auto_linger = 0.0;
+        locals.auto_linger = 0.0;
         weapon.flash.reset();
 
         if let Ok(mut img) = vm_q.single_mut() {
@@ -777,7 +790,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
                 img.image = sprites.fire_frame(WeaponSlot::MachineGun, 2);
             }
 
-            *auto_linger = 0.10;
+            locals.auto_linger = 0.10;
         }
 
         // --- Chaingun ---
@@ -785,8 +798,8 @@ pub(crate) fn weapon_fire_and_viewmodel(
             weapon.showing_fire = true;
 
             weapon.fire_cycle = weapon.fire_cycle.wrapping_add(1);
-            *fire_anim_accum = 0.0;
-            *auto_linger = 0.10;
+            locals.fire_anim_accum = 0.0;
+            locals.auto_linger = 0.10;
 
             if let Ok(mut img) = vm_q.single_mut() {
                 img.image = sprites.auto_fire(hud.selected, weapon.fire_cycle);

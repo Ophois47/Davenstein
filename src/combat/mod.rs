@@ -84,18 +84,6 @@ pub struct FireShot {
     pub max_dist: f32,
 }
 
-impl WeaponSlot {
-    pub fn from_digit_key(code: KeyCode) -> Option<Self> {
-        match code {
-            KeyCode::Digit1 => Some(Self::Knife),
-            KeyCode::Digit2 => Some(Self::Pistol),
-            KeyCode::Digit3 => Some(Self::MachineGun),
-            KeyCode::Digit4 => Some(Self::Chaingun),
-            _ => None,
-        }
-    }
-}
-
 fn process_enemy_fireball_shots(
     mut fireballs: MessageReader<davelib::ai::EnemyFireballShot>,
     mut spawn: MessageWriter<projectiles::SpawnProjectile>,
