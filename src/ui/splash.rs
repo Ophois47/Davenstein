@@ -4372,7 +4372,7 @@ fn splash_advance_on_any_input(
             }
 
             if any_key {
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                 spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h, None);
                 *resources.step = SplashStep::Splash1;
             }
@@ -4389,7 +4389,7 @@ fn splash_advance_on_any_input(
             }
 
             if any_key {
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                 spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, false);
                 menu.reset();
                 *resources.step = SplashStep::Menu;
@@ -4495,14 +4495,14 @@ fn splash_advance_on_any_input(
 
                 match action {
                     MenuAction::BackToGame => {
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                         *resources.step = SplashStep::Done;
                         resources.lock.0 = false;
                         resources.music_mode.0 = MusicModeKind::Gameplay;
                     }
 
                     MenuAction::NewGame => {
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                         episode.selection = 0;
                         episode.from_pause = is_pause;
@@ -4520,7 +4520,7 @@ fn splash_advance_on_any_input(
                     }
 
                     MenuAction::Sound => {
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                         options.sound.selection = 0;
                         options.sound.from_pause = is_pause;
@@ -4545,7 +4545,7 @@ fn splash_advance_on_any_input(
                     }
                     
                     MenuAction::Control => {
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                         options.control.selection = 0;
                         options.control.from_pause = is_pause;
@@ -4570,7 +4570,7 @@ fn splash_advance_on_any_input(
                     }
 
                     MenuAction::ChangeView => {
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                         options.change_view.selection = 0;
                         options.change_view.res_submenu_open = false;
@@ -4635,7 +4635,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Escape) {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                 if let Some(imgs) = resources.imgs.as_ref() {
                     let back_to_pause = episode.from_pause;
@@ -4696,7 +4696,7 @@ fn splash_advance_on_any_input(
 
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                 skill.selection = 2;
                 skill.episode_num = episode_num;
@@ -4733,7 +4733,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Escape) {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                 spawn_episode_select_ui(
                     &mut commands,
@@ -4809,18 +4809,11 @@ fn splash_advance_on_any_input(
 
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                 *skill_level = davelib::skill::SkillLevel::from_selection(skill.selection);
                 new_game.0 = true;
                 current_level.0 = davelib::level::LevelId::first_level_of_episode(episode_num);
-
-                info!(
-                    "Menu: selected difficulty {} (idx={}) episode={}",
-                    skill_level.name(),
-                    skill.selection,
-                    episode_num
-                );
 
                 begin_get_psyched_loading(
                     &mut commands,
@@ -4845,7 +4838,7 @@ fn splash_advance_on_any_input(
 
             let Some(imgs) = resources.imgs.as_ref() else { return; };
 
-            // Auto-respawn UI after window resize
+            // Auto Respawn UI After Window Resize
             if q.q_splash_roots.iter().next().is_none() {
                 options.change_view.res_submenu_open = false;
                 options.change_view.needs_respawn = false;
@@ -4858,12 +4851,12 @@ fn splash_advance_on_any_input(
                 return;
             }
 
-            // Deferred respawn: after a display mode change, the window size
-            // updates on the next frame. Respawn the menu UI with correct dims.
+            // Deferred Respawn: After Display Mode Change, Window Size
+            // Updates on Next Frame. Respawn Menu UI With Correct Dims
             if options.change_view.needs_respawn {
                 options.change_view.needs_respawn = false;
 
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                 spawn_change_view_ui(
                     &mut commands, &asset_server,
                     w, h, scale, imgs,
@@ -4873,11 +4866,11 @@ fn splash_advance_on_any_input(
                 return;
             }
 
-            // Build the dynamic item list to know what kind each row is
+            // Build Dynamic Item List to Know What Kind Each Row Is
             let items = build_change_view_items(&resources.video_settings, &resources.res_list);
             let item_count = items.len();
 
-            // Clamp selection in case item count changed (e.g. Resolution row appeared/disappeared)
+            // Clamp Selection in Case Item Count Changed (e.g. Resolution Row Appeared / Disappeared)
             if options.change_view.selection >= item_count {
                 options.change_view.selection = item_count.saturating_sub(1);
             }
@@ -4890,7 +4883,7 @@ fn splash_advance_on_any_input(
                     sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
                     options.change_view.res_submenu_open = false;
 
-                    for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                    for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                     spawn_change_view_ui(
                         &mut commands, &asset_server,
                         w, h, scale, imgs,
@@ -4995,7 +4988,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Escape) {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                 let back_to_pause = options.change_view.from_pause;
                 options.change_view.from_pause = false;
@@ -5125,7 +5118,7 @@ fn splash_advance_on_any_input(
                 sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
 
                 // Respawn UI to Reflect New Values and Possibly Changed Item Count
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                 // Rebuild Items to Get New Count (Resolution Row May Appear / Disappear)
                 let new_items = build_change_view_items(&resources.video_settings, &resources.res_list);
@@ -5223,7 +5216,7 @@ fn splash_advance_on_any_input(
                         // Explicitly Mark as Changed
                         resources.video_settings.set_changed();
 
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                         spawn_change_view_ui(
                             &mut commands, &asset_server,
                             w, h, scale, imgs,
@@ -5237,7 +5230,7 @@ fn splash_advance_on_any_input(
                         options.change_view.res_submenu_open = true;
                         options.change_view.res_submenu_idx = resources.res_list.index_of(resources.video_settings.resolution);
 
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                         spawn_resolution_submenu_ui(
                             &mut commands, &asset_server,
                             w, h, scale, imgs,
@@ -5247,7 +5240,7 @@ fn splash_advance_on_any_input(
                     }
 
                     Some(ChangeViewKind::Back) => {
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                         let back_to_pause = options.change_view.from_pause;
                         options.change_view.from_pause = false;
@@ -5292,7 +5285,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Escape) {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                 let back_to_pause = options.sound.from_pause;
                 options.sound.from_pause = false;
@@ -5391,7 +5384,7 @@ fn splash_advance_on_any_input(
                 }
 
                 // Respawn UI with Updated Labels
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                 spawn_sound_options_ui(
                     &mut commands, &asset_server,
                     w, h, scale, imgs,
@@ -5478,7 +5471,7 @@ fn splash_advance_on_any_input(
                         // Explicitly Mark as Changed
                         resources.sound_settings.set_changed();
 
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                         spawn_sound_options_ui(
                             &mut commands, &asset_server,
                             w, h, scale, imgs,
@@ -5492,7 +5485,7 @@ fn splash_advance_on_any_input(
                         // Explicitly Mark as Changed
                         resources.sound_settings.set_changed();
 
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                         spawn_sound_options_ui(
                             &mut commands, &asset_server,
                             w, h, scale, imgs,
@@ -5502,7 +5495,7 @@ fn splash_advance_on_any_input(
                     }
 
                     Some(SoundOptionKind::Back) => {
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                         let back_to_pause = options.sound.from_pause;
                         options.sound.from_pause = false;
@@ -5546,7 +5539,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Escape) {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                 let back_to_pause = options.control.from_pause;
                 options.control.from_pause = false;
@@ -5646,7 +5639,7 @@ fn splash_advance_on_any_input(
                 }
 
                 // Respawn UI With Updated Labels
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                 spawn_control_options_ui(
                     &mut commands, &asset_server,
                     w, h, scale, imgs,
@@ -5732,7 +5725,7 @@ fn splash_advance_on_any_input(
                         resources.control_settings.invert_y = !resources.control_settings.invert_y;
                         resources.control_settings.set_changed(); // Explicitly mark as changed
 
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                         spawn_control_options_ui(
                             &mut commands, &asset_server,
                             w, h, scale, imgs,
@@ -5742,7 +5735,7 @@ fn splash_advance_on_any_input(
                     }
 
                     Some(ControlOptionKind::Back) => {
-                        for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                         let back_to_pause = options.control.from_pause;
                         options.control.from_pause = false;
@@ -5881,7 +5874,7 @@ fn splash_advance_on_any_input(
                 resources.name_entry.cursor_pos = 0;
             }
 
-            // Auto-respawn UI after window resize
+            // Auto Respawn UI After Window Resize
             if q.q_splash_roots.iter().next().is_none() {
                 if let Some(imgs) = resources.imgs.as_ref() {
                     spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &resources.high_scores);
@@ -6024,7 +6017,7 @@ fn splash_advance_on_any_input(
                 resources.lock.0 = true;
                 resources.music_mode.0 = MusicModeKind::Menu;
 
-                for e in q.q_splash_roots.iter() { commands.entity(e).despawn(); }
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                 spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, true);
                 menu.reset();
