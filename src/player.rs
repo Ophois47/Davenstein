@@ -91,8 +91,11 @@ impl Default for GodMode {
     }
 }
 
-pub fn toggle_god_mode(keys: Res<ButtonInput<KeyCode>>, mut god: ResMut<GodMode>) {
-    if keys.just_pressed(KeyCode::F9) {
+pub fn toggle_god_mode(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut god: ResMut<GodMode>,
+) {
+    if keys.pressed(KeyCode::Tab) && keys.just_pressed(KeyCode::KeyG) {
         god.0 = !god.0;
         info!("God Mode: {}", if god.0 { "ON" } else { "OFF" });
     }

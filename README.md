@@ -34,4 +34,4 @@ FEATURES TO BE COMPLETED:
 **********************************************
 BUGS:
 **********************************************
-- Change window size does not respect menu UI
+- Change view size does not respect menu UI
