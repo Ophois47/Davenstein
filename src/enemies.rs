@@ -2,7 +2,6 @@
 Davenstein - by David Petnick
 */
 use bevy::prelude::*;
-use bevy::time::Timer;
 
 use crate::actors::{
     Dead,
@@ -571,8 +570,17 @@ pub struct DogBite {
 impl DogBite {
     pub fn new() -> Self {
         Self {
-            t: Timer::from_seconds(DOG_BITE_SECS, TimerMode::Once),
+            t: Timer::from_seconds(
+                DOG_BITE_SECS,
+                TimerMode::Once,
+            ),
         }
+    }
+}
+
+impl Default for DogBite {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

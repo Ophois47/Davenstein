@@ -29,6 +29,9 @@ pub fn patrol_dir_from_plane1(code: u16) -> Option<Dir8> {
     }
 }
 
+// The & 7 on the match input means only 0 – 7 are possible,
+// all of which are covered. unreachable!() is more correct than
+// silently returning ZERO for an impossible case
 pub fn patrol_step_8way(dir: Dir8) -> IVec2 {
     match dir.0 & 7 {
         0 => IVec2::new(0, 1),
@@ -39,7 +42,7 @@ pub fn patrol_step_8way(dir: Dir8) -> IVec2 {
         5 => IVec2::new(-1, -1),
         6 => IVec2::new(-1, 0),
         7 => IVec2::new(-1, 1),
-        _ => IVec2::ZERO,
+        _ => unreachable!(),
     }
 }
 

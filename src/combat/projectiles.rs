@@ -163,12 +163,7 @@ fn calculate_dir8_index(proj_dir: Vec3, to_player: Vec3) -> usize {
 	let mut relative_angle = proj_angle - view_angle;
 	
 	// Normalize to [0, 2π)
-	while relative_angle < 0.0 {
-		relative_angle += std::f32::consts::TAU;
-	}
-	while relative_angle >= std::f32::consts::TAU {
-		relative_angle -= std::f32::consts::TAU;
-	}
+	relative_angle = relative_angle.rem_euclid(std::f32::consts::TAU);
 	
 	// Convert to 8 Directions (Octants)
 	// 0 = Facing Away (South), 4 = Facing Toward (North), Clockwise

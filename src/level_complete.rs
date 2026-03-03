@@ -163,7 +163,7 @@ pub fn tick_elevator_exit_delay(
 
     delay.timer.tick(time.delta());
 
-    if delay.timer.is_finished() && delay.timer.just_finished() {
+    if delay.timer.just_finished() {
         // NOW Show Intermission Overlay
         win.0 = true;
         delay.active = false;
@@ -457,7 +457,6 @@ pub fn sync_mission_success_stats_text(
 
 pub fn mission_success_input(
     keys: Res<ButtonInput<KeyCode>>,
-    _buttons: Res<ButtonInput<MouseButton>>,
     win: Res<LevelComplete>,
     mut tally: ResMut<MissionSuccessTally>,
     mut advance: ResMut<crate::ui::sync::AdvanceLevelRequested>,

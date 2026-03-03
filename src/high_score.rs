@@ -128,7 +128,7 @@ impl HighScores {
     }
 
     pub fn qualifies(&self, score: i32) -> bool {
-        self.entries.len() < MAX_SCORES || score > self.entries.last().unwrap().score
+        self.entries.len() < MAX_SCORES || self.entries.last().is_some_and(|e| score > e.score)
     }
 
     pub fn add(&mut self, name: String, score: i32, episode: u8) -> Option<usize> {

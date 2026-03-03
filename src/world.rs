@@ -176,11 +176,7 @@ fn spawn_wall_faces_for_grid(
                     } else {
                         wall_mesh_light_flip.clone()
                     },
-                    if neighbor_is_door {
-                        cache.wall_mat.clone()
-                    } else {
-                        cache.wall_mat.clone()
-                    },
+                    cache.wall_mat.clone(),
                     Vec3::new(cx, y, cz - TILE_SIZE * 0.5),
                     0.0,
                 );
@@ -195,11 +191,7 @@ fn spawn_wall_faces_for_grid(
                     } else {
                         wall_mesh_light_flip.clone()
                     },
-                    if neighbor_is_door {
-                        cache.wall_mat.clone()
-                    } else {
-                        cache.wall_mat.clone()
-                    },
+                    cache.wall_mat.clone(),
                     Vec3::new(cx, y, cz + TILE_SIZE * 0.5),
                     PI,
                 );

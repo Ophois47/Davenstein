@@ -224,18 +224,6 @@ pub fn billboard_floor_decals(
     }
 }
 
-#[allow(dead_code)]
-fn choose_static_path_from_plane1(code: u16) -> Option<String> {
-    if code < 23 {
-        return None;
-    }
-    let idx = (code - 23) as usize;
-    if idx > 47 {
-        return None;
-    }
-    Some(format!("textures/decorations/stat_{:02}.png", idx))
-}
-
 /// Determines if Plane1 Code Should be Rendered as Floor Decal
 fn is_floor_decal_plane1(code: u16) -> bool {
     matches!(code, 23 | 32 | 61 | 63)
@@ -309,14 +297,15 @@ pub fn spawn_decorations(
 				};
 				(mesh, -std::f32::consts::FRAC_PI_2, 0.01, 0.95, h, bias)
 			} else {
-				let (w, h) = if blocks {
-					(0.95, 0.95)
-				} else {
-					match code {
-						_ => (0.95, 0.95),
-					}
-				};
-				(quad_upright.clone(), 0.0, h * 0.5, w, h, if blocks { 0.0 } else { 0.5 })
+				let (w, h) = (0.95, 0.95);
+				(
+                    quad_upright.clone(),
+                    0.0,
+                    h * 0.5,
+                    w,
+                    h,
+                    if blocks { 0.0 } else { 0.5 }
+                )
 			};
 
 			let tex: Handle<Image> = asset_server.load(tex_path);

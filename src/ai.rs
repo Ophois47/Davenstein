@@ -112,23 +112,15 @@ pub struct EnemyRocketShot {
     pub dir: Vec3,
 }
 
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Component, Copy)]
 pub struct EnemyAi {
     pub state: EnemyAiState,
     pub last_step: IVec2,
 }
 
-impl Default for EnemyAi {
-    fn default() -> Self {
-        Self {
-            state: EnemyAiState::Stand,
-            last_step: IVec2::ZERO,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum EnemyAiState {
+    #[default]
     Stand,
     Patrol,
     Chase,

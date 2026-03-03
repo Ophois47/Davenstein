@@ -5,13 +5,19 @@ pub mod hitscan;
 pub mod projectiles;
 
 use bevy::prelude::*;
-use bevy::time::{Timer, TimerMode};
 
 use hitscan::raycast_grid;
 use davelib::actors::{
     Dead,
     Health,
     OccupiesTile,
+};
+use davelib::ai::{
+    EnemyAi,
+    EnemyAiState,
+    EnemyFireballShot,
+    EnemyRocketShot,
+    EnemySyringeShot,
 };
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::decorations::SolidStatics;
@@ -43,28 +49,28 @@ pub struct CombatPlugin;
 impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<FireShot>()
-            .add_message::<projectiles::SpawnProjectile>()
-            .add_systems(Startup, projectiles::setup_projectile_assets)
-            .add_systems(Update, process_fire_shots.run_if(crate::world_ready))
-            .add_systems(FixedUpdate, projectiles::tick_smoke_puffs.run_if(crate::world_ready))
-            .add_systems(FixedUpdate, projectiles::tick_rocket_impacts.run_if(crate::world_ready))
-            .add_systems(FixedUpdate, projectiles::tick_projectiles.run_if(crate::world_ready))
-            .add_systems(FixedUpdate, process_enemy_fireball_shots.run_if(crate::world_ready))
-            .add_systems(FixedUpdate, process_enemy_syringe_shots.run_if(crate::world_ready))
-            .add_systems(FixedUpdate, process_enemy_rocket_shots.run_if(crate::world_ready))
-            .add_systems(FixedUpdate, projectiles::spawn_projectiles.run_if(crate::world_ready))
-            .add_systems(
-                PostUpdate,
-                projectiles::update_projectile_views.run_if(crate::world_ready),
-            )
-            .add_systems(
-                PostUpdate,
-                projectiles::update_smoke_puff_views.run_if(crate::world_ready),
-            )
-            .add_systems(
-                PostUpdate,
-                projectiles::update_rocket_impact_views.run_if(crate::world_ready),
-            );
+        .add_message::<projectiles::SpawnProjectile>()
+        .add_systems(Startup, projectiles::setup_projectile_assets)
+        .add_systems(Update, process_fire_shots.run_if(crate::world_ready))
+        .add_systems(FixedUpdate, projectiles::tick_smoke_puffs.run_if(crate::world_ready))
+        .add_systems(FixedUpdate, projectiles::tick_rocket_impacts.run_if(crate::world_ready))
+        .add_systems(FixedUpdate, projectiles::tick_projectiles.run_if(crate::world_ready))
+        .add_systems(FixedUpdate, process_enemy_fireball_shots.run_if(crate::world_ready))
+        .add_systems(FixedUpdate, process_enemy_syringe_shots.run_if(crate::world_ready))
+        .add_systems(FixedUpdate, process_enemy_rocket_shots.run_if(crate::world_ready))
+        .add_systems(FixedUpdate, projectiles::spawn_projectiles.run_if(crate::world_ready))
+        .add_systems(
+            PostUpdate,
+            projectiles::update_projectile_views.run_if(crate::world_ready),
+        )
+        .add_systems(
+            PostUpdate,
+            projectiles::update_smoke_puff_views.run_if(crate::world_ready),
+        )
+        .add_systems(
+            PostUpdate,
+            projectiles::update_rocket_impact_views.run_if(crate::world_ready),
+        );
     }
 }
 
@@ -85,7 +91,7 @@ pub struct FireShot {
 }
 
 fn process_enemy_fireball_shots(
-    mut fireballs: MessageReader<davelib::ai::EnemyFireballShot>,
+    mut fireballs: MessageReader<EnemyFireballShot>,
     mut spawn: MessageWriter<projectiles::SpawnProjectile>,
 ) {
     for fb in fireballs.read() {
@@ -98,7 +104,7 @@ fn process_enemy_fireball_shots(
 }
 
 fn process_enemy_syringe_shots(
-    mut syringes: MessageReader<davelib::ai::EnemySyringeShot>,
+    mut syringes: MessageReader<EnemySyringeShot>,
     mut spawn: MessageWriter<projectiles::SpawnProjectile>,
 ) {
     for syr in syringes.read() {
@@ -111,14 +117,14 @@ fn process_enemy_syringe_shots(
 }
 
 fn process_enemy_rocket_shots(
-    mut syringes: MessageReader<davelib::ai::EnemyRocketShot>,
+    mut rockets: MessageReader<EnemyRocketShot>,
     mut spawn: MessageWriter<projectiles::SpawnProjectile>,
 ) {
-    for syr in syringes.read() {
+    for rocket in rockets.read() {
         spawn.write(projectiles::SpawnProjectile {
             kind: projectiles::ProjectileKind::Rocket,
-            origin: syr.origin,
-            dir: syr.dir,
+            origin: rocket.origin,
+            dir: rocket.dir,
         });
     }
 }
@@ -134,7 +140,7 @@ fn process_fire_shots(
         (With<EnemyKind>, Without<Dead>),
     >,
     mut q_hp: Query<&mut Health, (With<EnemyKind>, Without<Dead>)>,
-    mut q_ai: Query<&mut davelib::ai::EnemyAi, (With<EnemyKind>, Without<Dead>)>,
+    mut q_ai: Query<&mut EnemyAi, (With<EnemyKind>, Without<Dead>)>,
     mut level_score: ResMut<davelib::level_score::LevelScore>,
     mut rng: Local<u32>,
 ) {
@@ -220,7 +226,7 @@ fn process_fire_shots(
     }
 
     fn roll_gun_damage(dist_tiles: i32, rng: &mut u32) -> Option<i32> {
-        let effective_dist = ((dist_tiles.max(0) * 1) / 2).clamp(0, 20);
+        let effective_dist = (dist_tiles.max(0) / 2).clamp(0, 20);
         // Treat 0 Damage as Miss so Hits Never Deal 0
         let damage = if effective_dist < 2 {
             rnd_byte(rng) / 4
@@ -322,7 +328,13 @@ fn process_fire_shots(
             let (radius, half_h, center_y) = hitbox(*kind);
             let center = Vec3::new(p.x, center_y, p.z);
 
-            let Some(t) = ray_hit_vertical_cylinder(shot.origin, dir, center, radius, half_h) else {
+            let Some(t) = ray_hit_vertical_cylinder(
+                shot.origin,
+                dir,
+                center,
+                radius,
+                half_h,
+            ) else {
                 continue;
             };
 
@@ -350,11 +362,11 @@ fn process_fire_shots(
 
             // Surprise Double Damage if Not in Attack Mode Yet
             if let Ok(mut ai) = q_ai.get_mut(e) {
-                if ai.state == davelib::ai::EnemyAiState::Stand {
+                if ai.state == EnemyAiState::Stand {
                     if let Some(d) = dmg_opt.as_mut() {
                         *d *= 2;
                     }
-                    ai.state = davelib::ai::EnemyAiState::Chase;
+                    ai.state = EnemyAiState::Chase;
                 }
             }
 

@@ -74,22 +74,16 @@ impl Default for PlayerVitals {
 
 /// When True, Player Input (Move / Look / Use) Ignored
 /// For Player Death
-#[derive(Resource, Default)]
+#[derive(Default, Resource)]
 pub struct PlayerControlLock(pub bool);
 
 /// Prevents Decrementing Lives Every Frame While HP == 0
 /// False = Alive (or not yet processed), True = Death Handled
-#[derive(Resource, Default)]
+#[derive(Default, Resource)]
 pub struct PlayerDeathLatch(pub bool);
 
-#[derive(Resource, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, Resource)]
 pub struct GodMode(pub bool);
-
-impl Default for GodMode {
-    fn default() -> Self {
-        Self(false)
-    }
-}
 
 pub fn toggle_god_mode(
     keys: Res<ButtonInput<KeyCode>>,
@@ -510,10 +504,6 @@ pub fn door_auto_close(
 
     let Ok(player_tf) = q_player.single() else { return; };
 
-    fn world_to_tile(p: Vec2) -> IVec2 {
-        IVec2::new((p.x + 0.5).floor() as i32, (p.y + 0.5).floor() as i32)
-    }
-
     fn circle_overlaps_tile(circle: Vec2, r: f32, tile: IVec2) -> bool {
         let cx = tile.x as f32;
         let cz = tile.y as f32;
@@ -529,7 +519,6 @@ pub fn door_auto_close(
     }
 
     let player_xz = Vec2::new(player_tf.translation.x, player_tf.translation.z);
-    let _player_tile = world_to_tile(player_xz);
 
     // Snapshot Occupied Tiles
     let occupied_tiles: Vec<IVec2> = q_occupied.iter().map(|o| o.0).collect();
@@ -601,7 +590,7 @@ pub fn apply_enemy_fire_to_player(
         return;
     };
 
-    let god_on = god.as_ref().map_or(false, |g| g.0);
+    let god_on = god.is_some_and(|g| g.0);
     if god_on {
         // Still Consume Events (Read Them), Ignore Damage
         for _ in enemy_fire.read() {}
