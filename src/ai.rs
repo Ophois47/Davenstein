@@ -305,7 +305,7 @@ fn tile_at(grid: &MapGrid, t: IVec2) -> Option<Tile> {
     Some(grid.tile(x, z))
 }
 
-fn has_line_of_sight(grid: &MapGrid, _solid: &SolidStatics, from: IVec2, to: IVec2) -> bool {
+fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
     if from == to {
         return true;
     }
@@ -724,7 +724,7 @@ fn enemy_ai_prepare_and_activate(
 
             if matches!(ai.state, EnemyAiState::Stand | EnemyAiState::Patrol) {
                 let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
-                if same_area && has_line_of_sight(&grid, &solid, my_tile, player_tile) {
+                if same_area && has_line_of_sight(&grid, my_tile, player_tile) {
                     ai.state = EnemyAiState::Chase;
 
                     if alerted.insert(e) && !matches!(*kind, EnemyKind::Mutant) {
@@ -854,7 +854,6 @@ fn enemy_ai_combat(
     mut commands: Commands,
     time: Res<Time>,
     grid: Res<MapGrid>,
-    solid: Res<SolidStatics>,
     mut enemy_fire: MessageWriter<EnemyFire>,
     mut enemy_fireball: MessageWriter<EnemyFireballShot>,
     mut enemy_syringe: MessageWriter<EnemySyringeShot>,
@@ -908,7 +907,7 @@ fn enemy_ai_combat(
             let dy = (player_tile.y - my_tile.y).abs();
             let shoot_dist = dx.max(dy);
 
-            let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
+            let can_see = has_line_of_sight(&grid, my_tile, player_tile);
             let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
 
             if !can_see || !in_range {
@@ -1054,9 +1053,9 @@ fn enemy_ai_combat(
             continue;
         }
 
-        // Dog melee bite
+        // Dog Melee Bite
         if matches!(*kind, EnemyKind::Dog) {
-            let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
+            let can_see = has_line_of_sight(&grid, my_tile, player_tile);
             let dx = (player_tile.x - my_tile.x).abs();
             let dy = (player_tile.y - my_tile.y).abs();
             let dist_tiles = dx.max(dy) as f32;
@@ -1075,7 +1074,7 @@ fn enemy_ai_combat(
 
         // Shoot Logic (Non Dogs)
         if !matches!(*kind, EnemyKind::Dog) {
-            let can_see = has_line_of_sight(&grid, &solid, my_tile, player_tile);
+            let can_see = has_line_of_sight(&grid, my_tile, player_tile);
 
             let dx = (player_tile.x - my_tile.x).abs();
             let dy = (player_tile.y - my_tile.y).abs();
