@@ -342,7 +342,7 @@ pub fn spawn_decorations(
 		}
 	}
 
-	info!("spawn_decorations spawned {} entities", spawned);
+	info!("Spawn Decorations Spawned {} Entities", spawned);
 }
 
 pub fn billboard_decorations(

@@ -76,17 +76,9 @@ pub fn apply_enemy_fire_to_player_vitals(
     for ev in enemy_fire.read() {
         // Damage == 0 Means Miss
         if ev.damage <= 0 {
-            info!("Enemy missed (damage=0)");
             continue;
         }
-
-        let before = vitals.hp;
         vitals.hp = (vitals.hp - ev.damage).max(0);
-
-        info!(
-            "Enemy hit for {} -> hp {} -> {}",
-            ev.damage, before, vitals.hp
-        );
     }
 }
 
