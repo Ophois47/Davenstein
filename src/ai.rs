@@ -153,6 +153,8 @@ struct AiSharedData {
     player_tile: IVec2,
     player_pos: Vec3,
     player_area: Option<i32>,
+    cached_area_map: AreaMap,
+    cached_area_generation: Option<u64>,
 }
 
 #[allow(dead_code)]
@@ -456,7 +458,7 @@ fn try_open_door_at(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct AreaMap {
     w: usize,
     h: usize,
@@ -608,7 +610,17 @@ fn enemy_ai_prepare_and_activate(
     while ticker.accum >= AI_TIC_SECS {
         ticker.accum -= AI_TIC_SECS;
 
-        let areas = AreaMap::compute(&grid);
+        // Only rebuild the connected-area map when the grid topology actually
+        // changed (door opened / closed or a pushwall moved bumps grid.generation)
+        // Otherwise reuse the cached map from the previous tic
+        if shared.cached_area_generation != Some(grid.generation) {
+            shared.cached_area_map = AreaMap::compute(&grid);
+            shared.cached_area_generation = Some(grid.generation);
+        }
+        // Move the cached map out of shared so the rest of the loop can freely
+        // mutate other shared fields (dist_map, occupied, scheduled_move) without
+        // a borrow conflict. It is moved back at the end of the loop body
+        let areas = std::mem::take(&mut shared.cached_area_map);
         let player_area = areas.id(player_tile);
         shared.player_area = player_area;
 
@@ -617,7 +629,12 @@ fn enemy_ai_prepare_and_activate(
         let in_bounds = |t: IVec2| t.x >= 0 && t.y >= 0 && t.x < w && t.y < h;
         let idx = |t: IVec2| (t.y * w + t.x) as usize;
 
-        shared.dist_map = vec![-1i32; grid.width * grid.height];
+        // Reuse the existing buffer instead of allocating a fresh Vec every tic.
+        // clear()+resize() keeps the prior allocation when the grid size is
+        // unchanged (the common case), reallocating only on a level size change
+        shared.dist_map.clear();
+        shared.dist_map.resize(grid.width * grid.height, -1i32);
+
         if in_bounds(player_tile)
             && !solid.is_solid(player_tile.x, player_tile.y)
             && grid.tile(player_tile.x as usize, player_tile.y as usize) != Tile::Wall
@@ -825,6 +842,10 @@ fn enemy_ai_prepare_and_activate(
                 }
             }
         }
+
+        // Restore the area map into the cache so the next tic (this frame or a
+        // later one) can reuse it without recomputing
+        shared.cached_area_map = areas;
     }
 }
 

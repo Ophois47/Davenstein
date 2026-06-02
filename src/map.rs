@@ -36,6 +36,7 @@ pub struct MapGrid {
     pub height: usize,
     pub plane0: Vec<u16>,
     pub tiles: Vec<Tile>,
+    pub generation: u64,
 }
 
 impl MapGrid {
@@ -50,7 +51,10 @@ impl MapGrid {
     /// Raw Wolfenstein 3D plane0 Code at (X,Z). For Walls, this Wall Texture ID
     pub fn set_tile(&mut self, x: usize, z: usize, t: Tile) {
         let i = self.idx(x, z);
-        self.tiles[i] = t;
+        if self.tiles[i] != t {
+            self.tiles[i] = t;
+            self.generation = self.generation.wrapping_add(1);
+        }
     }
     
     pub fn plane0_code(&self, x: usize, z: usize) -> u16 {
@@ -116,6 +120,7 @@ impl MapGrid {
                 height,
                 plane0,
                 tiles,
+                generation: 0,
             },
             player_spawn,
             guards,
@@ -264,6 +269,7 @@ impl MapGrid {
                 height,
                 plane0: raw_plane0,
                 tiles,
+                generation: 0,
             },
             player_spawn,
             guards,
