@@ -117,6 +117,8 @@ struct SplashResources<'w> {
     res_list: Res<'w, ResolutionList>,
     sound_settings: ResMut<'w, SoundSettings>,
     control_settings: ResMut<'w, ControlSettings>,
+    load_req: ResMut<'w, crate::save::LoadGameRequested>,
+    save_req: ResMut<'w, crate::save::SaveGameRequested>,
 }
 
 #[derive(SystemParam)]
@@ -594,6 +596,15 @@ struct SplashAdvanceQueries<'w, 's> {
 #[derive(Component)]
 pub struct SplashUi;
 
+/// Tags Row in Load Game Slot List With its Slot Index, so Cursor
+/// Logic (2c) Can Find and Highlight Selected Row
+// NOTE: Keeping For Now so Mouse Hover / Selection Can be Added Later
+#[allow(dead_code)]
+#[derive(Component, Clone, Copy)]
+struct LoadSlotItem {
+    idx: usize,
+}
+
 #[derive(Component)]
 struct SplashImage;
 
@@ -606,6 +617,8 @@ pub enum SplashStep {
     EpisodeSelect,
     SkillSelect,
     Scores,
+    LoadSelect,
+    SaveSelect,
     EpisodeVictory,
     EpisodeEndText0,
     EpisodeEndText1,
@@ -639,8 +652,8 @@ struct OptionsMenusLocalState {
     change_view: ChangeViewLocalState,
     sound: SoundOptionsLocalState,
     control: ControlOptionsLocalState,
-    /// Cached (w, h) from compute_scaled_size so we can detect window resizes
-    /// and respawn menu UI. (0, 0) means not yet initialized.
+    /// Cached (w, h) From compute_scaled_size to Detect Window Resizes
+    /// and Respawn Menu UI. (0, 0) Means Not Yet Initialized
     last_scaled_size: (f32, f32),
 }
 
@@ -808,6 +821,8 @@ struct SkillLocalState {
 enum MenuAction {
     BackToGame,
     NewGame,
+    LoadGame,
+    SaveGame,
     Sound,
     Control,
     ChangeView,
@@ -815,8 +830,9 @@ enum MenuAction {
     Quit,
 }
 
-const MENU_ACTIONS_MAIN: [MenuAction; 6] = [
+const MENU_ACTIONS_MAIN: [MenuAction; 7] = [
     MenuAction::NewGame,
+    MenuAction::LoadGame,
     MenuAction::Sound,
     MenuAction::Control,
     MenuAction::ChangeView,
@@ -824,8 +840,10 @@ const MENU_ACTIONS_MAIN: [MenuAction; 6] = [
     MenuAction::Quit,
 ];
 
-const MENU_ACTIONS_PAUSE: [MenuAction; 7] = [
+const MENU_ACTIONS_PAUSE: [MenuAction; 9] = [
     MenuAction::NewGame,
+    MenuAction::LoadGame,
+    MenuAction::SaveGame,
     MenuAction::Sound,
     MenuAction::Control,
     MenuAction::ChangeView,
@@ -834,8 +852,9 @@ const MENU_ACTIONS_PAUSE: [MenuAction; 7] = [
     MenuAction::Quit,
 ];
 
-const MENU_LABELS_MAIN: [&str; 6] = [
+const MENU_LABELS_MAIN: [&str; 7] = [
     "New Game",
+    "Load Game",
     "Sound",
     "Control",
     "Change View",
@@ -843,8 +862,10 @@ const MENU_LABELS_MAIN: [&str; 6] = [
     "Quit",
 ];
 
-const MENU_LABELS_PAUSE: [&str; 7] = [
+const MENU_LABELS_PAUSE: [&str; 9] = [
     "New Game",
+    "Load Game",
+    "Save Game",
     "Sound",
     "Control",
     "Change View",
@@ -4031,6 +4052,212 @@ fn spawn_scores_ui(
     }
 }
 
+/// Load Game Slot List. Faithful Copy of spawn_scores_ui's Layout / Scaling, But
+/// Rows Come From Save Slot Metadata and Each is Tagged LoadSlotItem{idx} so
+/// Cursor Logic (2c) Can Highlight Selection
+// NOTE: Reuses SCORE_BANNER_PATH For Now (title art swap is a later)
+fn spawn_load_select_ui(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    w: f32,
+    h: f32,
+    imgs: &SplashImages,
+    slots: &[Option<crate::save::storage::SlotMeta>],
+    selection: usize,
+) {
+    let banner = asset_server.load(SCORE_BANNER_PATH);
+    let ui_scale = (w / BASE_W).round().max(1.0);
+
+    let banner_native_h = 48.0;
+    let top_red = (3.0 * ui_scale).round();
+
+    let banner_x = 0.0;
+    let banner_y = top_red;
+    let banner_w = w;
+    let banner_h = (banner_native_h * ui_scale).round();
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(1000),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
+            ChildOf(root),
+        ))
+        .id();
+
+    // Top Red Strip
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(0.0),
+            width: Val::Px(w),
+            height: Val::Px(top_red),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.60, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Black Banner Band
+    let band = commands
+        .spawn((
+            SplashUi,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(banner_x),
+                top: Val::Px(banner_y),
+                width: Val::Px(banner_w),
+                height: Val::Px(banner_h),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+            ChildOf(canvas),
+        ))
+        .id();
+
+    commands.spawn((
+        SplashUi,
+        ImageNode::new(banner),
+        Node {
+            width: Val::Px(banner_w),
+            height: Val::Px(banner_h),
+            ..default()
+        },
+        ChildOf(band),
+    ));
+
+    // Build Row Labels: "name" For Filled Slots, "- empty -" Otherwise
+    let mut rows: Vec<String> = Vec::new();
+    for slot in slots.iter() {
+        match slot {
+            Some(meta) if !meta.name.is_empty() => rows.push(meta.name.clone()),
+            Some(meta) => rows.push(format!("E{}M{}", meta.episode, meta.floor)),
+            None => rows.push("- empty -".to_string()),
+        }
+    }
+    while rows.len() < 10 {
+        rows.push("- empty -".to_string());
+    }
+
+    // Layout
+    let content_start_y = top_red + banner_h;
+    let bottom_pad = (6.0 * ui_scale).round();
+    let list_top_pad = (12.0 * ui_scale).round();
+    let list_top = content_start_y + list_top_pad;
+
+    let row_spacing_available = (h - list_top - bottom_pad).max(1.0);
+    let row_step = if rows.len() > 1 {
+        (row_spacing_available / rows.len() as f32).floor().max(1.0)
+    } else {
+        (13.0 * ui_scale).round()
+    };
+
+    // Single Left Column For Slot Names (No Rank / Score Columns Here)
+    let name_left = (88.0 * ui_scale).round();
+
+    for (i, name) in rows.iter().enumerate() {
+        let y = (list_top + (i as f32) * row_step).round();
+
+        spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_yellow.clone(),
+            name_left,
+            y,
+            ui_scale,
+            name,
+            Visibility::Visible,
+        );
+
+        // Tag Invisible Marker Entity Carrying Slot Index For 2c's Cursor
+        commands.spawn((
+            SplashUi,
+            LoadSlotItem { idx: i },
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(y),
+                width: Val::Px(1.0),
+                height: Val::Px(1.0),
+                ..default()
+            },
+            ChildOf(canvas),
+        ));
+    }
+
+    // Gun Cursor (Only One Screen's Cursor Exists at a Time Since
+    // Each Screen Despawns SplashUi on Exit)
+    let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
+    let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
+
+    let cursor_w = (10.0 * ui_scale).round();
+    let cursor_h = (10.0 * ui_scale).round();
+    // Sit Cursor Just Left of Name Column
+    let cursor_x = (name_left - (16.0 * ui_scale)).round().max(0.0);
+    let sel = selection.min(rows.len().saturating_sub(1));
+    let sel_y = (list_top + (sel as f32) * row_step).round();
+
+    commands.spawn((
+        SplashUi,
+        MenuCursor,
+        MenuCursorLight,
+        Visibility::Visible,
+        ImageNode::new(cursor_light),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(sel_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+    commands.spawn((
+        SplashUi,
+        MenuCursor,
+        MenuCursorDark,
+        Visibility::Hidden,
+        ImageNode::new(cursor_dark),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(sel_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+}
+
 fn spawn_menu_hint(
     commands: &mut Commands,
     asset_server: &AssetServer,
@@ -4046,7 +4273,7 @@ fn spawn_menu_hint(
 
     let ui_scale = (w / BASE_W).round().max(1.0);
 
-    // ---- Banner Geometry ----
+    // Banner Geometry
     let banner_native_h = 48.0;
     let top_red = (3.0 * ui_scale).round();
 
@@ -4055,7 +4282,7 @@ fn spawn_menu_hint(
     let banner_w = w;
     let banner_h = (banner_native_h * ui_scale).round();
 
-    // ---- Hint Placement ----
+    // Hint Placement
     let hint_native_w = 103.0;
     let hint_native_h = 12.0;
     let hint_bottom_pad = 6.0;
@@ -4065,7 +4292,7 @@ fn spawn_menu_hint(
     let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
     let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
 
-    // ---- Menu Panel + Items ----
+    // Menu Panel + Items
     let labels: &[&str] = if from_pause {
         &MENU_LABELS_PAUSE
     } else {
@@ -4095,7 +4322,7 @@ fn spawn_menu_hint(
     let max_panel_h = (hint_y - (2.0 * ui_scale).round() - panel_top).max(1.0);
     let panel_h = desired_panel_h.min(max_panel_h).max(1.0);
 
-    // ---- Root + Canvas ----
+    // Root + Canvas
     let root = commands
         .spawn((
             SplashUi,
@@ -4129,7 +4356,7 @@ fn spawn_menu_hint(
         ))
         .id();
 
-    // ---- Full-Width Banner ----
+    // Full-Width Banner
     commands.spawn((
         ImageNode::new(banner),
         Node {
@@ -4143,10 +4370,10 @@ fn spawn_menu_hint(
         ChildOf(canvas),
     ));
 
-    // ---- Darker-Red Background Menu Panel with Sunken Border ----
+    // Darker Red Background Menu Panel with Sunken Border
     let border_w = (2.0 * ui_scale).round().max(1.0);
 
-    // Main panel background
+    // Main Panel Background
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -4160,7 +4387,7 @@ fn spawn_menu_hint(
         ChildOf(canvas),
     ));
 
-    // Top shadow (darker - makes it look recessed)
+    // Top Shadow (Darker, to Look Recessed)
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -4174,7 +4401,7 @@ fn spawn_menu_hint(
         ChildOf(canvas),
     ));
 
-    // Left shadow (darker)
+    // Left Shadow (Darker)
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -4188,7 +4415,7 @@ fn spawn_menu_hint(
         ChildOf(canvas),
     ));
 
-    // Bottom highlight (lighter - the "light source")
+    // Bottom Highlight (Lighter, "Light Source")
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -4202,7 +4429,7 @@ fn spawn_menu_hint(
         ChildOf(canvas),
     ));
 
-    // Right highlight (lighter)
+    // Right Highlight (Lighter)
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -4216,11 +4443,11 @@ fn spawn_menu_hint(
         ChildOf(canvas),
     ));
 
-    // ---- Menu Text ----
+    // Menu Text
     for (row_idx, &label) in labels.iter().enumerate() {
         let y = (text_y0 + row_idx as f32 * row_h).round();
 
-        // Pause menu: "Return to Game" Always Yellow
+        // Pause Menu: "Return to Game" Always Yellow
         if from_pause && label == "Return to Game" {
             spawn_menu_bitmap_text(
                 commands,
@@ -4267,7 +4494,7 @@ fn spawn_menu_hint(
             .insert((EpisodeItem { idx: row_idx }, EpisodeTextVariant { selected: true }));
     }
 
-    // ---- Gun Cursor ----
+    // Gun Cursor
     commands.spawn((
         MenuCursor,
         MenuCursorLight,
@@ -4299,7 +4526,7 @@ fn spawn_menu_hint(
         ChildOf(canvas),
     ));
 
-    // ---- Bottom Hint ----
+    // Bottom Hint
     commands.spawn((
         ImageNode::new(hint),
         Node {
@@ -4339,9 +4566,9 @@ fn splash_advance_on_any_input(
     let (w, h) = compute_scaled_size(win.width(), win.height());
     let scale = w / BASE_W;
 
-    // Detect window resize: if the scaled size changed since last frame,
-    // despawn all menu UI so it gets respawned at the correct dimensions.
-    // Skip on first frame (last_scaled_size is (0,0)) to avoid false trigger.
+    // Detect Window Resize: if Scaled Size Changed Since Last Frame,
+    // Despawn All Menu UI so it Gets Respawned at Correct Dimensions
+    // Skip on First Frame (last_scaled_size is (0,0)) to Avoid False Trigger
     let size_changed = options.last_scaled_size != (0.0, 0.0)
         && (options.last_scaled_size.0 != w || options.last_scaled_size.1 != h);
     options.last_scaled_size = (w, h);
@@ -4519,6 +4746,40 @@ fn splash_advance_on_any_input(
                         }
                     }
 
+                    MenuAction::LoadGame => {
+                        let Some(imgs) = resources.imgs.as_ref() else { return; };
+
+                        episode.from_pause = is_pause;
+                        episode.selection = 0;
+                        for e in q.q_splash_roots.iter() {
+                            commands.entity(e).despawn();
+                        }
+
+                        let slots = crate::save::storage::read_all_slot_meta();
+                        spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection);
+
+                        menu.reset();
+                        *resources.step = SplashStep::LoadSelect;
+                    }
+
+                    MenuAction::SaveGame => {
+                        let Some(imgs) = resources.imgs.as_ref() else { return; };
+
+                        episode.from_pause = is_pause;
+                        episode.selection = 0;
+                        for e in q.q_splash_roots.iter() {
+                            commands.entity(e).despawn();
+                        }
+
+                        // Reuses Same Slot List Builder as Load (Shows Current
+                        // Slot Contents). SaveSelect's Input Writes Instead of Reads
+                        let slots = crate::save::storage::read_all_slot_meta();
+                        spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection);
+
+                        menu.reset();
+                        *resources.step = SplashStep::SaveSelect;
+                    }
+
                     MenuAction::Sound => {
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
@@ -4620,7 +4881,7 @@ fn splash_advance_on_any_input(
             resources.lock.0 = true;
             resources.music_mode.0 = MusicModeKind::Menu;
 
-            // Auto-respawn UI after window resize
+            // Auto Respawn UI After Window Resize
             if q.q_splash_roots.iter().next().is_none() {
                 if let Some(imgs) = resources.imgs.as_ref() {
                     spawn_episode_select_ui(
@@ -4720,7 +4981,7 @@ fn splash_advance_on_any_input(
 
             let Some(imgs) = resources.imgs.as_ref() else { return; };
 
-            // Auto-respawn UI after window resize
+            // Auto Respawn UI After Window Resize
             if q.q_splash_roots.iter().next().is_none() {
                 spawn_skill_select_ui(
                     &mut commands, &asset_server,
@@ -4877,7 +5138,7 @@ fn splash_advance_on_any_input(
 
             let current_kind = items.get(options.change_view.selection).map(|(k, _)| *k);
 
-            // Resolution Sub-Menu Mode
+            // Resolution Sub Menu Mode
             if options.change_view.res_submenu_open {
                 if keyboard.just_pressed(KeyCode::Escape) {
                     sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
@@ -4925,9 +5186,9 @@ fn splash_advance_on_any_input(
                     return;
                 }
 
-                // Update Highlight / Cursor for Sub-Menu
+                // Update Highlight / Cursor for Sub Menu
                 // (Resolution Sub-Menu Reuses Same ChangeViewItem Query
-                // Since UI is Respawned When Entering / Leaving Sub-Menu)
+                // Since UI is Respawned When Entering / Leaving Sub Menu)
                 for (item, variant, mut vis) in q.q_change_view_items.iter_mut() {
                     let want_selected = item.idx == options.change_view.res_submenu_idx;
                     *vis = if variant.selected == want_selected { Visibility::Visible } else { Visibility::Hidden };
@@ -4941,7 +5202,7 @@ fn splash_advance_on_any_input(
                     *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
                 }
 
-                // Cursor Positioning for Sub-Menu
+                // Cursor Positioning for Sub Menu
                 let ui_scale = (w / BASE_W).round().max(1.0);
                 let hint_native_h = 12.0;
                 let hint_bottom_pad = 6.0;
@@ -4959,7 +5220,7 @@ fn splash_advance_on_any_input(
                 let list_h = (sub_count as f32 * row_h).round();
                 let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
 
-                // Measure Max Width of Sub-Menu Items
+                // Measure Max Width of Sub Menu Items
                 let mut max_item_w = 0.0f32;
                 for idx in 0..sub_count {
                     let label = resources.res_list.label_at(idx);
@@ -5226,7 +5487,7 @@ fn splash_advance_on_any_input(
                     }
 
                     Some(ChangeViewKind::Resolution) => {
-                        // Open Resolution Sub-Menu
+                        // Open Resolution Sub Menu
                         options.change_view.res_submenu_open = true;
                         options.change_view.res_submenu_idx = resources.res_list.index_of(resources.video_settings.resolution);
 
@@ -5898,6 +6159,203 @@ fn splash_advance_on_any_input(
                 *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                 resources.lock.0 = true;
                 resources.music_mode.0 = MusicModeKind::Menu;
+            }
+        }
+
+        SplashStep::LoadSelect => {
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Menu;
+
+            // Auto-respawn after window resize.
+            if q.q_splash_roots.iter().next().is_none() {
+                if let Some(imgs) = resources.imgs.as_ref() {
+                    let slots = crate::save::storage::read_all_slot_meta();
+                    spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection);
+                }
+                return;
+            }
+
+            const SLOT_ROWS: usize = 10;
+
+            // Esc -> back to the menu we came from.
+            if keyboard.just_pressed(KeyCode::Escape) {
+                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+
+                if let Some(imgs) = resources.imgs.as_ref() {
+                    let back_to_pause = episode.from_pause;
+                    episode.from_pause = false;
+
+                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                    menu.reset();
+                    *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
+                }
+                return;
+            }
+
+            // Up/Down navigation with wrap.
+            let mut moved = false;
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+                if episode.selection > 0 { episode.selection -= 1; } else { episode.selection = SLOT_ROWS - 1; }
+                moved = true;
+            }
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+                episode.selection = (episode.selection + 1) % SLOT_ROWS;
+                moved = true;
+            }
+            if moved {
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+            }
+
+            // Reposition cursor to the selected slot row + blink (mirror EpisodeSelect).
+            let ui_scale = (w / BASE_W).round().max(1.0);
+            let content_start_y = (3.0 * ui_scale).round() + (48.0 * ui_scale).round();
+            let bottom_pad = (6.0 * ui_scale).round();
+            let list_top_pad = (12.0 * ui_scale).round();
+            let list_top = content_start_y + list_top_pad;
+            let row_spacing_available = (h - list_top - bottom_pad).max(1.0);
+            let row_step = (row_spacing_available / SLOT_ROWS as f32).floor().max(1.0);
+            let sel_y = (list_top + (episode.selection as f32) * row_step).round();
+
+            for mut node in q.q_node.iter_mut() {
+                node.top = Val::Px(sel_y);
+            }
+            let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
+            for mut v in q.q_cursor_light.iter_mut() {
+                *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
+            }
+            for mut v in q.q_cursor_dark.iter_mut() {
+                *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
+            }
+
+            // Enter -> load the selected slot, but only if it's filled.
+            if keyboard.just_pressed(KeyCode::Enter)
+                || keyboard.just_pressed(KeyCode::NumpadEnter)
+                || keyboard.just_pressed(KeyCode::Space)
+            {
+                let slot = episode.selection as u32;
+
+                if !crate::save::storage::slot_occupied(slot) {
+                    // Empty slot: ignore (a small "buzz" sfx could go here later).
+                    return;
+                }
+
+                // begin_load reads the file, sets CurrentLevel + LoadGameRequested.
+                let ok = crate::save::begin_load(
+                    slot,
+                    &mut *resources.load_req,
+                    &mut *current_level,
+                );
+                if !ok { return; }
+
+                sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+
+                begin_get_psyched_loading(
+                    &mut commands,
+                    &asset_server,
+                    win,
+                    &mut *resources.psyched,
+                    &mut *resources.lock,
+                    &mut *resources.music_mode,
+                );
+
+                resources.lock.0 = false;
+                resources.music_mode.0 = MusicModeKind::Gameplay;
+
+                episode.from_pause = false;
+                *resources.step = SplashStep::Done;
+            }
+        }
+
+        SplashStep::SaveSelect => {
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Menu;
+
+            // Auto-respawn after window resize.
+            if q.q_splash_roots.iter().next().is_none() {
+                if let Some(imgs) = resources.imgs.as_ref() {
+                    let slots = crate::save::storage::read_all_slot_meta();
+                    spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection);
+                }
+                return;
+            }
+
+            const SLOT_ROWS: usize = 10;
+
+            // Esc -> back to the pause menu (save is pause-only).
+            if keyboard.just_pressed(KeyCode::Escape) {
+                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+
+                if let Some(imgs) = resources.imgs.as_ref() {
+                    episode.from_pause = false;
+                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, true);
+                    menu.reset();
+                    *resources.step = SplashStep::PauseMenu;
+                }
+                return;
+            }
+
+            // Up/Down navigation with wrap.
+            let mut moved = false;
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+                if episode.selection > 0 { episode.selection -= 1; } else { episode.selection = SLOT_ROWS - 1; }
+                moved = true;
+            }
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+                episode.selection = (episode.selection + 1) % SLOT_ROWS;
+                moved = true;
+            }
+            if moved {
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+            }
+
+            // Reposition cursor + blink (identical math to LoadSelect).
+            let ui_scale = (w / BASE_W).round().max(1.0);
+            let content_start_y = (3.0 * ui_scale).round() + (48.0 * ui_scale).round();
+            let bottom_pad = (6.0 * ui_scale).round();
+            let list_top_pad = (12.0 * ui_scale).round();
+            let list_top = content_start_y + list_top_pad;
+            let row_spacing_available = (h - list_top - bottom_pad).max(1.0);
+            let row_step = (row_spacing_available / SLOT_ROWS as f32).floor().max(1.0);
+            let sel_y = (list_top + (episode.selection as f32) * row_step).round();
+
+            for mut node in q.q_node.iter_mut() {
+                node.top = Val::Px(sel_y);
+            }
+            let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
+            for mut v in q.q_cursor_light.iter_mut() {
+                *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
+            }
+            for mut v in q.q_cursor_dark.iter_mut() {
+                *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
+            }
+
+            // Enter -> request a save to the selected slot, then return to gameplay.
+            // Saving to an occupied slot overwrites it (expected behavior).
+            if keyboard.just_pressed(KeyCode::Enter)
+                || keyboard.just_pressed(KeyCode::NumpadEnter)
+                || keyboard.just_pressed(KeyCode::Space)
+            {
+                let slot = episode.selection as u32;
+
+                // handle_save_requests (in save module) performs the actual capture
+                // + write next Update, using the auto-generated name for now.
+                resources.save_req.0 = Some(slot);
+
+                sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+
+                // Return straight to gameplay (we were paused mid-level).
+                episode.from_pause = false;
+                resources.lock.0 = false;
+                resources.music_mode.0 = MusicModeKind::Gameplay;
+                *resources.step = SplashStep::Done;
             }
         }
 

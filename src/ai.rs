@@ -7,19 +7,19 @@ Bevy has a hard limit on the number of parameters a system function can accept.
 When this limit is exceeded, you get compiler errors like:
   "the trait `IntoSystem<(), (), _>` is not implemented for fn item"
 
-The original `enemy_ai_tick` system had 17 parameters including a complex ParamSet,
-which exceeded Bevy's limits and could not be registered as a system at all.
+The original 'enemy_ai_tick' system had 17 parameters including a complex ParamSet,
+which exceeded Bevy's limits and could not be registered as a system at all
 
-SOLUTION: Split large systems into multiple smaller systems that each handle
+The solution is to split large systems into multiple smaller systems that each handle
 a specific responsibility. This keeps parameter counts manageable while maintaining
-the same logic and execution order.
+the same logic and execution order
 
 For this AI system, we split into:
 1. enemy_ai_activation - Handle state transitions (Stand -> Patrol -> Chase)
 2. enemy_ai_combat - Handle shooting, dog bites, burst fire
 3. enemy_ai_movement - Handle pathfinding and movement scheduling
 
-These run in sequence via .chain() to maintain the original execution order.
+These run in sequence via .chain() to maintain the original execution order
 
 1) Bevy validates ECS borrows at schedule initialization time
    If a single system function has conflicting access to the same component type
@@ -31,7 +31,7 @@ These run in sequence via .chain() to maintain the original execution order.
    Reference https://bevy.org/learn/errors/b0001
 
 2) Compiler dead_code Warnings are Real Gameplay Signal in ECS Projects
-   If a system like attach_enemy_ai is never used, it is not registered into any schedule
+   If a system like 'attach_enemy_ai' is never used, it is not registered into any schedule
    That can silently break gameplay because queries stop matching any entities
    In this incident, enemies had EnemyKind but never received EnemyAi
    Result AI systems ran but affected zero enemies so nobody chased or shot
@@ -41,7 +41,6 @@ These run in sequence via .chain() to maintain the original execution order.
    chain() enforces execution order but does not auto-flush deferred Commands
    If same-tick visibility is required, add an apply_deferred boundary between producer and consumer
 */
-
 use bevy::prelude::*;
 use std::collections::{HashSet, HashMap};
 
@@ -610,16 +609,17 @@ fn enemy_ai_prepare_and_activate(
     while ticker.accum >= AI_TIC_SECS {
         ticker.accum -= AI_TIC_SECS;
 
-        // Only rebuild the connected-area map when the grid topology actually
-        // changed (door opened / closed or a pushwall moved bumps grid.generation)
-        // Otherwise reuse the cached map from the previous tic
-        if shared.cached_area_generation != Some(grid.generation) {
+        // Recompute if Grid Topology Changed Within Level (Generation Bump),
+        // OR if Grid Resource Itself was Replaced (Level Rebuild / Load), the
+        // Latter is What Catches Fresh Grid Reusing Generation 0 From Prior Level
+        if grid.is_changed() || shared.cached_area_generation != Some(grid.generation) {
             shared.cached_area_map = AreaMap::compute(&grid);
             shared.cached_area_generation = Some(grid.generation);
         }
-        // Move the cached map out of shared so the rest of the loop can freely
-        // mutate other shared fields (dist_map, occupied, scheduled_move) without
-        // a borrow conflict. It is moved back at the end of the loop body
+
+        // Move Cached Map Out of Shared so Rest of Loop Can Freely
+        // Mutate Other Shared Fields (dist_map, occupied, scheduled_move) Without
+        // Borrow Conflict. It is Moved Back at the End of Loop Body
         let areas = std::mem::take(&mut shared.cached_area_map);
         let player_area = areas.id(player_tile);
         shared.player_area = player_area;
@@ -629,9 +629,9 @@ fn enemy_ai_prepare_and_activate(
         let in_bounds = |t: IVec2| t.x >= 0 && t.y >= 0 && t.x < w && t.y < h;
         let idx = |t: IVec2| (t.y * w + t.x) as usize;
 
-        // Reuse the existing buffer instead of allocating a fresh Vec every tic.
-        // clear()+resize() keeps the prior allocation when the grid size is
-        // unchanged (the common case), reallocating only on a level size change
+        // Reuse Existing Buffer Instead of Allocating Fresh Vec Every Tic.
+        // clear()+resize() Keeps Prior Allocation When Grid Size is
+        // Unchanged (Common Case), Reallocating Only on Level Size Change
         shared.dist_map.clear();
         shared.dist_map.resize(grid.width * grid.height, -1i32);
 
@@ -843,8 +843,8 @@ fn enemy_ai_prepare_and_activate(
             }
         }
 
-        // Restore the area map into the cache so the next tic (this frame or a
-        // later one) can reuse it without recomputing
+        // Restore Area Map Into Cache so Next Tic (This Frame or Later
+        // One) Can Reuse it Without Recomputing
         shared.cached_area_map = areas;
     }
 }

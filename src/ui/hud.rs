@@ -555,8 +555,8 @@ pub(crate) fn weapon_fire_and_viewmodel(
         return;
     }
 
-    // Weapon Selection (1–4) — reads from ControlSettings key bindings
-    // Positional: weapon_1 = Knife, weapon_2 = Pistol, etc.
+    // Weapon Selection (1–4), Reads From ControlSettings Key Bindings
+    // Positional: weapon_1 = Knife, weapon_2 = Pistol, etc
     let kb = &controls.key_bindings;
     let weapon_keys = [
         (kb.weapon_1, WeaponSlot::Knife),
@@ -2559,7 +2559,7 @@ pub(crate) fn sync_view_size_border(
             }
 
             // --- Beveled 3D frame around the viewport ---
-            // Top bevel (dark/black) — sits on the inner top edge of the viewport
+            // Top bevel (dark/black), sits on the inner top edge of the viewport
             border.spawn((
                 ViewSizeBorderPiece,
                 Node {
@@ -2698,7 +2698,7 @@ pub(crate) fn setup_hud(
     let assets = load_hud_setup_assets(&mut commands, &asset_server, &hud);
     let layout = compute_hud_layout(&q_windows);
 
-    // Root HUD Node (Full Screen) — COLUMN so status bar lands at the bottom
+    // Root HUD Node (Full Screen), COLUMN so status bar lands at the bottom
     let root = commands
         .spawn((
             HudRoot,

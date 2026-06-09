@@ -2,14 +2,18 @@
 Davenstein - by David Petnick
 */
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 use std::collections::HashSet;
 
 use davelib::{
     map::DoorTile,
     player::{
+        LookAngles,
         Player,
         PlayerControlLock,
         PlayerDeathLatch,
+        PlayerKeys,
+        PlayerVitals,
     },
     pushwalls::{
         PushwallVisual,
@@ -18,13 +22,19 @@ use davelib::{
         PushwallClock,
     },
 };
-use crate::level_complete::LevelComplete;
+use crate::level_complete::{
+    ElevatorExitDelay,
+    LevelComplete,
+    MissionSuccessTally,
+    PendingLevelExit,
+};
 use crate::{
     ui::{
         sync::{
+            AdvanceLevelRequested,
             DeathDelay,
+            NewGameRequested,
             RestartRequested,
-            NewGameRequested
         },
         DeathOverlay,
         GameOver,
@@ -184,4 +194,99 @@ pub fn advance_level_finish(
 
     // Consume Request
     advance.0 = false;
+}
+
+#[derive(SystemParam)]
+pub struct LoadRequestParams<'w> {
+    load: ResMut<'w, crate::save::LoadGameRequested>,
+    restart: ResMut<'w, RestartRequested>,
+    new_game: ResMut<'w, NewGameRequested>,
+    advance: ResMut<'w, AdvanceLevelRequested>,
+}
+
+#[derive(SystemParam)]
+pub struct LoadRuntimeParams<'w> {
+    lock: ResMut<'w, PlayerControlLock>,
+    latch: ResMut<'w, PlayerDeathLatch>,
+    death: ResMut<'w, DeathDelay>,
+    hud: ResMut<'w, HudState>,
+    game_over: ResMut<'w, GameOver>,
+    death_overlay: ResMut<'w, DeathOverlay>,
+    win: ResMut<'w, LevelComplete>,
+    tally: ResMut<'w, MissionSuccessTally>,
+    elevator_delay: ResMut<'w, ElevatorExitDelay>,
+    pending_exit: ResMut<'w, PendingLevelExit>,
+    level_score: ResMut<'w, davelib::level_score::LevelScore>,
+    pw_state: ResMut<'w, PushwallState>,
+    pw_occ: ResMut<'w, PushwallOcc>,
+    pw_clock: ResMut<'w, PushwallClock>,
+}
+
+#[derive(SystemParam)]
+pub struct LoadPlayerParams<'w, 's> {
+    player: Query<
+        'w,
+        's,
+        (
+            &'static mut Transform,
+            &'static mut PlayerVitals,
+            &'static mut PlayerKeys,
+            &'static mut LookAngles,
+        ),
+        With<Player>,
+    >,
+}
+
+pub fn load_game_finish(
+    mut req: LoadRequestParams,
+    mut state: LoadRuntimeParams,
+    mut q_player: LoadPlayerParams,
+) {
+    let Some(game) = req.load.0.take() else {
+        return;
+    };
+
+    crate::save::capture::apply_run_state(&mut *state.hud, &game.run_state);
+    crate::save::capture::apply_level_score(&mut *state.level_score, &game.level_score);
+
+    let Some((mut tf, mut vitals, mut keys, mut look)) = q_player.player.iter_mut().next() else {
+        error!("Load requested but no player entity exists after level rebuild");
+
+        req.restart.0 = false;
+        req.new_game.0 = false;
+        req.advance.0 = false;
+
+        return;
+    };
+
+    let (yaw, pitch) = crate::save::capture::apply_player(
+        &mut *tf,
+        &mut *vitals,
+        &mut *keys,
+        &game.player,
+        &game.run_state,
+    );
+
+    *look = LookAngles::new(yaw, pitch);
+
+    state.hud.hp = vitals.hp;
+
+    *state.death = DeathDelay::default();
+    *state.death_overlay = DeathOverlay::default();
+    *state.tally = MissionSuccessTally::default();
+    *state.elevator_delay = ElevatorExitDelay::default();
+    *state.pending_exit = PendingLevelExit::default();
+
+    state.game_over.0 = false;
+    state.win.0 = false;
+    state.latch.0 = false;
+    state.lock.0 = false;
+
+    state.pw_state.active = None;
+    state.pw_occ.clear();
+    state.pw_clock.reset();
+
+    req.restart.0 = false;
+    req.new_game.0 = false;
+    req.advance.0 = false;
 }

@@ -58,6 +58,7 @@ mod level_complete;
 mod pak_assets;
 mod pickups;
 mod restart;
+mod save;
 mod ui;
 
 use bevy::prelude::*;
@@ -121,11 +122,12 @@ fn world_ready(
 }
 
 fn level_rebuild_requested(
-	r: Res<ui::sync::RestartRequested>,
-	n: Res<ui::sync::NewGameRequested>,
-	a: Res<ui::sync::AdvanceLevelRequested>,
+    r: Res<ui::sync::RestartRequested>,
+    n: Res<ui::sync::NewGameRequested>,
+    a: Res<ui::sync::AdvanceLevelRequested>,
+    l: Res<save::LoadGameRequested>,
 ) -> bool {
-	r.0 || n.0 || a.0
+    r.0 || n.0 || a.0 || l.0.is_some()
 }
 
 #[derive(Component)]
@@ -186,6 +188,7 @@ fn main() {
 		.add_plugins(davelib::options::OptionsPlugin)
 		.add_plugins(davelib::perf_overlay::PerfOverlayPlugin)
 		.add_plugins(ui::UiPlugin)
+		.add_plugins(save::SavePlugin)
 		.add_plugins(EnemiesPlugin)
 		.add_plugins(EnemyAiPlugin)
 		.add_plugins(combat::CombatPlugin)
@@ -279,12 +282,26 @@ fn main() {
 				.run_if(|r: Res<ui::sync::AdvanceLevelRequested>| r.0),
 		)
 		.add_systems(
+		    PostUpdate,
+		    restart::load_game_finish
+		        .after(pickups::spawn_pickups)
+		        .after(restart::restart_finish)
+		        .after(restart::new_game_finish)
+		        .after(restart::advance_level_finish)
+		        .run_if(|r: Res<save::LoadGameRequested>| r.0.is_some()),
+		)
+		.add_systems(
 			FixedUpdate,
 			rebuild_wall_faces_on_request
 				.run_if(world_ready)
 				.run_if(|lock: Res<PlayerControlLock>| lock.0),
 		)
-		.add_systems(FixedUpdate, davelib::level_score::tick_level_time.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		.add_systems(
+			FixedUpdate,
+			davelib::level_score::tick_level_time
+				.run_if(world_ready)
+				.run_if(|lock: Res<PlayerControlLock>| !lock.0),
+		)
 		.add_systems(FixedUpdate, tick_pushwalls.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
 		.add_systems(FixedUpdate, rebuild_wall_faces_on_request.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
 		.add_systems(FixedUpdate, door_auto_close.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
