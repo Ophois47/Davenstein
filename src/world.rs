@@ -1082,52 +1082,64 @@ pub fn setup(
 	// Static Wall Faces (Includes Door Jamb Faces)
 	spawn_wall_faces_for_grid(&mut commands, &grid, &wall_cache, None);
 
-	for g in guards {
-		crate::enemies::spawn_guard(&mut commands, &mut meshes, &mut materials, &enemy_sprites.guards, g);
+	for (spawn_i, g) in guards.into_iter().enumerate() {
+		let _e = crate::enemies::spawn_guard(&mut commands, &mut meshes, &mut materials, &enemy_sprites.guards, g);
+		commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
 	}
 
-    for m in mutants {
-        crate::enemies::spawn_mutant(&mut commands, &mut meshes, &mut materials, &enemy_sprites.mutants, m);
+    for (spawn_i, m) in mutants.into_iter().enumerate() {
+        let _e = crate::enemies::spawn_mutant(&mut commands, &mut meshes, &mut materials, &enemy_sprites.mutants, m);
+        commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
     }
 
-	for s in ss {
-		crate::enemies::spawn_ss(&mut commands, &mut meshes, &mut materials, &enemy_sprites.ss, s);
+	for (spawn_i, s) in ss.into_iter().enumerate() {
+		let _e = crate::enemies::spawn_ss(&mut commands, &mut meshes, &mut materials, &enemy_sprites.ss, s);
+		commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
 	}
 
-	for o in officers {
-		crate::enemies::spawn_officer(&mut commands, &mut meshes, &mut materials, &enemy_sprites.officers, o);
+	for (spawn_i, o) in officers.into_iter().enumerate() {
+		let _e = crate::enemies::spawn_officer(&mut commands, &mut meshes, &mut materials, &enemy_sprites.officers, o);
+		commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
 	}
 
-	for d in dogs {
-		crate::enemies::spawn_dog(&mut commands, &mut meshes, &mut materials, &enemy_sprites.dogs, d);
+	for (spawn_i, d) in dogs.into_iter().enumerate() {
+		let _e = crate::enemies::spawn_dog(&mut commands, &mut meshes, &mut materials, &enemy_sprites.dogs, d);
+		commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
 	}
 
-	for h in hans {
-		crate::enemies::spawn_hans(&mut commands, &mut meshes, &mut materials, &enemy_sprites.hans, h, &skill_level);
+	for (spawn_i, h) in hans.into_iter().enumerate() {
+		let _e = crate::enemies::spawn_hans(&mut commands, &mut meshes, &mut materials, &enemy_sprites.hans, h, &skill_level);
+		commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
 	}
 
-	for g in gretel {
-		crate::enemies::spawn_gretel(&mut commands, &mut meshes, &mut materials, &enemy_sprites.gretel, g, &skill_level);
+	for (spawn_i, g) in gretel.into_iter().enumerate() {
+		let _e = crate::enemies::spawn_gretel(&mut commands, &mut meshes, &mut materials, &enemy_sprites.gretel, g, &skill_level);
+		commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
 	}
 
-	for mh in mecha_hitler {
-		crate::enemies::spawn_mecha_hitler(&mut commands, &mut meshes, &mut materials, &enemy_sprites.mecha_hitler, mh, &skill_level);
+	for (spawn_i, mh) in mecha_hitler.into_iter().enumerate() {
+		let _e = crate::enemies::spawn_mecha_hitler(&mut commands, &mut meshes, &mut materials, &enemy_sprites.mecha_hitler, mh, &skill_level);
+		commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
 	}
 
-    for gh in ghost_hitler {
-        crate::enemies::spawn_ghost_hitler(&mut commands, &mut meshes, &mut materials, &enemy_sprites.ghost_hitler, gh, &skill_level);
+    for (spawn_i, gh) in ghost_hitler.into_iter().enumerate() {
+        let _e = crate::enemies::spawn_ghost_hitler(&mut commands, &mut meshes, &mut materials, &enemy_sprites.ghost_hitler, gh, &skill_level);
+        commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
     }
 
-    for sc in schabbs {
-        crate::enemies::spawn_schabbs(&mut commands, &mut meshes, &mut materials, &enemy_sprites.schabbs, sc, &skill_level);
+    for (spawn_i, sc) in schabbs.into_iter().enumerate() {
+        let _e = crate::enemies::spawn_schabbs(&mut commands, &mut meshes, &mut materials, &enemy_sprites.schabbs, sc, &skill_level);
+        commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
     }
 
-	for ot in otto {
-        crate::enemies::spawn_otto(&mut commands, &mut meshes, &mut materials, &enemy_sprites.otto, ot, &skill_level);
+	for (spawn_i, ot) in otto.into_iter().enumerate() {
+        let _e = crate::enemies::spawn_otto(&mut commands, &mut meshes, &mut materials, &enemy_sprites.otto, ot, &skill_level);
+        commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
     }
 
-    for g in general {
-        crate::enemies::spawn_general(&mut commands, &mut meshes, &mut materials, &enemy_sprites.general, g, &skill_level);
+    for (spawn_i, g) in general.into_iter().enumerate() {
+        let _e = crate::enemies::spawn_general(&mut commands, &mut meshes, &mut materials, &enemy_sprites.general, g, &skill_level);
+        commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
     }
 
 	let player_pos = Vec3::new(spawn.x as f32 * TILE_SIZE, 0.5, spawn.y as f32 * TILE_SIZE);

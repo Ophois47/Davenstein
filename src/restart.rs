@@ -199,6 +199,7 @@ pub fn advance_level_finish(
 #[derive(SystemParam)]
 pub struct LoadRequestParams<'w> {
     load: ResMut<'w, crate::save::LoadGameRequested>,
+    pending_dead: ResMut<'w, crate::save::PendingDeadRestore>,
     restart: ResMut<'w, RestartRequested>,
     new_game: ResMut<'w, NewGameRequested>,
     advance: ResMut<'w, AdvanceLevelRequested>,
@@ -248,6 +249,13 @@ pub fn load_game_finish(
 
     crate::save::capture::apply_run_state(&mut *state.hud, &game.run_state);
     crate::save::capture::apply_level_score(&mut *state.level_score, &game.level_score);
+
+    // Stash the dead-enemy set so apply_pending_dead_restore can mark them as
+    // corpses once the rebuilt level's enemies exist (a frame or two later).
+    req.pending_dead.0 = match &game.world {
+        Some(w) => w.dead_enemies.clone(),
+        None => Vec::new(),
+    };
 
     let Some((mut tf, mut vitals, mut keys, mut look)) = q_player.player.iter_mut().next() else {
         error!("Load requested but no player entity exists after level rebuild");

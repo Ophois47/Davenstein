@@ -28,7 +28,6 @@ NOTE! Left Control (LCtrl) releases the mouse from the window.
 **********************************************
 FEATURES TO BE COMPLETED:
 **********************************************
-1. Save and load game functionality
 
 **********************************************
 BUGS:

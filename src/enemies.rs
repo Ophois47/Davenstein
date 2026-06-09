@@ -316,6 +316,11 @@ pub struct Mutant;
 #[derive(Component)]
 pub struct GuardCorpse;
 
+// Stable per-kind spawn index, assigned in order as the level spawns enemies.
+// Lets the save system match a saved enemy to its respawned entity on load.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpawnIndex(pub u32);
+
 #[derive(Component)]
 pub struct MutantCorpse;
 
@@ -1624,7 +1629,7 @@ pub fn spawn_hans(
     sprites: &HansSprites,
     tile: IVec2,
     skill: &crate::skill::SkillLevel,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -1649,7 +1654,7 @@ pub fn spawn_hans(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 pub fn spawn_gretel(
@@ -1659,7 +1664,7 @@ pub fn spawn_gretel(
     sprites: &GretelSprites,
     tile: IVec2,
     skill: &crate::skill::SkillLevel,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -1684,7 +1689,7 @@ pub fn spawn_gretel(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 pub fn spawn_hitler(
@@ -1694,7 +1699,7 @@ pub fn spawn_hitler(
     sprites: &HitlerSprites,
     tile: IVec2,
     skill: &crate::skill::SkillLevel,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -1720,7 +1725,7 @@ pub fn spawn_hitler(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 pub fn spawn_mecha_hitler(
@@ -1730,7 +1735,7 @@ pub fn spawn_mecha_hitler(
     sprites: &MechaHitlerSprites,
     tile: IVec2,
     skill: &crate::skill::SkillLevel,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -1755,7 +1760,7 @@ pub fn spawn_mecha_hitler(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 pub fn spawn_ghost_hitler(
@@ -1765,7 +1770,7 @@ pub fn spawn_ghost_hitler(
     sprites: &GhostHitlerSprites,
     tile: IVec2,
     skill: &crate::skill::SkillLevel,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -1790,7 +1795,7 @@ pub fn spawn_ghost_hitler(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 pub fn spawn_schabbs(
@@ -1800,7 +1805,7 @@ pub fn spawn_schabbs(
     sprites: &SchabbsSprites,
     tile: IVec2,
     skill: &crate::skill::SkillLevel,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -1826,7 +1831,7 @@ pub fn spawn_schabbs(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 pub fn spawn_otto(
@@ -1836,7 +1841,7 @@ pub fn spawn_otto(
     sprites: &OttoSprites,
     tile: IVec2,
     skill: &crate::skill::SkillLevel,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -1862,7 +1867,7 @@ pub fn spawn_otto(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 pub fn spawn_general(
@@ -1872,7 +1877,7 @@ pub fn spawn_general(
     sprites: &GeneralSprites,
     tile: IVec2,
     skill: &crate::skill::SkillLevel,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -1898,7 +1903,7 @@ pub fn spawn_general(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 pub fn update_hans_views(
@@ -3022,7 +3027,7 @@ pub fn spawn_guard(
     materials: &mut Assets<StandardMaterial>,
     sprites: &GuardSprites,
     tile: IVec2,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -3048,7 +3053,7 @@ pub fn spawn_guard(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 pub fn spawn_mutant(
@@ -3057,7 +3062,7 @@ pub fn spawn_mutant(
     materials: &mut Assets<StandardMaterial>,
     sprites: &MutantSprites,
     tile: IVec2,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -3083,7 +3088,7 @@ pub fn spawn_mutant(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 pub fn spawn_ss(
@@ -3092,7 +3097,7 @@ pub fn spawn_ss(
     materials: &mut Assets<StandardMaterial>,
     sprites: &SsSprites,
     tile: IVec2,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -3117,7 +3122,7 @@ pub fn spawn_ss(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 pub fn spawn_officer(
@@ -3126,7 +3131,7 @@ pub fn spawn_officer(
     materials: &mut Assets<StandardMaterial>,
     sprites: &OfficerSprites,
     tile: IVec2,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -3151,7 +3156,7 @@ pub fn spawn_officer(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 fn attach_officer_walk(mut commands: Commands, q: Query<Entity, Added<Officer>>) {
@@ -3304,7 +3309,7 @@ pub fn spawn_dog(
     materials: &mut Assets<StandardMaterial>,
     sprites: &DogSprites,
     tile: IVec2,
-) {
+) -> Entity {
     const TILE_SIZE: f32 = 1.0;
     const WALL_H: f32 = 1.0;
 
@@ -3329,7 +3334,7 @@ pub fn spawn_dog(
         Mesh3d(quad),
         MeshMaterial3d(mat),
         Transform::from_translation(pos),
-    ));
+    )).id()
 }
 
 pub fn update_ss_views(
