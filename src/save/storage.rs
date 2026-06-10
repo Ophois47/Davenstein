@@ -101,7 +101,7 @@ pub fn slot_occupied(slot: u32) -> bool {
     slot_path(slot).exists()
 }
 
-/// Lightweight Per-Slot Summary For the Load/Save Slot List UI
+/// Lightweight Per-Slot Summary For the Load / Save Slot List UI
 /// None = Empty Slot
 /// Some = Stored Save Name and Level Metadata
 /// Name May Be Empty For Very Old Saves Written Before the Name Field Existed

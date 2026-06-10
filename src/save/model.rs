@@ -105,7 +105,12 @@ pub struct WorldSnapshot {
     /// Load Restores These as Corpses
     /// Survivors Are Not Listed and Rebuild Alive
     pub dead_enemies: Vec<DeadEnemy>,
-    // Doors, Pushwalls, Pickups: Added in Later Bucket 2 Slices
+    /// Tiles That Still Hold an Un-Collected Pickup at Save Time
+    /// On Load, Pickups Whose Tile Is Not Listed Here Are Despawned
+    /// (They Were Already Collected)
+    #[serde(default)]
+    pub present_pickups: Vec<[i32; 2]>,
+    // Doors, Pushwalls: Added in Later Bucket 2 Slices
 }
 
 /// Dead Enemy Identity For Corpse Restore

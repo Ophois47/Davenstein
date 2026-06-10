@@ -200,6 +200,7 @@ pub fn advance_level_finish(
 pub struct LoadRequestParams<'w> {
     load: ResMut<'w, crate::save::LoadGameRequested>,
     pending_dead: ResMut<'w, crate::save::PendingDeadRestore>,
+    pending_pickups: ResMut<'w, crate::save::PendingPickupRestore>,
     restart: ResMut<'w, RestartRequested>,
     new_game: ResMut<'w, NewGameRequested>,
     advance: ResMut<'w, AdvanceLevelRequested>,
@@ -256,6 +257,21 @@ pub fn load_game_finish(
         Some(w) => w.dead_enemies.clone(),
         None => Vec::new(),
     };
+
+    // Stash the Present-Pickup Set so apply_pending_pickup_restore Can Despawn
+    // Already-Collected Pickups Once the Rebuilt Level's Pickups Exist
+    // active Is Set Whenever a World Snapshot Is Present, Because an Empty Set
+    // Validly Means "Everything Was Collected"
+    match &game.world {
+        Some(w) => {
+            req.pending_pickups.active = true;
+            req.pending_pickups.present_tiles = w.present_pickups.clone();
+        }
+        None => {
+            req.pending_pickups.active = false;
+            req.pending_pickups.present_tiles.clear();
+        }
+    }
 
     let Some((mut tf, mut vitals, mut keys, mut look)) = q_player.player.iter_mut().next() else {
         error!("Load requested but no player entity exists after level rebuild");

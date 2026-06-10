@@ -27,4 +27,6 @@ NOTE! Left Control (LCtrl) releases the mouse from the window.
 **********************************************
 BUGS:
 **********************************************
+- Cross platform support needs to be revisited
+- Doors and pushwalls and pickups are not yet honored upon game load
 - Change view size does not respect menu UI

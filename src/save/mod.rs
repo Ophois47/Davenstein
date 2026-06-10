@@ -38,6 +38,16 @@ pub struct LoadGameRequested(pub Option<model::SaveGame>);
 #[derive(Resource, Default)]
 pub struct PendingDeadRestore(pub Vec<model::DeadEnemy>);
 
+// Pickup Tiles That Should Remain (Un-Collected) From a Just-Loaded Save
+// apply_pending_pickup_restore Despawns Fresh Pickups Not in This Set
+// The bool Tracks Whether a Restore Is Pending (Empty Vec Is Valid: It Means
+// Everything Was Collected, so All Fresh Pickups Should Despawn)
+#[derive(Resource, Default)]
+pub struct PendingPickupRestore {
+    pub active: bool,
+    pub present_tiles: Vec<[i32; 2]>,
+}
+
 pub struct SavePlugin;
 
 impl Plugin for SavePlugin {
@@ -45,8 +55,10 @@ impl Plugin for SavePlugin {
         app.init_resource::<SaveGameRequested>()
             .init_resource::<LoadGameRequested>()
             .init_resource::<PendingDeadRestore>()
+            .init_resource::<PendingPickupRestore>()
             .add_systems(Update, handle_save_requests)
-            .add_systems(Update, apply_pending_dead_restore);
+            .add_systems(Update, apply_pending_dead_restore)
+            .add_systems(Update, apply_pending_pickup_restore);
     }
 }
 
@@ -61,6 +73,7 @@ fn handle_save_requests(
         (&davelib::enemies::EnemyKind, &davelib::enemies::SpawnIndex),
         With<davelib::actors::Dead>,
     >,
+    q_pickups: Query<&crate::pickups::Pickup>,
 ) {
     let Some(slot) = req.0 else { return; };
 
@@ -81,7 +94,12 @@ fn handle_save_requests(
         q_dead.iter().map(|(k, i)| (*k, *i)).collect();
     let dead_enemies = capture::capture_dead_enemies(&dead);
 
-    let game = capture::capture_save_game(name, &hud, player_tf, vitals, &current_level, &level_score, dead_enemies);
+    // Tiles That Still Hold a Pickup Are the Un-Collected Ones (Collecting
+    // Despawns the Entity), so on Load We Despawn Any Pickup Not in This Set
+    let present_pickups: Vec<[i32; 2]> =
+        q_pickups.iter().map(|p| [p.tile.x, p.tile.y]).collect();
+
+    let game = capture::capture_save_game(name, &hud, player_tf, vitals, &current_level, &level_score, dead_enemies, present_pickups);
 
     match storage::write_slot(slot, &game) {
         Ok(()) => info!("Saved game to slot {slot}"),
@@ -166,6 +184,49 @@ fn make_corpse(
         EnemyKind::Otto => { ec.insert(OttoCorpse); }
         EnemyKind::General => { ec.insert(GeneralCorpse); }
     }
+}
+
+/// Despawns Pickups That Were Already Collected in a Just-Loaded Save
+/// Runs in Update (Not load_game_finish) Because Pickups Spawn via Deferred
+/// Commands and Are Not Queryable Until a Later Frame
+/// Waits Until Pickups Exist, Applies Once, Then Clears the Pending Flag
+fn apply_pending_pickup_restore(
+    mut commands: Commands,
+    mut pending: ResMut<PendingPickupRestore>,
+    q_pickups: Query<(Entity, &crate::pickups::Pickup)>,
+) {
+    if !pending.active {
+        return;
+    }
+
+    // Wait Until the Rebuilt Level's Pickups Have Actually Spawned
+    // If the Query Is Empty We Are Too Early (Deferred Spawns Not Applied Yet)
+    if q_pickups.is_empty() {
+        return;
+    }
+
+    // Tiles That Should Keep Their Pickup (Un-Collected at Save Time)
+    let keep: std::collections::HashSet<(i32, i32)> =
+        pending.present_tiles.iter().map(|t| (t[0], t[1])).collect();
+
+    let mut removed = 0usize;
+    for (e, pickup) in q_pickups.iter() {
+        let tile = (pickup.tile.x, pickup.tile.y);
+        if !keep.contains(&tile) {
+            commands.entity(e).try_despawn();
+            removed += 1;
+        }
+    }
+
+    info!(
+        "Removed {} already-collected pickups on load ({} kept)",
+        removed,
+        keep.len()
+    );
+
+    // Consume So This Only Runs Once Per Load
+    pending.active = false;
+    pending.present_tiles.clear();
 }
 
 /// Helper For Menu / Load Trigger
