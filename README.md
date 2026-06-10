@@ -24,11 +24,6 @@ NOTE! Left Control (LCtrl) releases the mouse from the window.
 -- To Build or Rebuild Assets Pak in Release Dir
 - $ cargo run --bin pak_builder --release -- --root assets --out target/release/assets.pak
 
-
-**********************************************
-FEATURES TO BE COMPLETED:
-**********************************************
-
 **********************************************
 BUGS:
 **********************************************
