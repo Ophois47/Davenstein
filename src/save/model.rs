@@ -114,7 +114,20 @@ pub struct WorldSnapshot {
     /// On Load, These Doors Are Re-Opened (Others Spawn Closed)
     #[serde(default)]
     pub open_doors: Vec<[i32; 2]>,
-    // Pushwalls: Added in the Final Bucket 2 Slice
+    /// Pushwalls That Fully Completed Their Slide at Save Time
+    /// Each Is the Final Wall Tile, Push Direction, and Wall Texture Id
+    /// On Load, the Three Affected Grid Tiles Are Re-Applied
+    /// Mid-Slide Pushwalls Are Not Captured and Reset to Un-Pushed
+    #[serde(default)]
+    pub pushwalls: Vec<PushwallRec>,
+}
+
+/// A Completed Pushwall, Enough to Re-Apply Its Grid Effect on Load
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct PushwallRec {
+    pub dest: [i32; 2],
+    pub dir: [i32; 2],
+    pub wall_id: u16,
 }
 
 /// Dead Enemy Identity For Corpse Restore

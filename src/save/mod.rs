@@ -57,6 +57,16 @@ pub struct PendingDoorRestore {
     pub open_tiles: Vec<[i32; 2]>,
 }
 
+// Completed Pushwalls From a Just-Loaded Save, Waiting to Re-Apply Their Grid
+// Effect Once the Rebuilt Level Exists. active Distinguishes "No Load" From
+// "Load With No Completed Pushwalls"
+#[derive(Resource, Default)]
+pub struct PendingPushwallRestore {
+    pub active: bool,
+    pub items: Vec<model::PushwallRec>,
+    pub frames_waited: u32,
+}
+
 pub struct SavePlugin;
 
 impl Plugin for SavePlugin {
@@ -66,10 +76,12 @@ impl Plugin for SavePlugin {
             .init_resource::<PendingDeadRestore>()
             .init_resource::<PendingPickupRestore>()
             .init_resource::<PendingDoorRestore>()
+            .init_resource::<PendingPushwallRestore>()
             .add_systems(Update, handle_save_requests)
             .add_systems(Update, apply_pending_dead_restore)
             .add_systems(Update, apply_pending_pickup_restore)
-            .add_systems(Update, apply_pending_door_restore);
+            .add_systems(Update, apply_pending_door_restore)
+            .add_systems(Update, apply_pending_pushwall_restore);
     }
 }
 
@@ -86,6 +98,7 @@ fn handle_save_requests(
     >,
     q_pickups: Query<&crate::pickups::Pickup>,
     q_doors: Query<(&davelib::map::DoorTile, &davelib::map::DoorState)>,
+    completed_pushwalls: Res<davelib::pushwalls::CompletedPushwalls>,
 ) {
     let Some(slot) = req.0 else { return; };
 
@@ -119,11 +132,33 @@ fn handle_save_requests(
         .map(|(door, _)| [door.0.x, door.0.y])
         .collect();
 
-    let game = capture::capture_save_game(name, &hud, player_tf, vitals, &current_level, &level_score, dead_enemies, present_pickups, open_doors);
+    // Completed Pushwalls, Converted From the Engine Record to the Save Model
+    let pushwalls: Vec<model::PushwallRec> = completed_pushwalls
+        .items
+        .iter()
+        .map(|c| model::PushwallRec {
+            dest: [c.dest.x, c.dest.y],
+            dir: [c.dir.x, c.dir.y],
+            wall_id: c.wall_id,
+        })
+        .collect();
+
+    let game = capture::capture_save_game(
+        name,
+        &hud,
+        player_tf,
+        vitals,
+        &current_level,
+        &level_score,
+        dead_enemies,
+        present_pickups,
+        open_doors,
+        pushwalls,
+    );
 
     match storage::write_slot(slot, &game) {
-        Ok(()) => info!("Saved game to slot {slot}"),
-        Err(e) => error!("Save to slot {slot} failed: {e:?}"),
+        Ok(()) => info!("Saved Game to Slot {slot}"),
+        Err(e) => error!("Save to Slot {slot} Failed: {e:?}"),
     }
 
     req.0 = None;
@@ -156,20 +191,12 @@ fn apply_pending_dead_restore(
     let dead_set: std::collections::HashSet<(u8, u32)> =
         pending.0.iter().map(|d| (d.kind, d.index)).collect();
 
-    let mut applied = 0usize;
     for (e, kind, idx) in q_enemies.iter() {
         let key = (capture::enemy_kind_to_u8(*kind), idx.0);
         if dead_set.contains(&key) {
             make_corpse(&mut commands, e, *kind);
-            applied += 1;
         }
     }
-
-    info!(
-        "Restored {} dead enemies as corpses on load ({} requested)",
-        applied,
-        pending.0.len()
-    );
 
     // Consume Pending Set so This Only Runs Once Per Load
     pending.0.clear();
@@ -229,20 +256,12 @@ fn apply_pending_pickup_restore(
     let keep: std::collections::HashSet<(i32, i32)> =
         pending.present_tiles.iter().map(|t| (t[0], t[1])).collect();
 
-    let mut removed = 0usize;
     for (e, pickup) in q_pickups.iter() {
         let tile = (pickup.tile.x, pickup.tile.y);
         if !keep.contains(&tile) {
             commands.entity(e).try_despawn();
-            removed += 1;
         }
     }
-
-    info!(
-        "Removed {} already-collected pickups on load ({} kept)",
-        removed,
-        keep.len()
-    );
 
     // Consume So This Only Runs Once Per Load
     pending.active = false;
@@ -273,22 +292,101 @@ fn apply_pending_door_restore(
     let open: std::collections::HashSet<(i32, i32)> =
         pending.open_tiles.iter().map(|t| (t[0], t[1])).collect();
 
-    let mut opened = 0usize;
     for (door, mut state, mut anim) in q_doors.iter_mut() {
         let tile = (door.0.x, door.0.y);
         if open.contains(&tile) {
             state.want_open = true;
             state.open_timer = DOOR_OPEN_SECS;
             anim.progress = 1.0;
-            opened += 1;
         }
     }
-
-    info!("Re-Opened {} doors on load", opened);
 
     // Consume So This Only Runs Once Per Load
     pending.active = false;
     pending.open_tiles.clear();
+}
+
+/// Re-Applies Completed Pushwalls From a Just-Loaded Save by Stamping Their
+/// Grid Effect Back In, Then Rebuilding Wall Geometry
+/// Runs in Update and Waits a Few Frames so the Rebuild's Deferred MapGrid /
+/// PushwallMarkers Inserts Have Landed Before We Mutate Them
+/// Also Repopulates CompletedPushwalls so a Later Save Re-Captures These
+fn apply_pending_pushwall_restore(
+    mut pending: ResMut<PendingPushwallRestore>,
+    grid: Option<ResMut<davelib::map::MapGrid>>,
+    markers: Option<ResMut<davelib::pushwalls::PushwallMarkers>>,
+    completed: Option<ResMut<davelib::pushwalls::CompletedPushwalls>>,
+    mut rebuild: MessageWriter<davelib::world::RebuildWalls>,
+) {
+    if !pending.active {
+        return;
+    }
+
+    // These World Resources Are Inserted by setup During a Level Rebuild and Do
+    // Not Exist Before the First Level Loads. If Any Is Missing We Are Too Early
+    let (Some(mut grid), Some(mut markers), Some(mut completed)) = (grid, markers, completed)
+    else {
+        return;
+    };
+
+    // Wait a Few Frames so setup's Deferred Grid / Marker Inserts Are Applied
+    // (MapGrid and PushwallMarkers Are Inserted via Commands During the Rebuild)
+    if pending.frames_waited < 3 {
+        pending.frames_waited += 1;
+        return;
+    }
+
+    use davelib::map::Tile;
+
+    let mut applied = 0usize;
+    for rec in pending.items.iter() {
+        let dest = IVec2::new(rec.dest[0], rec.dest[1]);
+        let dir = IVec2::new(rec.dir[0], rec.dir[1]);
+
+        // The Two Tiles the Wall Slid Through (Now Empty)
+        let mid = dest - dir;
+        let orig = dest - dir * 2;
+
+        // Re-Apply the Grid Effect: Two Empties Behind, the Wall at dest
+        if in_bounds_grid(&grid, orig) {
+            grid.set_tile(orig.x as usize, orig.y as usize, Tile::Empty);
+            grid.set_plane0_code(orig.x as usize, orig.y as usize, 0);
+        }
+        if in_bounds_grid(&grid, mid) {
+            grid.set_tile(mid.x as usize, mid.y as usize, Tile::Empty);
+            grid.set_plane0_code(mid.x as usize, mid.y as usize, 0);
+        }
+        if in_bounds_grid(&grid, dest) {
+            grid.set_tile(dest.x as usize, dest.y as usize, Tile::Wall);
+            grid.set_plane0_code(dest.x as usize, dest.y as usize, rec.wall_id);
+        }
+
+        // Consume the Original Pushwall Marker so It Cannot Be Pushed Again
+        markers.consume(orig.x, orig.y);
+
+        // Repopulate the Completed Record so a Subsequent Save Re-Captures It
+        completed.items.push(davelib::pushwalls::CompletedPushwall {
+            dest,
+            dir,
+            wall_id: rec.wall_id,
+        });
+
+        applied += 1;
+    }
+
+    if applied > 0 {
+        // One Rebuild Brings Wall Geometry in Line With the Modified Grid
+        rebuild.write(davelib::world::RebuildWalls { skip: None });
+    }
+
+    pending.active = false;
+    pending.frames_waited = 0;
+    pending.items.clear();
+}
+
+/// Bounds Check Mirroring the Pushwall Module's in_bounds, Local to Avoid a Dep
+fn in_bounds_grid(grid: &davelib::map::MapGrid, t: IVec2) -> bool {
+    t.x >= 0 && t.y >= 0 && (t.x as usize) < grid.width && (t.y as usize) < grid.height
 }
 
 /// Helper For Menu / Load Trigger
@@ -307,11 +405,11 @@ pub fn begin_load(
             true
         }
         Ok(None) => {
-            info!("Load slot {slot} is empty");
+            info!("Load Slot {slot} Empty");
             false
         }
         Err(e) => {
-            error!("Load from slot {slot} failed: {e:?}");
+            error!("Load From Slot {slot} Failed: {e:?}");
             false
         }
     }

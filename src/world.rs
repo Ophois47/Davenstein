@@ -702,6 +702,9 @@ pub fn setup(
 	// Pushwall Markers (Plane1 == 98)
 	commands.insert_resource(pushwall_markers);
 
+	// Fresh Completed Pushwall Record for the New Level (Load Restore Repopulates)
+	commands.insert_resource(crate::pushwalls::CompletedPushwalls::default());
+
 	// Assets / Materials
 	let assets = load_assets(&asset_server);
 	let wall_tex = assets.wall_tex.clone();

@@ -241,14 +241,14 @@ pub fn spawn_decorations(
 	mut solid: ResMut<SolidStatics>,
 ) {
 	if grid.width != 64 || grid.height != 64 {
-		warn!("spawn_decorations expects 64x64 grid but got {}x{}", grid.width, grid.height);
+		warn!("spawn_decorations Expects 64x64 Grid But Got {}x{}", grid.width, grid.height);
 		return;
 	}
 
 	let expected_len = (grid.width * grid.height) as usize;
 	if plane1_res.0.len() != expected_len {
 		warn!(
-			"spawn_decorations expected plane1 len {} but got {}",
+			"spawn_decorations Expected plane1 len {} But Got {}",
 			expected_len,
 			plane1_res.0.len()
 		);
@@ -261,8 +261,6 @@ pub fn spawn_decorations(
 	let quad_decal_default = meshes.add(Rectangle::new(0.95, 1.20));
 	let quad_decal_puddle = meshes.add(Rectangle::new(0.95, 3.50));
 	let quad_decal_skel = meshes.add(Rectangle::new(0.95, 2.00));
-
-	let mut spawned = 0usize;
 
 	for y in 0..grid.height {
 		for x in 0..grid.width {
@@ -337,12 +335,8 @@ pub fn spawn_decorations(
 			if blocks {
 				solid.set_solid(x as i32, y as i32, true);
 			}
-
-			spawned += 1;
 		}
 	}
-
-	info!("Spawn Decorations Spawned {} Entities", spawned);
 }
 
 pub fn billboard_decorations(

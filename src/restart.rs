@@ -202,6 +202,7 @@ pub struct LoadRequestParams<'w> {
     pending_dead: ResMut<'w, crate::save::PendingDeadRestore>,
     pending_pickups: ResMut<'w, crate::save::PendingPickupRestore>,
     pending_doors: ResMut<'w, crate::save::PendingDoorRestore>,
+    pending_pushwalls: ResMut<'w, crate::save::PendingPushwallRestore>,
     restart: ResMut<'w, RestartRequested>,
     new_game: ResMut<'w, NewGameRequested>,
     advance: ResMut<'w, AdvanceLevelRequested>,
@@ -284,6 +285,21 @@ pub fn load_game_finish(
         None => {
             req.pending_doors.active = false;
             req.pending_doors.open_tiles.clear();
+        }
+    }
+
+    // Stash Completed Pushwalls so apply_pending_pushwall_restore Can Re-Apply
+    // Their Grid Effect Once the Rebuilt Level's Grid Exists
+    match &game.world {
+        Some(w) => {
+            req.pending_pushwalls.active = true;
+            req.pending_pushwalls.frames_waited = 0;
+            req.pending_pushwalls.items = w.pushwalls.clone();
+        }
+        None => {
+            req.pending_pushwalls.active = false;
+            req.pending_pushwalls.frames_waited = 0;
+            req.pending_pushwalls.items.clear();
         }
     }
 

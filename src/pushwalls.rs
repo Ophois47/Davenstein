@@ -135,6 +135,22 @@ pub struct PushwallState {
     pub active: Option<ActivePushwall>,
 }
 
+/// Records Pushwalls That Have Fully Completed Their 2 Tile Slide
+/// The Save System Reads This to Persist Pushwall State; Restore Re-Applies It
+/// Each Entry Is the Final Wall Tile, the Push Direction, and the Wall Texture
+/// From These the Three Affected Grid Tiles Are Fully Reconstructable
+#[derive(Resource, Default)]
+pub struct CompletedPushwalls {
+    pub items: Vec<CompletedPushwall>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CompletedPushwall {
+    pub dest: IVec2,
+    pub dir: IVec2,
+    pub wall_id: u16,
+}
+
 fn despawn_tree(commands: &mut Commands, q_children: &Query<&Children>, e: Entity) {
     if let Ok(children) = q_children.get(e) {
         // In Current Bevy version, Children::iter()
@@ -435,6 +451,7 @@ pub fn tick_pushwalls(
     q_children: Query<&Children>,
     mut commands: Commands,
     mut rebuild: MessageWriter<RebuildWalls>,
+    mut completed: ResMut<CompletedPushwalls>,
 ) {
     let Some(active) = pws.active.as_mut() else {
         return;
@@ -474,6 +491,15 @@ pub fn tick_pushwalls(
                     grid.set_tile(dest.x as usize, dest.y as usize, Tile::Wall);
                     grid.set_plane0_code(dest.x as usize, dest.y as usize, active.wall_id);
                 }
+
+                // Record This Completed Pushwall so the Save System Can Persist It
+                // dest Is the Final Wall Tile; the Two Tiles Behind (Along -dir)
+                // Were Emptied. Restore Reconstructs All Three From This
+                completed.items.push(CompletedPushwall {
+                    dest,
+                    dir: active.dir,
+                    wall_id: active.wall_id,
+                });
 
                 // Hold Visual on Destination Tile Until Next FixedUpdate Tick
                 // Prevents Last Step Flicker Caused by Rebuilding Walls on Following Frame
