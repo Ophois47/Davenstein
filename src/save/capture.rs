@@ -106,6 +106,7 @@ pub fn capture_save_game(
     level_score: &LevelScore,
     dead_enemies: Vec<DeadEnemy>,
     present_pickups: Vec<[i32; 2]>,
+    open_doors: Vec<[i32; 2]>,
 ) -> SaveGame {
     // Facing: Derive Yaw/Pitch From the Player's Transform Rotation. The Camera
     // Rotation is the Source of Truth (mouse_look Writes It via
@@ -148,7 +149,7 @@ pub fn capture_save_game(
     };
 
     let mut game = SaveGame::new_bucket1(name, run_state, player, level, level_score_snap);
-    game.world = Some(WorldSnapshot { dead_enemies, present_pickups });
+    game.world = Some(WorldSnapshot { dead_enemies, present_pickups, open_doors });
     game
 }
 

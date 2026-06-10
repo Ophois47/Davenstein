@@ -110,7 +110,11 @@ pub struct WorldSnapshot {
     /// (They Were Already Collected)
     #[serde(default)]
     pub present_pickups: Vec<[i32; 2]>,
-    // Doors, Pushwalls: Added in Later Bucket 2 Slices
+    /// Tiles of Doors That Were Open (or Opening) at Save Time
+    /// On Load, These Doors Are Re-Opened (Others Spawn Closed)
+    #[serde(default)]
+    pub open_doors: Vec<[i32; 2]>,
+    // Pushwalls: Added in the Final Bucket 2 Slice
 }
 
 /// Dead Enemy Identity For Corpse Restore

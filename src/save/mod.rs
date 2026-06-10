@@ -48,6 +48,15 @@ pub struct PendingPickupRestore {
     pub present_tiles: Vec<[i32; 2]>,
 }
 
+// Door Tiles That Should Be Open From a Just-Loaded Save
+// apply_pending_door_restore Re-Opens These Once the Rebuilt Doors Exist
+// active Distinguishes "No Load" From "Load With No Open Doors"
+#[derive(Resource, Default)]
+pub struct PendingDoorRestore {
+    pub active: bool,
+    pub open_tiles: Vec<[i32; 2]>,
+}
+
 pub struct SavePlugin;
 
 impl Plugin for SavePlugin {
@@ -56,9 +65,11 @@ impl Plugin for SavePlugin {
             .init_resource::<LoadGameRequested>()
             .init_resource::<PendingDeadRestore>()
             .init_resource::<PendingPickupRestore>()
+            .init_resource::<PendingDoorRestore>()
             .add_systems(Update, handle_save_requests)
             .add_systems(Update, apply_pending_dead_restore)
-            .add_systems(Update, apply_pending_pickup_restore);
+            .add_systems(Update, apply_pending_pickup_restore)
+            .add_systems(Update, apply_pending_door_restore);
     }
 }
 
@@ -74,6 +85,7 @@ fn handle_save_requests(
         With<davelib::actors::Dead>,
     >,
     q_pickups: Query<&crate::pickups::Pickup>,
+    q_doors: Query<(&davelib::map::DoorTile, &davelib::map::DoorState)>,
 ) {
     let Some(slot) = req.0 else { return; };
 
@@ -99,7 +111,15 @@ fn handle_save_requests(
     let present_pickups: Vec<[i32; 2]> =
         q_pickups.iter().map(|p| [p.tile.x, p.tile.y]).collect();
 
-    let game = capture::capture_save_game(name, &hud, player_tf, vitals, &current_level, &level_score, dead_enemies, present_pickups);
+    // Doors Whose want_open Is True Were Open (or Opening) at Save Time
+    // Load Re-Opens These, Letting the Normal Door Tick / Auto-Close Take Over
+    let open_doors: Vec<[i32; 2]> = q_doors
+        .iter()
+        .filter(|(_, state)| state.want_open)
+        .map(|(door, _)| [door.0.x, door.0.y])
+        .collect();
+
+    let game = capture::capture_save_game(name, &hud, player_tf, vitals, &current_level, &level_score, dead_enemies, present_pickups, open_doors);
 
     match storage::write_slot(slot, &game) {
         Ok(()) => info!("Saved game to slot {slot}"),
@@ -227,6 +247,48 @@ fn apply_pending_pickup_restore(
     // Consume So This Only Runs Once Per Load
     pending.active = false;
     pending.present_tiles.clear();
+}
+
+/// Re-Opens Doors That Were Open in a Just-Loaded Save
+/// Runs in Update (Not load_game_finish) Because Doors Spawn via Deferred
+/// Commands and Are Not Queryable Until a Later Frame
+/// Sets want_open + a Fresh Open Timer, so the Normal Door Tick Animates It Open
+/// and the Auto-Close System Behaves as if the Player Just Opened It
+fn apply_pending_door_restore(
+    mut pending: ResMut<PendingDoorRestore>,
+    mut q_doors: Query<(&davelib::map::DoorTile, &mut davelib::map::DoorState, &mut davelib::map::DoorAnim)>,
+) {
+    if !pending.active {
+        return;
+    }
+
+    // Wait Until the Rebuilt Level's Doors Have Actually Spawned
+    if q_doors.is_empty() {
+        return;
+    }
+
+    // Door Open Duration, Matching the Player Door Logic (DOOR_OPEN_SECS = 4.5)
+    const DOOR_OPEN_SECS: f32 = 4.5;
+
+    let open: std::collections::HashSet<(i32, i32)> =
+        pending.open_tiles.iter().map(|t| (t[0], t[1])).collect();
+
+    let mut opened = 0usize;
+    for (door, mut state, mut anim) in q_doors.iter_mut() {
+        let tile = (door.0.x, door.0.y);
+        if open.contains(&tile) {
+            state.want_open = true;
+            state.open_timer = DOOR_OPEN_SECS;
+            anim.progress = 1.0;
+            opened += 1;
+        }
+    }
+
+    info!("Re-Opened {} doors on load", opened);
+
+    // Consume So This Only Runs Once Per Load
+    pending.active = false;
+    pending.open_tiles.clear();
 }
 
 /// Helper For Menu / Load Trigger

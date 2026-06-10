@@ -201,6 +201,7 @@ pub struct LoadRequestParams<'w> {
     load: ResMut<'w, crate::save::LoadGameRequested>,
     pending_dead: ResMut<'w, crate::save::PendingDeadRestore>,
     pending_pickups: ResMut<'w, crate::save::PendingPickupRestore>,
+    pending_doors: ResMut<'w, crate::save::PendingDoorRestore>,
     restart: ResMut<'w, RestartRequested>,
     new_game: ResMut<'w, NewGameRequested>,
     advance: ResMut<'w, AdvanceLevelRequested>,
@@ -270,6 +271,19 @@ pub fn load_game_finish(
         None => {
             req.pending_pickups.active = false;
             req.pending_pickups.present_tiles.clear();
+        }
+    }
+
+    // Stash the Open-Door Set so apply_pending_door_restore Can Re-Open Them
+    // Once the Rebuilt Level's Doors Exist
+    match &game.world {
+        Some(w) => {
+            req.pending_doors.active = true;
+            req.pending_doors.open_tiles = w.open_doors.clone();
+        }
+        None => {
+            req.pending_doors.active = false;
+            req.pending_doors.open_tiles.clear();
         }
     }
 
