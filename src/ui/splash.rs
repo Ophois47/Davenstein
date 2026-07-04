@@ -36,6 +36,8 @@ pub const SPLASH_1_PATH: &str = "textures/ui/splash1.png";
 pub const GET_PSYCHED_PATH: &str = "textures/ui/get_psyched.png";
 pub const MENU_BANNER_PATH: &str = "textures/ui/menu_banner.png";
 pub const SCORE_BANNER_PATH: &str = "textures/ui/score_banner.png";
+pub const LOAD_BANNER_PATH: &str = "textures/ui/load_banner.png";
+pub const SAVE_BANNER_PATH: &str = "textures/ui/save_banner.png";
 pub const MENU_HINT_PATH: &str = "textures/ui/menu_hint.png";
 pub const MENU_CURSOR_LIGHT_PATH: &str = "textures/ui/menu_cursor_light.png";
 pub const MENU_CURSOR_DARK_PATH: &str = "textures/ui/menu_cursor_dark.png";
@@ -4064,8 +4066,9 @@ fn spawn_load_select_ui(
     imgs: &SplashImages,
     slots: &[Option<crate::save::storage::SlotMeta>],
     selection: usize,
+    is_save: bool,
 ) {
-    let banner = asset_server.load(SCORE_BANNER_PATH);
+    let banner = asset_server.load(if is_save { SAVE_BANNER_PATH } else { LOAD_BANNER_PATH });
     let ui_scale = (w / BASE_W).round().max(1.0);
 
     let banner_native_h = 48.0;
@@ -4756,7 +4759,7 @@ fn splash_advance_on_any_input(
                         }
 
                         let slots = crate::save::storage::read_all_slot_meta();
-                        spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection);
+                        spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection, false);
 
                         menu.reset();
                         *resources.step = SplashStep::LoadSelect;
@@ -4774,7 +4777,7 @@ fn splash_advance_on_any_input(
                         // Reuses Same Slot List Builder as Load (Shows Current
                         // Slot Contents). SaveSelect's Input Writes Instead of Reads
                         let slots = crate::save::storage::read_all_slot_meta();
-                        spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection);
+                        spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection, true);
 
                         menu.reset();
                         *resources.step = SplashStep::SaveSelect;
@@ -6170,7 +6173,7 @@ fn splash_advance_on_any_input(
             if q.q_splash_roots.iter().next().is_none() {
                 if let Some(imgs) = resources.imgs.as_ref() {
                     let slots = crate::save::storage::read_all_slot_meta();
-                    spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection);
+                    spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection, false);
                 }
                 return;
             }
@@ -6278,7 +6281,7 @@ fn splash_advance_on_any_input(
             if q.q_splash_roots.iter().next().is_none() {
                 if let Some(imgs) = resources.imgs.as_ref() {
                     let slots = crate::save::storage::read_all_slot_meta();
-                    spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection);
+                    spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection, true);
                 }
                 return;
             }

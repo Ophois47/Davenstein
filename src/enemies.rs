@@ -1942,7 +1942,7 @@ pub fn update_hans_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse[v as usize].clone()
@@ -2005,7 +2005,7 @@ pub fn update_gretel_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse[v as usize].clone()
@@ -2068,7 +2068,7 @@ pub fn update_hitler_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse[v as usize].clone()
@@ -2131,7 +2131,7 @@ pub fn update_mecha_hitler_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse[v as usize].clone()
@@ -2194,7 +2194,7 @@ pub fn update_ghost_hitler_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse.clone()
@@ -2253,7 +2253,7 @@ pub fn update_schabbs_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse[v as usize].clone()
@@ -2315,7 +2315,7 @@ pub fn update_otto_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse[v as usize].clone()
@@ -2378,7 +2378,7 @@ pub fn update_general_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse[v as usize].clone()
@@ -3272,7 +3272,7 @@ pub fn update_officer_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse[v as usize].clone()
@@ -3374,7 +3374,7 @@ pub fn update_ss_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse[v as usize].clone()
@@ -3444,7 +3444,7 @@ pub fn update_dog_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse[v as usize].clone()
@@ -3539,7 +3539,7 @@ pub fn apply_guard_corpses(
     const CORPSE_DEPTH_BIAS: f32 = 250.0;
 
     for (mat3d, mut tf, vis) in q.iter_mut() {
-        if let Some(mat) = materials.get_mut(&mat3d.0) {
+        if let Some(mut mat) = materials.get_mut(&mat3d.0) {
             mat.base_color_texture = Some(sprites.corpse.clone());
 
             // Corpses Should NOT be Blend, or They'll Fight / Cover Drops
@@ -3600,7 +3600,7 @@ pub fn update_guard_views(
             tf.rotation = Quat::from_rotation_y(yaw);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         // Choose Texture in Priority Order:
         // Corpse > Dying > Pain > Shooting > Moving (Walk) > Idle
@@ -3693,7 +3693,7 @@ fn update_mutant_views(
             shooting_now.remove(&e);
         }
 
-        let Some(mat) = materials.get_mut(&mat3d.0) else { continue; };
+        let Some(mut mat) = materials.get_mut(&mat3d.0) else { continue; };
 
         let tex: Handle<Image> = if corpse.is_some() {
             sprites.corpse.clone()

@@ -2,7 +2,6 @@
 Davenstein - by David Petnick
 */
 use bevy::prelude::*;
-use bevy::render::alpha::AlphaMode;
 use rand::RngExt;
 
 use davelib::audio::{PlaySfx, SfxKind};
@@ -242,7 +241,7 @@ pub fn tick_rocket_impacts(
 
 		imp.tics = IMPACT_FRAME_TICS;
 
-		let Some(mat) = mats.get_mut(&view.mat) else { continue; };
+		let Some(mut mat) = mats.get_mut(&view.mat) else { continue; };
 		let tex = assets.rocket_impact[imp.frame].clone();
 		if mat.base_color_texture.as_ref() != Some(&tex) {
 			mat.base_color_texture = Some(tex);
@@ -446,7 +445,7 @@ pub fn tick_smoke_puffs(
 
 		puff.tics = SMOKE_FRAME_TICS;
 
-		let Some(mat) = mats.get_mut(&view.mat) else { continue; };
+		let Some(mut mat) = mats.get_mut(&view.mat) else { continue; };
 		let tex = assets.rocket_smoke[puff.frame].clone();
 		if mat.base_color_texture.as_ref() != Some(&tex) {
 			mat.base_color_texture = Some(tex);
@@ -580,7 +579,7 @@ pub fn update_projectile_views(
 		let yaw = to_player.x.atan2(to_player.z);
 		xform.rotation = Quat::from_rotation_y(yaw);
 
-		let Some(mat) = mats.get_mut(&view.mat) else { continue; };
+		let Some(mut mat) = mats.get_mut(&view.mat) else { continue; };
 
 		match proj.kind {
             ProjectileKind::Fireball => {

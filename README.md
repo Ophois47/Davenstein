@@ -1,31 +1,62 @@
-*** Davenstein ***
+# Davenstein
 
-This is an attempt to recreate Wolfenstein 3-D written entirely in Rust, using the Bevy engine.
+A Wolfenstein 3-D recreation written in Rust with the Bevy engine
 
-NOTE! Left Control (LCtrl) releases the mouse from the window.
+## Note
 
--- Build on Linux with: 
-- $ cargo update && cargo build --release
+Left Control `LCtrl` releases the mouse from the window
 
--- Cross Compiling requires a container engine (Podman or Docker) and the `cross` tool:
-- $ cargo install cross --git https://github.com/cross-rs/cross
+## Build
 
--- On Fedora (or any Podman host), tell cross to use Podman:
-- $ export CROSS_CONTAINER_ENGINE=podman
+### Linux
 
--- To Cross Compile for Windows (GNU):
-- $ cross build --release --target x86_64-pc-windows-gnu --target-dir target/win
+```bash
+cargo update && cargo build --release
+```
 
--- To Cross Compile for Linux Armv7 (GNU):
-- $ cross build --release --target armv7-unknown-linux-gnueabihf --target-dir target/arm
+## Cross Compilation
 
--- To Build or Rebuild the Assets Pak
-- $ cargo run --bin pak_builder --release -- --root assets --out dist/assets.pak
--- To Build or Rebuild Assets Pak in Release Dir
-- $ cargo run --bin pak_builder --release -- --root assets --out target/release/assets.pak
+Cross-compiling requires a container engine, either Podman or Docker, and the `cross` tool
 
-**********************************************
-BUGS:
-**********************************************
-- Cross platform support needs to be revisited
-- Change view size does not respect menu UI
+```bash
+cargo install cross --git https://github.com/cross-rs/cross
+```
+
+On Fedora, or any Podman host, tell `cross` to use Podman
+
+```bash
+export CROSS_CONTAINER_ENGINE=podman
+```
+
+### Windows GNU
+
+```bash
+cross build --release --target x86_64-pc-windows-gnu --target-dir target/win
+```
+
+### Linux ARMv7 GNU
+
+```bash
+cross build --release --target armv7-unknown-linux-gnueabihf --target-dir target/arm
+```
+
+## Assets Pak
+
+### Build or rebuild `assets.pak`
+
+```bash
+cargo run --bin pak_builder --release -- --root assets --out dist/assets.pak
+```
+
+### Build or rebuild `assets.pak` in the release directory
+
+```bash
+cargo run --bin pak_builder --release -- --root assets --out target/release/assets.pak
+```
+
+## Bugs
+
+- Cross-platform support needs to be revisited
+- Mouse capture needs to happen on program start
+- Make god mode activate with the canonical `M + I + L` command
+- Change View size does not respect menu UI

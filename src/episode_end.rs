@@ -893,7 +893,7 @@ fn tick_bj_cutscene(
 
 					cut.walk_frame = (cut.walk_frame + 1) % 4;
 
-					if let Some(mat) = materials.get_mut(&cut.bj_material) {
+					if let Some(mut mat) = materials.get_mut(&cut.bj_material) {
 						mat.base_color_texture = Some(images.bj_victory_walk[cut.walk_frame].clone());
 					}
 				}
@@ -913,7 +913,7 @@ fn tick_bj_cutscene(
 
 					cut.walk_frame = (cut.walk_frame + 1) % 4;
 
-					if let Some(mat) = materials.get_mut(&cut.bj_material) {
+					if let Some(mut mat) = materials.get_mut(&cut.bj_material) {
 						mat.base_color_texture = Some(images.bj_victory_walk[cut.walk_frame].clone());
 					}
 
@@ -949,7 +949,7 @@ fn tick_bj_cutscene(
 
 						cut.stage = BjCutsceneStage::Done;
 						cut.stage_timer = Timer::from_seconds(BJ_DONE_HOLD_SECS, TimerMode::Once);
-					} else if let Some(mat) = materials.get_mut(&cut.bj_material) {
+					} else if let Some(mut mat) = materials.get_mut(&cut.bj_material) {
 						mat.base_color_texture = Some(images.bj_victory_jump[cut.jump_frame].clone());
 					}
 				}

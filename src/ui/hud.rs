@@ -2372,23 +2372,23 @@ fn spawn_game_over_overlay(commands: &mut Commands, parent: Entity, ui_font: Han
             go.spawn((
                 Text::new("GAME OVER"),
                 TextFont {
-                    font: ui_font.clone(),
-                    font_size: 64.0,
+                    font: FontSource::Handle(ui_font.clone()),
+                    font_size: FontSize::Px(64.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
-                TextLayout::new_with_justify(Justify::Center),
+                TextLayout::justify(Justify::Center),
             ));
 
             go.spawn((
                 Text::new("Press ENTER to Continue ..."),
                 TextFont {
-                    font: ui_font.clone(),
-                    font_size: 24.0,
+                    font: FontSource::Handle(ui_font.clone()),
+                    font_size: FontSize::Px(24.0),
                     ..default()
                 },
                 TextColor(Color::WHITE),
-                TextLayout::new_with_justify(Justify::Center),
+                TextLayout::justify(Justify::Center),
             ));
         });
     });

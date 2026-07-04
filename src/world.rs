@@ -750,7 +750,7 @@ pub fn setup(
 	commands.spawn((
 		PointLight {
 			intensity: 2_000_000.0,
-			shadows_enabled: false,
+			shadow_maps_enabled: false,
 			..default()
 		},
 		Transform::from_translation(room_center + Vec3::new(0.0, 6.0, 0.0)),
