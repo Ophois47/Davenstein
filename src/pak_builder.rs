@@ -1,6 +1,7 @@
 /*
 Davenstein - by David Petnick
 */
+
 use std::fs::{self, File};
 use std::io::{
 	self,
@@ -62,8 +63,8 @@ fn main() -> io::Result<()> {
 	f.seek(SeekFrom::Start(0))?;
 	write_header(&mut f, index_offset, index_len)?;
 
-	eprintln!("wrote {}", out.display());
-	eprintln!("files {}", entries.len());
+	eprintln!("Wrote '{}'", out.display());
+	eprintln!("Files: '{}'", entries.len());
 	Ok(())
 }
 

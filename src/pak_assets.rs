@@ -1,10 +1,15 @@
 /*
 Davenstein - by David Petnick
 */
+
 use bevy::{
 	asset::{
 		io::{
-			AssetReader, AssetReaderError, PathStream, Reader, SliceReader,
+			AssetReader,
+			AssetReaderError,
+			PathStream,
+			Reader,
+			SliceReader,
 		},
 	},
 	prelude::*,
@@ -34,21 +39,21 @@ impl Plugin for PakAssetsPlugin {
 		}
 
 		let Some(pak_path) = resolve_pak_path() else {
-			warn!("pak enabled but no pak path resolved");
+			warn!("Pak enabled but no pak path resolved");
 			return;
 		};
 
 		if !pak_path.exists() {
-			warn!("assets.pak not found at {}", pak_path.display());
+			warn!("Your assets.pak was not found at {}", pak_path.display());
 			return;
 		}
 
-		info!("using assets.pak {}", pak_path.display());
+		info!("Using assets.pak '{}'", pak_path.display());
 
 		let inner = match PakAssetReader::open(pak_path.as_path()) {
 			Ok(r) => r.inner,
 			Err(err) => {
-				warn!("failed to open pak {}: {}", pak_path.display(), err);
+				warn!("Failed to open pak {}: {}", pak_path.display(), err);
 				return;
 			}
 		};
@@ -191,16 +196,16 @@ fn norm_dir(p: &Path) -> String {
 
 fn parse_header(mmap: &[u8]) -> io::Result<(u64, u64)> {
 	if mmap.len() < 24 {
-		return Err(io::Error::new(io::ErrorKind::InvalidData, "pak header too small"));
+		return Err(io::Error::new(io::ErrorKind::InvalidData, "Pak header too small"));
 	}
 
 	if mmap[0..4] != MAGIC {
-		return Err(io::Error::new(io::ErrorKind::InvalidData, "pak bad magic"));
+		return Err(io::Error::new(io::ErrorKind::InvalidData, "Pak bad magic"));
 	}
 
 	let ver = u32::from_le_bytes(mmap[4..8].try_into().unwrap());
 	if ver != VERSION {
-		return Err(io::Error::new(io::ErrorKind::InvalidData, "pak bad version"));
+		return Err(io::Error::new(io::ErrorKind::InvalidData, "Pak bad version"));
 	}
 
 	let index_offset = u64::from_le_bytes(mmap[8..16].try_into().unwrap());
@@ -214,13 +219,13 @@ fn parse_index(mmap: &[u8], index_offset: u64, index_len: u64) -> io::Result<Has
 	let end = (index_offset + index_len) as usize;
 
 	if end > mmap.len() || off > end {
-		return Err(io::Error::new(io::ErrorKind::InvalidData, "pak index out of range"));
+		return Err(io::Error::new(io::ErrorKind::InvalidData, "Pak index out of range"));
 	}
 
 	let mut cur = off;
 
 	if cur + 4 > end {
-		return Err(io::Error::new(io::ErrorKind::InvalidData, "pak index missing count"));
+		return Err(io::Error::new(io::ErrorKind::InvalidData, "Pak index missing count"));
 	}
 
 	let count = u32::from_le_bytes(mmap[cur..cur + 4].try_into().unwrap()) as usize;
@@ -230,22 +235,22 @@ fn parse_index(mmap: &[u8], index_offset: u64, index_len: u64) -> io::Result<Has
 
 	for _ in 0..count {
 		if cur + 2 > end {
-			return Err(io::Error::new(io::ErrorKind::InvalidData, "pak index truncated"));
+			return Err(io::Error::new(io::ErrorKind::InvalidData, "Pak index truncated"));
 		}
 
 		let plen = u16::from_le_bytes(mmap[cur..cur + 2].try_into().unwrap()) as usize;
 		cur += 2;
 
 		if cur + plen > end {
-			return Err(io::Error::new(io::ErrorKind::InvalidData, "pak index bad path"));
+			return Err(io::Error::new(io::ErrorKind::InvalidData, "Pak index bad path"));
 		}
 
 		let path = std::str::from_utf8(&mmap[cur..cur + plen])
-			.map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "pak path utf8"))?;
+			.map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Pak path utf8"))?;
 		cur += plen;
 
 		if cur + 16 > end {
-			return Err(io::Error::new(io::ErrorKind::InvalidData, "pak index missing entry"));
+			return Err(io::Error::new(io::ErrorKind::InvalidData, "Pak index missing entry"));
 		}
 
 		let offset = u64::from_le_bytes(mmap[cur..cur + 8].try_into().unwrap());
