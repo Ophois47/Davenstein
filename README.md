@@ -80,6 +80,5 @@ cargo run --bin pak_builder --release -- --root assets --out target/release/asse
 ## Bugs
 
 - Cross-platform support needs to be revisited
-- Mouse capture needs to happen on program start
 - Make god mode activate with the canonical `M + I + L` command
 - Change View size does not respect menu UI

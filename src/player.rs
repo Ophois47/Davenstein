@@ -6,6 +6,7 @@ use bevy::window::{
     CursorGrabMode,
     CursorOptions,
     PrimaryWindow,
+    Window,
 };
 use bevy::input::mouse::AccumulatedMouseMotion;
 
@@ -95,31 +96,53 @@ pub fn toggle_god_mode(
     }
 }
 
+pub fn cursor_is_captured(grab_mode: CursorGrabMode) -> bool {
+    grab_mode != CursorGrabMode::None
+}
+
 pub fn grab_mouse(
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     lock: Res<PlayerControlLock>,
-    mut q_cursor: Query<&mut CursorOptions, With<PrimaryWindow>>,
+    mut startup_frames: Local<u8>,
+    mut startup_grab_done: Local<bool>,
+    mut q_cursor: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
 ) {
-    let Some(mut cursor) = q_cursor.iter_mut().next() else {
+    let Some((window, mut cursor)) = q_cursor.iter_mut().next() else {
         return;
     };
 
     // Release: LCtrl
-    // Works Even While Menus Up / Controls Locked
+    // Works even while menus are up / controls are locked
     if keys.just_pressed(KeyCode::ControlLeft) {
         cursor.visible = true;
         cursor.grab_mode = CursorGrabMode::None;
+        *startup_grab_done = true;
         return;
     }
 
-    // Do NOT Auto-Release Just Because in Menu / Locked
-    // Menus Keyboard Only
+    // Startup grab must wait until the OS has mapped/focused the window
+    if !*startup_grab_done {
+        if *startup_frames < 3 {
+            *startup_frames += 1;
+            return;
+        }
+
+        if window.focused {
+            cursor.visible = false;
+            cursor.grab_mode = CursorGrabMode::Locked;
+            *startup_grab_done = true;
+            return;
+        }
+    }
+
+    // Do not auto-release just because in menu / locked
+    // Menus are keyboard only
     if lock.0 {
         return;
     }
 
-    // Grab: Click Window
+    // Grab: click window after manual release
     if mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Right) {
         cursor.visible = false;
         cursor.grab_mode = CursorGrabMode::Locked;
@@ -137,7 +160,7 @@ pub fn mouse_look(
         return;
     }
 
-    if cursor_options.grab_mode != CursorGrabMode::Locked {
+    if !cursor_is_captured(cursor_options.grab_mode) {
         return;
     }
 

@@ -4,7 +4,6 @@ Davenstein - by David Petnick
 use bevy::ecs::system::ParamSet;
 use bevy::prelude::*;
 use bevy::window::{
-    CursorGrabMode,
     CursorOptions,
     PrimaryWindow,
 };
@@ -16,6 +15,7 @@ use super::{
 };
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::player::{
+    cursor_is_captured,
     GodMode,
     Player,
     PlayerControlLock,
@@ -516,7 +516,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     let dt_secs = dt.as_secs_f32();
 
     // Only Allow Weapon Selection / Firing While Mouse is Locked
-    let locked = cursor.grab_mode == CursorGrabMode::Locked;
+    let locked = cursor_is_captured(cursor.grab_mode);
     if !locked {
         locals.armed = false;
         locals.fire_anim_accum = 0.0;

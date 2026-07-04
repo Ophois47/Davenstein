@@ -226,10 +226,7 @@ fn main() {
 			Update,
 			toggle_god_mode.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
 		)
-		.add_systems(
-			Update,
-			grab_mouse.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
-		)
+		.add_systems(Update, grab_mouse)
 		.add_systems(
 			Update,
 			mouse_look.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
