@@ -10,8 +10,31 @@ Left Control `LCtrl` releases the mouse from the window
 
 ### Linux
 
+Build the release executable and rebuild `assets.pak` into `target/release`
+
+```bash
+./build_create_assets.sh
+```
+
+Or build manually with:
+
 ```bash
 cargo update && cargo build --release
+cargo run --bin pak_builder --release -- --root assets --out target/release/assets.pak
+```
+
+### Windows PowerShell
+
+Build the release executable and rebuild `assets.pak` into `target\release`
+
+```powershell
+.\build_create_assets.ps1
+```
+
+If PowerShell blocks the script, run it once with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build_create_assets.ps1
 ```
 
 ## Cross Compilation
