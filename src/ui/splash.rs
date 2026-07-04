@@ -3,6 +3,7 @@ Davenstein - by David Petnick
 */
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use bevy::ui::widget::NodeImageMode;
 use bevy::window::{
     PrimaryWindow,
     WindowResized,
@@ -66,6 +67,14 @@ const PSYCHED_SPR_H: f32 = 40.0;
 
 const PSYCHED_TEAL: Color = Color::srgb(0.00, 0.55, 0.55);
 const PSYCHED_RED: Color = Color::srgb(0.80, 0.00, 0.00);
+
+fn splash_stretch_image(image: Handle<Image>) -> ImageNode {
+    ImageNode {
+        image,
+        image_mode: NodeImageMode::Stretch,
+        ..default()
+    }
+}
 
 const BASE_W: f32 = 320.0;
 const BASE_H: f32 = 200.0;
@@ -3947,7 +3956,7 @@ fn spawn_scores_ui(
     // Centered score banner image inside the black band
     commands.spawn((
         SplashUi,
-        ImageNode::new(banner),
+        splash_stretch_image(banner),
         Node {
             width: Val::Px(banner_w),
             height: Val::Px(banner_h),
@@ -4147,7 +4156,7 @@ fn spawn_load_select_ui(
 
     commands.spawn((
         SplashUi,
-        ImageNode::new(banner),
+        splash_stretch_image(banner),
         Node {
             width: Val::Px(banner_w),
             height: Val::Px(banner_h),
@@ -4361,7 +4370,7 @@ fn spawn_menu_hint(
 
     // Full-Width Banner
     commands.spawn((
-        ImageNode::new(banner),
+        splash_stretch_image(banner),
         Node {
             position_type: PositionType::Absolute,
             left: Val::Px(banner_x),
@@ -6593,7 +6602,7 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
         ))
         .with_children(|root| {
             root.spawn((
-                ImageNode::new(banner),
+                splash_stretch_image(banner),
                 Node {
                     position_type: PositionType::Absolute,
                     left: Val::Px(left),

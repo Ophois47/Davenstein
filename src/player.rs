@@ -90,9 +90,15 @@ pub fn toggle_god_mode(
     keys: Res<ButtonInput<KeyCode>>,
     mut god: ResMut<GodMode>,
 ) {
-    if keys.pressed(KeyCode::Tab) && keys.just_pressed(KeyCode::KeyG) {
+    let mil_pressed = keys.pressed(KeyCode::KeyM)
+        && keys.pressed(KeyCode::KeyI)
+        && keys.pressed(KeyCode::KeyL);
+    let mil_just_completed = keys.just_pressed(KeyCode::KeyM)
+        || keys.just_pressed(KeyCode::KeyI)
+        || keys.just_pressed(KeyCode::KeyL);
+
+    if mil_pressed && mil_just_completed {
         god.0 = !god.0;
-        info!("God Mode: {}", if god.0 { "ON" } else { "OFF" });
     }
 }
 

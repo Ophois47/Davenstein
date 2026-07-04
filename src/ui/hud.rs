@@ -3,6 +3,7 @@ Davenstein - by David Petnick
 */
 use bevy::ecs::system::ParamSet;
 use bevy::prelude::*;
+use bevy::ui::widget::NodeImageMode;
 use bevy::window::{
     CursorOptions,
     PrimaryWindow,
@@ -1369,6 +1370,14 @@ fn load_hud_setup_assets(
     }
 }
 
+fn hud_stretch_image(image: Handle<Image>) -> ImageNode {
+    ImageNode {
+        image,
+        image_mode: NodeImageMode::Stretch,
+        ..default()
+    }
+}
+
 fn compute_hud_layout(q_windows: &Query<&Window, With<PrimaryWindow>>) -> HudLayout {
     // --- Native Wolf HUD Sizing (Current Strip-Only HUD) ---
     const HUD_W: f32 = 320.0;
@@ -1509,7 +1518,7 @@ fn spawn_view_area(
                 // IMPORTANT: tag the image so animation + sizing systems can find it
                 vm.spawn((
                     ViewModelImage,
-                    ImageNode::new(weapon_idle),
+                    hud_stretch_image(weapon_idle),
                     Node {
                         width: Val::Px(gun_px),
                         height: Val::Px(gun_px),
@@ -1812,7 +1821,7 @@ fn spawn_status_bar(
             .with_children(|inner| {
                 inner.spawn((
                     HudStatusBarImage,
-                    ImageNode::new(status_bar.clone()),
+                    hud_stretch_image(status_bar.clone()),
                     ZIndex(0),
                     Node {
                         position_type: PositionType::Absolute,
@@ -1826,7 +1835,7 @@ fn spawn_status_bar(
 
                 inner.spawn((
                     HudFaceImage,
-                    ImageNode::new(hud_faces.bands[0][0].clone()),
+                    hud_stretch_image(hud_faces.bands[0][0].clone()),
                     ZIndex(1),
                     Node {
                         position_type: PositionType::Absolute,
@@ -1840,7 +1849,7 @@ fn spawn_status_bar(
 
                 inner.spawn((
                     HudWeaponIcon,
-                    ImageNode::new(hud_icons.weapon(hud.selected)),
+                    hud_stretch_image(hud_icons.weapon(hud.selected)),
                     ZIndex(1),
                     Node {
                         position_type: PositionType::Absolute,
@@ -1854,7 +1863,7 @@ fn spawn_status_bar(
 
                 inner.spawn((
                     HudGoldKeyIcon,
-                    ImageNode::new(hud_icons.key_gold.clone()),
+                    hud_stretch_image(hud_icons.key_gold.clone()),
                     ZIndex(1),
                     if hud.key_gold {
                         Visibility::Visible
@@ -1873,7 +1882,7 @@ fn spawn_status_bar(
 
                 inner.spawn((
                     HudSilverKeyIcon,
-                    ImageNode::new(hud_icons.key_silver.clone()),
+                    hud_stretch_image(hud_icons.key_silver.clone()),
                     ZIndex(1),
                     if hud.key_silver {
                         Visibility::Visible
@@ -1912,7 +1921,7 @@ fn spawn_status_bar(
                             };
                             floor.spawn((
                                 HudFloorDigit(slot),
-                                ImageNode::new(handle),
+                                hud_stretch_image(handle),
                                 Node {
                                     width: Val::Px(layout.digit_w_px),
                                     height: Val::Px(layout.digit_h_px),
@@ -1942,7 +1951,7 @@ fn spawn_status_bar(
                             };
                             score.spawn((
                                 HudScoreDigit(slot),
-                                ImageNode::new(handle),
+                                hud_stretch_image(handle),
                                 Node {
                                     width: Val::Px(layout.digit_w_px),
                                     height: Val::Px(layout.digit_h_px),
@@ -1972,7 +1981,7 @@ fn spawn_status_bar(
                             };
                             lives.spawn((
                                 HudLivesDigit(slot),
-                                ImageNode::new(handle),
+                                hud_stretch_image(handle),
                                 Node {
                                     width: Val::Px(layout.digit_w_px),
                                     height: Val::Px(layout.digit_h_px),
@@ -2002,7 +2011,7 @@ fn spawn_status_bar(
                             };
                             hp.spawn((
                                 HudHpDigit(slot),
-                                ImageNode::new(handle),
+                                hud_stretch_image(handle),
                                 Node {
                                     width: Val::Px(layout.digit_w_px),
                                     height: Val::Px(layout.digit_h_px),
@@ -2032,7 +2041,7 @@ fn spawn_status_bar(
                             };
                             ammo.spawn((
                                 HudAmmoDigit(slot),
-                                ImageNode::new(handle),
+                                hud_stretch_image(handle),
                                 Node {
                                     width: Val::Px(layout.digit_w_px),
                                     height: Val::Px(layout.digit_h_px),
@@ -2211,7 +2220,7 @@ fn spawn_mission_success_overlay(
             .with_children(|c| {
                 c.spawn((
                     MissionBjCardImage,
-                    ImageNode::new(bj_pistol_0),
+                    hud_stretch_image(bj_pistol_0),
                     Node {
                         position_type: PositionType::Absolute,
                         left: Val::Px(16.0 * overlay_scale),
