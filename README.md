@@ -10,16 +10,22 @@ Left Control `LCtrl` releases the mouse from the window
 
 ### Linux
 
+On Ubuntu, install the required native build dependencies once:
+
+```bash
+./scripts/setup-ubuntu.sh
+```
+
 Build the release executable and rebuild `assets.pak` into `target/release`
 
 ```bash
-./build_create_assets.sh
+./scripts/build_create_assets.sh
 ```
 
 Or build manually with:
 
 ```bash
-cargo update && cargo build --release
+cargo build --release
 cargo run --bin pak_builder --release -- --root assets --out target/release/assets.pak
 ```
 
@@ -28,13 +34,13 @@ cargo run --bin pak_builder --release -- --root assets --out target/release/asse
 Build the release executable and rebuild `assets.pak` into `target\release`
 
 ```powershell
-.\build_create_assets.ps1
+.\scripts\build_create_assets.ps1
 ```
 
 If PowerShell blocks the script, run it once with:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\build_create_assets.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\build_create_assets.ps1
 ```
 
 ## Cross Compilation
@@ -79,5 +85,5 @@ cargo run --bin pak_builder --release -- --root assets --out target/release/asse
 
 ## Bugs
 
-- Cross-platform support needs to be revisited
-- Change View size does not respect menu UI
+- Save and Load banners need to be resized
+- Change View size does not properly respect menu UI
