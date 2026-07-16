@@ -48,57 +48,81 @@ impl std::fmt::Display for SaveError {
 }
 
 /// Directory Where Save Files Live
-/// Native Target Should Use the Platform Data Dir Later
-/// Prototype Uses a Local Folder so It Can Run Anywhere
-fn save_dir() -> PathBuf {
-    // Real Game: dirs::data_dir().join("Davenstein").join("saves")
-    PathBuf::from("saves")
+fn save_dir() -> Result<PathBuf, SaveError> {
+    Ok(davelib::app_paths::save_dir()?)
 }
 
-fn slot_path(slot: u32) -> PathBuf {
-    save_dir().join(format!("savegam{slot}.ron"))
+fn slot_path(slot: u32) -> Result<PathBuf, SaveError> {
+    Ok(save_dir()?.join(format!("savegam{slot}.ron")))
+}
+
+fn push_unique(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if !paths.iter().any(|candidate| candidate == &path) {
+        paths.push(path);
+    }
+}
+
+fn load_paths(slot: u32) -> Result<Vec<PathBuf>, SaveError> {
+    let mut paths = vec![slot_path(slot)?];
+    let filename = format!("savegam{slot}.ron");
+
+    if let Ok(executable_dir) = davelib::app_paths::executable_dir() {
+        push_unique(&mut paths, executable_dir.join("saves").join(&filename));
+    }
+
+    if let Ok(current_dir) = std::env::current_dir() {
+        push_unique(&mut paths, current_dir.join("saves").join(&filename));
+    }
+
+    Ok(paths)
 }
 
 /// Serialize and Write a SaveGame to the Given Slot
 pub fn write_slot(slot: u32, game: &SaveGame) -> Result<(), SaveError> {
-    let dir = save_dir();
+    let dir = save_dir()?;
     std::fs::create_dir_all(&dir)?;
 
     let ron_str = ron::ser::to_string_pretty(game, ron::ser::PrettyConfig::default())
         .map_err(|e| SaveError::Serialize(e.to_string()))?;
 
-    std::fs::write(slot_path(slot), ron_str.as_bytes())?;
+    std::fs::write(slot_path(slot)?, ron_str.as_bytes())?;
     Ok(())
 }
 
 /// Read and Deserialize a SaveGame From the Given Slot
 /// Returns Ok(None) if the Slot Is Empty
 pub fn read_slot(slot: u32) -> Result<Option<SaveGame>, SaveError> {
-    let path = slot_path(slot);
-    if !path.exists() {
-        return Ok(None);
+    for path in load_paths(slot)? {
+        if !path.exists() {
+            continue;
+        }
+
+        let bytes = std::fs::read(&path)?;
+        let text = String::from_utf8_lossy(&bytes);
+
+        let game: SaveGame =
+            ron::from_str(&text).map_err(|e| SaveError::Deserialize(e.to_string()))?;
+
+        if game.version != SAVE_FORMAT_VERSION {
+            return Err(SaveError::VersionMismatch {
+                found: game.version,
+                expected: SAVE_FORMAT_VERSION,
+            });
+        }
+
+        return Ok(Some(game));
     }
 
-    let bytes = std::fs::read(&path)?;
-    let text = String::from_utf8_lossy(&bytes);
-
-    let game: SaveGame =
-        ron::from_str(&text).map_err(|e| SaveError::Deserialize(e.to_string()))?;
-
-    if game.version != SAVE_FORMAT_VERSION {
-        return Err(SaveError::VersionMismatch {
-            found: game.version,
-            expected: SAVE_FORMAT_VERSION,
-        });
-    }
-
-    Ok(Some(game))
+    Ok(None)
 }
 
 /// Whether a Slot Currently Holds a Save
 /// Used by the Load Menu to Show or Grey Out Slots
 pub fn slot_occupied(slot: u32) -> bool {
-    slot_path(slot).exists()
+    match load_paths(slot) {
+        Ok(paths) => paths.into_iter().any(|path| path.exists()),
+        Err(_) => false,
+    }
 }
 
 /// Lightweight Per-Slot Summary For the Load / Save Slot List UI

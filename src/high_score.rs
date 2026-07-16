@@ -1,6 +1,7 @@
 /*
 Davenstein - by David Petnick
 */
+use crate::app_paths;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -38,52 +39,58 @@ impl Default for HighScores {
 }
 
 impl HighScores {
-    fn install_highscores_path() -> Option<PathBuf> {
-        let exe = std::env::current_exe().ok()?;
-        let mut p = exe.parent()?.to_path_buf();
-        p.push("data");
-        std::fs::create_dir_all(&p).ok()?;
-        p.push("highscores.ron");
-        Some(p)
+    fn push_unique(paths: &mut Vec<PathBuf>, path: PathBuf) {
+        if !paths.iter().any(|candidate| candidate == &path) {
+            paths.push(path);
+        }
     }
 
-    fn legacy_highscores_path() -> Option<PathBuf> {
-        #[cfg(debug_assertions)]
-        {
-            let mut p = std::env::current_dir().ok()?;
-            p.push("highscores.ron");
-            return Some(p);
+    fn legacy_highscores_paths() -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+
+        if let Ok(executable_dir) = app_paths::executable_dir() {
+            Self::push_unique(
+                &mut paths,
+                executable_dir.join("data").join("highscores.ron"),
+            );
+            Self::push_unique(&mut paths, executable_dir.join("highscores.ron"));
         }
 
-        #[cfg(not(debug_assertions))]
-        {
-            return dirs::config_dir().and_then(|mut p| {
-                p.push("Davenstein");
-                std::fs::create_dir_all(&p).ok()?;
-                p.push("highscores.ron");
-                Some(p)
-            });
+        if let Ok(current_dir) = std::env::current_dir() {
+            Self::push_unique(&mut paths, current_dir.join("highscores.ron"));
         }
+
+        if let Some(config_dir) = dirs::config_dir() {
+            Self::push_unique(
+                &mut paths,
+                config_dir
+                    .join(app_paths::APP_DIRECTORY_NAME)
+                    .join("highscores.ron"),
+            );
+        }
+
+        paths
     }
 
     fn load_candidates() -> Vec<PathBuf> {
-        let mut out = Vec::new();
+        let mut paths = Vec::new();
 
-        if let Some(p) = Self::install_highscores_path() {
-            out.push(p);
+        if let Ok(path) = app_paths::high_scores_path() {
+            Self::push_unique(&mut paths, path);
         }
 
-        if let Some(p) = Self::legacy_highscores_path() {
-            if !out.iter().any(|x| x == &p) {
-                out.push(p);
-            }
+        for path in Self::legacy_highscores_paths() {
+            Self::push_unique(&mut paths, path);
         }
 
-        out
+        paths
     }
 
     fn save_path() -> Option<PathBuf> {
-        Self::install_highscores_path().or_else(Self::legacy_highscores_path)
+        let path = app_paths::high_scores_path().ok()?;
+        let parent = path.parent()?;
+        std::fs::create_dir_all(parent).ok()?;
+        Some(path)
     }
 
     fn atomic_write(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
@@ -117,14 +124,18 @@ impl HighScores {
 
     pub fn save(&self) {
         let Some(path) = Self::save_path() else {
+            warn!("Unable to resolve the Davenstein high score path");
             return;
         };
 
         let Ok(contents) = ron::ser::to_string_pretty(self, Default::default()) else {
+            warn!("Unable to serialize Davenstein high scores");
             return;
         };
 
-        let _ = Self::atomic_write(&path, &contents);
+        if let Err(error) = Self::atomic_write(&path, &contents) {
+            warn!("Unable to save high scores to {}: {error}", path.display());
+        }
     }
 
     pub fn qualifies(&self, score: i32) -> bool {
