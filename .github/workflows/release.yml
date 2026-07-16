@@ -24,9 +24,6 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Ubuntu build dependencies
-        run: ./scripts/setup-ubuntu.sh
-
       - name: Install cross
         run: cargo install cross --version 0.2.5 --locked
 
@@ -34,7 +31,9 @@ jobs:
         run: cross build --release --target x86_64-pc-windows-gnu --bin Davenstein
 
       - name: Build asset packer
-        run: cargo build --release --bin pak_builder
+        run: |
+          mkdir -p target/release
+          rustc --edition=2024 -O src/pak_builder.rs -o target/release/pak_builder
 
       - name: Build assets
         run: ./target/release/pak_builder --root assets --out assets.pak
