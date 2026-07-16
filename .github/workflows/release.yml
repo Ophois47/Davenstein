@@ -1,0 +1,98 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows installer
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cross
+        run: cargo install cross --version 0.2.5 --locked
+
+      - name: Build Windows game
+        run: cross build --release --target x86_64-pc-windows-gnu --bin Davenstein
+
+      - name: Build asset packer
+        run: cargo build --release --bin pak_builder
+
+      - name: Build assets
+        run: ./target/release/pak_builder --root assets --out assets.pak
+
+      - name: Install NSIS
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends nsis
+
+      - name: Read package version
+        id: version
+        shell: bash
+        run: |
+          version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Stage installer payload
+        run: |
+          rm -rf packaging/windows/payload
+          mkdir -p packaging/windows/payload
+          cp target/x86_64-pc-windows-gnu/release/Davenstein.exe packaging/windows/payload/
+          cp assets.pak packaging/windows/payload/
+          cp README.md packaging/windows/payload/
+
+      - name: Build installer
+        working-directory: packaging/windows
+        run: makensis "-DVERSION=${{ steps.version.outputs.version }}" installer.nsi
+
+      - name: Create checksum
+        working-directory: packaging/windows
+        run: |
+          sha256sum "Davenstein-Setup-${{ steps.version.outputs.version }}.exe" \
+            > "Davenstein-Setup-${{ steps.version.outputs.version }}.exe.sha256"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-Windows-Installer
+          path: |
+            packaging/windows/Davenstein-Setup-*.exe
+            packaging/windows/Davenstein-Setup-*.exe.sha256
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download installer
+        uses: actions/download-artifact@v8
+        with:
+          name: Davenstein-Windows-Installer
+          path: release
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: release/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true

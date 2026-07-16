@@ -1,1 +1,4 @@
 /target
+/packaging/windows/payload/
+/packaging/windows/Davenstein-Setup-*.exe
+/packaging/windows/Davenstein-Setup-*.exe.sha256
