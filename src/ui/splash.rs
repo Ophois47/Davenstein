@@ -49,7 +49,7 @@ pub const SKILL_FACE_3_PATH: &str = "textures/ui/skill_faces/skill_face_3.png";
 pub const MENU_FONT_WHITE_PATH: &str = "textures/ui/menu_font_white.png";
 pub const MENU_FONT_GRAY_PATH: &str = "textures/ui/menu_font_gray.png";
 pub const MENU_FONT_YELLOW_PATH: &str = "textures/ui/menu_font_yellow.png";
-const MENU_FONT_MAP_PATH: &str = "textures/ui/menu_font_packed_map.json";
+const MENU_FONT_MAP_JSON: &str = include_str!("../../assets/textures/ui/menu_font_packed_map.json");
 const EPISODE_THUMBS_ATLAS_PATH: &str = "textures/ui/episode_thumbs_atlas.png";
 pub const MENU_FONT_BLACK_PATH: &str = "textures/ui/episode_end/menu_font_black.png";
 
@@ -156,16 +156,8 @@ static MENU_FONT_MAP: OnceLock<PackedFontMap> = OnceLock::new();
 
 fn menu_font_map() -> &'static PackedFontMap {
     MENU_FONT_MAP.get_or_init(|| {
-        let fs_path = std::path::Path::new("assets").join(MENU_FONT_MAP_PATH);
-        let txt = std::fs::read_to_string(&fs_path).unwrap_or_else(|e| {
-            eprintln!("[menu_font] failed to read {}: {}", fs_path.display(), e);
-            String::from(r#"{"chars":{}}"#)
-        });
-
-        serde_json::from_str::<PackedFontMap>(&txt).unwrap_or_else(|e| {
-            eprintln!("[menu_font] failed to parse {}: {}", fs_path.display(), e);
-            PackedFontMap { chars: HashMap::new() }
-        })
+        serde_json::from_str::<PackedFontMap>(MENU_FONT_MAP_JSON)
+            .expect("embedded menu font map must be valid")
     })
 }
 
