@@ -7,7 +7,9 @@ BUILD_DIR="$ROOT_DIR/target/portable"
 STAGE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/davenstein-portable.XXXXXX")
 
 RELEASE_VERSION=${VERSION:-$(sed -nE 's/^version = "([^"]+)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -n 1)}
-ARCHIVE_BASENAME="Davenstein-${RELEASE_VERSION}-linux-x86_64"
+ARCH=${ARCH:-x86_64}
+BINARY_PATH=${BINARY_PATH:-"$ROOT_DIR/target/release/Davenstein"}
+ARCHIVE_BASENAME="Davenstein-${RELEASE_VERSION}-linux-${ARCH}"
 STAGE_DIR="$STAGE_ROOT/$ARCHIVE_BASENAME"
 ARCHIVE_PATH="$BUILD_DIR/$ARCHIVE_BASENAME.tar.gz"
 
@@ -19,7 +21,7 @@ if [ -z "$RELEASE_VERSION" ]; then
 fi
 
 for required_file in \
-    "$ROOT_DIR/target/release/Davenstein" \
+    "$BINARY_PATH" \
     "$ROOT_DIR/target/release/assets.pak" \
     "$ROOT_DIR/README.md" \
     "$ROOT_DIR/packaging/linux/davenstein.png"
@@ -37,7 +39,7 @@ install -d "$BUILD_DIR"
 install -d -m 755 "$STAGE_DIR"
 
 install -m 755 \
-    "$ROOT_DIR/target/release/Davenstein" \
+    "$BINARY_PATH" \
     "$STAGE_DIR/Davenstein"
 
 install -m 644 \
