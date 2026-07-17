@@ -306,6 +306,15 @@ jobs:
               target/macos/Davenstein.app/Contents/Info.plist
           )" = "com.davidpetnick.davenstein"
 
+          test "$(
+            plutil -extract CFBundleIconFile raw -o - \
+              target/macos/Davenstein.app/Contents/Info.plist
+          )" = "Davenstein.icns"
+
+          test -s             target/macos/Davenstein.app/Contents/Resources/Davenstein.icns
+
+          file             target/macos/Davenstein.app/Contents/Resources/Davenstein.icns
+
           file target/macos/Davenstein.app/Contents/MacOS/Davenstein
           lipo -archs target/macos/Davenstein.app/Contents/MacOS/Davenstein |
             grep -qw arm64

@@ -8,6 +8,8 @@
     <string>Davenstein</string>
     <key>CFBundleExecutable</key>
     <string>Davenstein</string>
+    <key>CFBundleIconFile</key>
+    <string>Davenstein.icns</string>
     <key>CFBundleIdentifier</key>
     <string>com.davidpetnick.davenstein</string>
     <key>CFBundleInfoDictionaryVersion</key>

@@ -7,6 +7,9 @@ BUILD_DIR="$ROOT_DIR/target/macos"
 APP_BUNDLE="$BUILD_DIR/Davenstein.app"
 CONTENTS_DIR="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
+RESOURCES_DIR="$CONTENTS_DIR/Resources"
+ICONSET_DIR="$BUILD_DIR/Davenstein.iconset"
+ICON_SOURCE="$SCRIPT_DIR/Davenstein.png"
 PLIST_TEMPLATE="$SCRIPT_DIR/Info.plist"
 
 CARGO_VERSION=$(sed -nE 's/^version = "([^"]+)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -n 1)
@@ -53,6 +56,7 @@ fi
 for required_file in \
     "$BINARY_PATH" \
     "$ASSETS_PATH" \
+    "$ICON_SOURCE" \
     "$PLIST_TEMPLATE"
 do
     if [ ! -f "$required_file" ]; then
@@ -62,16 +66,22 @@ do
     fi
 done
 
-command -v ditto >/dev/null 2>&1 || {
-    printf 'ditto is required to create the macOS application archive\n' >&2
-    exit 1
-}
+for required_command in ditto sips iconutil
+do
+    command -v "$required_command" >/dev/null 2>&1 || {
+        printf '%s is required to build the macOS application\n' \
+            "$required_command" >&2
+        exit 1
+    }
+done
 
-rm -rf "$APP_BUNDLE"
+rm -rf "$APP_BUNDLE" "$ICONSET_DIR"
 rm -f "$ZIP_PATH" "$ZIP_PATH.sha256"
 
 install -d "$BUILD_DIR"
 install -d -m 755 "$MACOS_DIR"
+install -d -m 755 "$RESOURCES_DIR"
+install -d -m 755 "$ICONSET_DIR"
 
 install -m 755 \
     "$BINARY_PATH" \
@@ -80,6 +90,35 @@ install -m 755 \
 install -m 644 \
     "$ASSETS_PATH" \
     "$MACOS_DIR/assets.pak"
+
+generate_icon() {
+    size=$1
+    filename=$2
+
+    sips \
+        -z "$size" "$size" \
+        "$ICON_SOURCE" \
+        --out "$ICONSET_DIR/$filename" \
+        >/dev/null
+}
+
+generate_icon 16 icon_16x16.png
+generate_icon 32 icon_16x16@2x.png
+generate_icon 32 icon_32x32.png
+generate_icon 64 icon_32x32@2x.png
+generate_icon 128 icon_128x128.png
+generate_icon 256 icon_128x128@2x.png
+generate_icon 256 icon_256x256.png
+generate_icon 512 icon_256x256@2x.png
+generate_icon 512 icon_512x512.png
+generate_icon 1024 icon_512x512@2x.png
+
+iconutil \
+    -c icns \
+    "$ICONSET_DIR" \
+    -o "$RESOURCES_DIR/Davenstein.icns"
+
+rm -rf "$ICONSET_DIR"
 
 sed \
     -e "s/__BUNDLE_SHORT_VERSION__/$BUNDLE_SHORT_VERSION/g" \
