@@ -14,17 +14,17 @@ permissions:
 
 jobs:
   build-windows:
-    name: Build Windows installer
+    name: Build Windows Installer
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out source
+      - name: Check Out Source
         uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Resolve release version
+      - name: Resolve Release Version
         id: version
         shell: bash
         run: |
@@ -38,26 +38,26 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building Windows version $version"
 
-      - name: Install cross
+      - name: Install Cross
         run: cargo install cross --version 0.2.5 --locked
 
-      - name: Build Windows game
+      - name: Build Davenstein for Windows
         run: cross build --release --locked --target x86_64-pc-windows-gnu --bin Davenstein
 
-      - name: Build asset packer
+      - name: Build Asset Packer
         run: |
           mkdir -p target/release
           rustc --edition=2024 -O src/pak_builder.rs -o target/release/pak_builder
 
-      - name: Build assets
+      - name: Build Assets
         run: ./target/release/pak_builder --root assets --out assets.pak
 
-      - name: Install Windows packaging tools
+      - name: Install Windows Packaging Tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends nsis zip
 
-      - name: Stage installer payload
+      - name: Stage Installer Payload
         run: |
           rm -rf packaging/windows/payload
           mkdir -p packaging/windows/payload
@@ -65,30 +65,35 @@ jobs:
           cp assets.pak packaging/windows/payload/
           cp README.md packaging/windows/payload/
 
-      - name: Build installer
+      - name: Build Installer
         working-directory: packaging/windows
         run: makensis "-DVERSION=${{ steps.version.outputs.version }}" installer.nsi
 
-      - name: Build Windows portable archive
+      - name: Build Windows Portable Archive
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: packaging/windows/build-portable.sh
 
-      - name: Create checksum
+      - name: Create Checksum
         working-directory: packaging/windows
         run: |
           sha256sum "Davenstein-Setup-${{ steps.version.outputs.version }}.exe" \
             > "Davenstein-Setup-${{ steps.version.outputs.version }}.exe.sha256"
 
-      - name: Upload installer
+      - name: Stage Windows Release Packages
+        run: |
+          rm -rf target/release-artifacts/windows
+          mkdir -p target/release-artifacts/windows
+          cp packaging/windows/Davenstein-Setup-*.exe target/release-artifacts/windows/
+          cp packaging/windows/Davenstein-Setup-*.exe.sha256 target/release-artifacts/windows/
+          cp target/portable/Davenstein-*-windows-x86_64-portable.zip target/release-artifacts/windows/
+          cp target/portable/Davenstein-*-windows-x86_64-portable.zip.sha256 target/release-artifacts/windows/
+
+      - name: Upload Windows Packages
         uses: actions/upload-artifact@v7
         with:
-          name: Davenstein-Windows-Installer
-          path: |
-            packaging/windows/Davenstein-Setup-*.exe
-            packaging/windows/Davenstein-Setup-*.exe.sha256
-            target/portable/Davenstein-*-windows-x86_64-portable.zip
-            target/portable/Davenstein-*-windows-x86_64-portable.zip.sha256
+          name: Davenstein-Windows-Packages
+          path: target/release-artifacts/windows/*
           if-no-files-found: error
 
   build-linux:
@@ -96,13 +101,13 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Check out source
+      - name: Check Out Source
         uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Linux build dependencies
+      - name: Install Linux Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -119,7 +124,7 @@ jobs:
             libxrandr-dev \
             pkg-config
 
-      - name: Resolve release version
+      - name: Resolve Release Version
         id: version
         shell: bash
         run: |
@@ -133,29 +138,34 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building Linux version $version"
 
-      - name: Build AppImage
+      - name: Build Davenstein AppImage
         run: |
           VERSION="${{ steps.version.outputs.version }}" \
             packaging/linux/build-appimage.sh
 
-      - name: Build Linux portable archive
+      - name: Build Linux Portable Archive
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: packaging/linux/build-portable.sh
 
-      - name: Upload Linux packages
+      - name: Stage Linux Release Packages
+        run: |
+          rm -rf target/release-artifacts/linux
+          mkdir -p target/release-artifacts/linux
+          cp target/appimage/Davenstein-*-x86_64.AppImage target/release-artifacts/linux/
+          cp target/appimage/Davenstein-*-x86_64.AppImage.sha256 target/release-artifacts/linux/
+          cp target/portable/Davenstein-*-linux-x86_64.tar.gz target/release-artifacts/linux/
+          cp target/portable/Davenstein-*-linux-x86_64.tar.gz.sha256 target/release-artifacts/linux/
+
+      - name: Upload Linux Packages
         uses: actions/upload-artifact@v7
         with:
           name: Davenstein-Linux-Packages
-          path: |
-            target/appimage/Davenstein-*-x86_64.AppImage
-            target/appimage/Davenstein-*-x86_64.AppImage.sha256
-            target/portable/Davenstein-*-linux-x86_64.tar.gz
-            target/portable/Davenstein-*-linux-x86_64.tar.gz.sha256
+          path: target/release-artifacts/linux/*
           if-no-files-found: error
 
   release:
-    name: Publish GitHub release
+    name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
       - build-windows
@@ -165,17 +175,17 @@ jobs:
       contents: write
 
     steps:
-      - name: Download release artifacts
+      - name: Download Release Artifacts
         uses: actions/download-artifact@v8
         with:
           pattern: Davenstein-*
           path: release
           merge-multiple: true
 
-      - name: Show release files
+      - name: Show Release Files
         run: find release -maxdepth 1 -type f -printf '%f  %s bytes\n' | sort
 
-      - name: Publish release
+      - name: Publish Davenstein Release
         uses: softprops/action-gh-release@v3
         with:
           files: release/*
