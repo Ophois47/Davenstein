@@ -17,8 +17,11 @@ LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/$L
 LINUXDEPLOY_CHECKSUM_FILE="$ROOT_DIR/packaging/linux/linuxdeploy-x86_64.sha256"
 
 # Allow release automation to override VERSION with the complete Git tag version
-VERSION=${VERSION:-$(sed -nE 's/^version = "([^"]+)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -n 1)}
-OUTPUT_NAME="Davenstein-${VERSION}-x86_64.AppImage"
+RELEASE_VERSION=${VERSION:-$(sed -nE 's/^version = "([^"]+)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -n 1)}
+OUTPUT_NAME="Davenstein-${RELEASE_VERSION}-x86_64.AppImage"
+
+# Prevent the generic VERSION variable from changing appimagetool behavior
+unset VERSION
 
 download_linuxdeploy() {
     temporary_path="${DEFAULT_LINUXDEPLOY}.download"
@@ -88,7 +91,7 @@ elif [ ! -x "$LINUXDEPLOY" ]; then
     exit 1
 fi
 
-if [ -z "$VERSION" ]; then
+if [ -z "$RELEASE_VERSION" ]; then
     printf 'Could not determine the Davenstein version\n' >&2
     exit 1
 fi
@@ -133,6 +136,7 @@ cd "$BUILD_DIR"
 # Exclude WSL-injected Windows paths while linuxdeploy searches for plugins
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 APPIMAGE_EXTRACT_AND_RUN=1 \
+LINUXDEPLOY_OUTPUT_VERSION="$RELEASE_VERSION" \
 "$LINUXDEPLOY" \
     --appdir "$APPDIR" \
     --executable "$APPDIR/usr/bin/Davenstein" \
@@ -140,8 +144,12 @@ APPIMAGE_EXTRACT_AND_RUN=1 \
     --icon-file "$ROOT_DIR/packaging/linux/davenstein.png" \
     --output appimage
 
-# Give the deliverable a stable versioned filename and matching checksum
-mv Davenstein-x86_64.AppImage "$OUTPUT_NAME"
+# Verify the versioned deliverable and generate its matching checksum
+if [ ! -f "$OUTPUT_NAME" ]; then
+    printf 'Expected AppImage was not created at %s\n' "$BUILD_DIR/$OUTPUT_NAME" >&2
+    exit 1
+fi
+
 sha256sum "$OUTPUT_NAME" > "$OUTPUT_NAME.sha256"
 
 printf 'Created %s\n' "$BUILD_DIR/$OUTPUT_NAME"
