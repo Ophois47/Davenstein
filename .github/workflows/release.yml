@@ -234,6 +234,101 @@ jobs:
           path: target/release-artifacts/linux-arm64/*
           if-no-files-found: error
 
+
+  build-macos:
+    name: Build Apple Silicon macOS App
+    runs-on: macos-15
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Resolve Release Version
+        id: version
+        shell: bash
+        run: |
+          cargo_version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            release_version="${GITHUB_REF_NAME#v}"
+          else
+            release_version="$cargo_version"
+          fi
+
+          test -n "$cargo_version"
+          test -n "$release_version"
+
+          echo "cargo_version=$cargo_version" >> "$GITHUB_OUTPUT"
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+          echo "Building Apple Silicon macOS version $release_version"
+
+      - name: Build Davenstein for Apple Silicon
+        run: cargo build --release --locked --bin Davenstein
+
+      - name: Build Asset Packer
+        run: |
+          mkdir -p target/release
+          rustc --edition=2024 -O \
+            src/pak_builder.rs \
+            -o target/release/pak_builder
+
+      - name: Build Assets
+        run: |
+          ./target/release/pak_builder \
+            --root assets \
+            --out target/release/assets.pak
+
+      - name: Build macOS Application Bundle
+        env:
+          VERSION: ${{ steps.version.outputs.release_version }}
+          BUNDLE_SHORT_VERSION: ${{ steps.version.outputs.cargo_version }}
+          BUNDLE_VERSION: ${{ github.run_number }}
+          ARCH: aarch64
+          BINARY_PATH: ${{ github.workspace }}/target/release/Davenstein
+          ASSETS_PATH: ${{ github.workspace }}/target/release/assets.pak
+        run: packaging/macos/build-app.sh
+
+      - name: Validate macOS Application Bundle
+        run: |
+          plutil -lint target/macos/Davenstein.app/Contents/Info.plist
+
+          test "$(
+            plutil -extract CFBundleIdentifier raw -o - \
+              target/macos/Davenstein.app/Contents/Info.plist
+          )" = "com.davidpetnick.davenstein"
+
+          file target/macos/Davenstein.app/Contents/MacOS/Davenstein
+          lipo -archs target/macos/Davenstein.app/Contents/MacOS/Davenstein |
+            grep -qw arm64
+
+          (
+            cd target/macos
+            shasum -a 256 -c Davenstein-*-macos-aarch64.zip.sha256
+          )
+
+      - name: Stage macOS Release Packages
+        run: |
+          rm -rf target/release-artifacts/macos
+          mkdir -p target/release-artifacts/macos
+          cp target/macos/Davenstein-*-macos-aarch64.zip target/release-artifacts/macos/
+          cp target/macos/Davenstein-*-macos-aarch64.zip.sha256 target/release-artifacts/macos/
+
+      - name: Upload macOS Packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-macOS-Apple-Silicon-Packages
+          path: target/release-artifacts/macos/*
+          if-no-files-found: error
+
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
@@ -241,6 +336,7 @@ jobs:
       - build-windows
       - build-linux
       - build-linux-arm64
+      - build-macos
     runs-on: ubuntu-latest
     permissions:
       contents: write
