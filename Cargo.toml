@@ -26,5 +26,11 @@ ron = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Bevy's GilRs gamepad backend uses inotify for device monitoring on FreeBSD.
+# Version 0.11.4 contains the required FreeBSD support. Default features remain
+# disabled so this version constraint does not add unused asynchronous support.
+[target.'cfg(target_os = "freebsd")'.dependencies]
+inotify = { version = "=0.11.4", default-features = false }
+
 [build-dependencies]
 winresource = "0.1.31"

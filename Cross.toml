@@ -7,3 +7,17 @@ pre-build = [
 pre-build = [
   "dpkg --add-architecture arm64 && apt-get update && apt-get install -y --no-install-recommends pkg-config libwayland-dev:arm64 libasound2-dev:arm64 libudev-dev:arm64 libx11-dev:arm64 libxcursor-dev:arm64 libxi-dev:arm64 libxkbcommon-dev:arm64 libxrandr-dev:arm64 && rm -rf /var/lib/apt/lists/*"
 ]
+
+# The modern cross-rs image supplies a FreeBSD 13 amd64 sysroot and helper
+# scripts that unpack official FreeBSD packages into that sysroot. The package
+# helper does not recursively install dependencies, so every library proven
+# necessary by the Bevy platform stack is listed explicitly:
+# - alsa-lib supplies CPAL and Rodio audio support.
+# - libepoll-shim and libffi satisfy the Wayland client dependency chain.
+# - libudev-devd supplies FreeBSD device discovery for GilRs gamepad support.
+# - wayland supplies the native Wayland client libraries and metadata.
+[target.x86_64-unknown-freebsd]
+image = "ghcr.io/cross-rs/x86_64-unknown-freebsd:main"
+pre-build = [
+  "export FREEBSD_MIRROR=$(/freebsd-fetch-best-mirror.sh) && /freebsd-setup-packagesite.sh && /freebsd-install-package.sh alsa-lib libepoll-shim libffi libudev-devd wayland"
+]
