@@ -17,11 +17,12 @@ Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47
 | Linux | x86_64 | AppImage | Normal Linux desktop use |
 | Linux | x86_64 | Portable TAR.GZ | Extracted portable installation |
 | Linux | ARM64 / AArch64 | Portable TAR.GZ | ARM64 Linux systems |
-| macOS | Apple Silicon / ARM64 | Application ZIP | Apple Silicon Macs running macOS 11 or newer |
+| macOS | Universal 2 (Apple Silicon + Intel) | Application ZIP | Recommended for most Macs running macOS 11 or newer |
+| macOS | Apple Silicon / ARM64 | Application ZIP | Smaller package for Apple Silicon Macs |
 
 Every release package is accompanied by a `.sha256` checksum file
 
-The Apple Silicon macOS and Linux ARM64 packages are built and validated in continuous integration. Direct hardware testing is still pending
+The Universal and Apple Silicon macOS packages and the Linux ARM64 package are built and validated in continuous integration. Direct hardware testing is still pending
 
 ### macOS first launch
 
@@ -36,8 +37,6 @@ After extracting the ZIP, try to open `Davenstein.app`. If macOS blocks it:
 5. Confirm by selecting **Open**
 
 Only override this warning for a package downloaded from this repository whose checksum you have verified
-
-Intel macOS builds are not currently provided
 
 ### Verify a checksum
 
