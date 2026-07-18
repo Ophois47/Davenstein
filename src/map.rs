@@ -1,6 +1,7 @@
 /*
 Davenstein - by David Petnick
 */
+
 use bevy::prelude::*;
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]

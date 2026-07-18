@@ -1,8 +1,6 @@
 /*
 Davenstein - by David Petnick
 
-CRITICAL BEVY LIMITATION DOCUMENTED:
-====================================
 Bevy has a hard limit on the number of parameters a system function can accept.
 When this limit is exceeded, you get compiler errors like:
   "the trait `IntoSystem<(), (), _>` is not implemented for fn item"
@@ -41,6 +39,7 @@ These run in sequence via .chain() to maintain the original execution order
    chain() enforces execution order but does not auto-flush deferred Commands
    If same-tick visibility is required, add an apply_deferred boundary between producer and consumer
 */
+
 use bevy::prelude::*;
 use std::collections::{HashSet, HashMap};
 

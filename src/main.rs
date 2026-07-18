@@ -1,12 +1,10 @@
 /*
 Davenstein - by David Petnick
 
-IMPORTANT: Level rebuild scheduling + Bevy 0.18 ordering pitfalls (read before touching schedules)
+IMPORTANT: Level rebuild scheduling + Bevy ordering pitfalls (READ BEFORE TOUCHING SCHEDULES)
 
-Context
 - This project builds the "world" (MapGrid, WolfPlane1, etc.) inside davelib::world::setup using Commands
 - During level transitions (RestartRequested / NewGameRequested / AdvanceLevelRequested) we despawn and rebuild the world at runtime
-
 
 1) Resource validation panic (runtime)
    - Symptom: panic in a system like pickups::spawn_pickups
@@ -38,14 +36,10 @@ Context
      - Keep the per-request “finish” systems (restart_finish / new_game_finish / advance_level_finish) separate and gated individually
      - This avoids duplicate SystemTypeSet instances and preserves deterministic ordering with `.after(...)`
 
-Additional landmines hit (lessons learned)
 - Bevy 0.18+ API surface changes: don’t assume helper functions exist (ex: apply_deferred import failed on Linux build)
-- Don’t assume crate-local modules exist (crate::map / crate::level) after refactors; this project’s source of truth
+- Don’t assume crate-local modules exist (crate::map / crate::level) after refactors; this project's source of truth
   for MapGrid/WolfPlane1 is davelib (use davelib::map::MapGrid and davelib::level::WolfPlane1)
-- Avoid “just chain systems” advice; it can be incompatible with the project’s current Bevy version and can break wiring
-- Make changes surgical: do not remove or unhook existing systems; fix only the minimal scheduling/ordering needed
-
-Summary (what to do going forward)
+- Avoid "just chain systems" advice; it can be incompatible with the project's current Bevy version and can break wiring
 - World-building resources are created via Commands inside setup and may not exist during transitions
 - Guard gameplay systems with world_ready() so they never run without MapGrid/WolfPlane1
 - In PostUpdate, do NOT register multiple instances of setup/spawn systems and then order “after setup”

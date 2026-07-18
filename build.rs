@@ -1,3 +1,7 @@
+/*
+Davenstein - by David Petnick
+*/
+
 fn main() {
     println!("cargo:rerun-if-changed=packaging/windows/Davenstein.ico");
 
