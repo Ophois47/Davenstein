@@ -7,18 +7,31 @@ BUILD_DIR="$ROOT_DIR/target/appimage"
 APPDIR="$BUILD_DIR/Davenstein.AppDir"
 TOOLS_DIR="$BUILD_DIR/tools"
 
+# Preserve the existing x86_64 behavior unless another architecture is requested
+ARCH=${ARCH:-x86_64}
+
+case "$ARCH" in
+    x86_64|aarch64)
+        ;;
+    *)
+        printf 'Unsupported AppImage architecture: %s\n' "$ARCH" >&2
+        exit 1
+        ;;
+esac
+
 # Keep downloaded third-party tooling under target so it never enters the repository
-DEFAULT_LINUXDEPLOY="$TOOLS_DIR/linuxdeploy-x86_64.AppImage"
+LINUXDEPLOY_FILENAME="linuxdeploy-${ARCH}.AppImage"
+DEFAULT_LINUXDEPLOY="$TOOLS_DIR/$LINUXDEPLOY_FILENAME"
 LINUXDEPLOY=${LINUXDEPLOY:-"$DEFAULT_LINUXDEPLOY"}
 
 # Use a dated linuxdeploy release rather than the mutable continuous release
 LINUXDEPLOY_RELEASE="1-alpha-20251107-1"
-LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/$LINUXDEPLOY_RELEASE/linuxdeploy-x86_64.AppImage"
-LINUXDEPLOY_CHECKSUM_FILE="$ROOT_DIR/packaging/linux/linuxdeploy-x86_64.sha256"
+LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/$LINUXDEPLOY_RELEASE/$LINUXDEPLOY_FILENAME"
+LINUXDEPLOY_CHECKSUM_FILE="$ROOT_DIR/packaging/linux/linuxdeploy-${ARCH}.sha256"
 
 # Allow release automation to override VERSION with the complete Git tag version
 RELEASE_VERSION=${VERSION:-$(sed -nE 's/^version = "([^"]+)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -n 1)}
-OUTPUT_NAME="Davenstein-${RELEASE_VERSION}-x86_64.AppImage"
+OUTPUT_NAME="Davenstein-${RELEASE_VERSION}-${ARCH}.AppImage"
 
 # Prevent the generic VERSION variable from changing appimagetool behavior
 unset VERSION
@@ -116,9 +129,9 @@ rustc --edition=2024 -O \
 # Construct every AppDir from scratch to prevent files from prior builds surviving
 rm -rf "$APPDIR"
 rm -f \
-    "$BUILD_DIR"/Davenstein-x86_64.AppImage \
-    "$BUILD_DIR"/Davenstein-*-x86_64.AppImage \
-    "$BUILD_DIR"/Davenstein-*-x86_64.AppImage.sha256
+    "$BUILD_DIR"/Davenstein-"$ARCH".AppImage \
+    "$BUILD_DIR"/Davenstein-*-"$ARCH".AppImage \
+    "$BUILD_DIR"/Davenstein-*-"$ARCH".AppImage.sha256
 
 mkdir -p "$APPDIR/usr/bin"
 

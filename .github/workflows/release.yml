@@ -404,6 +404,111 @@ jobs:
           if-no-files-found: error
 
 
+  build-linux-arm64-appimage:
+    name: Build Linux ARM64 AppImage
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-arm64'
+    runs-on: ubuntu-22.04-arm
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            curl \
+            file \
+            libasound2-dev \
+            libudev-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            pkg-config
+
+      - name: Resolve Release Version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
+          fi
+
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building Linux ARM64 AppImage version $version"
+
+      - name: Build Davenstein ARM64 AppImage
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH: aarch64
+        run: packaging/linux/build-appimage.sh
+
+      - name: Validate Linux ARM64 AppImage
+        shell: bash
+        run: |
+          appimage=$(find target/appimage \
+            -maxdepth 1 \
+            -type f \
+            -name 'Davenstein-*-aarch64.AppImage' \
+            -print \
+            -quit)
+
+          test -n "$appimage"
+          test -f "$appimage.sha256"
+
+          file "$appimage"
+          file "$appimage" | grep -Eiq 'aarch64|arm64'
+
+          (
+            cd target/appimage
+            sha256sum --check "$(basename "$appimage.sha256")"
+          )
+
+          extract_dir="$RUNNER_TEMP/davenstein-linux-arm64-appimage"
+          rm -rf "$extract_dir"
+          mkdir -p "$extract_dir"
+
+          (
+            cd "$extract_dir"
+            "$GITHUB_WORKSPACE/$appimage" --appimage-extract >/dev/null
+          )
+
+          test -e "$extract_dir/squashfs-root/AppRun"
+          test -x "$extract_dir/squashfs-root/usr/bin/Davenstein"
+          test -s "$extract_dir/squashfs-root/usr/bin/assets.pak"
+
+          file "$extract_dir/squashfs-root/usr/bin/Davenstein"
+          file "$extract_dir/squashfs-root/usr/bin/Davenstein" |
+            grep -Eiq 'aarch64|arm64'
+
+      - name: Stage Linux ARM64 AppImage
+        run: |
+          rm -rf target/release-artifacts/linux-arm64-appimage
+          mkdir -p target/release-artifacts/linux-arm64-appimage
+          cp \
+            target/appimage/Davenstein-*-aarch64.AppImage \
+            target/release-artifacts/linux-arm64-appimage/
+          cp \
+            target/appimage/Davenstein-*-aarch64.AppImage.sha256 \
+            target/release-artifacts/linux-arm64-appimage/
+
+      - name: Upload Linux ARM64 AppImage
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-Linux-ARM64-AppImage
+          path: target/release-artifacts/linux-arm64-appimage/*
+          if-no-files-found: error
+
   build-macos:
     name: Build Apple Silicon macOS App
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'macos-arm64' || inputs.build_target == 'macos-universal'
@@ -707,6 +812,7 @@ jobs:
       - build-windows-arm64
       - build-linux
       - build-linux-arm64
+      - build-linux-arm64-appimage
       - build-macos
       - build-macos-universal
     runs-on: ubuntu-latest
