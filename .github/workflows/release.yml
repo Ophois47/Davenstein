@@ -2,6 +2,20 @@ name: Build Davenstein Releases
 
 on:
   workflow_dispatch:
+    inputs:
+      build_target:
+        description: Build only the selected platform during manual runs
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - windows
+          - linux-x86_64
+          - linux-arm64
+          - macos-arm64
+          - macos-intel
+          - macos-universal
   push:
     tags:
       - "v*"
@@ -15,6 +29,7 @@ permissions:
 jobs:
   build-windows:
     name: Build Windows Installer
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'windows'
     runs-on: ubuntu-latest
 
     steps:
@@ -98,6 +113,7 @@ jobs:
 
   build-linux:
     name: Build Linux AppImage
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-x86_64'
     runs-on: ubuntu-22.04
 
     steps:
@@ -166,6 +182,7 @@ jobs:
 
   build-linux-arm64:
     name: Build Linux ARM64 Portable Archive
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-arm64'
     runs-on: ubuntu-22.04
 
     steps:
@@ -237,6 +254,7 @@ jobs:
 
   build-macos:
     name: Build Apple Silicon macOS App
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'macos-arm64' || inputs.build_target == 'macos-universal'
     runs-on: macos-15
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
@@ -343,6 +361,7 @@ jobs:
 
   build-macos-intel:
     name: Build Intel macOS Component
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'macos-intel' || inputs.build_target == 'macos-universal'
     runs-on: macos-15-intel
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
@@ -384,6 +403,7 @@ jobs:
 
   build-macos-universal:
     name: Build Universal macOS App
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'macos-universal'
     needs:
       - build-macos
       - build-macos-intel
