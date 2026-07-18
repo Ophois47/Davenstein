@@ -197,12 +197,6 @@ cross build --release --target armv7-unknown-linux-gnueabihf --target-dir target
 
 FreeBSD releases are cross-compiled from Linux using the target configuration in `Cross.toml`.
 
-Resolve the FreeBSD-compatible `inotify` version in the local dependency lock:
-
-```bash
-cargo update -p inotify --precise 0.11.4
-```
-
 Build the FreeBSD release executable:
 
 ```bash

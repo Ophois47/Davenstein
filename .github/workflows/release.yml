@@ -739,14 +739,6 @@ jobs:
             binutils \
             file
 
-      - name: Resolve FreeBSD Inotify Compatibility
-        run: |
-          # Cargo.lock is intentionally not committed, so refresh only the
-          # FreeBSD-compatible inotify version inside this disposable CI job.
-          cargo update \
-            -p inotify \
-            --precise 0.11.4
-
       - name: Build Davenstein for FreeBSD x86_64
         env:
           CARGO_BUILD_JOBS: 2
