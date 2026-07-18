@@ -1,52 +1,95 @@
 #!/bin/sh
 set -eu
 
-# Resolve every project path from this script so it can be launched from any directory
+#
+# Davenstein - by David Petnick
+#
+# Builds Davenstein's Linux AppImage Package From the Current Release Binary
+# and a Newly Generated DVPK Asset Archive
+#
+# Supported Architectures:
+#     - x86_64
+#     - aarch64
+#
+# Build Process:
+#     - Resolve Repository Paths Relative to this Script
+#     - Select and Verify Architecture-Matched linuxdeploy Tooling
+#     - Build Davenstein With the Committed Cargo Lock File
+#     - Rebuild pak_builder From Current Repository Source
+#     - Generate a Fresh assets.pak
+#     - Construct a Clean AppDir
+#     - Package the AppDir as a Versioned AppImage
+#     - Generate a Matching SHA-256 Checksum
+#
+# linuxdeploy is Pinned to a Dated Upstream Release and Verified Against an
+# Architecture-Specific Checksum Stored in the Repository
+#
+# Downloaded Third-Party Tooling and Temporary Packaging Files Remain Beneath
+# target/appimage so Generated Files Never Enter the Repository
+#
+# Release Automation May Override:
+#     ARCH                 Target AppImage Architecture
+#     VERSION              Complete Release Version or Git Tag
+#     LINUXDEPLOY          Custom linuxdeploy Executable
+#
+# AppImage Output:
+#     Davenstein-<version>-<architecture>.AppImage
+#     Davenstein-<version>-<architecture>.AppImage.sha256
+#
+
+# Resolve Repository Paths Relative to this Script
+# Script May be Launched From Any Working Directory
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 BUILD_DIR="$ROOT_DIR/target/appimage"
 APPDIR="$BUILD_DIR/Davenstein.AppDir"
 TOOLS_DIR="$BUILD_DIR/tools"
 
-# Default to x86_64 so existing local and CI callers retain their original behavior
+# Default to x86_64 for Existing Local and CI Callers
 ARCH=${ARCH:-x86_64}
 
-# Accept only architectures with pinned linuxdeploy tools and validated package paths
+# Supported AppImage Architectures
+# Each Architecture Requires Pinned linuxdeploy Tooling and Validated Packaging
 case "$ARCH" in
     x86_64|aarch64)
         ;;
     *)
-        printf 'Unsupported AppImage architecture: %s\n' "$ARCH" >&2
+        printf 'Unsupported AppImage Architecture: %s\n' "$ARCH" >&2
         exit 1
         ;;
 esac
 
-# Select an architecture-matched linuxdeploy binary so host tools are never mixed
-# Keep downloaded third-party tooling under target so it never enters the repository
+# Architecture-Matched linuxdeploy Tooling
+# Prevents Host Tools From Being Mixed Across Package Architectures
 LINUXDEPLOY_FILENAME="linuxdeploy-${ARCH}.AppImage"
 DEFAULT_LINUXDEPLOY="$TOOLS_DIR/$LINUXDEPLOY_FILENAME"
 LINUXDEPLOY=${LINUXDEPLOY:-"$DEFAULT_LINUXDEPLOY"}
 
-# Use a dated linuxdeploy release rather than the mutable continuous release
+# Pinned linuxdeploy Release
+# Dated Release Prevents Mutable Continuous Builds From Changing Unexpectedly
 LINUXDEPLOY_RELEASE="1-alpha-20251107-1"
 LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/$LINUXDEPLOY_RELEASE/$LINUXDEPLOY_FILENAME"
 
-# Verify each architecture against its independently pinned upstream checksum
+# Architecture-Specific Upstream linuxdeploy Checksum
 LINUXDEPLOY_CHECKSUM_FILE="$ROOT_DIR/packaging/linux/linuxdeploy-${ARCH}.sha256"
 
-# Allow release automation to override VERSION with the complete Git tag version
+# Release Version
+# Release Automation May Override VERSION With the Complete Git Tag Version
 RELEASE_VERSION=${VERSION:-$(sed -nE 's/^version = "([^"]+)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -n 1)}
 
-# Include the architecture so x86_64 and AArch64 release files can coexist
+# Versioned Architecture-Specific AppImage Output Name
 OUTPUT_NAME="Davenstein-${RELEASE_VERSION}-${ARCH}.AppImage"
 
-# Prevent the generic VERSION variable from changing appimagetool behavior
+# Prevent Generic VERSION Variable From Affecting appimagetool Behavior
 unset VERSION
 
+# Downloads the Pinned Architecture-Matched linuxdeploy Release
+# Temporary Download is Moved Into Place Only After curl Completes Successfully
 download_linuxdeploy() {
     temporary_path="${DEFAULT_LINUXDEPLOY}.download"
 
+    # curl is Required Only When Automatic Tool Provisioning is Needed
     command -v curl >/dev/null 2>&1 || {
-        printf 'curl is required to download linuxdeploy\n' >&2
+        printf 'curl is Required to Download linuxdeploy\n' >&2
         exit 1
     }
 
@@ -55,6 +98,7 @@ download_linuxdeploy() {
 
     printf 'Downloading linuxdeploy %s\n' "$LINUXDEPLOY_RELEASE"
 
+    # Retry Transient Network Failures Without Retaining Partial Tool Downloads
     curl -fL \
         --retry 3 \
         --retry-delay 2 \
@@ -65,77 +109,88 @@ download_linuxdeploy() {
     mv "$temporary_path" "$DEFAULT_LINUXDEPLOY"
 }
 
+# Verifies Automatically Managed linuxdeploy Against Repository Checksum
 verify_default_linuxdeploy() {
+    # Checksum File Must Exist for the Selected Architecture
     if [ ! -f "$LINUXDEPLOY_CHECKSUM_FILE" ]; then
-        printf 'linuxdeploy checksum file was not found at %s\n' \
+        printf 'linuxdeploy Checksum File Not Found at %s\n' \
             "$LINUXDEPLOY_CHECKSUM_FILE" >&2
         return 1
     fi
 
+    # Read First Nonempty Checksum and Compare it With Downloaded Executable
     expected_checksum=$(awk 'NF { print $1; exit }' "$LINUXDEPLOY_CHECKSUM_FILE")
     actual_checksum=$(sha256sum "$DEFAULT_LINUXDEPLOY" | awk '{ print $1 }')
 
     if [ -z "$expected_checksum" ]; then
-        printf 'linuxdeploy checksum file is empty\n' >&2
+        printf 'linuxdeploy Checksum File is Empty\n' >&2
         return 1
     fi
 
     if [ "$actual_checksum" != "$expected_checksum" ]; then
-        printf 'linuxdeploy checksum mismatch\n' >&2
+        printf 'linuxdeploy Checksum Mismatch\n' >&2
         printf 'Expected: %s\n' "$expected_checksum" >&2
         printf 'Actual:   %s\n' "$actual_checksum" >&2
         return 1
     fi
 }
 
-# Automatically provision the pinned tool for normal local and CI builds
+# Automatically Provision and Verify Default linuxdeploy Tooling
 if [ "$LINUXDEPLOY" = "$DEFAULT_LINUXDEPLOY" ]; then
+    # Download Tool When No Executable Cached Copy Exists
     if [ ! -x "$DEFAULT_LINUXDEPLOY" ]; then
         download_linuxdeploy
     fi
 
+    # Replace Cached Tool When Checksum Verification Fails
     if ! verify_default_linuxdeploy; then
-        printf 'Replacing the invalid linuxdeploy download\n' >&2
+        printf 'Replacing Invalid linuxdeploy Download\n' >&2
         rm -f "$DEFAULT_LINUXDEPLOY"
         download_linuxdeploy
 
+        # Refuse Packaging When Fresh Download Still Fails Verification
         if ! verify_default_linuxdeploy; then
-            printf 'Downloaded linuxdeploy failed checksum verification\n' >&2
+            printf 'Downloaded linuxdeploy Failed Checksum Verification\n' >&2
             exit 1
         fi
     fi
 elif [ ! -x "$LINUXDEPLOY" ]; then
-    printf 'Custom linuxdeploy executable was not found at %s\n' \
+    # Custom Tool Overrides Must Refer to an Existing Executable
+    printf 'Custom linuxdeploy Executable Not Found at %s\n' \
         "$LINUXDEPLOY" >&2
     exit 1
 fi
 
+# Refuse Unversioned AppImage Output
 if [ -z "$RELEASE_VERSION" ]; then
-    printf 'Could not determine the Davenstein version\n' >&2
+    printf 'Could Not Determine Davenstein Version\n' >&2
     exit 1
 fi
 
 cd "$ROOT_DIR"
 
-# Rebuild the game so an AppImage can never reuse a stale local executable
+# Build Current Davenstein Release Binary
+# --locked Requires Dependency Resolution From the Committed Cargo.lock
 cargo build --release --locked --bin Davenstein
 
 mkdir -p target/release
 
-# Rebuild the standalone PAK generator from the current repository source
+# Build Standalone DVPK Generator From Current Repository Source
 rustc --edition=2024 -O \
     src/pak_builder.rs \
     -o target/release/pak_builder
 
-# Rebuild the complete asset archive so changed assets cannot be omitted
+# Generate Fresh Asset Package From Complete Current Asset Tree
 ./target/release/pak_builder \
     --root assets \
     --out target/release/assets.pak
 
-# Construct every AppDir from scratch to prevent files from prior builds surviving
+# Reconstruct AppDir From Scratch
+# Prevents Files From Earlier Builds Surviving Into New Packages
 rm -rf "$APPDIR"
 
-# Remove only outputs for the selected architecture so package families stay isolated
+# Remove Existing Outputs Only for Selected Architecture
+# Other Architecture Package Families Remain Unchanged
 rm -f \
     "$BUILD_DIR"/Davenstein-"$ARCH".AppImage \
     "$BUILD_DIR"/Davenstein-*-"$ARCH".AppImage \
@@ -143,18 +198,20 @@ rm -f \
 
 mkdir -p "$APPDIR/usr/bin"
 
-# Keep assets.pak beside the executable because the runtime resolves it there
+# Install Release Binary Into AppDir
 install -m 755 \
     target/release/Davenstein \
     "$APPDIR/usr/bin/Davenstein"
 
+# Keep assets.pak Beside Executable for Runtime Package Resolution
 install -m 644 \
     target/release/assets.pak \
     "$APPDIR/usr/bin/assets.pak"
 
 cd "$BUILD_DIR"
 
-# Exclude WSL-injected Windows paths while linuxdeploy searches for plugins
+# Build AppImage With Clean Linux Tool Search Path
+# Excludes WSL-Injected Windows Paths While linuxdeploy Searches for Plugins
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
 APPIMAGE_EXTRACT_AND_RUN=1 \
 LINUXDEPLOY_OUTPUT_VERSION="$RELEASE_VERSION" \
@@ -165,12 +222,13 @@ LINUXDEPLOY_OUTPUT_VERSION="$RELEASE_VERSION" \
     --icon-file "$ROOT_DIR/packaging/linux/davenstein.png" \
     --output appimage
 
-# Verify the versioned deliverable and generate its matching checksum
+# Verify Versioned AppImage Deliverable Was Created
 if [ ! -f "$OUTPUT_NAME" ]; then
     printf 'Expected AppImage was not created at %s\n' "$BUILD_DIR/$OUTPUT_NAME" >&2
     exit 1
 fi
 
+# Generate Matching SHA-256 Checksum for Release Verification
 sha256sum "$OUTPUT_NAME" > "$OUTPUT_NAME.sha256"
 
 printf 'Created %s\n' "$BUILD_DIR/$OUTPUT_NAME"
