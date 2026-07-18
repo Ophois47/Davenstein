@@ -4,6 +4,8 @@ A ground-up recreation of Wolfenstein 3-D, engineered entirely in Rust with Bevy
 
 Created and maintained by **[David Petnick](https://github.com/Ophois47)**
 
+![Davenstein gameplay showing a detailed Wolfenstein-style room rendered in Rust with Bevy](docs/screenshots/davenstein-gameplay-room.png)
+
 ## Releases
 
 Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47/Davenstein/releases)
@@ -18,18 +20,66 @@ Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47
 | Linux | ARM64 / AArch64 | AppImage | Normal ARM64 Linux desktop use |
 | Linux | ARM64 / AArch64 | Portable TAR.GZ | Extracted ARM64 portable installation |
 | Linux | ARMv7 / ARMHF | Portable TAR.GZ | Extracted ARMv7 hard-float portable installation |
+| FreeBSD | x86_64 / AMD64 | Native PKG | Normal FreeBSD 14 installation |
+| FreeBSD | x86_64 / AMD64 | Portable TAR.GZ | Extracted portable installation |
 | macOS | Universal 2 (Apple Silicon + Intel) | Application ZIP | Recommended for most Macs running macOS 11 or newer |
 | macOS | Apple Silicon / ARM64 | Application ZIP | Smaller package for Apple Silicon Macs |
 
 Every release package is accompanied by a `.sha256` checksum file
 
-The Universal and Apple Silicon macOS packages, the Linux ARM64 packages, the Linux ARMv7 portable package, and the Windows ARM64 package are built and validated in continuous integration. Direct hardware testing is still pending
+The Universal and Apple Silicon macOS packages, the Linux ARM64 packages, the Linux ARMv7 portable package, the FreeBSD x86_64 packages, and the Windows ARM64 package are built and validated in continuous integration. The native FreeBSD package is additionally built, installed, integrity-checked, and removed inside a FreeBSD 14.4 virtual machine. Direct interactive hardware testing is still pending
 
 ### Bug reports
 
 Please report all bugs to me, Dave! At: [dpetnick89@gmail.com]
 
 Include the Davenstein version, operating system and architecture, steps to reproduce the problem, and any relevant logs or screenshots. Always remember to check the current README for existing known bugs
+
+### FreeBSD Installation
+
+The native FreeBSD package is built for FreeBSD 14 on x86_64 / AMD64 systems.
+
+Install the required runtime packages:
+
+```sh
+sudo pkg install -y \
+    alsa-lib \
+    libX11 \
+    libXcursor \
+    libXi \
+    libXrandr \
+    libudev-devd \
+    libxkbcommon \
+    wayland
+```
+
+Install the downloaded native package:
+
+```sh
+sudo pkg add Davenstein-*-freebsd-x86_64.pkg
+```
+
+Launch Davenstein from the desktop application menu or from a terminal:
+
+```sh
+Davenstein
+```
+
+Remove the native package with:
+
+```sh
+sudo pkg delete davenstein
+```
+
+For a self-contained portable installation, extract the TAR.GZ and run its launcher:
+
+```sh
+tar -xzf Davenstein-*-freebsd-x86_64.tar.gz
+cd Davenstein-*-freebsd-x86_64
+./run-davenstein.sh
+```
+
+The portable package stores saves and high scores under its own `data/` directory. The native package stores player data under the current user's platform data directory.
 
 ### MacOS First Launch
 
@@ -57,6 +107,21 @@ macOS:
 
 ```bash
 shasum -a 256 -c Davenstein-*.sha256
+```
+
+FreeBSD:
+
+```sh
+for artifact in \
+    Davenstein-*-freebsd-x86_64.pkg \
+    Davenstein-*-freebsd-x86_64.tar.gz
+do
+    expected=$(awk 'NR == 1 { print $1 }' "$artifact.sha256")
+    actual=$(sha256 -q "$artifact")
+
+    test "$actual" = "$expected" || exit 1
+    echo "$artifact: OK"
+done
 ```
 
 ## Build
@@ -128,6 +193,40 @@ cross build --release --target aarch64-unknown-linux-gnu --bin Davenstein
 cross build --release --target armv7-unknown-linux-gnueabihf --target-dir target/arm
 ```
 
+### FreeBSD x86_64
+
+FreeBSD releases are cross-compiled from Linux using the target configuration in `Cross.toml`.
+
+Resolve the FreeBSD-compatible `inotify` version in the local dependency lock:
+
+```bash
+cargo update -p inotify --precise 0.11.4
+```
+
+Build the FreeBSD release executable:
+
+```bash
+cross build \
+    --release \
+    --locked \
+    --target x86_64-unknown-freebsd \
+    --bin Davenstein
+```
+
+The portable TAR.GZ is assembled with:
+
+```bash
+packaging/freebsd/build-portable.sh
+```
+
+The native `.pkg` is created under FreeBSD with:
+
+```sh
+packaging/freebsd/build-package.sh
+```
+
+The release workflow builds and validates both formats, including native installation and removal inside a FreeBSD 14.4 virtual machine.
+
 ## Assets Pak
 
 ### Build or Rebuild `assets.pak`
@@ -150,3 +249,14 @@ Left Control `LCtrl` releases the mouse from the window
 
 - Save and Load banners need to be resized
 - Change View size does not properly respect menu UI
+
+## Screenshots
+
+<p align="center">
+	<img src="docs/screenshots/davenstein-combat.png" alt="Davenstein combat against an enemy soldier" width="49%">
+	<img src="docs/screenshots/davenstein-corridor.png" alt="Davenstein corridor exploration and combat aftermath" width="49%">
+</p>
+
+<p align="center">
+	<img src="docs/screenshots/davenstein-menu.png" alt="Davenstein in-game options menu" width="75%">
+</p>
