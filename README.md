@@ -1,10 +1,8 @@
 # Davenstein
 
-A Wolfenstein 3-D recreation written in Rust with the Bevy engine
+A ground-up recreation of Wolfenstein 3-D, engineered entirely in Rust with Bevy. Davenstein reimplements Wolfenstein 3-D as a native, idiomatic Rust application rather than porting or wrapping the original C code or another legacy engine
 
-## Note
-
-Left Control `LCtrl` releases the mouse from the window
+Created and maintained by **[David Petnick](https://github.com/Ophois47)**
 
 ## Releases
 
@@ -25,7 +23,13 @@ Every release package is accompanied by a `.sha256` checksum file
 
 The Universal and Apple Silicon macOS packages, the Linux ARM64 package, and the Windows ARM64 package are built and validated in continuous integration. Direct hardware testing is still pending
 
-### macOS first launch
+### Bug reports
+
+Please report all bugs to me, Dave! At: [dpetnick89@gmail.com]
+
+Include the Davenstein version, operating system and architecture, steps to reproduce the problem, and any relevant logs or screenshots. Always remember to check the current README for existing known bugs
+
+### MacOS First Launch
 
 The macOS application is currently unsigned and not notarized
 
@@ -39,7 +43,7 @@ After extracting the ZIP, try to open `Davenstein.app`. If macOS blocks it:
 
 Only override this warning for a package downloaded from this repository whose checksum you have verified
 
-### Verify a checksum
+### Verify a Checksum
 
 Linux:
 
@@ -113,7 +117,7 @@ cross build --release --target x86_64-pc-windows-gnu --target-dir target/win
 ### Linux ARM64 GNU
 
 ```bash
-cross build --release --locked --target aarch64-unknown-linux-gnu --bin Davenstein
+cross build --release --target aarch64-unknown-linux-gnu --bin Davenstein
 ```
 
 ### Linux ARMv7 GNU
@@ -124,19 +128,23 @@ cross build --release --target armv7-unknown-linux-gnueabihf --target-dir target
 
 ## Assets Pak
 
-### Build or rebuild `assets.pak`
+### Build or Rebuild `assets.pak`
 
 ```bash
 cargo run --bin pak_builder --release -- --root assets --out dist/assets.pak
 ```
 
-### Build or rebuild `assets.pak` in the release directory
+### Build or Rebuild `assets.pak` in the Release Directory
 
 ```bash
 cargo run --bin pak_builder --release -- --root assets --out target/release/assets.pak
 ```
 
-## Bugs
+## Note!
+
+Left Control `LCtrl` releases the mouse from the window
+
+## Known Bugs
 
 - Save and Load banners need to be resized
 - Change View size does not properly respect menu UI
