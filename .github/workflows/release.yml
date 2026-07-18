@@ -11,6 +11,7 @@ on:
         options:
           - all
           - windows
+          - windows-arm64
           - linux-x86_64
           - linux-arm64
           - macos-arm64
@@ -109,6 +110,157 @@ jobs:
         with:
           name: Davenstein-Windows-Packages
           path: target/release-artifacts/windows/*
+          if-no-files-found: error
+
+  build-windows-arm64:
+    name: Build Windows ARM64 Portable Archive
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'windows-arm64'
+    runs-on: windows-11-arm
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --target aarch64-pc-windows-msvc
+          rustup default stable
+          rustc -vV
+          cargo -vV
+
+      - name: Resolve Release Version
+        id: version
+        shell: pwsh
+        run: |
+          $match = Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1
+
+          if (-not $match) {
+              throw "Could not determine the Davenstein version"
+          }
+
+          $cargoVersion = $match.Matches[0].Groups[1].Value
+
+          if ($env:GITHUB_REF -like "refs/tags/v*") {
+              $version = $env:GITHUB_REF_NAME.Substring(1)
+          } else {
+              $version = $cargoVersion
+          }
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Building Windows ARM64 version $version"
+
+      - name: Build Davenstein for Windows ARM64
+        shell: pwsh
+        env:
+          CARGO_BUILD_JOBS: 2
+        run: cargo build --release --locked --target aarch64-pc-windows-msvc --bin Davenstein
+
+      - name: Validate Windows ARM64 Executable
+        shell: pwsh
+        run: |
+          $headers = & llvm-readobj --file-headers target\aarch64-pc-windows-msvc\release\Davenstein.exe
+          $headers
+
+          if (-not ($headers -match "IMAGE_FILE_MACHINE_ARM64")) {
+              throw "Davenstein.exe is not a Windows ARM64 executable"
+          }
+
+      - name: Build Asset Packer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path target\release | Out-Null
+          rustc --edition=2024 -O src/pak_builder.rs -o target\release\pak_builder.exe
+
+      - name: Build Assets
+        shell: pwsh
+        run: |
+          & .\target\release\pak_builder.exe `
+              --root assets `
+              --out target\release\assets.pak
+
+      - name: Build Windows ARM64 Portable Archive
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $archiveBase = "Davenstein-$version-windows-arm64"
+          $portableRoot = Join-Path $PWD "target\portable"
+          $stageDir = Join-Path $portableRoot $archiveBase
+          $archivePath = Join-Path $portableRoot "$archiveBase-portable.zip"
+          $checksumPath = "$archivePath.sha256"
+
+          Remove-Item -Recurse -Force $stageDir -ErrorAction SilentlyContinue
+          Remove-Item -Force $archivePath, $checksumPath -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
+
+          Copy-Item target\aarch64-pc-windows-msvc\release\Davenstein.exe (Join-Path $stageDir "Davenstein.exe")
+          Copy-Item target\release\assets.pak (Join-Path $stageDir "assets.pak")
+          Copy-Item README.md (Join-Path $stageDir "README.md")
+          Copy-Item packaging\windows\Davenstein.ico (Join-Path $stageDir "Davenstein.ico")
+          New-Item -ItemType File -Force -Path (Join-Path $stageDir "portable.flag") | Out-Null
+
+          Compress-Archive `
+              -LiteralPath $stageDir `
+              -DestinationPath $archivePath `
+              -CompressionLevel Optimal
+
+          $hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $archivePath)" |
+              Set-Content -LiteralPath $checksumPath -Encoding ascii
+
+          Write-Host "Created $archivePath"
+          Write-Host "Created $checksumPath"
+
+      - name: Validate Windows ARM64 Portable Archive
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem target\portable\Davenstein-*-windows-arm64-portable.zip |
+              Select-Object -First 1
+
+          if (-not $archive) {
+              throw "Windows ARM64 portable archive was not created"
+          }
+
+          $extractDir = Join-Path $env:RUNNER_TEMP "davenstein-windows-arm64"
+          Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath $extractDir
+
+          $packageRoot = Get-ChildItem $extractDir -Directory | Select-Object -First 1
+
+          foreach ($name in @(
+              "Davenstein.exe",
+              "assets.pak",
+              "README.md",
+              "Davenstein.ico",
+              "portable.flag"
+          )) {
+              if (-not (Test-Path (Join-Path $packageRoot.FullName $name))) {
+                  throw "Portable archive is missing $name"
+              }
+          }
+
+          $hash = (Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $checksum = Get-Content "$($archive.FullName).sha256"
+
+          if (-not $checksum.Trim().StartsWith($hash)) {
+              throw "Windows ARM64 portable archive checksum does not match"
+          }
+
+      - name: Stage Windows ARM64 Release Packages
+        shell: pwsh
+        run: |
+          $output = "target\release-artifacts\windows-arm64"
+          Remove-Item -Recurse -Force $output -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+
+          Copy-Item target\portable\Davenstein-*-windows-arm64-portable.zip $output
+          Copy-Item target\portable\Davenstein-*-windows-arm64-portable.zip.sha256 $output
+
+      - name: Upload Windows ARM64 Packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-Windows-ARM64-Packages
+          path: target/release-artifacts/windows-arm64/*
           if-no-files-found: error
 
   build-linux:
@@ -552,6 +704,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
       - build-windows
+      - build-windows-arm64
       - build-linux
       - build-linux-arm64
       - build-macos
