@@ -254,3 +254,11 @@ Left Control `LCtrl` releases the mouse from the window
 <p align="center">
 	<img src="docs/screenshots/davenstein-menu.png" alt="Davenstein in-game options menu" width="75%">
 </p>
+
+## Licensing and Third-Party Material
+
+Davenstein's original software is available under either the MIT License or the Apache License, Version 2.0, at your option. See [`LICENSE.md`](LICENSE.md), [`LICENSE-MIT`](LICENSE-MIT), and [`LICENSE-APACHE`](LICENSE-APACHE).
+
+Those software licenses do not apply to Wolfenstein 3D graphics, sounds, music, maps, characters, names, trademarks, or other third-party material included with or depicted by the project. Davenstein does not claim ownership of that material and does not grant permission to reuse or redistribute it.
+
+Davenstein is an independent, unofficial project and is not affiliated with, sponsored by, approved by, or endorsed by ZeniMax Media, Bethesda Softworks, id Software, or Microsoft. Known asset provenance and unresolved rights information are documented in [`THIRD_PARTY_ASSETS.md`](THIRD_PARTY_ASSETS.md).
