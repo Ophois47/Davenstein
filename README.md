@@ -17,12 +17,13 @@ Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47
 | Linux | x86_64 | Portable TAR.GZ | Extracted portable installation |
 | Linux | ARM64 / AArch64 | AppImage | Normal ARM64 Linux desktop use |
 | Linux | ARM64 / AArch64 | Portable TAR.GZ | Extracted ARM64 portable installation |
+| Linux | ARMv7 / ARMHF | Portable TAR.GZ | Extracted ARMv7 hard-float portable installation |
 | macOS | Universal 2 (Apple Silicon + Intel) | Application ZIP | Recommended for most Macs running macOS 11 or newer |
 | macOS | Apple Silicon / ARM64 | Application ZIP | Smaller package for Apple Silicon Macs |
 
 Every release package is accompanied by a `.sha256` checksum file
 
-The Universal and Apple Silicon macOS packages, the Linux ARM64 packages, and the Windows ARM64 package are built and validated in continuous integration. Direct hardware testing is still pending
+The Universal and Apple Silicon macOS packages, the Linux ARM64 packages, the Linux ARMv7 portable package, and the Windows ARM64 package are built and validated in continuous integration. Direct hardware testing is still pending
 
 ### Bug reports
 

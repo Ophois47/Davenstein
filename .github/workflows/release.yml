@@ -405,6 +405,9 @@ jobs:
           if-no-files-found: error
 
 
+  # Cross-compile on an x86_64 GitHub runner because hosted ARMv7 runners are unavailable
+  # Use the gnueabihf target so the release follows the ARMHF hard-float ABI
+  # Keep ARMv7 as a portable archive until an ARMv7 AppImage path is validated
   build-linux-armv7:
     name: Build Linux ARMv7 Portable Archive
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-armv7'
@@ -454,6 +457,7 @@ jobs:
       - name: Validate Linux ARMv7 Executable
         shell: bash
         run: |
+          # Verify the ELF header and ARM attributes instead of trusting only the Rust target name
           binary=target/armv7-unknown-linux-gnueabihf/release/Davenstein
 
           test -x "$binary"
@@ -556,6 +560,7 @@ jobs:
           test -x "$package_root/run-davenstein.sh"
           test -s "$package_root/assets.pak"
 
+          # Revalidate the extracted executable so the uploaded archive retains the target ABI
           file "$package_root/Davenstein"
           file "$package_root/Davenstein" |
             grep -Eq 'ELF 32-bit.*ARM.*EABI5'
