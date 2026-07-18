@@ -14,6 +14,7 @@ Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47
 | --- | --- | --- | --- |
 | Windows | x86_64 | Installer | Normal Windows installation |
 | Windows | x86_64 | Portable ZIP | Portable installation |
+| Windows | ARM64 / AArch64 | Portable ZIP | Windows on ARM systems |
 | Linux | x86_64 | AppImage | Normal Linux desktop use |
 | Linux | x86_64 | Portable TAR.GZ | Extracted portable installation |
 | Linux | ARM64 / AArch64 | Portable TAR.GZ | ARM64 Linux systems |
@@ -22,7 +23,7 @@ Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47
 
 Every release package is accompanied by a `.sha256` checksum file
 
-The Universal and Apple Silicon macOS packages and the Linux ARM64 package are built and validated in continuous integration. Direct hardware testing is still pending
+The Universal and Apple Silicon macOS packages, the Linux ARM64 package, and the Windows ARM64 package are built and validated in continuous integration. Direct hardware testing is still pending
 
 ### macOS first launch
 
