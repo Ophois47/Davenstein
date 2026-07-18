@@ -311,9 +311,11 @@ jobs:
               target/macos/Davenstein.app/Contents/Info.plist
           )" = "Davenstein.icns"
 
-          test -s             target/macos/Davenstein.app/Contents/Resources/Davenstein.icns
+          test -s \
+            target/macos/Davenstein.app/Contents/Resources/Davenstein.icns
 
-          file             target/macos/Davenstein.app/Contents/Resources/Davenstein.icns
+          file \
+            target/macos/Davenstein.app/Contents/Resources/Davenstein.icns
 
           file target/macos/Davenstein.app/Contents/MacOS/Davenstein
           lipo -archs target/macos/Davenstein.app/Contents/MacOS/Davenstein |
@@ -338,6 +340,193 @@ jobs:
           path: target/release-artifacts/macos/*
           if-no-files-found: error
 
+
+  build-macos-intel:
+    name: Build Intel macOS Component
+    runs-on: macos-15-intel
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Build Davenstein for Intel macOS
+        run: cargo build --release --locked --bin Davenstein
+
+      - name: Validate Intel macOS Executable
+        run: |
+          file target/release/Davenstein
+          lipo -archs target/release/Davenstein |
+            grep -qw x86_64
+
+      - name: Stage Intel macOS Component
+        run: |
+          rm -rf target/macos-intel-component
+          mkdir -p target/macos-intel-component
+          cp \
+            target/release/Davenstein \
+            target/macos-intel-component/Davenstein-x86_64
+
+      - name: Upload Intel macOS Component
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-x86_64-component
+          path: target/macos-intel-component/*
+          if-no-files-found: error
+
+  build-macos-universal:
+    name: Build Universal macOS App
+    needs:
+      - build-macos
+      - build-macos-intel
+    runs-on: macos-15
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      - name: Resolve Release Version
+        id: version
+        shell: bash
+        run: |
+          cargo_version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            release_version="${GITHUB_REF_NAME#v}"
+          else
+            release_version="$cargo_version"
+          fi
+
+          test -n "$cargo_version"
+          test -n "$release_version"
+
+          echo "cargo_version=$cargo_version" >> "$GITHUB_OUTPUT"
+          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
+          echo "Building Universal macOS version $release_version"
+
+      - name: Download Apple Silicon macOS Package
+        uses: actions/download-artifact@v8
+        with:
+          name: Davenstein-macOS-Apple-Silicon-Packages
+          path: target/macos-arm64-package
+
+      - name: Download Intel macOS Component
+        uses: actions/download-artifact@v8
+        with:
+          name: macos-x86_64-component
+          path: target/macos-intel-component
+
+      - name: Create Universal macOS Executable
+        shell: bash
+        run: |
+          rm -rf target/macos-universal-input target/macos-universal
+          mkdir -p target/macos-universal-input target/macos-universal
+
+          arm_zip=$(
+            find target/macos-arm64-package \
+              -maxdepth 1 \
+              -type f \
+              -name 'Davenstein-*-macos-aarch64.zip' \
+              -print \
+              -quit
+          )
+
+          test -n "$arm_zip"
+
+          ditto \
+            -x \
+            -k \
+            "$arm_zip" \
+            target/macos-universal-input
+
+          arm_binary=target/macos-universal-input/Davenstein.app/Contents/MacOS/Davenstein
+          intel_binary=target/macos-intel-component/Davenstein-x86_64
+          universal_binary=target/macos-universal/Davenstein
+
+          test -f "$arm_binary"
+          test -f "$intel_binary"
+
+          lipo \
+            -create \
+            "$arm_binary" \
+            "$intel_binary" \
+            -output "$universal_binary"
+
+          chmod 755 "$universal_binary"
+
+          file "$universal_binary"
+          lipo -archs "$universal_binary" |
+            grep -qw arm64
+          lipo -archs "$universal_binary" |
+            grep -qw x86_64
+
+      - name: Build Universal macOS Application Bundle
+        env:
+          VERSION: ${{ steps.version.outputs.release_version }}
+          BUNDLE_SHORT_VERSION: ${{ steps.version.outputs.cargo_version }}
+          BUNDLE_VERSION: ${{ github.run_number }}
+          ARCH: universal
+          BINARY_PATH: ${{ github.workspace }}/target/macos-universal/Davenstein
+          ASSETS_PATH: ${{ github.workspace }}/target/macos-universal-input/Davenstein.app/Contents/MacOS/assets.pak
+        run: packaging/macos/build-app.sh
+
+      - name: Validate Universal macOS Application Bundle
+        run: |
+          plutil -lint target/macos/Davenstein.app/Contents/Info.plist
+
+          test "$(
+            plutil -extract CFBundleIdentifier raw -o - \
+              target/macos/Davenstein.app/Contents/Info.plist
+          )" = "com.davidpetnick.davenstein"
+
+          test "$(
+            plutil -extract CFBundleIconFile raw -o - \
+              target/macos/Davenstein.app/Contents/Info.plist
+          )" = "Davenstein.icns"
+
+          test -s \
+            target/macos/Davenstein.app/Contents/Resources/Davenstein.icns
+
+          file target/macos/Davenstein.app/Contents/MacOS/Davenstein
+
+          lipo -archs target/macos/Davenstein.app/Contents/MacOS/Davenstein |
+            grep -qw arm64
+          lipo -archs target/macos/Davenstein.app/Contents/MacOS/Davenstein |
+            grep -qw x86_64
+
+          (
+            cd target/macos
+            shasum -a 256 -c Davenstein-*-macos-universal.zip.sha256
+          )
+
+      - name: Stage Universal macOS Release Packages
+        run: |
+          rm -rf target/release-artifacts/macos-universal
+          mkdir -p target/release-artifacts/macos-universal
+          cp \
+            target/macos/Davenstein-*-macos-universal.zip \
+            target/release-artifacts/macos-universal/
+          cp \
+            target/macos/Davenstein-*-macos-universal.zip.sha256 \
+            target/release-artifacts/macos-universal/
+
+      - name: Upload Universal macOS Packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-macOS-Universal-Packages
+          path: target/release-artifacts/macos-universal/*
+          if-no-files-found: error
+
   release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
@@ -346,6 +535,7 @@ jobs:
       - build-linux
       - build-linux-arm64
       - build-macos
+      - build-macos-universal
     runs-on: ubuntu-latest
     permissions:
       contents: write
