@@ -7,7 +7,12 @@ PAYLOAD_DIR="$ROOT_DIR/packaging/windows/payload"
 BUILD_DIR="$ROOT_DIR/target/portable"
 
 RELEASE_VERSION=${VERSION:-$(sed -nE 's/^version = "([^"]+)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -n 1)}
-ARCHIVE_BASENAME="Davenstein-${RELEASE_VERSION}-windows-x86_64"
+ARCH=${ARCH:-x86_64}
+BINARY_PATH=${BINARY_PATH:-"$PAYLOAD_DIR/Davenstein.exe"}
+ASSETS_PATH=${ASSETS_PATH:-"$PAYLOAD_DIR/assets.pak"}
+README_PATH=${README_PATH:-"$PAYLOAD_DIR/README.md"}
+ICON_PATH=${ICON_PATH:-"$ROOT_DIR/packaging/windows/Davenstein.ico"}
+ARCHIVE_BASENAME="Davenstein-${RELEASE_VERSION}-windows-${ARCH}"
 STAGE_DIR="$BUILD_DIR/$ARCHIVE_BASENAME"
 ARCHIVE_PATH="$BUILD_DIR/$ARCHIVE_BASENAME-portable.zip"
 
@@ -17,10 +22,10 @@ if [ -z "$RELEASE_VERSION" ]; then
 fi
 
 for required_file in \
-    "$PAYLOAD_DIR/Davenstein.exe" \
-    "$PAYLOAD_DIR/assets.pak" \
-    "$PAYLOAD_DIR/README.md" \
-    "$ROOT_DIR/packaging/windows/Davenstein.ico"
+    "$BINARY_PATH" \
+    "$ASSETS_PATH" \
+    "$README_PATH" \
+    "$ICON_PATH"
 do
     if [ ! -f "$required_file" ]; then
         printf 'Required portable-build input was not found at %s\n' \
@@ -40,19 +45,19 @@ rm -f "$ARCHIVE_PATH" "$ARCHIVE_PATH.sha256"
 install -d "$STAGE_DIR"
 
 install -m 755 \
-    "$PAYLOAD_DIR/Davenstein.exe" \
+    "$BINARY_PATH" \
     "$STAGE_DIR/Davenstein.exe"
 
 install -m 644 \
-    "$PAYLOAD_DIR/assets.pak" \
+    "$ASSETS_PATH" \
     "$STAGE_DIR/assets.pak"
 
 install -m 644 \
-    "$PAYLOAD_DIR/README.md" \
+    "$README_PATH" \
     "$STAGE_DIR/README.md"
 
 install -m 644 \
-    "$ROOT_DIR/packaging/windows/Davenstein.ico" \
+    "$ICON_PATH" \
     "$STAGE_DIR/Davenstein.ico"
 
 : > "$STAGE_DIR/portable.flag"
