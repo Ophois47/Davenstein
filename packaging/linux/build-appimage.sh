@@ -7,9 +7,10 @@ BUILD_DIR="$ROOT_DIR/target/appimage"
 APPDIR="$BUILD_DIR/Davenstein.AppDir"
 TOOLS_DIR="$BUILD_DIR/tools"
 
-# Preserve the existing x86_64 behavior unless another architecture is requested
+# Default to x86_64 so existing local and CI callers retain their original behavior
 ARCH=${ARCH:-x86_64}
 
+# Accept only architectures with pinned linuxdeploy tools and validated package paths
 case "$ARCH" in
     x86_64|aarch64)
         ;;
@@ -19,6 +20,7 @@ case "$ARCH" in
         ;;
 esac
 
+# Select an architecture-matched linuxdeploy binary so host tools are never mixed
 # Keep downloaded third-party tooling under target so it never enters the repository
 LINUXDEPLOY_FILENAME="linuxdeploy-${ARCH}.AppImage"
 DEFAULT_LINUXDEPLOY="$TOOLS_DIR/$LINUXDEPLOY_FILENAME"
@@ -27,10 +29,14 @@ LINUXDEPLOY=${LINUXDEPLOY:-"$DEFAULT_LINUXDEPLOY"}
 # Use a dated linuxdeploy release rather than the mutable continuous release
 LINUXDEPLOY_RELEASE="1-alpha-20251107-1"
 LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/$LINUXDEPLOY_RELEASE/$LINUXDEPLOY_FILENAME"
+
+# Verify each architecture against its independently pinned upstream checksum
 LINUXDEPLOY_CHECKSUM_FILE="$ROOT_DIR/packaging/linux/linuxdeploy-${ARCH}.sha256"
 
 # Allow release automation to override VERSION with the complete Git tag version
 RELEASE_VERSION=${VERSION:-$(sed -nE 's/^version = "([^"]+)"/\1/p' "$ROOT_DIR/Cargo.toml" | head -n 1)}
+
+# Include the architecture so x86_64 and AArch64 release files can coexist
 OUTPUT_NAME="Davenstein-${RELEASE_VERSION}-${ARCH}.AppImage"
 
 # Prevent the generic VERSION variable from changing appimagetool behavior
@@ -128,6 +134,8 @@ rustc --edition=2024 -O \
 
 # Construct every AppDir from scratch to prevent files from prior builds surviving
 rm -rf "$APPDIR"
+
+# Remove only outputs for the selected architecture so package families stay isolated
 rm -f \
     "$BUILD_DIR"/Davenstein-"$ARCH".AppImage \
     "$BUILD_DIR"/Davenstein-*-"$ARCH".AppImage \

@@ -404,6 +404,9 @@ jobs:
           if-no-files-found: error
 
 
+  # Build natively because linuxdeploy and appimagetool must run on ARM64
+  # Keep this separate from the cross-compiled archive so both proven paths stay isolated
+  # The linux-arm64 manual selection intentionally runs both ARM64 package jobs
   build-linux-arm64-appimage:
     name: Build Linux ARM64 AppImage
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-arm64'
@@ -447,6 +450,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building Linux ARM64 AppImage version $version"
 
+      # The generalized script builds natively for the runner architecture
+      # ARCH selects the matching linuxdeploy tool, checksum, cleanup, and output name
       - name: Build Davenstein ARM64 AppImage
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -466,6 +471,7 @@ jobs:
           test -n "$appimage"
           test -f "$appimage.sha256"
 
+          # Validate the AppImage runtime itself before inspecting its contents
           file "$appimage"
           file "$appimage" | grep -Eiq 'aarch64|arm64'
 
@@ -474,6 +480,7 @@ jobs:
             sha256sum --check "$(basename "$appimage.sha256")"
           )
 
+          # Extract on the native runner because x86_64 hosts cannot execute this runtime
           extract_dir="$RUNNER_TEMP/davenstein-linux-arm64-appimage"
           rm -rf "$extract_dir"
           mkdir -p "$extract_dir"
@@ -483,10 +490,12 @@ jobs:
             "$GITHUB_WORKSPACE/$appimage" --appimage-extract >/dev/null
           )
 
+          # Require the launcher, game executable, and complete asset package
           test -e "$extract_dir/squashfs-root/AppRun"
           test -x "$extract_dir/squashfs-root/usr/bin/Davenstein"
           test -s "$extract_dir/squashfs-root/usr/bin/assets.pak"
 
+          # Confirm the packaged game binary matches the ARM64 AppImage runtime
           file "$extract_dir/squashfs-root/usr/bin/Davenstein"
           file "$extract_dir/squashfs-root/usr/bin/Davenstein" |
             grep -Eiq 'aarch64|arm64'
@@ -811,6 +820,7 @@ jobs:
       - build-windows
       - build-windows-arm64
       - build-linux
+      # Require both Linux ARM64 package formats before publishing a tagged release
       - build-linux-arm64
       - build-linux-arm64-appimage
       - build-macos
