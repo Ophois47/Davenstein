@@ -70,6 +70,11 @@ for required_file in \
     "$BINARY_PATH" \
     "$ROOT_DIR/target/release/assets.pak" \
     "$ROOT_DIR/README.md" \
+    "$ROOT_DIR/LICENSE.md" \
+    "$ROOT_DIR/LICENSE-MIT" \
+    "$ROOT_DIR/LICENSE-APACHE" \
+    "$ROOT_DIR/COPYRIGHT.md" \
+    "$ROOT_DIR/THIRD_PARTY_ASSETS.md" \
     "$ROOT_DIR/packaging/linux/davenstein.png"
 do
     if [ ! -f "$required_file" ]; then
@@ -100,6 +105,19 @@ install -m 644 \
 install -m 644 \
     "$ROOT_DIR/README.md" \
     "$STAGE_DIR/README.md"
+
+# Include Software Licenses, Copyright, and Third-Party Asset Information
+for legal_file in \
+    LICENSE.md \
+    LICENSE-MIT \
+    LICENSE-APACHE \
+    COPYRIGHT.md \
+    THIRD_PARTY_ASSETS.md
+do
+    install -m 644 \
+        "$ROOT_DIR/$legal_file" \
+        "$STAGE_DIR/$legal_file"
+done
 
 # Include Davenstein Application Icon With Portable Release
 install -m 644 \
