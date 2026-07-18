@@ -73,7 +73,7 @@ jobs:
       - name: Install Windows Packaging Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends nsis zip
+          sudo apt-get install -y --no-install-recommends nsis unzip zip
 
       - name: Stage Installer Payload
         run: |
@@ -82,6 +82,13 @@ jobs:
           cp target/x86_64-pc-windows-gnu/release/Davenstein.exe packaging/windows/payload/
           cp assets.pak packaging/windows/payload/
           cp README.md packaging/windows/payload/
+          cp \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md \
+            packaging/windows/payload/
 
       - name: Build Installer
         working-directory: packaging/windows
@@ -91,6 +98,62 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: packaging/windows/build-portable.sh
+
+      - name: Validate Windows Portable Archive
+        shell: bash
+        run: |
+          archive=$(find target/portable \
+            -maxdepth 1 \
+            -type f \
+            -name 'Davenstein-*-windows-x86_64-portable.zip' \
+            -print \
+            -quit)
+
+          test -n "$archive"
+          test -f "$archive.sha256"
+
+          (
+            cd target/portable
+            sha256sum --check "$(basename "$archive.sha256")"
+          )
+
+          extract_dir="$RUNNER_TEMP/davenstein-windows-x86_64"
+
+          rm -rf "$extract_dir"
+          mkdir -p "$extract_dir"
+
+          unzip -q "$archive" -d "$extract_dir"
+
+          package_root=$(find "$extract_dir" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -print \
+            -quit)
+
+          test -n "$package_root"
+
+          for name in \
+            Davenstein.exe \
+            assets.pak \
+            README.md \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md \
+            Davenstein.ico \
+            portable.flag
+          do
+            test -e "$package_root/$name"
+          done
+
+          test -s "$package_root/Davenstein.exe"
+          test -s "$package_root/assets.pak"
+
+          file "$package_root/Davenstein.exe"
+          file "$package_root/Davenstein.exe" |
+            grep -Eiq 'PE32\+.*x86-64'
 
       - name: Create Checksum
         working-directory: packaging/windows
@@ -198,6 +261,17 @@ jobs:
           Copy-Item target\aarch64-pc-windows-msvc\release\Davenstein.exe (Join-Path $stageDir "Davenstein.exe")
           Copy-Item target\release\assets.pak (Join-Path $stageDir "assets.pak")
           Copy-Item README.md (Join-Path $stageDir "README.md")
+
+          foreach ($name in @(
+              "LICENSE.md",
+              "LICENSE-MIT",
+              "LICENSE-APACHE",
+              "COPYRIGHT.md",
+              "THIRD_PARTY_ASSETS.md"
+          )) {
+              Copy-Item $name (Join-Path $stageDir $name)
+          }
+
           Copy-Item packaging\windows\Davenstein.ico (Join-Path $stageDir "Davenstein.ico")
           New-Item -ItemType File -Force -Path (Join-Path $stageDir "portable.flag") | Out-Null
 
@@ -233,6 +307,11 @@ jobs:
               "Davenstein.exe",
               "assets.pak",
               "README.md",
+              "LICENSE.md",
+              "LICENSE-MIT",
+              "LICENSE-APACHE",
+              "COPYRIGHT.md",
+              "THIRD_PARTY_ASSETS.md",
               "Davenstein.ico",
               "portable.flag"
           )) {
