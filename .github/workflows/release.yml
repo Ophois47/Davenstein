@@ -14,6 +14,7 @@ on:
           - windows-arm64
           - linux-x86_64
           - linux-arm64
+          - linux-armv7
           - macos-arm64
           - macos-intel
           - macos-universal
@@ -403,6 +404,184 @@ jobs:
           path: target/release-artifacts/linux-arm64/*
           if-no-files-found: error
 
+
+  build-linux-armv7:
+    name: Build Linux ARMv7 Portable Archive
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-armv7'
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolve Release Version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
+          fi
+
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building Linux ARMv7 version $version"
+
+      - name: Install Cross
+        run: cargo install cross --version 0.2.5 --locked
+
+      - name: Install Validation Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils \
+            file
+
+      - name: Build Davenstein for Linux ARMv7
+        env:
+          CARGO_BUILD_JOBS: 2
+        run: |
+          cross build \
+            --release \
+            --locked \
+            --target armv7-unknown-linux-gnueabihf \
+            --bin Davenstein
+
+      - name: Validate Linux ARMv7 Executable
+        shell: bash
+        run: |
+          binary=target/armv7-unknown-linux-gnueabihf/release/Davenstein
+
+          test -x "$binary"
+
+          file "$binary"
+          file "$binary" |
+            grep -Eq 'ELF 32-bit.*ARM.*EABI5'
+
+          readelf -h "$binary" |
+            tee "$RUNNER_TEMP/davenstein-armv7-elf-header.txt"
+
+          grep -Eq \
+            'Class:[[:space:]]+ELF32' \
+            "$RUNNER_TEMP/davenstein-armv7-elf-header.txt"
+
+          grep -Eq \
+            'Machine:[[:space:]]+ARM' \
+            "$RUNNER_TEMP/davenstein-armv7-elf-header.txt"
+
+          grep -Eq \
+            'Flags:.*Version5 EABI.*hard-float ABI' \
+            "$RUNNER_TEMP/davenstein-armv7-elf-header.txt"
+
+          readelf -A "$binary" |
+            tee "$RUNNER_TEMP/davenstein-armv7-attributes.txt"
+
+          grep -Eq \
+            'Tag_CPU_arch:[[:space:]]+v7' \
+            "$RUNNER_TEMP/davenstein-armv7-attributes.txt"
+
+          grep -Eq \
+            'Tag_ABI_VFP_args:[[:space:]]+VFP registers' \
+            "$RUNNER_TEMP/davenstein-armv7-attributes.txt"
+
+      - name: Build Asset Packer
+        run: |
+          mkdir -p target/release
+          rustc --edition=2024 -O \
+            src/pak_builder.rs \
+            -o target/release/pak_builder
+
+      - name: Build Assets
+        run: |
+          ./target/release/pak_builder \
+            --root assets \
+            --out target/release/assets.pak
+
+      - name: Build Linux ARMv7 Portable Archive
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH: armv7
+          BINARY_PATH: ${{ github.workspace }}/target/armv7-unknown-linux-gnueabihf/release/Davenstein
+        run: packaging/linux/build-portable.sh
+
+      - name: Validate Linux ARMv7 Portable Archive
+        shell: bash
+        run: |
+          archive=$(find target/portable \
+            -maxdepth 1 \
+            -type f \
+            -name 'Davenstein-*-linux-armv7.tar.gz' \
+            -print \
+            -quit)
+
+          test -n "$archive"
+          test -f "$archive.sha256"
+
+          (
+            cd target/portable
+            sha256sum --check "$(basename "$archive.sha256")"
+          )
+
+          extract_dir="$RUNNER_TEMP/davenstein-linux-armv7"
+          rm -rf "$extract_dir"
+          mkdir -p "$extract_dir"
+
+          tar -xzf "$archive" -C "$extract_dir"
+
+          package_root=$(find "$extract_dir" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -print \
+            -quit)
+
+          test -n "$package_root"
+
+          for name in \
+            Davenstein \
+            assets.pak \
+            README.md \
+            davenstein.png \
+            portable.flag \
+            run-davenstein.sh
+          do
+            test -e "$package_root/$name"
+          done
+
+          test -x "$package_root/Davenstein"
+          test -x "$package_root/run-davenstein.sh"
+          test -s "$package_root/assets.pak"
+
+          file "$package_root/Davenstein"
+          file "$package_root/Davenstein" |
+            grep -Eq 'ELF 32-bit.*ARM.*EABI5'
+
+          readelf -h "$package_root/Davenstein" |
+            grep -Eq 'Flags:.*Version5 EABI.*hard-float ABI'
+
+      - name: Stage Linux ARMv7 Release Packages
+        run: |
+          rm -rf target/release-artifacts/linux-armv7
+          mkdir -p target/release-artifacts/linux-armv7
+
+          cp \
+            target/portable/Davenstein-*-linux-armv7.tar.gz \
+            target/release-artifacts/linux-armv7/
+
+          cp \
+            target/portable/Davenstein-*-linux-armv7.tar.gz.sha256 \
+            target/release-artifacts/linux-armv7/
+
+      - name: Upload Linux ARMv7 Packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-Linux-ARMv7-Packages
+          path: target/release-artifacts/linux-armv7/*
+          if-no-files-found: error
 
   # Build natively because linuxdeploy and appimagetool must run on ARM64
   # Keep this separate from the cross-compiled archive so both proven paths stay isolated
@@ -820,8 +999,9 @@ jobs:
       - build-windows
       - build-windows-arm64
       - build-linux
-      # Require both Linux ARM64 package formats before publishing a tagged release
+      # Require every supported Linux ARM release package before publishing a tagged release
       - build-linux-arm64
+      - build-linux-armv7
       - build-linux-arm64-appimage
       - build-macos
       - build-macos-universal
