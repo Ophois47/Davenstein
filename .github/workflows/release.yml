@@ -397,6 +397,104 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: packaging/linux/build-portable.sh
 
+      - name: Validate Linux x86_64 Packages
+        shell: bash
+        run: |
+          appimage=$(find target/appimage \
+            -maxdepth 1 \
+            -type f \
+            -name 'Davenstein-*-x86_64.AppImage' \
+            -print \
+            -quit)
+
+          portable=$(find target/portable \
+            -maxdepth 1 \
+            -type f \
+            -name 'Davenstein-*-linux-x86_64.tar.gz' \
+            -print \
+            -quit)
+
+          test -n "$appimage"
+          test -n "$portable"
+          test -f "$appimage.sha256"
+          test -f "$portable.sha256"
+
+          (
+            cd target/appimage
+            sha256sum --check "$(basename "$appimage.sha256")"
+          )
+
+          (
+            cd target/portable
+            sha256sum --check "$(basename "$portable.sha256")"
+          )
+
+          appimage_extract="$RUNNER_TEMP/davenstein-linux-x86_64-appimage"
+          portable_extract="$RUNNER_TEMP/davenstein-linux-x86_64-portable"
+
+          rm -rf "$appimage_extract" "$portable_extract"
+          mkdir -p "$appimage_extract" "$portable_extract"
+
+          (
+            cd "$appimage_extract"
+            "$GITHUB_WORKSPACE/$appimage" --appimage-extract >/dev/null
+          )
+
+          appimage_root="$appimage_extract/squashfs-root"
+
+          test -e "$appimage_root/AppRun"
+          test -x "$appimage_root/usr/bin/Davenstein"
+          test -s "$appimage_root/usr/bin/assets.pak"
+
+          for legal_file in \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md
+          do
+            test -f "$appimage_root/usr/share/doc/davenstein/$legal_file"
+          done
+
+          file "$appimage_root/usr/bin/Davenstein"
+          file "$appimage_root/usr/bin/Davenstein" |
+            grep -Eiq 'ELF 64-bit.*x86-64'
+
+          tar -xzf "$portable" -C "$portable_extract"
+
+          package_root=$(find "$portable_extract" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -print \
+            -quit)
+
+          test -n "$package_root"
+
+          for name in \
+            Davenstein \
+            assets.pak \
+            README.md \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md \
+            davenstein.png \
+            portable.flag \
+            run-davenstein.sh
+          do
+            test -e "$package_root/$name"
+          done
+
+          test -x "$package_root/Davenstein"
+          test -x "$package_root/run-davenstein.sh"
+          test -s "$package_root/assets.pak"
+
+          file "$package_root/Davenstein"
+          file "$package_root/Davenstein" |
+            grep -Eiq 'ELF 64-bit.*x86-64'
+
       - name: Stage Linux Release Packages
         run: |
           rm -rf target/release-artifacts/linux
@@ -469,6 +567,64 @@ jobs:
           ARCH: aarch64
           BINARY_PATH: ${{ github.workspace }}/target/aarch64-unknown-linux-gnu/release/Davenstein
         run: packaging/linux/build-portable.sh
+
+      - name: Validate Linux ARM64 Portable Archive
+        shell: bash
+        run: |
+          archive=$(find target/portable \
+            -maxdepth 1 \
+            -type f \
+            -name 'Davenstein-*-linux-aarch64.tar.gz' \
+            -print \
+            -quit)
+
+          test -n "$archive"
+          test -f "$archive.sha256"
+
+          (
+            cd target/portable
+            sha256sum --check "$(basename "$archive.sha256")"
+          )
+
+          extract_dir="$RUNNER_TEMP/davenstein-linux-aarch64"
+
+          rm -rf "$extract_dir"
+          mkdir -p "$extract_dir"
+
+          tar -xzf "$archive" -C "$extract_dir"
+
+          package_root=$(find "$extract_dir" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -print \
+            -quit)
+
+          test -n "$package_root"
+
+          for name in \
+            Davenstein \
+            assets.pak \
+            README.md \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md \
+            davenstein.png \
+            portable.flag \
+            run-davenstein.sh
+          do
+            test -e "$package_root/$name"
+          done
+
+          test -x "$package_root/Davenstein"
+          test -x "$package_root/run-davenstein.sh"
+          test -s "$package_root/assets.pak"
+
+          file "$package_root/Davenstein"
+          file "$package_root/Davenstein" |
+            grep -Eiq 'ELF 64-bit.*(aarch64|ARM aarch64)'
 
       - name: Stage Linux ARM64 Release Packages
         run: |
@@ -629,6 +785,11 @@ jobs:
             Davenstein \
             assets.pak \
             README.md \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md \
             davenstein.png \
             portable.flag \
             run-davenstein.sh
@@ -758,6 +919,17 @@ jobs:
           test -e "$extract_dir/squashfs-root/AppRun"
           test -x "$extract_dir/squashfs-root/usr/bin/Davenstein"
           test -s "$extract_dir/squashfs-root/usr/bin/assets.pak"
+
+          for legal_file in \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md
+          do
+            test -f \
+              "$extract_dir/squashfs-root/usr/share/doc/davenstein/$legal_file"
+          done
 
           # Confirm the packaged game binary matches the ARM64 AppImage runtime
           file "$extract_dir/squashfs-root/usr/bin/Davenstein"
@@ -970,6 +1142,11 @@ jobs:
             Davenstein \
             assets.pak \
             README.md \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md \
             davenstein.png \
             portable.flag \
             run-davenstein.sh
@@ -1116,6 +1293,17 @@ jobs:
           test -s /usr/local/libexec/davenstein/assets.pak
           test -f /usr/local/share/applications/davenstein.desktop
           test -f /usr/local/share/doc/davenstein/README.md
+
+          for legal_file in \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md
+          do
+            test -f "/usr/local/share/doc/davenstein/$legal_file"
+          done
+
           test -f /usr/local/share/icons/hicolor/256x256/apps/davenstein.png
           test ! -e /usr/local/libexec/davenstein/portable.flag
 
@@ -1133,6 +1321,17 @@ jobs:
           test ! -e /usr/local/libexec/davenstein/assets.pak
           test ! -e /usr/local/share/applications/davenstein.desktop
           test ! -e /usr/local/share/doc/davenstein/README.md
+
+          for legal_file in \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md
+          do
+            test ! -e "/usr/local/share/doc/davenstein/$legal_file"
+          done
+
           test ! -e /usr/local/share/icons/hicolor/256x256/apps/davenstein.png
 
       - name: Stage FreeBSD Release Packages
@@ -1251,6 +1450,17 @@ jobs:
           file target/macos/Davenstein.app/Contents/MacOS/Davenstein
           lipo -archs target/macos/Davenstein.app/Contents/MacOS/Davenstein |
             grep -qw arm64
+
+          for legal_file in \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md
+          do
+            test -f \
+              "target/macos/Davenstein.app/Contents/Resources/Documentation/$legal_file"
+          done
 
           (
             cd target/macos
@@ -1436,6 +1646,17 @@ jobs:
             grep -qw arm64
           lipo -archs target/macos/Davenstein.app/Contents/MacOS/Davenstein |
             grep -qw x86_64
+
+          for legal_file in \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md
+          do
+            test -f \
+              "target/macos/Davenstein.app/Contents/Resources/Documentation/$legal_file"
+          done
 
           (
             cd target/macos
