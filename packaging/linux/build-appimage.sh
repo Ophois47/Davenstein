@@ -169,6 +169,21 @@ fi
 
 cd "$ROOT_DIR"
 
+# Validate Required Legal Documents Before Starting the Release Build
+for legal_file in \
+    LICENSE.md \
+    LICENSE-MIT \
+    LICENSE-APACHE \
+    COPYRIGHT.md \
+    THIRD_PARTY_ASSETS.md
+do
+    if [ ! -f "$ROOT_DIR/$legal_file" ]; then
+        printf 'Required legal document was not found at %s\n' \
+            "$ROOT_DIR/$legal_file" >&2
+        exit 1
+    fi
+done
+
 # Build Current Davenstein Release Binary
 # --locked Requires Dependency Resolution From the Committed Cargo.lock
 cargo build --release --locked --bin Davenstein
@@ -207,6 +222,21 @@ install -m 755 \
 install -m 644 \
     target/release/assets.pak \
     "$APPDIR/usr/bin/assets.pak"
+
+# Include Software Licenses, Copyright, and Third-Party Asset Information
+install -d -m 755 "$APPDIR/usr/share/doc/davenstein"
+
+for legal_file in \
+    LICENSE.md \
+    LICENSE-MIT \
+    LICENSE-APACHE \
+    COPYRIGHT.md \
+    THIRD_PARTY_ASSETS.md
+do
+    install -m 644 \
+        "$ROOT_DIR/$legal_file" \
+        "$APPDIR/usr/share/doc/davenstein/$legal_file"
+done
 
 cd "$BUILD_DIR"
 
