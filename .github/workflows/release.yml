@@ -15,6 +15,7 @@ on:
           - linux-x86_64
           - linux-arm64
           - linux-armv7
+          - freebsd-x86_64
           - macos-arm64
           - macos-intel
           - macos-universal
@@ -702,6 +703,397 @@ jobs:
           path: target/release-artifacts/linux-arm64-appimage/*
           if-no-files-found: error
 
+  build-freebsd:
+    name: Build FreeBSD x86_64 Packages
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'freebsd-x86_64'
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Resolve Release Version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
+          fi
+
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building FreeBSD x86_64 version $version"
+
+      - name: Install Cross
+        run: cargo install cross --version 0.2.5 --locked
+
+      - name: Install FreeBSD Validation Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils \
+            file
+
+      - name: Resolve FreeBSD Inotify Compatibility
+        run: |
+          # Cargo.lock is intentionally not committed, so refresh only the
+          # FreeBSD-compatible inotify version inside this disposable CI job.
+          cargo update \
+            -p inotify \
+            --precise 0.11.4
+
+      - name: Build Davenstein for FreeBSD x86_64
+        env:
+          CARGO_BUILD_JOBS: 2
+        run: |
+          cross build \
+            --release \
+            --locked \
+            --target x86_64-unknown-freebsd \
+            --bin Davenstein
+
+      - name: Validate and Strip FreeBSD Executable
+        shell: bash
+        run: |
+          binary=target/x86_64-unknown-freebsd/release/Davenstein
+          stripped=target/freebsd-stripped/Davenstein
+
+          test -x "$binary"
+
+          file "$binary"
+          file "$binary" |
+            grep -Eq 'ELF 64-bit.*x86-64.*FreeBSD'
+
+          readelf -h "$binary" |
+            tee "$RUNNER_TEMP/davenstein-freebsd-elf-header.txt"
+
+          grep -Eq \
+            'Class:[[:space:]]+ELF64' \
+            "$RUNNER_TEMP/davenstein-freebsd-elf-header.txt"
+
+          grep -Eq \
+            'OS/ABI:[[:space:]]+UNIX - FreeBSD' \
+            "$RUNNER_TEMP/davenstein-freebsd-elf-header.txt"
+
+          grep -Eq \
+            'Type:[[:space:]]+DYN' \
+            "$RUNNER_TEMP/davenstein-freebsd-elf-header.txt"
+
+          grep -Eq \
+            'Machine:[[:space:]]+Advanced Micro Devices X86-64' \
+            "$RUNNER_TEMP/davenstein-freebsd-elf-header.txt"
+
+          readelf -l "$binary" |
+            tee "$RUNNER_TEMP/davenstein-freebsd-program-headers.txt"
+
+          grep -Fq \
+            '[Requesting program interpreter: /libexec/ld-elf.so.1]' \
+            "$RUNNER_TEMP/davenstein-freebsd-program-headers.txt"
+
+          stack_header=$(
+            readelf -W -l "$binary" |
+              grep GNU_STACK
+          )
+
+          printf '%s\n' "$stack_header"
+
+          printf '%s\n' "$stack_header" |
+            grep -Eq '[[:space:]]RW[[:space:]]'
+
+          if printf '%s\n' "$stack_header" | grep -q 'RWE'; then
+            echo "FreeBSD executable unexpectedly requests an executable stack" >&2
+            exit 1
+          fi
+
+          if readelf -d "$binary" |
+              grep -Eq 'TEXTREL|FLAGS.*TEXTREL'
+          then
+            echo "FreeBSD executable unexpectedly contains text relocations" >&2
+            exit 1
+          fi
+
+          readelf -d "$binary" |
+            tee "$RUNNER_TEMP/davenstein-freebsd-dynamic-section.txt"
+
+          grep -Fq \
+            'Shared library: [libwayland-client.so.0]' \
+            "$RUNNER_TEMP/davenstein-freebsd-dynamic-section.txt"
+
+          grep -Fq \
+            'Shared library: [libasound.so.2]' \
+            "$RUNNER_TEMP/davenstein-freebsd-dynamic-section.txt"
+
+          mkdir -p "$(dirname "$stripped")"
+          install -m 755 "$binary" "$stripped"
+
+          # Use the target-aware strip utility supplied by the same FreeBSD
+          # cross image that provides the build sysroot.
+          docker run --rm \
+            -v "$PWD:/work" \
+            --entrypoint /usr/local/bin/x86_64-unknown-freebsd13-strip \
+            ghcr.io/cross-rs/x86_64-unknown-freebsd:main \
+            /work/"$stripped"
+
+          test -x "$stripped"
+
+          file "$stripped"
+          file "$stripped" |
+            grep -Eq 'ELF 64-bit.*x86-64.*FreeBSD.*stripped'
+
+          readelf -l "$stripped" |
+            grep -Fq \
+              '[Requesting program interpreter: /libexec/ld-elf.so.1]'
+
+      - name: Build Asset Packer
+        run: |
+          mkdir -p target/release
+
+          rustc \
+            --edition=2024 \
+            -O \
+            src/pak_builder.rs \
+            -o target/release/pak_builder
+
+      - name: Build Assets
+        run: |
+          ./target/release/pak_builder \
+            --root assets \
+            --out target/release/assets.pak
+
+      - name: Build FreeBSD Portable Archive
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARCH: x86_64
+          BINARY_PATH: ${{ github.workspace }}/target/freebsd-stripped/Davenstein
+          ASSETS_PATH: ${{ github.workspace }}/target/release/assets.pak
+        run: packaging/freebsd/build-portable.sh
+
+      - name: Validate FreeBSD Portable Archive
+        shell: bash
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          archive="target/portable/Davenstein-${version}-freebsd-x86_64.tar.gz"
+          checksum="${archive}.sha256"
+          extract_dir="$RUNNER_TEMP/davenstein-freebsd-portable"
+          package_root="$extract_dir/Davenstein-${version}-freebsd-x86_64"
+
+          test -f "$archive"
+          test -f "$checksum"
+
+          (
+            cd target/portable
+            sha256sum --check "$(basename "$checksum")"
+          )
+
+          rm -rf "$extract_dir"
+          mkdir -p "$extract_dir"
+
+          tar -xzf "$archive" -C "$extract_dir"
+
+          for name in \
+            Davenstein \
+            assets.pak \
+            README.md \
+            davenstein.png \
+            portable.flag \
+            run-davenstein.sh
+          do
+            test -e "$package_root/$name"
+          done
+
+          test -x "$package_root/Davenstein"
+          test -x "$package_root/run-davenstein.sh"
+          test -s "$package_root/assets.pak"
+
+          file "$package_root/Davenstein"
+          file "$package_root/Davenstein" |
+            grep -Eq 'ELF 64-bit.*x86-64.*FreeBSD.*stripped'
+
+          readelf -h "$package_root/Davenstein" |
+            grep -Eq 'OS/ABI:[[:space:]]+UNIX - FreeBSD'
+
+          readelf -l "$package_root/Davenstein" |
+            grep -Fq \
+              '[Requesting program interpreter: /libexec/ld-elf.so.1]'
+
+          stack_header=$(
+            readelf -W -l "$package_root/Davenstein" |
+              grep GNU_STACK
+          )
+
+          printf '%s\n' "$stack_header" |
+            grep -Eq '[[:space:]]RW[[:space:]]'
+
+          if printf '%s\n' "$stack_header" | grep -q 'RWE'; then
+            echo "Packaged FreeBSD executable requests an executable stack" >&2
+            exit 1
+          fi
+
+          if readelf -d "$package_root/Davenstein" |
+              grep -Eq 'TEXTREL|FLAGS.*TEXTREL'
+          then
+            echo "Packaged FreeBSD executable contains text relocations" >&2
+            exit 1
+          fi
+
+      - name: Start FreeBSD 14.4 VM
+        uses: vmactions/freebsd-vm@v1.4.9
+        with:
+          release: "14.4"
+          sync: nfs
+
+      - name: Prepare FreeBSD Package Repository
+        shell: freebsd {0}
+        run: |
+          freebsd-version -ku
+          uname -a
+
+          env ASSUME_ALWAYS_YES=yes pkg bootstrap -f
+          pkg update -f
+
+          package_abi=$(pkg config ABI)
+          printf 'FreeBSD package ABI: %s\n' "$package_abi"
+
+          test "$package_abi" = "FreeBSD:14:amd64"
+
+      - name: Build Native FreeBSD Package
+        shell: freebsd {0}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}" \
+          ARCH=x86_64 \
+          BINARY_PATH="$PWD/target/freebsd-stripped/Davenstein" \
+          ASSETS_PATH="$PWD/target/release/assets.pak" \
+          packaging/freebsd/build-package.sh
+
+      - name: Validate Native FreeBSD Package
+        shell: freebsd {0}
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          package="target/freebsd/Davenstein-${version}-freebsd-x86_64.pkg"
+          checksum="${package}.sha256"
+
+          test -f "$package"
+          test -f "$checksum"
+
+          expected_hash=$(awk 'NR == 1 { print $1 }' "$checksum")
+          actual_hash=$(sha256 -q "$package")
+
+          test -n "$expected_hash"
+          test "$actual_hash" = "$expected_hash"
+
+          pkg query \
+            -F "$package" \
+            '%n|%v|%o|%p|%q' |
+            tee /tmp/davenstein-package-metadata.txt
+
+          grep -Fq \
+            "davenstein|${version}|games/davenstein|/usr/local|FreeBSD:14:amd64" \
+            /tmp/davenstein-package-metadata.txt
+
+          tar -tf "$package" |
+            tee /tmp/davenstein-package-contents.txt
+
+          # Confirm that the finished package retained exactly the direct
+          # runtime dependencies declared by the native package builder.
+          pkg query \
+            -F "$package" \
+            '%dn' |
+            LC_ALL=C sort \
+            > /tmp/davenstein-package-dependencies.txt
+
+          cat > /tmp/davenstein-expected-dependencies.txt <<'DEPENDENCIES'
+          alsa-lib
+          libX11
+          libXcursor
+          libXi
+          libXrandr
+          libudev-devd
+          libxkbcommon
+          wayland
+          DEPENDENCIES
+
+          diff -u \
+            /tmp/davenstein-expected-dependencies.txt \
+            /tmp/davenstein-package-dependencies.txt
+
+          # pkg add installs a local archive but does not fetch missing
+          # dependencies from the remote repository. Install the declared
+          # dependencies first, then register and extract the local package.
+          pkg install -y \
+            alsa-lib \
+            libX11 \
+            libXcursor \
+            libXi \
+            libXrandr \
+            libudev-devd \
+            libxkbcommon \
+            wayland
+
+          pkg add "$package"
+
+          pkg info davenstein
+          pkg info -d davenstein
+          pkg info -l davenstein
+
+          test -x /usr/local/bin/Davenstein
+          test -x /usr/local/libexec/davenstein/Davenstein
+          test -s /usr/local/libexec/davenstein/assets.pak
+          test -f /usr/local/share/applications/davenstein.desktop
+          test -f /usr/local/share/doc/davenstein/README.md
+          test -f /usr/local/share/icons/hicolor/256x256/apps/davenstein.png
+          test ! -e /usr/local/libexec/davenstein/portable.flag
+
+          file /usr/local/libexec/davenstein/Davenstein
+          file /usr/local/libexec/davenstein/Davenstein |
+            grep -Eq 'ELF 64-bit.*x86-64.*FreeBSD.*stripped'
+
+          pkg check -s davenstein
+          pkg check -d davenstein
+
+          pkg delete -y davenstein
+
+          test ! -e /usr/local/bin/Davenstein
+          test ! -e /usr/local/libexec/davenstein/Davenstein
+          test ! -e /usr/local/libexec/davenstein/assets.pak
+          test ! -e /usr/local/share/applications/davenstein.desktop
+          test ! -e /usr/local/share/doc/davenstein/README.md
+          test ! -e /usr/local/share/icons/hicolor/256x256/apps/davenstein.png
+
+      - name: Stage FreeBSD Release Packages
+        run: |
+          version="${{ steps.version.outputs.version }}"
+
+          rm -rf target/release-artifacts/freebsd
+          mkdir -p target/release-artifacts/freebsd
+
+          cp \
+            "target/portable/Davenstein-${version}-freebsd-x86_64.tar.gz" \
+            target/release-artifacts/freebsd/
+
+          cp \
+            "target/portable/Davenstein-${version}-freebsd-x86_64.tar.gz.sha256" \
+            target/release-artifacts/freebsd/
+
+          cp \
+            "target/freebsd/Davenstein-${version}-freebsd-x86_64.pkg" \
+            target/release-artifacts/freebsd/
+
+          cp \
+            "target/freebsd/Davenstein-${version}-freebsd-x86_64.pkg.sha256" \
+            target/release-artifacts/freebsd/
+
+      - name: Upload FreeBSD Packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-FreeBSD-x86_64-Packages
+          path: target/release-artifacts/freebsd/*
+          if-no-files-found: error
+
   build-macos:
     name: Build Apple Silicon macOS App
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'macos-arm64' || inputs.build_target == 'macos-universal'
@@ -1008,6 +1400,7 @@ jobs:
       - build-linux-arm64
       - build-linux-armv7
       - build-linux-arm64-appimage
+      - build-freebsd
       - build-macos
       - build-macos-universal
     runs-on: ubuntu-latest

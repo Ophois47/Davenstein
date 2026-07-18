@@ -1,0 +1,6 @@
+bin/Davenstein
+libexec/davenstein/Davenstein
+libexec/davenstein/assets.pak
+share/applications/davenstein.desktop
+share/doc/davenstein/README.md
+share/icons/hicolor/256x256/apps/davenstein.png
