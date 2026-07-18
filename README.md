@@ -6,6 +6,53 @@ A Wolfenstein 3-D recreation written in Rust with the Bevy engine
 
 Left Control `LCtrl` releases the mouse from the window
 
+## Releases
+
+Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47/Davenstein/releases)
+
+| Platform | Architecture | Package | Recommended use |
+| --- | --- | --- | --- |
+| Windows | x86_64 | Installer | Normal Windows installation |
+| Windows | x86_64 | Portable ZIP | Portable installation |
+| Linux | x86_64 | AppImage | Normal Linux desktop use |
+| Linux | x86_64 | Portable TAR.GZ | Extracted portable installation |
+| Linux | ARM64 / AArch64 | Portable TAR.GZ | ARM64 Linux systems |
+| macOS | Apple Silicon / ARM64 | Application ZIP | Apple Silicon Macs running macOS 11 or newer |
+
+Every release package is accompanied by a `.sha256` checksum file
+
+The Apple Silicon macOS and Linux ARM64 packages are built and validated in continuous integration. Direct hardware testing is still pending
+
+### macOS first launch
+
+The macOS application is currently unsigned and not notarized
+
+After extracting the ZIP, try to open `Davenstein.app`. If macOS blocks it:
+
+1. Open **System Settings**
+2. Select **Privacy & Security**
+3. Scroll to **Security**
+4. Select **Open Anyway**
+5. Confirm by selecting **Open**
+
+Only override this warning for a package downloaded from this repository whose checksum you have verified
+
+Intel macOS builds are not currently provided
+
+### Verify a checksum
+
+Linux:
+
+```bash
+sha256sum --check Davenstein-*.sha256
+```
+
+macOS:
+
+```bash
+shasum -a 256 -c Davenstein-*.sha256
+```
+
 ## Build
 
 ### Linux
@@ -61,6 +108,12 @@ export CROSS_CONTAINER_ENGINE=podman
 
 ```bash
 cross build --release --target x86_64-pc-windows-gnu --target-dir target/win
+```
+
+### Linux ARM64 GNU
+
+```bash
+cross build --release --locked --target aarch64-unknown-linux-gnu --bin Davenstein
 ```
 
 ### Linux ARMv7 GNU
