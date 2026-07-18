@@ -52,6 +52,7 @@ APP_BUNDLE="$BUILD_DIR/Davenstein.app"
 CONTENTS_DIR="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+DOCUMENTATION_DIR="$RESOURCES_DIR/Documentation"
 ICONSET_DIR="$BUILD_DIR/Davenstein.iconset"
 
 # macOS Bundle Source Files
@@ -112,6 +113,11 @@ fi
 for required_file in \
     "$BINARY_PATH" \
     "$ASSETS_PATH" \
+    "$ROOT_DIR/LICENSE.md" \
+    "$ROOT_DIR/LICENSE-MIT" \
+    "$ROOT_DIR/LICENSE-APACHE" \
+    "$ROOT_DIR/COPYRIGHT.md" \
+    "$ROOT_DIR/THIRD_PARTY_ASSETS.md" \
     "$ICON_SOURCE" \
     "$PLIST_TEMPLATE"
 do
@@ -140,6 +146,7 @@ rm -f "$ZIP_PATH" "$ZIP_PATH.sha256"
 install -d "$BUILD_DIR"
 install -d -m 755 "$MACOS_DIR"
 install -d -m 755 "$RESOURCES_DIR"
+install -d -m 755 "$DOCUMENTATION_DIR"
 install -d -m 755 "$ICONSET_DIR"
 
 # Install Davenstein Executable Into Application Bundle
@@ -151,6 +158,19 @@ install -m 755 \
 install -m 644 \
     "$ASSETS_PATH" \
     "$MACOS_DIR/assets.pak"
+
+# Include Software Licenses, Copyright, and Third-Party Asset Information
+for legal_file in \
+    LICENSE.md \
+    LICENSE-MIT \
+    LICENSE-APACHE \
+    COPYRIGHT.md \
+    THIRD_PARTY_ASSETS.md
+do
+    install -m 644 \
+        "$ROOT_DIR/$legal_file" \
+        "$DOCUMENTATION_DIR/$legal_file"
+done
 
 # Generates One Required macOS Icon Image From the Source PNG
 generate_icon() {
