@@ -89,7 +89,12 @@ for required_file in \
     "$ICON_PATH" \
     "$DESKTOP_PATH" \
     "$PLIST_PATH" \
-    "$ROOT_DIR/README.md"
+    "$ROOT_DIR/README.md" \
+    "$ROOT_DIR/LICENSE.md" \
+    "$ROOT_DIR/LICENSE-MIT" \
+    "$ROOT_DIR/LICENSE-APACHE" \
+    "$ROOT_DIR/COPYRIGHT.md" \
+    "$ROOT_DIR/THIRD_PARTY_ASSETS.md"
 do
     if [ ! -f "$required_file" ]; then
         printf 'Required FreeBSD package input was not found at %s\n' \
@@ -173,6 +178,19 @@ install -m 644 \
 install -m 644 \
     "$ROOT_DIR/README.md" \
     "$STAGE_ROOT/usr/local/share/doc/davenstein/README.md"
+
+# Include Software Licenses, Copyright, and Third-Party Asset Information
+for legal_file in \
+    LICENSE.md \
+    LICENSE-MIT \
+    LICENSE-APACHE \
+    COPYRIGHT.md \
+    THIRD_PARTY_ASSETS.md
+do
+    install -m 644 \
+        "$ROOT_DIR/$legal_file" \
+        "$STAGE_ROOT/usr/local/share/doc/davenstein/$legal_file"
+done
 
 # Create Public Launcher Under Standard FreeBSD Binary Prefix
 cat > "$STAGE_ROOT/usr/local/bin/Davenstein" <<'LAUNCHER'

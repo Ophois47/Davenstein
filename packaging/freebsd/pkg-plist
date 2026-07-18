@@ -3,4 +3,9 @@ libexec/davenstein/Davenstein
 libexec/davenstein/assets.pak
 share/applications/davenstein.desktop
 share/doc/davenstein/README.md
+share/doc/davenstein/LICENSE.md
+share/doc/davenstein/LICENSE-MIT
+share/doc/davenstein/LICENSE-APACHE
+share/doc/davenstein/COPYRIGHT.md
+share/doc/davenstein/THIRD_PARTY_ASSETS.md
 share/icons/hicolor/256x256/apps/davenstein.png
