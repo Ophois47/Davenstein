@@ -345,7 +345,7 @@ jobs:
           if-no-files-found: error
 
   build-linux:
-    name: Build Linux AppImage
+    name: Build Linux x86_64 Packages
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-x86_64'
     runs-on: ubuntu-22.04
 
