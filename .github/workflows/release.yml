@@ -735,6 +735,340 @@ jobs:
           path: target/release-artifacts/linux/*
           if-no-files-found: error
 
+  # Build the RPM from a binary compiled natively on Rocky Linux 9 rather than
+  # repackaging the Ubuntu binary used by the other Linux x86_64 artifacts.
+  # This preserves an Enterprise Linux 9 runtime baseline for the RPM package.
+  build-linux-rpm:
+    name: Build Linux x86_64 RPM Package
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-x86_64'
+    runs-on: ubuntu-latest
+    container:
+      image: rockylinux:9
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      # Container jobs begin with only the packages supplied by Rocky Linux.
+      # Install Git before checkout along with every native build and RPM tool.
+      - name: Install Rocky Linux Build Dependencies
+        run: |
+          set -euxo pipefail
+
+          dnf install -y \
+            dnf-plugins-core \
+            epel-release
+
+          dnf config-manager --set-enabled crb
+
+          dnf install -y \
+            alsa-lib-devel \
+            binutils \
+            ca-certificates \
+            cpio \
+            curl-minimal \
+            desktop-file-utils \
+            file \
+            findutils \
+            gcc \
+            gcc-c++ \
+            git \
+            gzip \
+            hicolor-icon-theme \
+            libX11-devel \
+            libXcursor-devel \
+            libXi-devel \
+            libXrandr-devel \
+            libxkbcommon-devel \
+            make \
+            pkgconf-pkg-config \
+            redhat-rpm-config \
+            rpm-build \
+            rpmlint \
+            systemd-devel \
+            tar \
+            wayland-devel \
+            which
+
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        run: |
+          set -euxo pipefail
+
+          curl \
+            --proto "=https" \
+            --tlsv1.2 \
+            -sSf \
+            https://sh.rustup.rs |
+            sh -s -- \
+              -y \
+              --profile minimal \
+              --default-toolchain stable
+
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+          . "$HOME/.cargo/env"
+
+          rustc --version
+          cargo --version
+          rpmbuild --version
+          rpmlint --version
+
+      - name: Resolve Release Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=$(
+              sed -nE \
+                's/^version = "([^"]+)"/\1/p' \
+                Cargo.toml |
+                head -n 1
+            )
+          fi
+
+          test -n "$version"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building Linux RPM version $version"
+
+      - name: Build Davenstein for Rocky Linux
+        run: |
+          cargo build \
+            --release \
+            --locked \
+            --bin Davenstein
+
+      - name: Build Rocky Linux Assets
+        run: |
+          rustc \
+            --edition=2024 \
+            -O \
+            src/pak_builder.rs \
+            -o target/release/pak_builder
+
+          target/release/pak_builder \
+            --root assets \
+            --out target/release/assets.pak
+
+      - name: Build RPM Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: packaging/rpm/build-package.sh
+
+      # Validate the RPM first as an archive, then as an installed package, and
+      # finally prove that removal leaves no Davenstein-owned paths behind.
+      - name: Validate RPM Package
+        run: |
+          set -euxo pipefail
+
+          release_version="${{ steps.version.outputs.version }}"
+          rpm_file="target/rpm/Davenstein-${release_version}-linux-x86_64.rpm"
+          checksum="${rpm_file}.sha256"
+
+          test -f "$rpm_file"
+          test -f "$checksum"
+
+          (
+            cd target/rpm
+            sha256sum --check "$(basename "$checksum")"
+          )
+
+          test "$(
+            rpm -qp \
+              --queryformat "%{NAME}" \
+              "$rpm_file"
+          )" = "davenstein"
+
+          test "$(
+            rpm -qp \
+              --queryformat "%{VERSION}" \
+              "$rpm_file"
+          )" = "${release_version%%-*}"
+
+          test "$(
+            rpm -qp \
+              --queryformat "%{ARCH}" \
+              "$rpm_file"
+          )" = "x86_64"
+
+          echo "=== RPM metadata ==="
+
+          rpm -qp \
+            --queryformat \
+            "Name: %{NAME}\nVersion: %{VERSION}\nRelease: %{RELEASE}\nArchitecture: %{ARCH}\nLicense: %{LICENSE}\n" \
+            "$rpm_file"
+
+          echo "=== RPM dependencies ==="
+
+          rpm -qpR "$rpm_file" |
+            sort
+
+          echo "=== rpmlint ==="
+
+          set +e
+
+          rpmlint "$rpm_file" 2>&1 |
+            tee target/rpm/rpmlint.txt
+
+          rpmlint_status=${PIPESTATUS[0]}
+
+          set -e
+
+          printf "rpmlint exit status: %s\n" "$rpmlint_status"
+
+          # Rocky Linux 9's older rpmlint database produces several accepted
+          # warnings, but genuine package errors must still fail the workflow.
+          if ! grep -Eq '(^|[^0-9])0 errors,' target/rpm/rpmlint.txt
+          then
+            echo "rpmlint reported one or more RPM package errors" >&2
+            exit 1
+          fi
+
+          extract_dir="$RUNNER_TEMP/davenstein-rpm-extract"
+
+          rm -rf "$extract_dir"
+          mkdir -p "$extract_dir"
+
+          (
+            cd "$extract_dir"
+
+            rpm2cpio "$GITHUB_WORKSPACE/$rpm_file" |
+              cpio -idm
+          )
+
+          test -x "$extract_dir/usr/bin/Davenstein"
+          test -x "$extract_dir/usr/libexec/davenstein/Davenstein"
+          test -s "$extract_dir/usr/libexec/davenstein/assets.pak"
+          test ! -e "$extract_dir/usr/libexec/davenstein/portable.flag"
+
+          test -f \
+            "$extract_dir/usr/share/applications/davenstein.desktop"
+
+          test -f \
+            "$extract_dir/usr/share/icons/hicolor/256x256/apps/davenstein.png"
+
+          test -f \
+            "$extract_dir/usr/share/doc/davenstein/README.md"
+
+          test -f \
+            "$extract_dir/usr/share/licenses/davenstein/LICENSE.md"
+
+          test -f \
+            "$extract_dir/usr/share/licenses/davenstein/LICENSE-MIT"
+
+          test -f \
+            "$extract_dir/usr/share/licenses/davenstein/LICENSE-APACHE"
+
+          test -f \
+            "$extract_dir/usr/share/licenses/davenstein/COPYRIGHT.md"
+
+          test -f \
+            "$extract_dir/usr/share/licenses/davenstein/THIRD_PARTY_ASSETS.md"
+
+          test -f \
+            "$extract_dir/usr/share/man/man6/Davenstein.6.gz"
+
+          grep -Fx \
+            'exec /usr/libexec/davenstein/Davenstein "$@"' \
+            "$extract_dir/usr/bin/Davenstein"
+
+          grep -Fx \
+            'Exec=/usr/bin/Davenstein' \
+            "$extract_dir/usr/share/applications/davenstein.desktop"
+
+          sh -n "$extract_dir/usr/bin/Davenstein"
+
+          gzip -t \
+            "$extract_dir/usr/share/man/man6/Davenstein.6.gz"
+
+          file "$extract_dir/usr/libexec/davenstein/Davenstein" |
+            grep -Eiq 'ELF 64-bit.*x86-64.*stripped'
+
+          if ldd "$extract_dir/usr/libexec/davenstein/Davenstein" |
+            grep -F "not found"
+          then
+            echo "Extracted RPM executable has unresolved libraries" >&2
+            exit 1
+          fi
+
+          rpm -qpl "$rpm_file" |
+            grep -Fx "/usr/share/doc/davenstein"
+
+          rpm -qpl "$rpm_file" |
+            grep -Fx "/usr/share/licenses/davenstein"
+
+          dnf install -y "$GITHUB_WORKSPACE/$rpm_file"
+
+          rpm -V davenstein
+
+          test -x /usr/bin/Davenstein
+          test -x /usr/libexec/davenstein/Davenstein
+          test -s /usr/libexec/davenstein/assets.pak
+          test ! -e /usr/libexec/davenstein/portable.flag
+          test -d /usr/share/doc/davenstein
+          test -d /usr/share/licenses/davenstein
+
+          if ldd /usr/libexec/davenstein/Davenstein |
+            grep -F "not found"
+          then
+            echo "Installed RPM executable has unresolved libraries" >&2
+            exit 1
+          fi
+
+          dnf remove -y davenstein
+
+          for installed_path in \
+            /usr/bin/Davenstein \
+            /usr/libexec/davenstein \
+            /usr/share/applications/davenstein.desktop \
+            /usr/share/icons/hicolor/256x256/apps/davenstein.png \
+            /usr/share/doc/davenstein \
+            /usr/share/licenses/davenstein \
+            /usr/share/man/man6/Davenstein.6.gz
+          do
+            test ! -e "$installed_path"
+          done
+
+          if rpm -q davenstein >/dev/null 2>&1
+          then
+            echo "Davenstein remains registered after RPM removal" >&2
+            exit 1
+          fi
+
+      - name: Stage Linux RPM Release Package
+        run: |
+          rm -rf target/release-artifacts/linux-rpm
+          mkdir -p target/release-artifacts/linux-rpm
+
+          cp \
+            target/rpm/Davenstein-*-linux-x86_64.rpm \
+            target/release-artifacts/linux-rpm/
+
+          cp \
+            target/rpm/Davenstein-*-linux-x86_64.rpm.sha256 \
+            target/release-artifacts/linux-rpm/
+
+      - name: Upload Linux RPM Package
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-Linux-RPM-Packages
+          path: target/release-artifacts/linux-rpm/*
+          if-no-files-found: error
+
+      # Retain the lint report for workflow inspection without publishing it as
+      # a downloadable file on tagged GitHub releases.
+      - name: Upload RPM Lint Report
+        uses: actions/upload-artifact@v7
+        with:
+          name: RPM-Lint-Report
+          path: target/rpm/rpmlint.txt
+          if-no-files-found: error
+
   build-linux-arm64:
     name: Build Linux ARM64 Portable Archive
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-arm64'
@@ -1912,6 +2246,7 @@ jobs:
       - build-windows
       - build-windows-arm64
       - build-linux
+      - build-linux-rpm
       # Require every supported Linux ARM release package before publishing a tagged release
       - build-linux-arm64
       - build-linux-armv7
