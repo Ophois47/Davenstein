@@ -17,6 +17,8 @@ Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47
 | Windows | ARM64 / AArch64 | Portable ZIP | Windows on ARM systems |
 | Linux | x86_64 | AppImage | Normal Linux desktop use |
 | Linux | x86_64 | Portable TAR.GZ | Extracted portable installation |
+| Linux | x86_64 / AMD64 | DEB | Native package for Debian, Ubuntu, and compatible distributions |
+| Linux | x86_64 | RPM | Native package for Rocky Linux 9 and compatible Enterprise Linux 9 systems |
 | Linux | ARM64 / AArch64 | AppImage | Normal ARM64 Linux desktop use |
 | Linux | ARM64 / AArch64 | Portable TAR.GZ | Extracted ARM64 portable installation |
 | Linux | ARMv7 / ARMHF | Portable TAR.GZ | Extracted ARMv7 hard-float portable installation |
@@ -27,13 +29,55 @@ Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47
 
 Every release package is accompanied by a `.sha256` checksum file
 
-The Universal and Apple Silicon macOS packages, the Linux ARM64 packages, the Linux ARMv7 portable package, the FreeBSD x86_64 packages, and the Windows ARM64 package are built and validated in continuous integration. The native FreeBSD package is additionally built, installed, integrity-checked, and removed inside a FreeBSD 14.4 virtual machine. Direct interactive hardware testing is still pending
+Every listed release package is built and validated in continuous integration. The native DEB, RPM, and FreeBSD packages are additionally installed with their platform package managers, integrity-checked, and removed during CI. The FreeBSD package is tested inside a FreeBSD 14.4 virtual machine. Direct interactive hardware testing is still pending
 
 ### Bug reports
 
 Please report all bugs to me, Dave! At: [dpetnick89@gmail.com]
 
 Include the Davenstein version, operating system and architecture, steps to reproduce the problem, and any relevant logs or screenshots. Always remember to check the current README for existing known bugs
+
+### Debian / Ubuntu Installation
+
+Install the downloaded native package:
+
+```bash
+sudo apt install ./Davenstein-*-linux-amd64.deb
+```
+
+Launch Davenstein from the desktop application menu or directly from its installed launcher:
+
+```bash
+/usr/games/Davenstein
+```
+
+Remove the package with:
+
+```bash
+sudo apt remove davenstein
+```
+
+### Rocky Linux / Enterprise Linux 9 Installation
+
+Install the downloaded native package:
+
+```bash
+sudo dnf install ./Davenstein-*-linux-x86_64.rpm
+```
+
+Launch Davenstein from the desktop application menu or from a terminal:
+
+```bash
+Davenstein
+```
+
+Remove the package with:
+
+```bash
+sudo dnf remove davenstein
+```
+
+The native DEB and RPM packages store saves and high scores under the current user's platform data directory. The portable TAR.GZ package stores them under its own `data/` directory.
 
 ### FreeBSD Installation
 
@@ -243,6 +287,9 @@ Left Control `LCtrl` releases the mouse from the window
 
 - Save and Load banners need to be resized
 - Change View size does not properly respect menu UI
+- End of level text glyphs need borders clipped
+- End of level counter should be slowed just slightly
+- Machine gun firing sequence needs adjustment
 
 ## Screenshots
 
