@@ -362,7 +362,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             curl \
+            dpkg-dev \
             file \
+            gzip \
+            lintian \
             libasound2-dev \
             libudev-dev \
             libwayland-dev \
@@ -396,6 +399,222 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: packaging/linux/build-portable.sh
+
+      # Reuse the Ubuntu 22.04 x86_64 release binary so the Debian package
+      # retains an older Linux ABI baseline instead of inheriting Ubuntu 24.04
+      # requirements such as libasound2t64 and glibc 2.39.
+      - name: Build Debian Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: packaging/debian/build-package.sh
+
+      # Validate the archive as both a standalone Debian artifact and an
+      # installed system package. This catches metadata, dependency, layout,
+      # permissions, runtime-linking, and package-removal regressions.
+      - name: Validate Debian Package
+        shell: bash
+        run: |
+          release_version="${{ steps.version.outputs.version }}"
+          deb="target/debian/Davenstein-${release_version}-linux-amd64.deb"
+          checksum="${deb}.sha256"
+
+          case "$release_version" in
+            *-*)
+              upstream_version=${release_version%%-*}
+              prerelease_version=${release_version#*-}
+              expected_debian_version="${upstream_version}~${prerelease_version}-1"
+              ;;
+            *)
+              expected_debian_version="${release_version}-1"
+              ;;
+          esac
+
+          test -f "$deb"
+          test -f "$checksum"
+
+          (
+            cd target/debian
+            sha256sum --check "$(basename "$checksum")"
+          )
+
+          test "$(dpkg-deb --field "$deb" Package)" = "davenstein"
+          test "$(dpkg-deb --field "$deb" Version)" = "$expected_debian_version"
+          test "$(dpkg-deb --field "$deb" Architecture)" = "amd64"
+
+          depends=$(dpkg-deb --field "$deb" Depends)
+          printf 'Debian dependencies: %s\n' "$depends"
+
+          # The Jammy build must retain the traditional libasound2 dependency.
+          # Requiring libasound2t64 would unnecessarily restrict the package to
+          # newer Ubuntu releases.
+          printf '%s\n' "$depends" |
+            grep -Eq '(^|, )libasound2 \(>='
+
+          if printf '%s\n' "$depends" |
+            grep -Fq 'libasound2t64'
+          then
+            echo "Debian package unexpectedly requires libasound2t64" >&2
+            exit 1
+          fi
+
+          libc_requirement=$(
+            printf '%s\n' "$depends" |
+              sed -n 's/.*libc6 (>= \([^)]*\)).*/\1/p'
+          )
+
+          test -n "$libc_requirement"
+
+          # Ubuntu 22.04 provides glibc 2.35. Reject a package whose generated
+          # dependency claims a newer ABI, since it would defeat the purpose of
+          # building the Debian artifact on the older release runner.
+          if ! dpkg --compare-versions "$libc_requirement" le 2.35
+          then
+            echo "Debian package requires libc6 newer than Ubuntu 22.04" >&2
+            exit 1
+          fi
+
+          lintian --fail-on error "$deb"
+
+          extract_dir="$RUNNER_TEMP/davenstein-debian-extract"
+
+          rm -rf "$extract_dir"
+          mkdir -p "$extract_dir"
+
+          # Inspect the package without installing it first. This verifies
+          # the archive layout independently from apt and avoids allowing package
+          # manager behavior to conceal a missing or misplaced payload file.
+          dpkg-deb --extract "$deb" "$extract_dir"
+
+          for path in \
+            usr/games/Davenstein \
+            usr/lib/davenstein/Davenstein \
+            usr/lib/davenstein/assets.pak \
+            usr/share/applications/davenstein.desktop \
+            usr/share/icons/hicolor/256x256/apps/davenstein.png \
+            usr/share/doc/davenstein/README.md \
+            usr/share/doc/davenstein/LICENSE.md \
+            usr/share/doc/davenstein/LICENSE-MIT \
+            usr/share/doc/davenstein/COPYRIGHT.md \
+            usr/share/doc/davenstein/THIRD_PARTY_ASSETS.md \
+            usr/share/doc/davenstein/copyright \
+            usr/share/doc/davenstein/changelog.Debian.gz \
+            usr/share/man/man6/Davenstein.6.gz
+          do
+            test -e "$extract_dir/$path"
+          done
+
+          test -x "$extract_dir/usr/games/Davenstein"
+          test -x "$extract_dir/usr/lib/davenstein/Davenstein"
+          test -s "$extract_dir/usr/lib/davenstein/assets.pak"
+          test ! -e "$extract_dir/usr/bin/Davenstein"
+          test ! -e "$extract_dir/usr/lib/davenstein/portable.flag"
+
+          # LICENSE-APACHE is intentionally a relative symbolic link to Debian's
+          # canonical Apache-2.0 license. Its target exists only after installation
+          # beneath a complete Debian filesystem, so validate the link separately.
+          test -L \
+            "$extract_dir/usr/share/doc/davenstein/LICENSE-APACHE"
+
+          test "$(
+            readlink \
+              "$extract_dir/usr/share/doc/davenstein/LICENSE-APACHE"
+          )" = "../../common-licenses/Apache-2.0"
+
+          grep -Fx \
+            'exec /usr/lib/davenstein/Davenstein "$@"' \
+            "$extract_dir/usr/games/Davenstein"
+
+          grep -Fx \
+            'Exec=/usr/games/Davenstein' \
+            "$extract_dir/usr/share/applications/davenstein.desktop"
+
+          gzip -t \
+            "$extract_dir/usr/share/doc/davenstein/changelog.Debian.gz"
+
+          gzip -t \
+            "$extract_dir/usr/share/man/man6/Davenstein.6.gz"
+
+          file "$extract_dir/usr/lib/davenstein/Davenstein"
+          file "$extract_dir/usr/lib/davenstein/Davenstein" |
+            grep -Eiq 'ELF 64-bit.*x86-64.*stripped'
+
+          if ldd "$extract_dir/usr/lib/davenstein/Davenstein" |
+            grep -F 'not found'
+          then
+            echo "Extracted Debian executable has unresolved libraries" >&2
+            exit 1
+          fi
+
+          # Perform a real apt installation after archive inspection to
+          # prove dependency resolution, maintainer metadata, filesystem placement,
+          # desktop integration, and installed runtime linking all work together.
+          sudo apt-get install -y "$GITHUB_WORKSPACE/$deb"
+
+          test "$(
+            dpkg-query -W -f='${db:Status-Status}' davenstein
+          )" = "installed"
+
+          test "$(
+            dpkg-query -W -f='${Version}' davenstein
+          )" = "$expected_debian_version"
+
+          test "$(
+            dpkg-query -W -f='${Architecture}' davenstein
+          )" = "amd64"
+
+          test -x /usr/games/Davenstein
+          test ! -e /usr/bin/Davenstein
+          test -x /usr/lib/davenstein/Davenstein
+          test -s /usr/lib/davenstein/assets.pak
+          test ! -e /usr/lib/davenstein/portable.flag
+
+          test -L /usr/share/doc/davenstein/LICENSE-APACHE
+          test -f /usr/share/common-licenses/Apache-2.0
+
+          grep -Fx \
+            'Exec=/usr/games/Davenstein' \
+            /usr/share/applications/davenstein.desktop
+
+          sh -n /usr/games/Davenstein
+          gzip -t /usr/share/doc/davenstein/changelog.Debian.gz
+          gzip -t /usr/share/man/man6/Davenstein.6.gz
+          dpkg -V davenstein
+
+          if ldd /usr/lib/davenstein/Davenstein |
+            grep -F 'not found'
+          then
+            echo "Installed Debian executable has unresolved libraries" >&2
+            exit 1
+          fi
+
+          # Remove the package and verify that every owned application file
+          # disappears. This guards against stale launchers, assets, documentation,
+          # icons, and package directories surviving an uninstall.
+          sudo apt-get remove -y davenstein
+
+          for path in \
+            /usr/games/Davenstein \
+            /usr/bin/Davenstein \
+            /usr/lib/davenstein/Davenstein \
+            /usr/lib/davenstein/assets.pak \
+            /usr/share/applications/davenstein.desktop \
+            /usr/share/icons/hicolor/256x256/apps/davenstein.png \
+            /usr/share/doc/davenstein \
+            /usr/share/man/man6/Davenstein.6.gz
+          do
+            test ! -e "$path"
+          done
+
+          if dpkg-query \
+            -W \
+            -f='${db:Status-Status}\n' \
+            davenstein \
+            2>/dev/null |
+            grep -qx installed
+          then
+            echo "Davenstein remains installed after removal" >&2
+            exit 1
+          fi
 
       - name: Validate Linux x86_64 Packages
         shell: bash
@@ -503,6 +722,11 @@ jobs:
           cp target/appimage/Davenstein-*-x86_64.AppImage.sha256 target/release-artifacts/linux/
           cp target/portable/Davenstein-*-linux-x86_64.tar.gz target/release-artifacts/linux/
           cp target/portable/Davenstein-*-linux-x86_64.tar.gz.sha256 target/release-artifacts/linux/
+
+          # Publish the native Debian package beside the existing x86_64
+          # AppImage and portable archive as part of the same Linux artifact.
+          cp target/debian/Davenstein-*-linux-amd64.deb target/release-artifacts/linux/
+          cp target/debian/Davenstein-*-linux-amd64.deb.sha256 target/release-artifacts/linux/
 
       - name: Upload Linux Packages
         uses: actions/upload-artifact@v7
