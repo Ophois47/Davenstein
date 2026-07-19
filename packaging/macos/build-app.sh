@@ -64,8 +64,8 @@ CARGO_VERSION=$(sed -nE 's/^version = "([^"]+)"/\1/p' "$ROOT_DIR/Cargo.toml" | h
 
 # Release and macOS Bundle Versions
 RELEASE_VERSION=${VERSION:-"$CARGO_VERSION"}
-BUNDLE_SHORT_VERSION=${BUNDLE_SHORT_VERSION:-"$CARGO_VERSION"}
-BUNDLE_VERSION=${BUNDLE_VERSION:-"$CARGO_VERSION"}
+BUNDLE_SHORT_VERSION=${BUNDLE_SHORT_VERSION:-"${RELEASE_VERSION%%-*}"}
+BUNDLE_VERSION=${BUNDLE_VERSION:-"1"}
 
 # Public Release Architecture and Existing Bundle Inputs
 ARCH=${ARCH:-aarch64}

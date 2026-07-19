@@ -1978,7 +1978,6 @@ jobs:
       - name: Build macOS Application Bundle
         env:
           VERSION: ${{ steps.version.outputs.release_version }}
-          BUNDLE_SHORT_VERSION: ${{ steps.version.outputs.cargo_version }}
           BUNDLE_VERSION: ${{ github.run_number }}
           ARCH: aarch64
           BINARY_PATH: ${{ github.workspace }}/target/release/Davenstein
@@ -2174,7 +2173,6 @@ jobs:
       - name: Build Universal macOS Application Bundle
         env:
           VERSION: ${{ steps.version.outputs.release_version }}
-          BUNDLE_SHORT_VERSION: ${{ steps.version.outputs.cargo_version }}
           BUNDLE_VERSION: ${{ github.run_number }}
           ARCH: universal
           BINARY_PATH: ${{ github.workspace }}/target/macos-universal/Davenstein
