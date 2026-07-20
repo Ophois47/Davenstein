@@ -78,9 +78,9 @@ use davelib::decorations::{
 };
 use davelib::enemies::EnemiesPlugin;
 use davelib::player::{
+    apply_look,
     door_animate,
     door_auto_close,
-    grab_mouse, mouse_look,
     player_move,
     toggle_god_mode,
     use_doors,
@@ -180,6 +180,7 @@ fn main() {
 				}),
 		)
 		.add_plugins(davelib::options::OptionsPlugin)
+		.add_plugins(davelib::input::InputPlugin)
 		.add_plugins(davelib::perf_overlay::PerfOverlayPlugin)
 		.add_plugins(ui::UiPlugin)
 		.add_plugins(save::SavePlugin)
@@ -220,10 +221,11 @@ fn main() {
 			Update,
 			toggle_god_mode.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
 		)
-		.add_systems(Update, grab_mouse)
 		.add_systems(
 			Update,
-			mouse_look.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
+			apply_look
+				.after(davelib::input::InputGather)
+				.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
 		)
 		.add_systems(Update, level_complete::tick_elevator_exit_delay)
 		.add_systems(Update, level_complete::sync_mission_success_overlay_visibility)

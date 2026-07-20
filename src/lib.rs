@@ -12,6 +12,7 @@ pub mod enemies;
 #[path = "episode_end_markers.rs"]
 pub mod episode_end;
 pub mod high_score;
+pub mod input;
 pub mod level;
 pub mod level_score;
 pub mod map;

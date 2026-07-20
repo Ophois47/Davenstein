@@ -3,15 +3,10 @@ Davenstein - by David Petnick
 */
 
 use bevy::prelude::*;
-use bevy::window::{
-    CursorGrabMode,
-    CursorOptions,
-    PrimaryWindow,
-    Window,
-};
-use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::window::CursorGrabMode;
 
 use crate::actors::{Dead, OccupiesTile};
+use crate::input::intent::PlayerIntent;
 use crate::ai::EnemyFire;
 use crate::audio::{PlaySfx, SfxKind};
 use crate::enemies::EnemyKind;
@@ -44,10 +39,6 @@ impl LookAngles {
         Self { yaw, pitch }
     }
 }
-
-/// Base Sensitivity Scalar Applied After ControlSettings Multiplier
-/// ControlSettings.mouse_sensitivity (Default 1.0) Scales on Top of This
-const BASE_SENSITIVITY: f32 = 0.002;
 
 #[derive(Resource)]
 pub struct PlayerSettings {
@@ -107,71 +98,25 @@ pub fn cursor_is_captured(grab_mode: CursorGrabMode) -> bool {
     grab_mode != CursorGrabMode::None
 }
 
-pub fn grab_mouse(
-    mouse: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
-    lock: Res<PlayerControlLock>,
-    mut startup_frames: Local<u8>,
-    mut startup_grab_done: Local<bool>,
-    mut q_cursor: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
-) {
-    let Some((window, mut cursor)) = q_cursor.iter_mut().next() else {
-        return;
-    };
+// grab_mouse moved to `crate::input::cursor::grab_mouse` (registered by InputPlugin).
 
-    // Release: LCtrl
-    // Works even while menus are up / controls are locked
-    if keys.just_pressed(KeyCode::ControlLeft) {
-        cursor.visible = true;
-        cursor.grab_mode = CursorGrabMode::None;
-        *startup_grab_done = true;
-        return;
-    }
-
-    // Startup grab must wait until the OS has mapped/focused the window
-    if !*startup_grab_done {
-        if *startup_frames < 3 {
-            *startup_frames += 1;
-            return;
-        }
-
-        if window.focused {
-            cursor.visible = false;
-            cursor.grab_mode = CursorGrabMode::Locked;
-            *startup_grab_done = true;
-            return;
-        }
-    }
-
-    // Do not auto-release just because in menu / locked
-    // Menus are keyboard only
-    if lock.0 {
-        return;
-    }
-
-    // Grab: click window after manual release
-    if mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Right) {
-        cursor.visible = false;
-        cursor.grab_mode = CursorGrabMode::Locked;
-    }
-}
-
-pub fn mouse_look(
-    cursor_options: Single<&CursorOptions>,
-    mouse_motion: Res<AccumulatedMouseMotion>,
+/// Apply the look delta gathered this frame (mouse and/or keyboard turn) to the
+/// player's orientation. The device reading now happens in
+/// `crate::input::sources::keyboard_mouse::gather_input`; this system only
+/// consumes `PlayerIntent`.
+///
+/// Register AFTER `davelib::input::InputGather` so it reads fresh intent, e.g.
+/// `apply_look.after(davelib::input::InputGather)`.
+pub fn apply_look(
+    intent: Res<PlayerIntent>,
     mut q: Query<(&mut Transform, &mut LookAngles), With<Player>>,
-    controls: Res<ControlSettings>,
     lock: Res<PlayerControlLock>,
 ) {
     if lock.0 {
         return;
     }
 
-    if !cursor_is_captured(cursor_options.grab_mode) {
-        return;
-    }
-
-    let delta = mouse_motion.delta;
+    let delta = intent.look_delta;
     if delta == Vec2::ZERO {
         return;
     }
@@ -180,10 +125,8 @@ pub fn mouse_look(
         return;
     };
 
-    // scaled_mouse_look Applies Sensitivity Multiplier + Invert_y
-    let (dx, dy) = controls.scaled_mouse_look(delta);
-    look.yaw -= dx * BASE_SENSITIVITY;
-    look.pitch -= dy * BASE_SENSITIVITY;
+    look.yaw += delta.x;
+    look.pitch += delta.y;
     // ~ +/- 88 Degrees
     look.pitch = look.pitch.clamp(-1.54, 1.54);
 
@@ -192,14 +135,13 @@ pub fn mouse_look(
 
 pub fn player_move(
     time: Res<Time<Fixed>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    intent: Res<PlayerIntent>,
     lock: Res<PlayerControlLock>,
     grid: Res<MapGrid>,
     solid: Res<crate::decorations::SolidStatics>,
     q_enemies: Query<&OccupiesTile, Without<Dead>>,
     mut q_player: Query<&mut Transform, With<Player>>,
     settings: Res<PlayerSettings>,
-    controls: Res<ControlSettings>,
     push_occ: Res<crate::pushwalls::PushwallOcc>,
 ) {
     if lock.0 {
@@ -226,27 +168,16 @@ pub fn player_move(
     right.y = 0.0;
     right = right.normalize_or_zero();
 
-    let kb = &controls.key_bindings;
-    let mut wish = Vec3::ZERO;
-    if keys.pressed(kb.move_forward) || keys.pressed(KeyCode::ArrowUp) {
-        wish += forward;
-    }
-    if keys.pressed(kb.move_backward) || keys.pressed(KeyCode::ArrowDown) {
-        wish -= forward;
-    }
-    if keys.pressed(kb.strafe_right) {
-        wish += right;
-    }
-    if keys.pressed(kb.strafe_left) {
-        wish -= right;
-    }
-
-    let wish = wish.normalize_or_zero();
+    // Movement now comes from the device-neutral PlayerIntent (written each
+    // frame by davelib::input). move_wish is in the player's LOCAL frame:
+    // x = strafe (+right), y = forward (+forward).
+    let wish = (right * intent.move_wish.x + forward * intent.move_wish.y)
+        .normalize_or_zero();
     if wish == Vec3::ZERO {
         return;
     }
 
-    let running = keys.pressed(kb.run) || keys.pressed(KeyCode::ShiftRight);
+    let running = intent.run;
     let speed = if running {
         settings.speed * RUN_MULTIPLIER
     } else {

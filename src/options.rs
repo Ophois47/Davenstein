@@ -213,6 +213,10 @@ pub struct KeyBindings {
 	pub move_backward: KeyCode,
 	pub strafe_left:   KeyCode,
 	pub strafe_right:  KeyCode,
+	/// Keyboard yaw. Used when mouselook is off, and available alongside the
+	/// mouse when it is on, so the game is playable without a mouse.
+	pub turn_left:     KeyCode,
+	pub turn_right:    KeyCode,
 	pub fire:          KeyCode,
 	pub use_door:      KeyCode,
 	pub run:           KeyCode,
@@ -229,6 +233,8 @@ impl Default for KeyBindings {
 			move_backward: KeyCode::KeyS,
 			strafe_left:   KeyCode::KeyA,
 			strafe_right:  KeyCode::KeyD,
+			turn_left:     KeyCode::ArrowLeft,
+			turn_right:    KeyCode::ArrowRight,
 			fire:          KeyCode::ControlLeft,
 			use_door:      KeyCode::Space,
 			run:           KeyCode::ShiftLeft,
@@ -248,6 +254,9 @@ pub struct ControlSettings {
 	pub mouse_sensitivity: f32,
 	/// When True, Positive Mouse Y Input Looks *Down*
 	pub invert_y: bool,
+	/// When True, mouse motion turns/looks. When False, the mouse is ignored
+	/// for looking and you turn with the keyboard turn keys (classic style).
+	pub mouselook_enabled: bool,
 	/// Multiplier Applied to Right Stick Axes
 	/// Range: 0.1 ..= 10.0
 	/// Default: 1.0
@@ -266,6 +275,7 @@ impl Default for ControlSettings {
 		Self {
 			mouse_sensitivity: 1.0,
 			invert_y: false,
+			mouselook_enabled: true,
 			gamepad_sensitivity: 1.0,
 			gamepad_deadzone: 0.1,
 			key_bindings: KeyBindings::default(),

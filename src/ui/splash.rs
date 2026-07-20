@@ -1097,6 +1097,7 @@ fn build_sound_options_items(sound: &SoundSettings) -> Vec<(SoundOptionKind, Str
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ControlOptionKind {
     MouseSensitivity,
+    Mouselook,
     InvertY,
     GamepadSensitivity,
     GamepadDeadzone,
@@ -1112,6 +1113,14 @@ fn build_control_options_items(control: &ControlSettings) -> Vec<(ControlOptionK
         ControlOptionKind::MouseSensitivity,
         format!("Mouse Sens: {}", mouse_sens_display),
     ));
+
+    // Mouselook toggle (mouse turns you when ON; keyboard turn keys only when OFF)
+    let mouselook_label = if control.mouselook_enabled {
+        "Mouselook: ON"
+    } else {
+        "Mouselook: OFF"
+    };
+    items.push((ControlOptionKind::Mouselook, mouselook_label.to_string()));
 
     // Invert Y
     let invert_label = if control.invert_y { "Invert Y: ON" } else { "Invert Y: OFF" };
@@ -5989,6 +5998,19 @@ fn splash_advance_on_any_input(
                 match current_kind {
                     Some(ControlOptionKind::InvertY) => {
                         resources.control_settings.invert_y = !resources.control_settings.invert_y;
+                        resources.control_settings.set_changed(); // Explicitly mark as changed
+
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+                        spawn_control_options_ui(
+                            &mut commands, &asset_server,
+                            w, h, scale, imgs,
+                            options.control.selection,
+                            &resources.control_settings,
+                        );
+                    }
+
+                    Some(ControlOptionKind::Mouselook) => {
+                        resources.control_settings.mouselook_enabled = !resources.control_settings.mouselook_enabled;
                         resources.control_settings.set_changed(); // Explicitly mark as changed
 
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
