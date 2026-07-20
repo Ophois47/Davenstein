@@ -853,54 +853,49 @@ enum MenuAction {
     SaveGame,
     Sound,
     Control,
-    ChangeView,
     Gameplay,
     ViewScores,
     Quit,
 }
 
-const MENU_ACTIONS_MAIN: [MenuAction; 8] = [
+const MENU_ACTIONS_MAIN: [MenuAction; 7] = [
     MenuAction::NewGame,
     MenuAction::LoadGame,
     MenuAction::Sound,
     MenuAction::Control,
-    MenuAction::ChangeView,
     MenuAction::Gameplay,
     MenuAction::ViewScores,
     MenuAction::Quit,
 ];
 
-const MENU_ACTIONS_PAUSE: [MenuAction; 10] = [
+const MENU_ACTIONS_PAUSE: [MenuAction; 9] = [
     MenuAction::NewGame,
     MenuAction::LoadGame,
     MenuAction::SaveGame,
     MenuAction::Sound,
     MenuAction::Control,
-    MenuAction::ChangeView,
     MenuAction::Gameplay,
     MenuAction::ViewScores,
     MenuAction::BackToGame,
     MenuAction::Quit,
 ];
 
-const MENU_LABELS_MAIN: [&str; 8] = [
+const MENU_LABELS_MAIN: [&str; 7] = [
     "New Game",
     "Load Game",
     "Sound",
     "Control",
-    "Change View",
     "Gameplay",
     "View Scores",
     "Quit",
 ];
 
-const MENU_LABELS_PAUSE: [&str; 10] = [
+const MENU_LABELS_PAUSE: [&str; 9] = [
     "New Game",
     "Load Game",
     "Save Game",
     "Sound",
     "Control",
-    "Change View",
     "Gameplay",
     "View Scores",
     "Return to Game",
@@ -1231,12 +1226,17 @@ fn build_key_bindings_items(control: &ControlSettings, capturing: Option<usize>)
 /// Gameplay Options Menu Item Types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GameplayOptionKind {
+    ChangeView,
     ReversiblePushwalls,
     Back,
 }
 
 fn build_gameplay_options_items(gameplay: &GameplaySettings) -> Vec<(GameplayOptionKind, String)> {
     let mut items = Vec::new();
+
+    // Change View Opens the Video / Viewport Screen. Nested Here to Keep the
+    // Root Menu Short Enough to Fit On Screen From the Pause Menu
+    items.push((GameplayOptionKind::ChangeView, "Change View".to_string()));
 
     // Pushwalls: Classic Is the Original One-Shot Behavior / Reversible Lets a
     // Pushed Wall Be Pushed Again so a Wrong-Way Shove Never Traps a Secret
@@ -5559,30 +5559,6 @@ fn splash_advance_on_any_input(
                         }
                     }
 
-                    MenuAction::ChangeView => {
-                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
-
-                        options.change_view.selection = 0;
-                        options.change_view.res_submenu_open = false;
-                        options.change_view.needs_respawn = false;
-                        options.change_view.from_pause = is_pause;
-
-                        if let Some(imgs) = resources.imgs.as_ref() {
-                            spawn_change_view_ui(
-                                &mut commands,
-                                &asset_server,
-                                w, h, scale,
-                                imgs,
-                                options.change_view.selection,
-                                &resources.video_settings,
-                                &resources.res_list,
-                            );
-
-                            *resources.step = SplashStep::ChangeView;
-                            resources.music_mode.0 = MusicModeKind::Menu;
-                        }
-                    }
-
                     MenuAction::ViewScores => {
                         let Some(imgs) = resources.imgs.as_ref() else { return; };
 
@@ -5980,11 +5956,18 @@ fn splash_advance_on_any_input(
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
-                let back_to_pause = options.change_view.from_pause;
+                // Change View Is Now Nested Under Gameplay, so Back Returns to
+                // the Gameplay Screen, Carrying the Origin Forward
+                options.gameplay.from_pause = options.change_view.from_pause;
                 options.change_view.from_pause = false;
-                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
-                menu.reset();
-                *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
+                options.gameplay.selection = 0;
+                spawn_gameplay_options_ui(
+                    &mut commands, &asset_server,
+                    w, h, scale, imgs,
+                    options.gameplay.selection,
+                    &resources.gameplay_settings,
+                );
+                *resources.step = SplashStep::GameplayOptions;
                 return;
             }
 
@@ -6232,11 +6215,18 @@ fn splash_advance_on_any_input(
                     Some(ChangeViewKind::Back) => {
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
-                        let back_to_pause = options.change_view.from_pause;
+                        // Change View Is Now Nested Under Gameplay, so Back
+                        // Returns to the Gameplay Screen, Carrying the Origin
+                        options.gameplay.from_pause = options.change_view.from_pause;
                         options.change_view.from_pause = false;
-                        spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
-                        menu.reset();
-                        *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
+                        options.gameplay.selection = 0;
+                        spawn_gameplay_options_ui(
+                            &mut commands, &asset_server,
+                            w, h, scale, imgs,
+                            options.gameplay.selection,
+                            &resources.gameplay_settings,
+                        );
+                        *resources.step = SplashStep::GameplayOptions;
                     }
 
                     // DisplayMode, FOV, ViewSize are Adjusted by Left / Right, Enter Does Nothing Extra
@@ -6895,6 +6885,29 @@ fn splash_advance_on_any_input(
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
                 match current_kind {
+                    Some(GameplayOptionKind::ChangeView) => {
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+
+                        options.change_view.selection = 0;
+                        options.change_view.res_submenu_open = false;
+                        options.change_view.needs_respawn = false;
+                        // Carry the Origin so Change View Can Return All the Way
+                        // Back to the Root Menu the Player Came From
+                        options.change_view.from_pause = options.gameplay.from_pause;
+
+                        spawn_change_view_ui(
+                            &mut commands,
+                            &asset_server,
+                            w, h, scale,
+                            imgs,
+                            options.change_view.selection,
+                            &resources.video_settings,
+                            &resources.res_list,
+                        );
+
+                        *resources.step = SplashStep::ChangeView;
+                    }
+
                     Some(GameplayOptionKind::ReversiblePushwalls) => {
                         resources.gameplay_settings.reversible_pushwalls = !resources.gameplay_settings.reversible_pushwalls;
                         resources.gameplay_settings.set_changed(); // Explicitly mark as changed
