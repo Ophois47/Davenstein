@@ -82,7 +82,7 @@ fn splash_stretch_image(image: Handle<Image>) -> ImageNode {
 const BASE_W: f32 = 320.0;
 const BASE_H: f32 = 200.0;
 
-const MENU_CURSOR_TOP: f32 = 58.0;
+const MENU_CURSOR_TOP: f32 = 62.0;
 const MENU_ITEM_H: f32 = 13.0;
 const MENU_FONT_HEIGHT: f32 = 20.0;
 const MENU_FONT_SPACE_W: f32 = 8.0;
@@ -96,7 +96,7 @@ const MENU_FONT_DRAW_SCALE: f32 = 0.5;
 
 /// Extra Text Scale for the Key Bindings Rows so All of Them Fit. 1.0 Matches
 /// the Other Menus, Lower Is Smaller. Tune This One Number to Taste
-const KEY_BIND_TEXT_SCALE: f32 = 0.8;
+const KEY_BIND_TEXT_SCALE: f32 = 0.7;
 
 // Episode menu layout
 const EP_THUMB_X: f32 = 24.0; // left edge of the thumbnail column (in 320x200 space)
