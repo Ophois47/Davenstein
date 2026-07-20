@@ -32,6 +32,7 @@ use davelib::options::{
     SoundSettings,
     ControlSettings,
     GameplaySettings,
+    KeyBindings,
 };
 
 pub const SPLASH_0_PATH: &str = "textures/ui/splash0.png";
@@ -633,6 +634,7 @@ pub enum SplashStep {
     SoundOptions,
     ControlOptions,
     GameplayOptions,
+    KeyBindings,
     Done,
 }
 
@@ -660,6 +662,7 @@ struct OptionsMenusLocalState {
     sound: SoundOptionsLocalState,
     control: ControlOptionsLocalState,
     gameplay: GameplayOptionsLocalState,
+    key_bindings: KeyBindingsLocalState,
     /// Cached (w, h) From compute_scaled_size to Detect Window Resizes
     /// and Respawn Menu UI. (0, 0) Means Not Yet Initialized
     last_scaled_size: (f32, f32),
@@ -723,6 +726,15 @@ struct ControlOptionsLocalState {
 struct GameplayOptionsLocalState {
     selection: usize,
     from_pause: bool,
+}
+
+// Key Bindings Screen State. capturing Is Some(i) While Waiting for the Next
+// Key Press to Rebind Action i, Which Suppresses Normal Menu Navigation
+#[derive(Default)]
+struct KeyBindingsLocalState {
+    selection: usize,
+    from_pause: bool,
+    capturing: Option<usize>,
 }
 
 #[derive(Component)]
@@ -1118,6 +1130,7 @@ enum ControlOptionKind {
     InvertY,
     GamepadSensitivity,
     GamepadDeadzone,
+    KeyBindings,
     Back,
 }
 
@@ -1157,8 +1170,60 @@ fn build_control_options_items(control: &ControlSettings) -> Vec<(ControlOptionK
         format!("Deadzone: {}%", deadzone_pct),
     ));
 
+    // Key Bindings (Opens a Dedicated Rebinding Screen)
+    items.push((ControlOptionKind::KeyBindings, "Key Bindings".to_string()));
+
     // Back
     items.push((ControlOptionKind::Back, "Back".to_string()));
+
+    items
+}
+
+/// Format a KeyCode as a Short Human-Readable Label for the Bindings Screen
+fn key_display(k: KeyCode) -> String {
+    match k {
+        KeyCode::Space => "Space".to_string(),
+        KeyCode::ControlLeft => "L Ctrl".to_string(),
+        KeyCode::ControlRight => "R Ctrl".to_string(),
+        KeyCode::ShiftLeft => "L Shift".to_string(),
+        KeyCode::ShiftRight => "R Shift".to_string(),
+        KeyCode::AltLeft => "L Alt".to_string(),
+        KeyCode::AltRight => "R Alt".to_string(),
+        KeyCode::ArrowUp => "Up".to_string(),
+        KeyCode::ArrowDown => "Down".to_string(),
+        KeyCode::ArrowLeft => "Left".to_string(),
+        KeyCode::ArrowRight => "Right".to_string(),
+        KeyCode::Enter => "Enter".to_string(),
+        KeyCode::Tab => "Tab".to_string(),
+        other => {
+            // Strip the Common Debug Prefixes so KeyW Reads as W and Digit1 as 1
+            let s = format!("{:?}", other);
+            if let Some(rest) = s.strip_prefix("Key") {
+                rest.to_string()
+            } else if let Some(rest) = s.strip_prefix("Digit") {
+                rest.to_string()
+            } else {
+                s
+            }
+        }
+    }
+}
+
+/// Build the Key Bindings Rows. Each Action Shows Its Bound Key, or a Prompt
+/// While That Row Is Capturing. A Trailing Reset Row Restores the Defaults
+fn build_key_bindings_items(control: &ControlSettings, capturing: Option<usize>) -> Vec<String> {
+    let mut items = Vec::new();
+
+    for i in 0..KeyBindings::COUNT {
+        let label = KeyBindings::label_at(i);
+        if capturing == Some(i) {
+            items.push(format!("{}: Press a Key", label));
+        } else {
+            items.push(format!("{}: {}", label, key_display(control.key_bindings.key_at(i))));
+        }
+    }
+
+    items.push("Reset to Defaults".to_string());
 
     items
 }
@@ -1966,6 +2031,300 @@ fn spawn_control_options_ui(
     let cursor_w = (19.0 * ui_scale).round();
     let cursor_h = (10.0 * ui_scale).round();
     let row_h = (16.0 * ui_scale).round().max(1.0);
+
+    let mut max_item_w = 0.0f32;
+    for t in &item_labels {
+        max_item_w = max_item_w.max(measure_menu_text_width(ui_scale, t));
+    }
+
+    let list_h = (item_count as f32 * row_h).round();
+    let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
+
+    let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
+    let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
+
+    for idx in 0..item_count {
+        let y = (list_top + idx as f32 * row_h).round();
+        let is_selected = idx == selection;
+
+        let gray_run = spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_gray.clone(),
+            text_x,
+            y,
+            ui_scale,
+            item_labels[idx],
+            if is_selected { Visibility::Hidden } else { Visibility::Visible },
+        );
+        commands.entity(gray_run).insert((
+            ControlOptionsItem { idx },
+            ControlOptionsTextVariant { selected: false },
+        ));
+
+        let white_run = spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_white.clone(),
+            text_x,
+            y,
+            ui_scale,
+            item_labels[idx],
+            if is_selected { Visibility::Visible } else { Visibility::Hidden },
+        );
+        commands.entity(white_run).insert((
+            ControlOptionsItem { idx },
+            ControlOptionsTextVariant { selected: true },
+        ));
+    }
+
+    // Gun Cursor
+    let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
+    let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
+
+    let cursor_y = (list_top + selection as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
+
+    commands.spawn((
+        SplashUi,
+        MenuCursor,
+        MenuCursorLight,
+        Visibility::Visible,
+        ImageNode::new(cursor_light),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    commands.spawn((
+        SplashUi,
+        MenuCursor,
+        MenuCursorDark,
+        Visibility::Hidden,
+        ImageNode::new(cursor_dark),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    // Bottom Hint
+    let hint = asset_server.load(MENU_HINT_PATH);
+    commands.spawn((
+        ImageNode::new(hint),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(hint_x),
+            top: Val::Px(hint_y),
+            width: Val::Px(hint_w),
+            height: Val::Px(hint_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+}
+
+/// Render the Key Bindings Screen. A Clone of spawn_control_options_ui
+/// With a Dynamic Row Height so All Rows Fit, Reusing the Same Markers
+fn spawn_key_bindings_ui(
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    w: f32,
+    h: f32,
+    scale: f32,
+    imgs: &SplashImages,
+    selection: usize,
+    control: &ControlSettings,
+    capturing: Option<usize>,
+) {
+    let items = build_key_bindings_items(control, capturing);
+    let item_count = items.len();
+    let selection = selection.min(item_count.saturating_sub(1));
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(1000),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
+            ChildOf(root),
+        ))
+        .id();
+
+    let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
+        let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+        let mut max_line_w = 0.0f32;
+        let mut cur_line_w = 0.0f32;
+        for ch in text.chars() {
+            if ch == '\n' {
+                max_line_w = max_line_w.max(cur_line_w);
+                cur_line_w = 0.0;
+                continue;
+            }
+            if ch == ' ' {
+                cur_line_w += (MENU_FONT_SPACE_W * s).round();
+                continue;
+            }
+            if let Some(g) = menu_glyph(ch) {
+                cur_line_w += (g.advance * s).round();
+            }
+        }
+        max_line_w = max_line_w.max(cur_line_w);
+        max_line_w.max(1.0)
+    };
+
+    let ui_scale = (w / BASE_W).round().max(1.0);
+
+    // Title
+    let title = "Key Bindings";
+    let title_w = measure_menu_text_width(scale, title);
+    let title_x = ((w - title_w) * 0.5).round().max(0.0);
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_yellow.clone(),
+        title_x,
+        (EP_TITLE_TOP * scale).round(),
+        scale,
+        title,
+        Visibility::Visible,
+    );
+
+    // Bottom Hint Geometry
+    let hint_native_w = 103.0;
+    let hint_native_h = 12.0;
+    let hint_bottom_pad = 6.0;
+
+    let hint_w = (hint_native_w * ui_scale).round();
+    let hint_h = (hint_native_h * ui_scale).round();
+    let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
+    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+
+    // Panel Geometry Matches Episode Select Style
+    let panel_left = (18.0 * ui_scale).round();
+    let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
+    let panel_right = ((BASE_W - 18.0) * ui_scale).round();
+
+    let panel_w = (panel_right - panel_left).max(1.0);
+    let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
+    let panel_h = (panel_bottom - panel_top).max(1.0);
+
+    let border_w = (2.0 * ui_scale).round().max(1.0);
+
+    // Main Panel Background
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.40, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Top Shadow
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(border_w),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.20, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Left Shadow
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(border_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.20, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Bottom Highlight
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top + panel_h - border_w),
+            width: Val::Px(panel_w),
+            height: Val::Px(border_w),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.70, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Right Highlight
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left + panel_w - border_w),
+            top: Val::Px(panel_top),
+            width: Val::Px(border_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.70, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Option List Text Centered in Panel
+    let item_labels: Vec<&str> = items.iter().map(|s| s.as_str()).collect();
+
+    let cursor_w = (19.0 * ui_scale).round();
+    let cursor_h = (10.0 * ui_scale).round();
+    let row_h = (panel_h / item_count as f32).min(16.0 * ui_scale).round().max(1.0);
 
     let mut max_item_w = 0.0f32;
     for t in &item_labels {
@@ -6378,6 +6737,24 @@ fn splash_advance_on_any_input(
                         );
                     }
 
+                    Some(ControlOptionKind::KeyBindings) => {
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+
+                        options.key_bindings.selection = 0;
+                        options.key_bindings.from_pause = options.control.from_pause;
+                        options.key_bindings.capturing = None;
+
+                        spawn_key_bindings_ui(
+                            &mut commands, &asset_server,
+                            w, h, scale, imgs,
+                            options.key_bindings.selection,
+                            &resources.control_settings,
+                            None,
+                        );
+
+                        *resources.step = SplashStep::KeyBindings;
+                    }
+
                     Some(ControlOptionKind::Back) => {
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
@@ -6543,6 +6920,203 @@ fn splash_advance_on_any_input(
 
                     None => {}
                 }
+            }
+        }
+
+        SplashStep::KeyBindings => {
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Menu;
+
+            let Some(imgs) = resources.imgs.as_ref() else { return; };
+
+            // Auto Respawn UI After Window Resize
+            if q.q_splash_roots.iter().next().is_none() {
+                spawn_key_bindings_ui(
+                    &mut commands, &asset_server,
+                    w, h, scale, imgs,
+                    options.key_bindings.selection,
+                    &resources.control_settings,
+                    options.key_bindings.capturing,
+                );
+                return;
+            }
+
+            let items = build_key_bindings_items(&resources.control_settings, options.key_bindings.capturing);
+            let item_count = items.len();
+
+            if options.key_bindings.selection >= item_count {
+                options.key_bindings.selection = item_count.saturating_sub(1);
+            }
+
+            // Capture Mode: Waiting for the Next Key to Rebind the Selected Action
+            if let Some(cap_idx) = options.key_bindings.capturing {
+                // Escape Cancels the Capture and Keeps the Old Binding
+                if keyboard.just_pressed(KeyCode::Escape) {
+                    options.key_bindings.capturing = None;
+                    sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+
+                    for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+                    spawn_key_bindings_ui(
+                        &mut commands, &asset_server,
+                        w, h, scale, imgs,
+                        options.key_bindings.selection,
+                        &resources.control_settings,
+                        None,
+                    );
+                    return;
+                }
+
+                // Take the First Key Pressed This Frame, if Any
+                if let Some(&new_key) = keyboard.get_just_pressed().next() {
+                    // Reject a Key Already Bound to Another Action, With a No Sound
+                    if resources.control_settings.key_bindings.conflict(new_key, cap_idx).is_some() {
+                        sfx.write(PlaySfx { kind: SfxKind::NoWay, pos: Vec3::ZERO });
+                        // Stay in Capture so the Player Can Try a Different Key
+                        return;
+                    }
+
+                    resources.control_settings.key_bindings.set_at(cap_idx, new_key);
+                    resources.control_settings.set_changed();
+                    options.key_bindings.capturing = None;
+                    sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+
+                    for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+                    spawn_key_bindings_ui(
+                        &mut commands, &asset_server,
+                        w, h, scale, imgs,
+                        options.key_bindings.selection,
+                        &resources.control_settings,
+                        None,
+                    );
+                }
+
+                // While Capturing, Do Not Process Normal Navigation
+                return;
+            }
+
+            // Escape = Back to the Control Options Screen
+            if keyboard.just_pressed(KeyCode::Escape) {
+                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+
+                options.control.selection = 0;
+                options.control.from_pause = options.key_bindings.from_pause;
+                options.control.hold_dir = 0;
+                options.control.hold_accum = 0.0;
+                options.control.hold_interval = HOLD_REPEAT_INITIAL;
+                options.control.hold_ticks = 0;
+
+                spawn_control_options_ui(
+                    &mut commands, &asset_server,
+                    w, h, scale, imgs,
+                    options.control.selection,
+                    &resources.control_settings,
+                );
+                *resources.step = SplashStep::ControlOptions;
+                return;
+            }
+
+            let mut moved = false;
+
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+                if options.key_bindings.selection > 0 { options.key_bindings.selection -= 1; } else { options.key_bindings.selection = item_count - 1; }
+                moved = true;
+            }
+
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+                options.key_bindings.selection = (options.key_bindings.selection + 1) % item_count;
+                moved = true;
+            }
+
+            if moved {
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+            }
+
+            // Update Item Visibility (Reuses the Shared ControlOptions Markers)
+            for (item, variant, mut vis) in q.q_control_options_items.iter_mut() {
+                let want_selected = item.idx == options.key_bindings.selection;
+                *vis = if variant.selected == want_selected {
+                    Visibility::Visible
+                } else {
+                    Visibility::Hidden
+                };
+            }
+
+            // Cursor Blink
+            let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
+            for mut v in q.q_cursor_light.iter_mut() {
+                *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
+            }
+            for mut v in q.q_cursor_dark.iter_mut() {
+                *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
+            }
+
+            // Cursor Positioning, Using the Same Dynamic Row Height as the Renderer
+            let ui_scale = (w / BASE_W).round().max(1.0);
+            let hint_native_h = 12.0;
+            let hint_bottom_pad = 6.0;
+            let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+            let panel_left = (18.0 * ui_scale).round();
+            let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
+            let panel_right = ((BASE_W - 18.0) * ui_scale).round();
+            let panel_w = (panel_right - panel_left).max(1.0);
+            let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
+            let panel_h = (panel_bottom - panel_top).max(1.0);
+            let cursor_w = (19.0 * ui_scale).round();
+            let cursor_h = (10.0 * ui_scale).round();
+            let row_h = (panel_h / item_count as f32).min(16.0 * ui_scale).round().max(1.0);
+            let list_h = (item_count as f32 * row_h).round();
+            let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
+
+            let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
+                let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+                let mut w = 0.0f32;
+                for ch in text.chars() {
+                    if ch == ' ' { w += (MENU_FONT_SPACE_W * s).round(); continue; }
+                    if let Some(g) = menu_glyph(ch) { w += (g.advance * s).round(); }
+                }
+                w.max(1.0)
+            };
+
+            let mut max_item_w = 0.0f32;
+            for label in &items {
+                max_item_w = max_item_w.max(measure_menu_text_width(ui_scale, label));
+            }
+
+            let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
+            let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
+            let cursor_y = (list_top + options.key_bindings.selection as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
+
+            for mut node in q.q_node.iter_mut() {
+                node.left = Val::Px(cursor_x);
+                node.top = Val::Px(cursor_y);
+            }
+
+            // Enter = Rebind the Selected Action, or Reset if on the Reset Row
+            if keyboard.just_pressed(KeyCode::Enter)
+                || keyboard.just_pressed(KeyCode::NumpadEnter)
+                || keyboard.just_pressed(KeyCode::Space)
+            {
+                if options.key_bindings.selection < KeyBindings::COUNT {
+                    // Enter Capture Mode for the Selected Action
+                    options.key_bindings.capturing = Some(options.key_bindings.selection);
+                    sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+                } else {
+                    // Reset Row: Restore the Default Bindings
+                    resources.control_settings.key_bindings = KeyBindings::default();
+                    resources.control_settings.set_changed();
+                    sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+                }
+
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+                spawn_key_bindings_ui(
+                    &mut commands, &asset_server,
+                    w, h, scale, imgs,
+                    options.key_bindings.selection,
+                    &resources.control_settings,
+                    options.key_bindings.capturing,
+                );
             }
         }
 
