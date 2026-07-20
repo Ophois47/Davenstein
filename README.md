@@ -315,6 +315,7 @@ Left Control `LCtrl` releases the mouse from the window
 - End of level counter should be slowed just slightly
 - Machine gun firing sequence needs adjustment
 - Weapon disappears too soon before end level screen comes up
+- Some static decorations appear incorrect
 
 ## Screenshots
 

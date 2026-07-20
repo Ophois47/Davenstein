@@ -247,6 +247,77 @@ impl Default for KeyBindings {
 	}
 }
 
+impl KeyBindings {
+	/// Number of Rebindable Actions, Indexed 0..COUNT by the Key Bindings Screen
+	pub const COUNT: usize = 13;
+
+	/// Human-Readable Name for the Action at a Given Index
+	pub fn label_at(i: usize) -> &'static str {
+		match i {
+			0  => "Forward",
+			1  => "Backward",
+			2  => "Strafe Left",
+			3  => "Strafe Right",
+			4  => "Turn Left",
+			5  => "Turn Right",
+			6  => "Fire",
+			7  => "Use",
+			8  => "Run",
+			9  => "Weapon 1",
+			10 => "Weapon 2",
+			11 => "Weapon 3",
+			12 => "Weapon 4",
+			_  => "?",
+		}
+	}
+
+	/// The Key Currently Bound to the Action at a Given Index
+	pub fn key_at(&self, i: usize) -> KeyCode {
+		match i {
+			0  => self.move_forward,
+			1  => self.move_backward,
+			2  => self.strafe_left,
+			3  => self.strafe_right,
+			4  => self.turn_left,
+			5  => self.turn_right,
+			6  => self.fire,
+			7  => self.use_door,
+			8  => self.run,
+			9  => self.weapon_1,
+			10 => self.weapon_2,
+			11 => self.weapon_3,
+			12 => self.weapon_4,
+			_  => self.move_forward,
+		}
+	}
+
+	/// Bind the Action at a Given Index to a New Key
+	pub fn set_at(&mut self, i: usize, key: KeyCode) {
+		match i {
+			0  => self.move_forward  = key,
+			1  => self.move_backward = key,
+			2  => self.strafe_left   = key,
+			3  => self.strafe_right  = key,
+			4  => self.turn_left     = key,
+			5  => self.turn_right    = key,
+			6  => self.fire          = key,
+			7  => self.use_door      = key,
+			8  => self.run           = key,
+			9  => self.weapon_1      = key,
+			10 => self.weapon_2      = key,
+			11 => self.weapon_3      = key,
+			12 => self.weapon_4      = key,
+			_  => {}
+		}
+	}
+
+	/// Index of an Action Already Bound to key, Excluding except, if Any
+	/// Used to Reject a Conflicting Rebind so No Two Actions Share a Key
+	pub fn conflict(&self, key: KeyCode, except: usize) -> Option<usize> {
+		(0..Self::COUNT).find(|&i| i != except && self.key_at(i) == key)
+	}
+}
+
 #[derive(Resource, Clone, Copy, PartialEq)]
 pub struct ControlSettings {
 	/// Multiplier Applied to Raw 'MouseMotion' Deltas

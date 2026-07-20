@@ -18,7 +18,6 @@ use davelib::player::{
     Player,
     PlayerControlLock,
 };
-use davelib::options::ControlSettings;
 use davelib::input::PlayerIntent;
 use davelib::level::CurrentLevel;
 
@@ -493,10 +492,8 @@ pub(super) struct WeaponFireLocals {
 
 pub(crate) fn weapon_fire_and_viewmodel(
     time: Res<Time>,
-    keys: Res<ButtonInput<KeyCode>>,
     intent: Res<PlayerIntent>,
     lock: Res<PlayerControlLock>,
-    controls: Res<ControlSettings>,
     sprites: Option<Res<ViewModelSprites>>,
     mut weapon: ResMut<WeaponState>,
     mut hud: ResMut<HudState>,
@@ -544,30 +541,28 @@ pub(crate) fn weapon_fire_and_viewmodel(
         return;
     }
 
-    // Weapon Selection (1–4), Reads From ControlSettings Key Bindings
-    // Positional: weapon_1 = Knife, weapon_2 = Pistol, etc
-    let kb = &controls.key_bindings;
-    let weapon_keys = [
-        (kb.weapon_1, WeaponSlot::Knife),
-        (kb.weapon_2, WeaponSlot::Pistol),
-        (kb.weapon_3, WeaponSlot::MachineGun),
-        (kb.weapon_4, WeaponSlot::Chaingun),
-    ];
-    for (code, slot) in weapon_keys {
-        if keys.just_pressed(code) {
-            if hud.owns(slot) {
-                hud.selected = slot;
-                weapon.showing_fire = false;
-                weapon.fire_cycle = 0;
-                weapon.flash.reset();
-                let dur = weapon.cooldown.duration();
-                weapon.cooldown.set_elapsed(dur);
-                locals.fire_anim_accum = 0.0;
-                locals.last_weapon = Some(hud.selected);
-                locals.auto_linger = 0.0;
-                if let Ok(mut img) = vm_q.single_mut() {
-                    img.image = sprites.idle(hud.selected);
-                }
+    // Weapon Selection From PlayerIntent. weapon_select Is a Device-Neutral
+    // 1..=4 Index (the Key Binding Lives in gather_input), Positional:
+    // 1 = Knife, 2 = Pistol, 3 = MachineGun, 4 = Chaingun
+    if let Some(slot) = intent.weapon_select.and_then(|n| match n {
+        1 => Some(WeaponSlot::Knife),
+        2 => Some(WeaponSlot::Pistol),
+        3 => Some(WeaponSlot::MachineGun),
+        4 => Some(WeaponSlot::Chaingun),
+        _ => None,
+    }) {
+        if hud.owns(slot) {
+            hud.selected = slot;
+            weapon.showing_fire = false;
+            weapon.fire_cycle = 0;
+            weapon.flash.reset();
+            let dur = weapon.cooldown.duration();
+            weapon.cooldown.set_elapsed(dur);
+            locals.fire_anim_accum = 0.0;
+            locals.last_weapon = Some(hud.selected);
+            locals.auto_linger = 0.0;
+            if let Ok(mut img) = vm_q.single_mut() {
+                img.image = sprites.idle(hud.selected);
             }
         }
     }

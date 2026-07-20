@@ -17,7 +17,6 @@ use crate::map::{
 	MapGrid,
 	Tile,
 };
-use crate::options::ControlSettings;
 
 #[derive(Component)]
 pub struct Player;
@@ -276,9 +275,8 @@ pub fn player_move(
 }
 
 pub fn use_doors(
-    keys: Res<ButtonInput<KeyCode>>,
+    intent: Res<PlayerIntent>,
     lock: Res<PlayerControlLock>,
-    controls: Res<ControlSettings>,
     grid: ResMut<MapGrid>,
     q_player: Query<&Transform, With<Player>>,
     q_keys: Query<&PlayerKeys, With<Player>>,
@@ -292,7 +290,9 @@ pub fn use_doors(
     const TILE_SIZE: f32 = 1.0;
     const DOOR_OPEN_SECS: f32 = 4.5;
 
-    if !keys.just_pressed(controls.key_bindings.use_door) {
+    // Door Use Now Comes From PlayerIntent, Which Reads the Rebindable use_door
+    // Key, so Rebinding Use Affects Doors and Pushwalls Alike
+    if !intent.use_pressed {
         return;
     }
 

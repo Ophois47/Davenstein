@@ -8,6 +8,7 @@ use crate::actors::{Dead, OccupiesTile};
 use crate::audio::{PlaySfx, SfxKind};
 use crate::decorations::SolidStatics;
 use crate::enemies::EnemyKind;
+use crate::input::intent::PlayerIntent;
 use crate::map::{MapGrid, Tile};
 use crate::options::GameplaySettings;
 use crate::player::{Player, PlayerControlLock};
@@ -334,7 +335,7 @@ fn spawn_pushwall_visual(
 /// Player "Use" Handler: Attempts to Start Pushwall
 /// Plays "No Way" When Blocked
 pub fn use_pushwalls(
-    keys: Res<ButtonInput<KeyCode>>,
+    intent: Res<PlayerIntent>,
     lock: Res<PlayerControlLock>,
     gameplay: Res<GameplaySettings>,
     grid: Option<Res<MapGrid>>,
@@ -359,7 +360,9 @@ pub fn use_pushwalls(
         return;
     }
 
-    if !keys.just_pressed(KeyCode::Space) {
+    // Pushwall Use Now Comes From PlayerIntent, Which Reads the Rebindable
+    // use_door Key, so Pushwalls Share the Same Use Key as Doors
+    if !intent.use_pressed {
         return;
     }
 
