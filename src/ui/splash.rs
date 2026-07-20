@@ -96,7 +96,7 @@ const MENU_FONT_DRAW_SCALE: f32 = 0.5;
 
 /// Extra Text Scale for the Key Bindings Rows so All of Them Fit. 1.0 Matches
 /// the Other Menus, Lower Is Smaller. Tune This One Number to Taste
-const KEY_BIND_TEXT_SCALE: f32 = 0.7;
+const KEY_BIND_TEXT_SCALE: f32 = 0.6;
 
 // Episode menu layout
 const EP_THUMB_X: f32 = 24.0; // left edge of the thumbnail column (in 320x200 space)
@@ -2328,10 +2328,19 @@ fn spawn_key_bindings_ui(
 
     let cursor_w = (19.0 * ui_scale).round();
     let cursor_h = (10.0 * ui_scale).round();
-    let row_h = (panel_h / item_count as f32).min(16.0 * ui_scale).round().max(1.0);
-
-    // Shrink Only the Key Bindings Row Text so 14 Rows Fit Without Overlap
-    let text_scale = (ui_scale * KEY_BIND_TEXT_SCALE).max(0.01);
+    // Auto-Fit the Row Text to the Panel Width so No Row Runs Off the Edges,
+    // Capped at the Preferred KEY_BIND_TEXT_SCALE. Row Height Tracks the Text
+    let mut widest_row = 0.0f32;
+    for t in &item_labels {
+        widest_row = widest_row.max(measure_menu_text_width(ui_scale, t));
+    }
+    let fit_scale = if widest_row > 1.0 {
+        ui_scale * (panel_w * 0.88) / widest_row
+    } else {
+        ui_scale
+    };
+    let text_scale = (ui_scale * KEY_BIND_TEXT_SCALE).min(fit_scale).max(0.01);
+    let row_h = (MENU_ITEM_H * text_scale).round().max(1.0);
 
     let mut max_item_w = 0.0f32;
     for t in &item_labels {
@@ -7085,9 +7094,6 @@ fn splash_advance_on_any_input(
             let panel_h = (panel_bottom - panel_top).max(1.0);
             let cursor_w = (19.0 * ui_scale).round();
             let cursor_h = (10.0 * ui_scale).round();
-            let row_h = (panel_h / item_count as f32).min(16.0 * ui_scale).round().max(1.0);
-            let list_h = (item_count as f32 * row_h).round();
-            let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
 
             let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
                 let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
@@ -7099,8 +7105,21 @@ fn splash_advance_on_any_input(
                 w.max(1.0)
             };
 
-            // Match the Renderer's Shrunk Row Text so the Cursor Lines Up
-            let text_scale = (ui_scale * KEY_BIND_TEXT_SCALE).max(0.01);
+            // Auto-Fit Matching the Renderer so the Cursor and Rows Line Up
+            let mut widest_row = 0.0f32;
+            for label in &items {
+                widest_row = widest_row.max(measure_menu_text_width(ui_scale, label));
+            }
+            let fit_scale = if widest_row > 1.0 {
+                ui_scale * (panel_w * 0.88) / widest_row
+            } else {
+                ui_scale
+            };
+            let text_scale = (ui_scale * KEY_BIND_TEXT_SCALE).min(fit_scale).max(0.01);
+            let row_h = (MENU_ITEM_H * text_scale).round().max(1.0);
+            let list_h = (item_count as f32 * row_h).round();
+            let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
+
             let mut max_item_w = 0.0f32;
             for label in &items {
                 max_item_w = max_item_w.max(measure_menu_text_width(text_scale, label));
