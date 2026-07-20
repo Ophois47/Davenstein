@@ -1069,6 +1069,182 @@ jobs:
           path: target/rpm/rpmlint.txt
           if-no-files-found: error
 
+  # Build Flatpak natively because flatpak-builder only supports host-compatible
+  # architectures and the Flatpak Rust SDK supplies the compiler used inside
+  # the isolated Freedesktop build environment
+  #
+  # The linux-x86_64 manual selection intentionally runs the existing Ubuntu
+  # packages, Rocky Linux RPM package, and this Flatpak package in parallel
+  build-linux-flatpak:
+    name: Build Linux x86_64 Flatpak Package
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-x86_64'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      # Install only the host tools needed to construct and validate Flatpak
+      # bundles because Rust itself comes from the Flatpak SDK extension
+      - name: Install Flatpak Build Dependencies
+        run: |
+          set -euxo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            appstream \
+            desktop-file-utils \
+            flatpak \
+            flatpak-builder
+
+      # Install the exact runtime family declared by the committed manifest
+      # under the current runner account so the shared package builder can use
+      # Flatpak's per-user runtime and repository state
+      - name: Install Flatpak Runtime and SDK
+        run: |
+          set -euxo pipefail
+
+          flatpak remote-add \
+            --user \
+            --if-not-exists \
+            flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+
+          flatpak install \
+            --user \
+            --noninteractive \
+            -y \
+            flathub \
+            org.freedesktop.Platform//25.08 \
+            org.freedesktop.Sdk//25.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
+
+      - name: Resolve Release Version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
+          fi
+
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building Linux x86_64 Flatpak version $version"
+
+      # The shared builder validates metadata, performs the locked offline Rust
+      # build, exports the stable application ref, and creates its checksum
+      - name: Build Davenstein x86_64 Flatpak
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          FLATPAK_ARCH: x86_64
+        run: packaging/flatpak/build-package.sh
+
+      - name: Validate Linux x86_64 Flatpak
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          app_id="io.github.ophois47.davenstein"
+
+          flatpak_file=$(find target/flatpak \
+            -maxdepth 1 \
+            -type f \
+            -name 'Davenstein-*-linux-x86_64.flatpak' \
+            -print \
+            -quit)
+
+          test -n "$flatpak_file"
+          test -f "$flatpak_file.sha256"
+
+          # Verify the basename-only checksum from the artifact directory
+          (
+            cd "$(dirname "$flatpak_file")"
+            sha256sum --check "$(basename "$flatpak_file.sha256")"
+          )
+
+          # Install the exact single-file bundle that will be published rather
+          # than testing only the temporary repository used during construction
+          flatpak install \
+            --user \
+            --noninteractive \
+            -y \
+            "$flatpak_file"
+
+          flatpak list \
+            --user \
+            --app \
+            --columns=application,arch,branch |
+            grep -Eq "^${app_id}[[:space:]]+x86_64[[:space:]]+stable$"
+
+          # Confirm the application retained its deliberately narrow sandbox
+          # permissions without network or host filesystem access
+          permissions=$(flatpak info \
+            --user \
+            --show-permissions \
+            "$app_id")
+
+          printf '%s\n' "$permissions"
+
+          printf '%s\n' "$permissions" | grep -Fq 'shared=ipc;'
+          printf '%s\n' "$permissions" | grep -Eq '(^|[=;])x11;'
+          printf '%s\n' "$permissions" | grep -Fq 'wayland'
+          printf '%s\n' "$permissions" | grep -Fq 'pulseaudio'
+          printf '%s\n' "$permissions" | grep -Eq '(^|[=;])fallback-x11;'
+          printf '%s\n' "$permissions" | grep -Fq 'devices=dri;'
+
+          if printf '%s\n' "$permissions" | grep -Eq 'network|filesystem'
+          then
+            echo "Flatpak received an unexpected broad sandbox permission" >&2
+            exit 1
+          fi
+
+          # Inspect installed files without launching the graphical game because
+          # GitHub-hosted runners do not provide a supported desktop test session
+          flatpak run \
+            --command=sh \
+            "$app_id" \
+            -c '
+              test -x /app/bin/Davenstein
+              test -s /app/bin/assets.pak
+              test -f /app/share/applications/io.github.ophois47.davenstein.desktop
+              test -f /app/share/icons/hicolor/256x256/apps/io.github.ophois47.davenstein.png
+              test -f /app/share/metainfo/io.github.ophois47.davenstein.metainfo.xml
+              test -f /app/share/doc/io.github.ophois47.davenstein/README.md
+              test -f /app/share/licenses/io.github.ophois47.davenstein/LICENSE.md
+              test -f /app/share/licenses/io.github.ophois47.davenstein/LICENSE-MIT
+              test -f /app/share/licenses/io.github.ophois47.davenstein/LICENSE-APACHE
+              test -f /app/share/licenses/io.github.ophois47.davenstein/COPYRIGHT.md
+              test -f /app/share/licenses/io.github.ophois47.davenstein/THIRD_PARTY_ASSETS.md
+            '
+
+          flatpak uninstall \
+            --user \
+            --noninteractive \
+            -y \
+            "$app_id//stable"
+
+      - name: Stage Linux x86_64 Flatpak Package
+        run: |
+          rm -rf target/release-artifacts/linux-flatpak
+          mkdir -p target/release-artifacts/linux-flatpak
+
+          cp \
+            target/flatpak/Davenstein-*-linux-x86_64.flatpak \
+            target/release-artifacts/linux-flatpak/
+
+          cp \
+            target/flatpak/Davenstein-*-linux-x86_64.flatpak.sha256 \
+            target/release-artifacts/linux-flatpak/
+
+      - name: Upload Linux x86_64 Flatpak Package
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-Linux-x86_64-Flatpak-Packages
+          path: target/release-artifacts/linux-flatpak/*
+          if-no-files-found: error
+
   build-linux-arm64:
     name: Build Linux ARM64 Portable Archive
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-arm64'
@@ -1510,6 +1686,181 @@ jobs:
         with:
           name: Davenstein-Linux-ARM64-AppImage
           path: target/release-artifacts/linux-arm64-appimage/*
+          if-no-files-found: error
+
+  # Build the ARM64 Flatpak on a native runner because Flatpak requires a
+  # host-compatible architecture just like the existing ARM64 AppImage path
+  #
+  # The linux-arm64 manual selection intentionally runs the portable archive,
+  # AppImage, and Flatpak package jobs together
+  build-linux-arm64-flatpak:
+    name: Build Linux ARM64 Flatpak Package
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-arm64'
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      # Install only the host tools needed to construct and validate Flatpak
+      # bundles because Rust itself comes from the Flatpak SDK extension
+      - name: Install Flatpak Build Dependencies
+        run: |
+          set -euxo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            appstream \
+            desktop-file-utils \
+            flatpak \
+            flatpak-builder
+
+      # Install the exact runtime family declared by the committed manifest
+      # under the current runner account so the shared package builder can use
+      # Flatpak's per-user runtime and repository state
+      - name: Install Flatpak Runtime and SDK
+        run: |
+          set -euxo pipefail
+
+          flatpak remote-add \
+            --user \
+            --if-not-exists \
+            flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+
+          flatpak install \
+            --user \
+            --noninteractive \
+            -y \
+            flathub \
+            org.freedesktop.Platform//25.08 \
+            org.freedesktop.Sdk//25.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
+
+      - name: Resolve Release Version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
+          fi
+
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building Linux ARM64 Flatpak version $version"
+
+      # The shared builder validates metadata, performs the locked offline Rust
+      # build, exports the stable application ref, and creates its checksum
+      - name: Build Davenstein ARM64 Flatpak
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          FLATPAK_ARCH: aarch64
+        run: packaging/flatpak/build-package.sh
+
+      - name: Validate Linux ARM64 Flatpak
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          app_id="io.github.ophois47.davenstein"
+
+          flatpak_file=$(find target/flatpak \
+            -maxdepth 1 \
+            -type f \
+            -name 'Davenstein-*-linux-aarch64.flatpak' \
+            -print \
+            -quit)
+
+          test -n "$flatpak_file"
+          test -f "$flatpak_file.sha256"
+
+          # Verify the basename-only checksum from the artifact directory
+          (
+            cd "$(dirname "$flatpak_file")"
+            sha256sum --check "$(basename "$flatpak_file.sha256")"
+          )
+
+          # Install the exact single-file bundle that will be published rather
+          # than testing only the temporary repository used during construction
+          flatpak install \
+            --user \
+            --noninteractive \
+            -y \
+            "$flatpak_file"
+
+          flatpak list \
+            --user \
+            --app \
+            --columns=application,arch,branch |
+            grep -Eq "^${app_id}[[:space:]]+aarch64[[:space:]]+stable$"
+
+          # Confirm the application retained its deliberately narrow sandbox
+          # permissions without network or host filesystem access
+          permissions=$(flatpak info \
+            --user \
+            --show-permissions \
+            "$app_id")
+
+          printf '%s\n' "$permissions"
+
+          printf '%s\n' "$permissions" | grep -Fq 'shared=ipc;'
+          printf '%s\n' "$permissions" | grep -Eq '(^|[=;])x11;'
+          printf '%s\n' "$permissions" | grep -Fq 'wayland'
+          printf '%s\n' "$permissions" | grep -Fq 'pulseaudio'
+          printf '%s\n' "$permissions" | grep -Eq '(^|[=;])fallback-x11;'
+          printf '%s\n' "$permissions" | grep -Fq 'devices=dri;'
+
+          if printf '%s\n' "$permissions" | grep -Eq 'network|filesystem'
+          then
+            echo "Flatpak received an unexpected broad sandbox permission" >&2
+            exit 1
+          fi
+
+          # Inspect installed files without launching the graphical game because
+          # GitHub-hosted runners do not provide a supported desktop test session
+          flatpak run \
+            --command=sh \
+            "$app_id" \
+            -c '
+              test -x /app/bin/Davenstein
+              test -s /app/bin/assets.pak
+              test -f /app/share/applications/io.github.ophois47.davenstein.desktop
+              test -f /app/share/icons/hicolor/256x256/apps/io.github.ophois47.davenstein.png
+              test -f /app/share/metainfo/io.github.ophois47.davenstein.metainfo.xml
+              test -f /app/share/doc/io.github.ophois47.davenstein/README.md
+              test -f /app/share/licenses/io.github.ophois47.davenstein/LICENSE.md
+              test -f /app/share/licenses/io.github.ophois47.davenstein/LICENSE-MIT
+              test -f /app/share/licenses/io.github.ophois47.davenstein/LICENSE-APACHE
+              test -f /app/share/licenses/io.github.ophois47.davenstein/COPYRIGHT.md
+              test -f /app/share/licenses/io.github.ophois47.davenstein/THIRD_PARTY_ASSETS.md
+            '
+
+          flatpak uninstall \
+            --user \
+            --noninteractive \
+            -y \
+            "$app_id//stable"
+
+      - name: Stage Linux ARM64 Flatpak Package
+        run: |
+          rm -rf target/release-artifacts/linux-arm64-flatpak
+          mkdir -p target/release-artifacts/linux-arm64-flatpak
+
+          cp \
+            target/flatpak/Davenstein-*-linux-aarch64.flatpak \
+            target/release-artifacts/linux-arm64-flatpak/
+
+          cp \
+            target/flatpak/Davenstein-*-linux-aarch64.flatpak.sha256 \
+            target/release-artifacts/linux-arm64-flatpak/
+
+      - name: Upload Linux ARM64 Flatpak Package
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-Linux-ARM64-Flatpak-Packages
+          path: target/release-artifacts/linux-arm64-flatpak/*
           if-no-files-found: error
 
   build-freebsd:
@@ -2245,10 +2596,12 @@ jobs:
       - build-windows-arm64
       - build-linux
       - build-linux-rpm
+      - build-linux-flatpak
       # Require every supported Linux ARM release package before publishing a tagged release
       - build-linux-arm64
       - build-linux-armv7
       - build-linux-arm64-appimage
+      - build-linux-arm64-flatpak
       - build-freebsd
       - build-macos
       - build-macos-universal
