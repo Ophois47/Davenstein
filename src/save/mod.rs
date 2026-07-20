@@ -140,6 +140,7 @@ fn handle_save_requests(
             dest: [c.dest.x, c.dest.y],
             dir: [c.dir.x, c.dir.y],
             wall_id: c.wall_id,
+            tiles_moved: c.tiles_moved,
         })
         .collect();
 
@@ -343,19 +344,27 @@ fn apply_pending_pushwall_restore(
         let dest = IVec2::new(rec.dest[0], rec.dest[1]);
         let dir = IVec2::new(rec.dir[0], rec.dir[1]);
 
-        // The Two Tiles the Wall Slid Through (Now Empty)
-        let mid = dest - dir;
-        let orig = dest - dir * 2;
+        let tiles_moved = rec.tiles_moved.clamp(1, 2);
+        let orig = dest - dir * i32::from(tiles_moved);
 
-        // Re-Apply the Grid Effect: Two Empties Behind, the Wall at dest
-        if in_bounds_grid(&grid, orig) {
-            grid.set_tile(orig.x as usize, orig.y as usize, Tile::Empty);
-            grid.set_plane0_code(orig.x as usize, orig.y as usize, 0);
+        // Empty Every Tile the Pushwall Moved Out Of
+        for step in 0..tiles_moved {
+            let empty_tile = orig + dir * i32::from(step);
+
+            if in_bounds_grid(&grid, empty_tile) {
+                grid.set_tile(
+                    empty_tile.x as usize,
+                    empty_tile.y as usize,
+                    Tile::Empty,
+                );
+                grid.set_plane0_code(
+                    empty_tile.x as usize,
+                    empty_tile.y as usize,
+                    0,
+                );
+            }
         }
-        if in_bounds_grid(&grid, mid) {
-            grid.set_tile(mid.x as usize, mid.y as usize, Tile::Empty);
-            grid.set_plane0_code(mid.x as usize, mid.y as usize, 0);
-        }
+
         if in_bounds_grid(&grid, dest) {
             grid.set_tile(dest.x as usize, dest.y as usize, Tile::Wall);
             grid.set_plane0_code(dest.x as usize, dest.y as usize, rec.wall_id);
@@ -369,6 +378,7 @@ fn apply_pending_pushwall_restore(
             dest,
             dir,
             wall_id: rec.wall_id,
+            tiles_moved,
         });
 
         applied += 1;

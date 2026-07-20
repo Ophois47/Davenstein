@@ -94,10 +94,10 @@ pub struct LevelScoreSnapshot {
     pub time_secs: f32,
 }
 
-// ---- Bucket 2 Placeholder (Intentionally Minimal For Now) ----
-// WorldSnapshot Is Concrete so Option<WorldSnapshot> Is Format-Stable
-// Not Populated Until Bucket 2
-// Avoids a Format Bump When Bucket 2 Lands
+/// Pushwalls That Fully Completed Their Slide at Save Time
+/// Each Records the Final Wall Tile, Direction, Texture, and Distance
+/// On Load, the Affected Grid Tiles Are Re-Applied
+/// Mid-Slide Pushwalls Are Not Captured and Reset to Un-Pushed
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WorldSnapshot {
     /// Enemies Dead or Dying at Save Time
@@ -122,12 +122,18 @@ pub struct WorldSnapshot {
     pub pushwalls: Vec<PushwallRec>,
 }
 
+fn default_pushwall_tiles_moved() -> u8 {
+    2
+}
+
 /// A Completed Pushwall, Enough to Re-Apply Its Grid Effect on Load
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct PushwallRec {
     pub dest: [i32; 2],
     pub dir: [i32; 2],
     pub wall_id: u16,
+    #[serde(default = "default_pushwall_tiles_moved")]
+    pub tiles_moved: u8,
 }
 
 /// Dead Enemy Identity For Corpse Restore

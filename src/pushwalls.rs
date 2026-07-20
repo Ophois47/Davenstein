@@ -136,10 +136,9 @@ pub struct PushwallState {
     pub active: Option<ActivePushwall>,
 }
 
-/// Records Pushwalls That Have Fully Completed Their 2 Tile Slide
-/// The Save System Reads This to Persist Pushwall State; Restore Re-Applies It
-/// Each Entry Is the Final Wall Tile, the Push Direction, and the Wall Texture
-/// From These the Three Affected Grid Tiles Are Fully Reconstructable
+/// Records Pushwalls That Have Fully Completed Their Slide
+/// The Save System Reads This to Persist Pushwall State and Restore Re-Applies It
+/// Each Entry Records the Final Wall Tile, Direction, Texture, and Distance
 #[derive(Resource, Default)]
 pub struct CompletedPushwalls {
     pub items: Vec<CompletedPushwall>,
@@ -150,6 +149,7 @@ pub struct CompletedPushwall {
     pub dest: IVec2,
     pub dir: IVec2,
     pub wall_id: u16,
+    pub tiles_moved: u8,
 }
 
 fn despawn_tree(commands: &mut Commands, q_children: &Query<&Children>, e: Entity) {
@@ -396,13 +396,11 @@ pub fn use_pushwalls(
         return;
     }
 
-    // 2 Tiles Ahead Must be Clear
-    let t1 = front + dir;
-    let t2 = front + dir * 2;
+    // Original Wolfenstein 3-D Checks Only the First Destination Here
+    // The Second Destination Is Checked After the First Tile Is Crossed
+    let first_dest = front + dir;
 
-    if is_blocked_for_push(&grid, &solid, &q_enemies, t1)
-        || is_blocked_for_push(&grid, &solid, &q_enemies, t2)
-    {
+    if is_blocked_for_push(&grid, &solid, &q_enemies, first_dest) {
         sfx.write(PlaySfx {
             kind: SfxKind::NoWay,
             pos: player_tf.translation,
@@ -444,16 +442,22 @@ pub fn use_pushwalls(
 
 pub fn tick_pushwalls(
     time: Res<Time>,
+    solid: Option<Res<SolidStatics>>,
     mut clock: ResMut<PushwallClock>,
     mut pws: ResMut<PushwallState>,
     mut occ: ResMut<PushwallOcc>,
     mut grid: ResMut<MapGrid>,
+    q_enemies: Query<&OccupiesTile, (With<EnemyKind>, Without<Dead>)>,
     mut q_vis: Query<&mut Transform, With<PushwallVisual>>,
     q_children: Query<&Children>,
     mut commands: Commands,
     mut rebuild: MessageWriter<RebuildWalls>,
     mut completed: ResMut<CompletedPushwalls>,
 ) {
+    let Some(solid) = solid else {
+        return;
+    };
+
     let Some(active) = pws.active.as_mut() else {
         return;
     };
@@ -477,33 +481,31 @@ pub fn tick_pushwalls(
         active.state += 1;
         let new_block = active.state / PUSHWALL_TICS_PER_TILE;
 
-        // Boundary Crossing (Every 128 Tics)
+        // Boundary Crossing Every 128 Tics
         if new_block != old_block {
-            // Tile Behind Becomes Empty
+            // The Tile Behind the Moving Wall Becomes Walkable
             if in_bounds(&grid, active.base) {
                 grid.set_tile(active.base.x as usize, active.base.y as usize, Tile::Empty);
                 grid.set_plane0_code(active.base.x as usize, active.base.y as usize, 0);
             }
 
-            // Stop After Exactly 2 Tiles
+            let dest = active.base + active.dir;
+
+            // The Wall Has Completed Its Normal Two-Tile Slide
             if active.state >= PUSHWALL_TOTAL_TICS {
-                let dest = active.base + active.dir;
                 if in_bounds(&grid, dest) {
                     grid.set_tile(dest.x as usize, dest.y as usize, Tile::Wall);
                     grid.set_plane0_code(dest.x as usize, dest.y as usize, active.wall_id);
                 }
 
-                // Record This Completed Pushwall so the Save System Can Persist It
-                // dest Is the Final Wall Tile; the Two Tiles Behind (Along -dir)
-                // Were Emptied. Restore Reconstructs All Three From This
                 completed.items.push(CompletedPushwall {
                     dest,
                     dir: active.dir,
                     wall_id: active.wall_id,
+                    tiles_moved: 2,
                 });
 
-                // Hold Visual on Destination Tile Until Next FixedUpdate Tick
-                // Prevents Last Step Flicker Caused by Rebuilding Walls on Following Frame
+                // Hold the Visual at Its Destination Until the Next Fixed Tick
                 active.base = dest;
                 active.state = PUSHWALL_TOTAL_TICS + 1;
 
@@ -512,13 +514,39 @@ pub fn tick_pushwalls(
                 break;
             }
 
-            // Continue: Advance Base by 1 Tile
-            active.base += active.dir;
+            // Original Wolfenstein 3-D Checks the Second Destination Only
+            // After the Wall Has Crossed Into Its First Destination
+            let next_dest = dest + active.dir;
 
-            // Block Base + Ahead Tile
+            if is_blocked_for_push(&grid, &solid, &q_enemies, next_dest) {
+                if in_bounds(&grid, dest) {
+                    grid.set_tile(dest.x as usize, dest.y as usize, Tile::Wall);
+                    grid.set_plane0_code(dest.x as usize, dest.y as usize, active.wall_id);
+                }
+
+                completed.items.push(CompletedPushwall {
+                    dest,
+                    dir: active.dir,
+                    wall_id: active.wall_id,
+                    tiles_moved: 1,
+                });
+
+                // Use the Completed-State Sentinel so the Visual Survives
+                // Until Static Wall Geometry Has Been Rebuilt
+                active.base = dest;
+                active.state = PUSHWALL_TOTAL_TICS + 1;
+
+                occ.clear();
+                rebuild.write(RebuildWalls { skip: None });
+                break;
+            }
+
+            // The Second Destination Is Clear so Movement Continues
+            active.base = dest;
+
+            // Block the Current Wall Tile and the Tile It Is Entering
             occ.set(active.base, active.base + active.dir);
 
-            // Rebuild Walls Skipping New Base Tile (Moving Wall Renders it)
             rebuild.write(RebuildWalls {
                 skip: Some(active.base),
             });
