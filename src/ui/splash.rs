@@ -7397,6 +7397,7 @@ fn splash_advance_on_any_input(
                     slot,
                     &mut *resources.load_req,
                     &mut *current_level,
+                    &mut *skill_level,
                 );
                 if !ok { return; }
 

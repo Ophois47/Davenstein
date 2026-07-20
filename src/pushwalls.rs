@@ -98,6 +98,56 @@ impl PushwallMarkers {
             self.credited[i] = true;
         }
     }
+
+    // Collect Every Currently-Marked Tile as Grid Coordinates. The Save System
+    // Uses This to Persist the Live Marker Set, Which Differs From plane1 After
+    // Walls Have Been Consumed or, in Reversible Mode, Re-Marked at a New
+    // Resting Tile. Coordinates Are (x, z) With z Being the Grid Row
+    pub fn marked_tiles(&self) -> Vec<IVec2> {
+        let mut out = Vec::new();
+        for z in 0..self.height {
+            for x in 0..self.width {
+                if self.marked[z * self.width + x] {
+                    out.push(IVec2::new(x as i32, z as i32));
+                }
+            }
+        }
+        out
+    }
+
+    // Collect Every Credited Tile as Grid Coordinates. The Save System Uses This
+    // Set so a Load Knows Which Secrets Were Counted and Cannot Re-Count Them
+    pub fn credited_tiles(&self) -> Vec<IVec2> {
+        let mut out = Vec::new();
+        for z in 0..self.height {
+            for x in 0..self.width {
+                if self.credited[z * self.width + x] {
+                    out.push(IVec2::new(x as i32, z as i32));
+                }
+            }
+        }
+        out
+    }
+
+    // Overwrite Marker and Credit State From a Loaded Save. Clears Both Grids,
+    // Then Marks and Credits Exactly the Saved Tiles. Load Uses This Instead of
+    // Rederiving State From the Completed Pushwall Records, Which Could Not
+    // Reconstruct a Reversible Wall Pushed More Than Once (the True Origin Marker
+    // Would Stay Live and Uncredited, so the Secret Could Be Counted Again)
+    pub fn restore_state(&mut self, marked: &[IVec2], credited: &[IVec2]) {
+        for m in self.marked.iter_mut() {
+            *m = false;
+        }
+        for c in self.credited.iter_mut() {
+            *c = false;
+        }
+        for t in marked {
+            self.mark(t.x, t.y);
+        }
+        for t in credited {
+            self.set_credited(t.x, t.y);
+        }
+    }
 }
 
 /// Tiles Blocked by Moving Pushwall (Current Base + Tile Ahead)

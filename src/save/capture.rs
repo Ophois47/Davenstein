@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use crate::save::model::*;
 use davelib::enemies::{EnemyKind, SpawnIndex};
 use davelib::level::{CurrentLevel, LevelId};
-use davelib::level_score::LevelScore;
+use davelib::level_score::{EpisodeStats, LevelScore};
 use davelib::player::{
     PlayerKeys,
     PlayerVitals,
@@ -104,10 +104,15 @@ pub fn capture_save_game(
     player_vitals: &PlayerVitals,
     current_level: &CurrentLevel,
     level_score: &LevelScore,
+    skill: u8,
+    episode_stats: &EpisodeStats,
     dead_enemies: Vec<DeadEnemy>,
     present_pickups: Vec<[i32; 2]>,
     open_doors: Vec<[i32; 2]>,
     pushwalls: Vec<PushwallRec>,
+    marked_tiles: Vec<[i32; 2]>,
+    credited_tiles: Vec<[i32; 2]>,
+    pushwall_state_saved: bool,
 ) -> SaveGame {
     // Facing: Derive Yaw/Pitch From the Player's Transform Rotation. The Camera
     // Rotation is the Source of Truth (mouse_look Writes It via
@@ -123,6 +128,10 @@ pub fn capture_save_game(
         key_silver: hud.key_silver,
         selected_weapon: hud.selected as u8,
         owned_mask: hud.owned_mask,
+        // Difficulty Comes From the SkillLevel Resource, Not HudState. The Caller
+        // Reads It From Res<SkillLevel> and Passes It In so capture Stays a Pure
+        // Translation With No Resource Access of Its Own
+        skill,
     };
 
     let player = PlayerSnapshot {
@@ -150,7 +159,34 @@ pub fn capture_save_game(
     };
 
     let mut game = SaveGame::new_bucket1(name, run_state, player, level, level_score_snap);
-    game.world = Some(WorldSnapshot { dead_enemies, present_pickups, open_doors, pushwalls });
+    game.world = Some(WorldSnapshot {
+        dead_enemies,
+        present_pickups,
+        open_doors,
+        pushwalls,
+        // Explicit Marker and Credit State so a Load Restores Pushwalls Exactly
+        // Rather Than Guessing From the Completed Records. See PushwallMarkers
+        pushwall_state_saved,
+        marked_tiles,
+        credited_tiles,
+    });
+
+    // Snapshot the Cross-Level Episode Tally so a Mid-Episode Load Restores It,
+    // Keeping the Episode-End Summary the Same as an Uninterrupted Run
+    game.episode_stats = Some(EpisodeStatsSnapshot {
+        episode: episode_stats.episode,
+        levels: episode_stats
+            .levels
+            .iter()
+            .map(|l| EpisodeLevelSnapshot {
+                has: l.has,
+                time_secs: l.time_secs,
+                kill_pct: l.kill_pct,
+                secret_pct: l.secret_pct,
+                treasure_pct: l.treasure_pct,
+            })
+            .collect(),
+    });
     game
 }
 
@@ -203,6 +239,31 @@ pub fn apply_level_score(score: &mut LevelScore, snap: &LevelScoreSnapshot) {
     score.treasure_found = snap.treasure_found;
     score.treasure_total = snap.treasure_total;
     score.time_secs = snap.time_secs;
+}
+
+// Restore the Cross-Level Episode Tally From a Loaded Save. None Means an Older
+// Save Without the Field, so the Live Tally Is Left as Is. Rows Beyond the
+// Resource Array Are Ignored, and Any Missing Rows Stay at Their Default
+pub fn apply_episode_stats(stats: &mut EpisodeStats, snap: &Option<EpisodeStatsSnapshot>) {
+    let Some(snap) = snap else {
+        return;
+    };
+
+    let mut restored = EpisodeStats::default();
+    restored.episode = snap.episode;
+    for (i, row) in snap.levels.iter().enumerate() {
+        if i >= restored.levels.len() {
+            break;
+        }
+        restored.levels[i] = davelib::level_score::EpisodeLevelStats {
+            has: row.has,
+            time_secs: row.time_secs,
+            kill_pct: row.kill_pct,
+            secret_pct: row.secret_pct,
+            treasure_pct: row.treasure_pct,
+        };
+    }
+    *stats = restored;
 }
 
 fn weapon_from_u8(v: u8) -> crate::combat::WeaponSlot {

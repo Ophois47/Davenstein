@@ -77,6 +77,12 @@ pub enum KeyKind {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct DroppedLoot;
 
+/// Marks a Pickup Entity Dropped by a Dying Enemy Rather Than Placed by the Map.
+/// Save Uses This to Classify Pickups so a Dropped Item (a Boss Key Above All)
+/// Is Persisted With Its Kind and Re-Spawned on Load
+#[derive(Component, Debug, Clone, Copy)]
+pub struct DroppedPickup;
+
 #[derive(Debug, Clone, Copy)]
 pub enum HealthKind {
     FirstAid,
@@ -226,6 +232,81 @@ fn pickup_base_rot() -> Quat {
 /// - 51: Chaingun
 /// - 52-55: Treasure (Cross, Chalice, Chest, Crown)
 /// - 56: 1UP
+/// Spawn a Single Pickup Entity, Shared by the Map Spawn, the Enemy Drops, and
+/// the Save Restore so All Three Produce Identical Entities. dropped Adds the
+/// DroppedPickup Marker and a Tiny Y Lift so a Dropped Item Does Not Z-Fight the
+/// Corpse Beneath It. name Is a Debug Label Only, It Does Not Affect Behavior
+pub(crate) fn spawn_pickup_entity(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+    tile: IVec2,
+    kind: PickupKind,
+    dropped: bool,
+    name: &'static str,
+) {
+    // Same Depth Bias for Map and Dropped Items, a Drop Only Adds a Small Lift
+    const DEPTH_BIAS: f32 = -250.0;
+    const DROP_Y_LIFT: f32 = 0.01;
+
+    let (w, h, tex_path) = match kind {
+        PickupKind::Weapon(slot) => {
+            let (w, h) = weapon_pickup_size(slot);
+            (w, h, weapon_pickup_texture(slot))
+        }
+        PickupKind::Ammo { .. } => {
+            let (w, h) = ammo_size();
+            (w, h, ammo_texture())
+        }
+        PickupKind::Treasure(t) => {
+            let (w, h) = treasure_size(t);
+            (w, h, treasure_texture(t))
+        }
+        PickupKind::Health(hk) => {
+            let (w, h) = health_pickup_size(hk);
+            (w, h, health_texture(hk))
+        }
+        PickupKind::ExtraLife => {
+            let (w, h) = oneup_size();
+            (w, h, oneup_texture())
+        }
+        PickupKind::Key(k) => {
+            let (w, h) = key_size();
+            (w, h, key_texture(k))
+        }
+    };
+
+    let quad = meshes.add(Plane3d::default().mesh().size(w, h));
+    let tex: Handle<Image> = asset_server.load(tex_path);
+
+    let mat = materials.add(StandardMaterial {
+        base_color_texture: Some(tex),
+        alpha_mode: AlphaMode::Mask(0.5),
+        depth_bias: DEPTH_BIAS,
+        unlit: true,
+        cull_mode: None,
+        ..default()
+    });
+
+    let y = (h * 0.5) + if dropped { DROP_Y_LIFT } else { 0.0 };
+
+    let mut entity = commands.spawn((
+        Name::new(name),
+        Pickup { tile, kind },
+        Mesh3d(quad),
+        MeshMaterial3d(mat),
+        Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
+            .with_rotation(pickup_base_rot()),
+        GlobalTransform::default(),
+    ));
+
+    // A Restored Drop Comes Through Here Too, so It Round-Trips as a Drop When Re-Saved
+    if dropped {
+        entity.insert(DroppedPickup);
+    }
+}
+
 pub fn spawn_pickups(
     mut commands: Commands,
     grid: Res<davelib::map::MapGrid>,
@@ -256,9 +337,6 @@ pub fn spawn_pickups(
 
     let plane1: &[u16] = &plane1_res.0;
 
-    // Depth Tuning: Match Existing Drop / Treasure Approach
-    const DEPTH_BIAS: f32 = -250.0;
-
     let to_pickup_kind = |v: u16| -> Option<PickupKind> {
         match v {
             29 => Some(PickupKind::Health(HealthKind::DogFood)),
@@ -282,79 +360,21 @@ pub fn spawn_pickups(
         }
     };
 
-    let spawn_pickup = |
-        commands: &mut Commands,
-        meshes: &mut Assets<Mesh>,
-        materials: &mut Assets<StandardMaterial>,
-        asset_server: &AssetServer,
-        tile: IVec2,
-        kind: PickupKind,
-    | {
-        let (w, h, tex_path, alpha_mode) = match kind {
-            PickupKind::Weapon(slot) => {
-                let (w, h) = weapon_pickup_size(slot);
-                (w, h, weapon_pickup_texture(slot), AlphaMode::Mask(0.5))
-            }
-            PickupKind::Ammo { .. } => {
-                let (w, h) = ammo_size();
-                (w, h, ammo_texture(), AlphaMode::Mask(0.5))
-            }
-            PickupKind::Treasure(t) => {
-                let (w, h) = treasure_size(t);
-                (w, h, treasure_texture(t), AlphaMode::Mask(0.5))
-            }
-            PickupKind::Health(hk) => {
-                let (w, h) = health_pickup_size(hk);
-                (w, h, health_texture(hk), AlphaMode::Mask(0.5))
-            }
-            PickupKind::ExtraLife => {
-                let (w, h) = oneup_size();
-                (w, h, oneup_texture(), AlphaMode::Mask(0.5))
-            }
-            PickupKind::Key(k) => {
-                let (w, h) = key_size();
-                (w, h, key_texture(k), AlphaMode::Mask(0.5))
-            }
-        };
-
-        let quad = meshes.add(Plane3d::default().mesh().size(w, h));
-        let tex: Handle<Image> = asset_server.load(tex_path);
-
-        let mat = materials.add(StandardMaterial {
-            base_color_texture: Some(tex),
-            alpha_mode,
-            depth_bias: DEPTH_BIAS,
-            unlit: true,
-            cull_mode: None,
-            ..default()
-        });
-
-        let y = h * 0.5;
-
-        commands.spawn((
-            Name::new("Pickup"),
-            Pickup { tile, kind },
-            Mesh3d(quad),
-            MeshMaterial3d(mat),
-            Transform::from_translation(Vec3::new(tile.x as f32, y, tile.y as f32))
-                .with_rotation(pickup_base_rot()),
-            GlobalTransform::default(),
-        ));
-    };
-
     let idx = |x: usize, z: usize| -> usize { z * grid.width + x };
 
     for z in 0..grid.height {
         for x in 0..grid.width {
             let v = plane1[idx(x, z)];
             if let Some(kind) = to_pickup_kind(v) {
-                spawn_pickup(
+                spawn_pickup_entity(
                     &mut commands,
                     &mut meshes,
                     &mut materials,
                     &asset_server,
                     IVec2::new(x as i32, z as i32),
                     kind,
+                    false,
+                    "Pickup",
                 );
             }
         }
@@ -408,6 +428,7 @@ pub fn drop_guard_ammo(
 
         commands.spawn((
             Name::new("Pickup_Drop_Ammo"),
+            DroppedPickup,
             Pickup {
                 tile,
                 kind: PickupKind::Ammo { rounds },
@@ -468,6 +489,7 @@ pub fn drop_mutant_ammo(
 
         commands.spawn((
             Name::new("Pickup_Drop_Ammo_Mutant"),
+            DroppedPickup,
             Pickup {
                 tile,
                 kind: PickupKind::Ammo { rounds },
@@ -537,6 +559,7 @@ pub fn drop_ss_loot(
 
         commands.spawn((
             Name::new("Pickup_Drop_SS"),
+            DroppedPickup,
             Pickup { tile, kind },
             Mesh3d(quad),
             MeshMaterial3d(mat),
@@ -594,6 +617,7 @@ pub fn drop_officer_ammo(
 
         commands.spawn((
             Name::new("Pickup_Drop_Ammo_Officer"),
+            DroppedPickup,
             Pickup {
                 tile,
                 kind: PickupKind::Ammo { rounds },
@@ -647,6 +671,7 @@ pub fn drop_hans_key(
 
         commands.spawn((
             Name::new("Pickup_Drop_Hans_Key"),
+            DroppedPickup,
             Pickup { tile, kind },
             Mesh3d(quad),
             MeshMaterial3d(mat),
@@ -698,6 +723,7 @@ pub fn drop_gretel_key(
 
         commands.spawn((
             Name::new("Pickup_Drop_Gretel_Key"),
+            DroppedPickup,
             Pickup { tile, kind },
             Mesh3d(quad),
             MeshMaterial3d(mat),

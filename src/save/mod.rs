@@ -65,6 +65,13 @@ pub struct PendingPushwallRestore {
     pub active: bool,
     pub items: Vec<model::PushwallRec>,
     pub frames_waited: u32,
+
+    // Explicit Marker and Credit State From the Loaded Save. When state_saved Is
+    // True These Are Applied Verbatim via PushwallMarkers::restore_state. When
+    // False (Older Saves) Load Falls Back to Consuming the Derived Origin Tile
+    pub state_saved: bool,
+    pub marked_tiles: Vec<[i32; 2]>,
+    pub credited_tiles: Vec<[i32; 2]>,
 }
 
 pub struct SavePlugin;
@@ -91,6 +98,8 @@ fn handle_save_requests(
     hud: Res<HudState>,
     current_level: Res<CurrentLevel>,
     level_score: Res<LevelScore>,
+    skill: Res<davelib::skill::SkillLevel>,
+    episode_stats: Res<davelib::level_score::EpisodeStats>,
     q_player: Query<(&Transform, &PlayerVitals), With<Player>>,
     q_dead: Query<
         (&davelib::enemies::EnemyKind, &davelib::enemies::SpawnIndex),
@@ -99,6 +108,10 @@ fn handle_save_requests(
     q_pickups: Query<&crate::pickups::Pickup>,
     q_doors: Query<(&davelib::map::DoorTile, &davelib::map::DoorState)>,
     completed_pushwalls: Res<davelib::pushwalls::CompletedPushwalls>,
+    // Optional Because PushwallMarkers Is Inserted by setup and Does Not Exist
+    // Before the First Level Loads (Ex: Saving From a Menu). A Strict Res Would
+    // Fail System-Param Validation and Panic in That Window
+    markers: Option<Res<davelib::pushwalls::PushwallMarkers>>,
 ) {
     let Some(slot) = req.0 else { return; };
 
@@ -144,6 +157,18 @@ fn handle_save_requests(
         })
         .collect();
 
+    // Persist the Live Marker and Credit Grids so a Load Restores Them Exactly
+    // Rather Than Rederiving From the Completed Records. A Missing PushwallMarkers
+    // Resource Means There Is No Pushwall State to Save (No Level Loaded Yet)
+    let (marked_tiles, credited_tiles, pushwall_state_saved) = match &markers {
+        Some(m) => (
+            m.marked_tiles().iter().map(|t| [t.x, t.y]).collect(),
+            m.credited_tiles().iter().map(|t| [t.x, t.y]).collect(),
+            true,
+        ),
+        None => (Vec::new(), Vec::new(), false),
+    };
+
     let game = capture::capture_save_game(
         name,
         &hud,
@@ -151,10 +176,15 @@ fn handle_save_requests(
         vitals,
         &current_level,
         &level_score,
+        skill.0,
+        &episode_stats,
         dead_enemies,
         present_pickups,
         open_doors,
         pushwalls,
+        marked_tiles,
+        credited_tiles,
+        pushwall_state_saved,
     );
 
     match storage::write_slot(slot, &game) {
@@ -370,8 +400,13 @@ fn apply_pending_pushwall_restore(
             grid.set_plane0_code(dest.x as usize, dest.y as usize, rec.wall_id);
         }
 
-        // Consume the Original Pushwall Marker so It Cannot Be Pushed Again
-        markers.consume(orig.x, orig.y);
+        // Older Saves Without Explicit Marker State Consume the Derived Origin.
+        // That Stops the Wall Being Pushed Again. Newer Saves Skip This Fallback.
+        // They Restore the Real Marker and Credit Grids After the Loop Through
+        // restore_state, Which Is Exact Even When a Wall Was Pushed Twice
+        if !pending.state_saved {
+            markers.consume(orig.x, orig.y);
+        }
 
         // Repopulate the Completed Record so a Subsequent Save Re-Captures It
         completed.items.push(davelib::pushwalls::CompletedPushwall {
@@ -389,9 +424,30 @@ fn apply_pending_pushwall_restore(
         rebuild.write(davelib::world::RebuildWalls { skip: None });
     }
 
+    // Newer Saves Carry the Exact Marker and Credit Grids and Apply Them Verbatim.
+    // Running After the Grid Stamping Loop, This Path Replaces the Per-Record
+    // consume Guess Used by Older Saves and Restores a Reversible Wall Pushed
+    // More Than Once Correctly, so the Same Secret Cannot Be Counted Twice
+    if pending.state_saved {
+        let marked: Vec<IVec2> = pending
+            .marked_tiles
+            .iter()
+            .map(|t| IVec2::new(t[0], t[1]))
+            .collect();
+        let credited: Vec<IVec2> = pending
+            .credited_tiles
+            .iter()
+            .map(|t| IVec2::new(t[0], t[1]))
+            .collect();
+        markers.restore_state(&marked, &credited);
+    }
+
     pending.active = false;
     pending.frames_waited = 0;
     pending.items.clear();
+    pending.state_saved = false;
+    pending.marked_tiles.clear();
+    pending.credited_tiles.clear();
 }
 
 /// Bounds Check Mirroring the Pushwall Module's in_bounds, Local to Avoid a Dep
@@ -407,10 +463,19 @@ pub fn begin_load(
     slot: u32,
     load_req: &mut LoadGameRequested,
     current_level: &mut CurrentLevel,
+    skill_level: &mut davelib::skill::SkillLevel,
 ) -> bool {
     match storage::read_slot(slot) {
         Ok(Some(game)) => {
             current_level.0 = capture::level_from_ref(game.level);
+
+            // Restore Skill Before the Rebuild Runs. setup() Reads the SkillLevel
+            // Resource and Its spawn_offset to Choose the Enemy Spawn Set. Skill
+            // Must Be Correct Now, Not Later in load_game_finish, Which Runs After
+            // Enemies Spawn. Setting It Here Beside CurrentLevel Keeps the Restored
+            // Dead-Enemy Indices Aligned, Since They Match on a Stable Spawn Index
+            skill_level.0 = game.run_state.skill;
+
             load_req.0 = Some(game);
             true
         }

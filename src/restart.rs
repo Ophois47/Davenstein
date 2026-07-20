@@ -222,6 +222,7 @@ pub struct LoadRuntimeParams<'w> {
     elevator_delay: ResMut<'w, ElevatorExitDelay>,
     pending_exit: ResMut<'w, PendingLevelExit>,
     level_score: ResMut<'w, davelib::level_score::LevelScore>,
+    episode_stats: ResMut<'w, davelib::level_score::EpisodeStats>,
     pw_state: ResMut<'w, PushwallState>,
     pw_occ: ResMut<'w, PushwallOcc>,
     pw_clock: ResMut<'w, PushwallClock>,
@@ -253,6 +254,7 @@ pub fn load_game_finish(
 
     crate::save::capture::apply_run_state(&mut *state.hud, &game.run_state);
     crate::save::capture::apply_level_score(&mut *state.level_score, &game.level_score);
+    crate::save::capture::apply_episode_stats(&mut *state.episode_stats, &game.episode_stats);
 
     // Stash the dead-enemy set so apply_pending_dead_restore can mark them as
     // corpses once the rebuilt level's enemies exist (a frame or two later).
@@ -296,11 +298,22 @@ pub fn load_game_finish(
             req.pending_pushwalls.active = true;
             req.pending_pushwalls.frames_waited = 0;
             req.pending_pushwalls.items = w.pushwalls.clone();
+
+            // Carry Explicit Marker and Credit State Through to the Apply System,
+            // Which Restores Reversible Walls and Secret Credit Exactly. Older
+            // Saves Leave state_saved False and Fall Back to the Derived-Origin Path
+            req.pending_pushwalls.state_saved = w.pushwall_state_saved;
+            req.pending_pushwalls.marked_tiles = w.marked_tiles.clone();
+            req.pending_pushwalls.credited_tiles = w.credited_tiles.clone();
         }
         None => {
             req.pending_pushwalls.active = false;
             req.pending_pushwalls.frames_waited = 0;
             req.pending_pushwalls.items.clear();
+
+            req.pending_pushwalls.state_saved = false;
+            req.pending_pushwalls.marked_tiles.clear();
+            req.pending_pushwalls.credited_tiles.clear();
         }
     }
 

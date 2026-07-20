@@ -44,10 +44,18 @@ pub struct SaveGame {
     /// None = Resume at Fresh Level Start
     /// Some = Full Enemy / Door / Pushwall / Pickup Restore
     pub world: Option<WorldSnapshot>,
+
+    /// Cross-Level Episode Tally Mirrored From the EpisodeStats Resource
+    /// None = Older Save Without the Field, Load Leaves the Live Tally Untouched
+    /// Some = Restore the Accumulated Per-Level Rows so a Mid-Episode Load Keeps
+    /// the Episode-End Summary Correct
+    #[serde(default)]
+    pub episode_stats: Option<EpisodeStatsSnapshot>,
 }
 
-/// Mirrors Player-Facing Run State Held in HudState
-/// Includes Keys and Weapons
+/// Mirrors Player-Facing Run State Held in HudState (Keys and Weapons)
+/// Also Carries the Selected Skill Level, Which Lives in the SkillLevel
+/// Resource Rather Than HudState, so a Load Rebuilds at the Saved Difficulty
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunState {
     pub hp: i32,
@@ -60,6 +68,36 @@ pub struct RunState {
     pub selected_weapon: u8,
     /// Bitmask of Owned Weapons Matching HudState.owned_mask
     pub owned_mask: u8,
+
+    /// Selected Skill Level (0 = Easy, 1 = Medium, 2 = Hard, 3 = Nightmare)
+    /// Mirrored From the SkillLevel Resource Rather Than HudState, Which Does Not
+    /// Hold Difficulty. Persisted so a Load Rebuilds the Level With the Same
+    /// Enemy Spawn Set (Chosen via spawn_offset) and the Same Damage Scaling It
+    /// Was Saved Under. Restoring the Wrong Skill Would Also Misalign the
+    /// Dead-Enemy Restore, Which Matches on Stable Per-Kind Spawn Index
+    /// serde(default) Keeps Older Saves Loadable at Skill 0 (Easy)
+    #[serde(default)]
+    pub skill: u8,
+}
+
+/// One Level's Contribution to the Episode Tally, Mirrored From EpisodeLevelStats
+/// Kept as a Plain DTO Because the Engine Type Does Not Derive Serialize
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EpisodeLevelSnapshot {
+    pub has: bool,
+    pub time_secs: f32,
+    pub kill_pct: i32,
+    pub secret_pct: i32,
+    pub treasure_pct: i32,
+}
+
+/// Cross-Level Episode Tally Mirrored From the EpisodeStats Resource. Restored on
+/// Load so the Episode-End Summary Matches an Uninterrupted Run. levels Holds One
+/// Row per Mission Slot in Floor Order, the Same Layout as EpisodeStats.levels
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EpisodeStatsSnapshot {
+    pub episode: u8,
+    pub levels: Vec<EpisodeLevelSnapshot>,
 }
 
 /// Player Position, Facing, and Vitals
@@ -120,6 +158,24 @@ pub struct WorldSnapshot {
     /// Mid-Slide Pushwalls Are Not Captured and Reset to Un-Pushed
     #[serde(default)]
     pub pushwalls: Vec<PushwallRec>,
+
+    /// Whether This Save Carries Explicit Pushwall Marker and Credit State
+    /// (Always True for Saves Written by the Current Build). Older Saves Leave
+    /// This False, so Load Falls Back to Rederiving Marker State From the
+    /// Completed Pushwall Records
+    #[serde(default)]
+    pub pushwall_state_saved: bool,
+
+    /// Tiles Marked as Pushable at Save Time. Restored Verbatim so a Reversible
+    /// Wall That Migrated to a New Tile Stays Pushable There, and a Consumed Wall
+    /// Does Not Reappear as Pushable at Its Original Tile After a Load
+    #[serde(default)]
+    pub marked_tiles: Vec<[i32; 2]>,
+
+    /// Tiles Whose Secret Was Already Credited at Save Time. Restored so Pushing
+    /// a Reversible Wall Again After a Load Cannot Re-Count the Same Secret
+    #[serde(default)]
+    pub credited_tiles: Vec<[i32; 2]>,
 }
 
 fn default_pushwall_tiles_moved() -> u8 {
@@ -161,6 +217,7 @@ impl SaveGame {
             level,
             level_score,
             world: None,
+            episode_stats: None,
         }
     }
 }
