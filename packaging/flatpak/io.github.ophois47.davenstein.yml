@@ -1,0 +1,58 @@
+# Keep the lowercase application ID synchronized with the desktop, icon, and MetaInfo filenames
+id: io.github.ophois47.davenstein
+
+# Freedesktop 25.08 provides the graphics and audio ABI used by both target architectures
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: Davenstein
+
+# Publish release bundles on a stable branch rather than Flatpak's default master branch
+default-branch: stable
+
+# Grant only display, audio, and GPU access; Davenstein needs no network or host filesystem access
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+
+# Build the game and asset pack from the committed lockfile inside the Flatpak sandbox
+modules:
+  - name: davenstein
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/davenstein/cargo
+    build-commands:
+      # The generated Cargo sources permit a fully offline, locked release build
+      - cargo build --offline --release --locked --bin Davenstein --bin pak_builder
+      # Release builds resolve assets.pak beside the executable, so both files install under /app/bin
+      - target/release/pak_builder --root assets --out target/release/assets.pak
+      - install -Dm755 target/release/Davenstein /app/bin/Davenstein
+      - install -Dm644 target/release/assets.pak /app/bin/assets.pak
+      - install -Dm644 packaging/flatpak/io.github.ophois47.davenstein.desktop /app/share/applications/io.github.ophois47.davenstein.desktop
+      - install -Dm644 packaging/linux/davenstein.png /app/share/icons/hicolor/256x256/apps/io.github.ophois47.davenstein.png
+      - install -Dm644 packaging/flatpak/io.github.ophois47.davenstein.metainfo.xml /app/share/metainfo/io.github.ophois47.davenstein.metainfo.xml
+      # Include project documentation and all legal and third-party asset notices
+      - install -Dm644 README.md /app/share/doc/io.github.ophois47.davenstein/README.md
+      - install -Dm644 LICENSE-MIT /app/share/licenses/io.github.ophois47.davenstein/LICENSE-MIT
+      - install -Dm644 LICENSE-APACHE /app/share/licenses/io.github.ophois47.davenstein/LICENSE-APACHE
+      - install -Dm644 LICENSE.md /app/share/licenses/io.github.ophois47.davenstein/LICENSE.md
+      - install -Dm644 COPYRIGHT.md /app/share/licenses/io.github.ophois47.davenstein/COPYRIGHT.md
+      - install -Dm644 THIRD_PARTY_ASSETS.md /app/share/licenses/io.github.ophois47.davenstein/THIRD_PARTY_ASSETS.md
+    sources:
+      # Regenerate this file from Cargo.lock whenever dependency resolution changes
+      - cargo-sources.json
+      # Copy the checkout while excluding Git internals, build output, and local player data
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - target
+          - highscores.ron
+          - saves

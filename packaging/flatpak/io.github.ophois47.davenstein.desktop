@@ -1,0 +1,9 @@
+# Keep the filename and Icon key synchronized with the Flatpak application ID
+[Desktop Entry]
+Type=Application
+Name=Davenstein
+Comment=Dave's Wolfenstein 3-D recreation written in Rust with the Bevy engine
+Exec=Davenstein
+Icon=io.github.ophois47.davenstein
+Terminal=false
+Categories=Game;
