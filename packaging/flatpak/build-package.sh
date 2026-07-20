@@ -89,6 +89,8 @@ for required_command in \
     appstreamcli \
     chmod \
     desktop-file-validate \
+    eu-elfcompress \
+    eu-strip \
     flatpak \
     flatpak-builder \
     grep \
