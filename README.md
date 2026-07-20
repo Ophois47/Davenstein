@@ -19,7 +19,9 @@ Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47
 | Linux | x86_64 | Portable TAR.GZ | Extracted portable installation |
 | Linux | x86_64 / AMD64 | DEB | Native package for Debian, Ubuntu, and compatible distributions |
 | Linux | x86_64 | RPM | Native package for Rocky Linux 9 and compatible Enterprise Linux 9 systems |
+| Linux | x86_64 | Flatpak | Sandboxed Linux desktop installation |
 | Linux | ARM64 / AArch64 | AppImage | Normal ARM64 Linux desktop use |
+| Linux | ARM64 / AArch64 | Flatpak | Sandboxed ARM64 Linux desktop installation |
 | Linux | ARM64 / AArch64 | Portable TAR.GZ | Extracted ARM64 portable installation |
 | Linux | ARMv7 / ARMHF | Portable TAR.GZ | Extracted ARMv7 hard-float portable installation |
 | FreeBSD | x86_64 / AMD64 | Native PKG | Normal FreeBSD 14 installation |
@@ -29,7 +31,7 @@ Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47
 
 Every release package is accompanied by a `.sha256` checksum file
 
-Every listed release package is built and validated in continuous integration. The native DEB, RPM, and FreeBSD packages are additionally installed with their platform package managers, integrity-checked, and removed during CI. The FreeBSD package is tested inside a FreeBSD 14.4 virtual machine. Direct interactive hardware testing is still pending
+Every listed release package is built and validated in continuous integration. The Flatpak, native DEB, RPM, and FreeBSD packages are additionally installed, integrity-checked, inspected, and removed during CI. The FreeBSD package is tested inside a FreeBSD 14.4 virtual machine. Direct interactive hardware testing is still pending
 
 ### Bug reports
 
@@ -78,6 +80,28 @@ sudo dnf remove davenstein
 ```
 
 The native DEB and RPM packages store saves and high scores under the current user's platform data directory. The portable TAR.GZ package stores them under its own `data/` directory.
+
+### Flatpak Installation
+
+Install the downloaded bundle:
+
+```bash
+flatpak install --user ./Davenstein-*-linux-*.flatpak
+```
+
+Launch Davenstein:
+
+```bash
+flatpak run io.github.ophois47.davenstein
+```
+
+Remove the application with:
+
+```bash
+flatpak uninstall --user io.github.ophois47.davenstein
+```
+
+The Flatpak packages use installed storage mode and keep saves and high scores inside the Flatpak application data sandbox for the current user.
 
 ### FreeBSD Installation
 
