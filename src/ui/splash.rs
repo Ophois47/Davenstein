@@ -31,6 +31,7 @@ use davelib::options::{
     VideoSettings,
     SoundSettings,
     ControlSettings,
+    GameplaySettings,
 };
 
 pub const SPLASH_0_PATH: &str = "textures/ui/splash0.png";
@@ -129,6 +130,7 @@ struct SplashResources<'w> {
     res_list: Res<'w, ResolutionList>,
     sound_settings: ResMut<'w, SoundSettings>,
     control_settings: ResMut<'w, ControlSettings>,
+    gameplay_settings: ResMut<'w, GameplaySettings>,
     load_req: ResMut<'w, crate::save::LoadGameRequested>,
     save_req: ResMut<'w, crate::save::SaveGameRequested>,
 }
@@ -630,6 +632,7 @@ pub enum SplashStep {
     ChangeView,
     SoundOptions,
     ControlOptions,
+    GameplayOptions,
     Done,
 }
 
@@ -656,6 +659,7 @@ struct OptionsMenusLocalState {
     change_view: ChangeViewLocalState,
     sound: SoundOptionsLocalState,
     control: ControlOptionsLocalState,
+    gameplay: GameplayOptionsLocalState,
     /// Cached (w, h) From compute_scaled_size to Detect Window Resizes
     /// and Respawn Menu UI. (0, 0) Means Not Yet Initialized
     last_scaled_size: (f32, f32),
@@ -711,6 +715,14 @@ struct ControlOptionsLocalState {
     hold_accum: f32,
     hold_interval: f32,
     hold_ticks: u32,
+}
+
+// Gameplay Options Are Toggle-Only, so No Left / Right Hold-Repeat State Is
+// Needed Like the Control Screen Has for Its Numeric Sliders
+#[derive(Default)]
+struct GameplayOptionsLocalState {
+    selection: usize,
+    from_pause: bool,
 }
 
 #[derive(Component)]
@@ -830,49 +842,54 @@ enum MenuAction {
     Sound,
     Control,
     ChangeView,
+    Gameplay,
     ViewScores,
     Quit,
 }
 
-const MENU_ACTIONS_MAIN: [MenuAction; 7] = [
+const MENU_ACTIONS_MAIN: [MenuAction; 8] = [
     MenuAction::NewGame,
     MenuAction::LoadGame,
     MenuAction::Sound,
     MenuAction::Control,
     MenuAction::ChangeView,
+    MenuAction::Gameplay,
     MenuAction::ViewScores,
     MenuAction::Quit,
 ];
 
-const MENU_ACTIONS_PAUSE: [MenuAction; 9] = [
+const MENU_ACTIONS_PAUSE: [MenuAction; 10] = [
     MenuAction::NewGame,
     MenuAction::LoadGame,
     MenuAction::SaveGame,
     MenuAction::Sound,
     MenuAction::Control,
     MenuAction::ChangeView,
+    MenuAction::Gameplay,
     MenuAction::ViewScores,
     MenuAction::BackToGame,
     MenuAction::Quit,
 ];
 
-const MENU_LABELS_MAIN: [&str; 7] = [
+const MENU_LABELS_MAIN: [&str; 8] = [
     "New Game",
     "Load Game",
     "Sound",
     "Control",
     "Change View",
+    "Gameplay",
     "View Scores",
     "Quit",
 ];
 
-const MENU_LABELS_PAUSE: [&str; 9] = [
+const MENU_LABELS_PAUSE: [&str; 10] = [
     "New Game",
     "Load Game",
     "Save Game",
     "Sound",
     "Control",
     "Change View",
+    "Gameplay",
     "View Scores",
     "Return to Game",
     "Quit",
@@ -1142,6 +1159,31 @@ fn build_control_options_items(control: &ControlSettings) -> Vec<(ControlOptionK
 
     // Back
     items.push((ControlOptionKind::Back, "Back".to_string()));
+
+    items
+}
+
+/// Gameplay Options Menu Item Types
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GameplayOptionKind {
+    ReversiblePushwalls,
+    Back,
+}
+
+fn build_gameplay_options_items(gameplay: &GameplaySettings) -> Vec<(GameplayOptionKind, String)> {
+    let mut items = Vec::new();
+
+    // Pushwalls: Classic Is the Original One-Shot Behavior / Reversible Lets a
+    // Pushed Wall Be Pushed Again so a Wrong-Way Shove Never Traps a Secret
+    let pushwall_label = if gameplay.reversible_pushwalls {
+        "Pushwalls: Reversible"
+    } else {
+        "Pushwalls: Classic"
+    };
+    items.push((GameplayOptionKind::ReversiblePushwalls, pushwall_label.to_string()));
+
+    // Back
+    items.push((GameplayOptionKind::Back, "Back".to_string()));
 
     items
 }
@@ -1808,6 +1850,299 @@ fn spawn_control_options_ui(
 
     // Title
     let title = "Control Options";
+    let title_w = measure_menu_text_width(scale, title);
+    let title_x = ((w - title_w) * 0.5).round().max(0.0);
+
+    spawn_menu_bitmap_text(
+        commands,
+        canvas,
+        imgs.menu_font_yellow.clone(),
+        title_x,
+        (EP_TITLE_TOP * scale).round(),
+        scale,
+        title,
+        Visibility::Visible,
+    );
+
+    // Bottom Hint Geometry
+    let hint_native_w = 103.0;
+    let hint_native_h = 12.0;
+    let hint_bottom_pad = 6.0;
+
+    let hint_w = (hint_native_w * ui_scale).round();
+    let hint_h = (hint_native_h * ui_scale).round();
+    let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
+    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+
+    // Panel Geometry Matches Episode Select Style
+    let panel_left = (18.0 * ui_scale).round();
+    let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
+    let panel_right = ((BASE_W - 18.0) * ui_scale).round();
+
+    let panel_w = (panel_right - panel_left).max(1.0);
+    let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
+    let panel_h = (panel_bottom - panel_top).max(1.0);
+
+    let border_w = (2.0 * ui_scale).round().max(1.0);
+
+    // Main Panel Background
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.40, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Top Shadow
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(border_w),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.20, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Left Shadow
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(border_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.20, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Bottom Highlight
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top + panel_h - border_w),
+            width: Val::Px(panel_w),
+            height: Val::Px(border_w),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.70, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Right Highlight
+    commands.spawn((
+        SplashUi,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left + panel_w - border_w),
+            top: Val::Px(panel_top),
+            width: Val::Px(border_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.70, 0.0, 0.0)),
+        ChildOf(canvas),
+    ));
+
+    // Option List Text Centered in Panel
+    let item_labels: Vec<&str> = items.iter().map(|(_, s)| s.as_str()).collect();
+
+    let cursor_w = (19.0 * ui_scale).round();
+    let cursor_h = (10.0 * ui_scale).round();
+    let row_h = (16.0 * ui_scale).round().max(1.0);
+
+    let mut max_item_w = 0.0f32;
+    for t in &item_labels {
+        max_item_w = max_item_w.max(measure_menu_text_width(ui_scale, t));
+    }
+
+    let list_h = (item_count as f32 * row_h).round();
+    let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
+
+    let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
+    let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
+
+    for idx in 0..item_count {
+        let y = (list_top + idx as f32 * row_h).round();
+        let is_selected = idx == selection;
+
+        let gray_run = spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_gray.clone(),
+            text_x,
+            y,
+            ui_scale,
+            item_labels[idx],
+            if is_selected { Visibility::Hidden } else { Visibility::Visible },
+        );
+        commands.entity(gray_run).insert((
+            ControlOptionsItem { idx },
+            ControlOptionsTextVariant { selected: false },
+        ));
+
+        let white_run = spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_white.clone(),
+            text_x,
+            y,
+            ui_scale,
+            item_labels[idx],
+            if is_selected { Visibility::Visible } else { Visibility::Hidden },
+        );
+        commands.entity(white_run).insert((
+            ControlOptionsItem { idx },
+            ControlOptionsTextVariant { selected: true },
+        ));
+    }
+
+    // Gun Cursor
+    let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
+    let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
+
+    let cursor_y = (list_top + selection as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
+
+    commands.spawn((
+        SplashUi,
+        MenuCursor,
+        MenuCursorLight,
+        Visibility::Visible,
+        ImageNode::new(cursor_light),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    commands.spawn((
+        SplashUi,
+        MenuCursor,
+        MenuCursorDark,
+        Visibility::Hidden,
+        ImageNode::new(cursor_dark),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(cursor_x),
+            top: Val::Px(cursor_y),
+            width: Val::Px(cursor_w),
+            height: Val::Px(cursor_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+
+    // Bottom Hint
+    let hint = asset_server.load(MENU_HINT_PATH);
+    commands.spawn((
+        ImageNode::new(hint),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(hint_x),
+            top: Val::Px(hint_y),
+            width: Val::Px(hint_w),
+            height: Val::Px(hint_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+}
+
+/// Render the Gameplay Options Screen. A Faithful Clone of
+/// spawn_control_options_ui That Reuses the Same Item / Cursor Markers
+fn spawn_gameplay_options_ui(
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    w: f32,
+    h: f32,
+    scale: f32,
+    imgs: &SplashImages,
+    selection: usize,
+    gameplay: &GameplaySettings,
+) {
+    let items = build_gameplay_options_items(gameplay);
+    let item_count = items.len();
+    let selection = selection.min(item_count.saturating_sub(1));
+
+    let root = commands
+        .spawn((
+            SplashUi,
+            ZIndex(1000),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .id();
+
+    let canvas = commands
+        .spawn((
+            SplashUi,
+            Node {
+                width: Val::Px(w),
+                height: Val::Px(h),
+                position_type: PositionType::Relative,
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
+            ChildOf(root),
+        ))
+        .id();
+
+    let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
+        let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+        let mut max_line_w = 0.0f32;
+        let mut cur_line_w = 0.0f32;
+        for ch in text.chars() {
+            if ch == '\n' {
+                max_line_w = max_line_w.max(cur_line_w);
+                cur_line_w = 0.0;
+                continue;
+            }
+            if ch == ' ' {
+                cur_line_w += (MENU_FONT_SPACE_W * s).round();
+                continue;
+            }
+            if let Some(g) = menu_glyph(ch) {
+                cur_line_w += (g.advance * s).round();
+            }
+        }
+        max_line_w = max_line_w.max(cur_line_w);
+        max_line_w.max(1.0)
+    };
+
+    let ui_scale = (w / BASE_W).round().max(1.0);
+
+    // Title
+    let title = "Gameplay Options";
     let title_w = measure_menu_text_width(scale, title);
     let title_x = ((w - title_w) * 0.5).round().max(0.0);
 
@@ -4844,6 +5179,27 @@ fn splash_advance_on_any_input(
                         }
                     }
 
+                    MenuAction::Gameplay => {
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+
+                        options.gameplay.selection = 0;
+                        options.gameplay.from_pause = is_pause;
+
+                        if let Some(imgs) = resources.imgs.as_ref() {
+                            spawn_gameplay_options_ui(
+                                &mut commands,
+                                &asset_server,
+                                w, h, scale,
+                                imgs,
+                                options.gameplay.selection,
+                                &resources.gameplay_settings,
+                            );
+
+                            *resources.step = SplashStep::GameplayOptions;
+                            resources.music_mode.0 = MusicModeKind::Menu;
+                        }
+                    }
+
                     MenuAction::ChangeView => {
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
@@ -6033,6 +6389,159 @@ fn splash_advance_on_any_input(
                     }
 
                     _ => {}
+                }
+            }
+        }
+
+        SplashStep::GameplayOptions => {
+            resources.lock.0 = true;
+            resources.music_mode.0 = MusicModeKind::Menu;
+
+            let Some(imgs) = resources.imgs.as_ref() else { return; };
+
+            // Auto Respawn UI After Window Resize
+            if q.q_splash_roots.iter().next().is_none() {
+                spawn_gameplay_options_ui(
+                    &mut commands, &asset_server,
+                    w, h, scale, imgs,
+                    options.gameplay.selection,
+                    &resources.gameplay_settings,
+                );
+                return;
+            }
+
+            let items = build_gameplay_options_items(&resources.gameplay_settings);
+            let item_count = items.len();
+
+            if options.gameplay.selection >= item_count {
+                options.gameplay.selection = item_count.saturating_sub(1);
+            }
+
+            let current_kind = items.get(options.gameplay.selection).map(|(k, _)| *k);
+
+            // Escape = Back to Menu
+            if keyboard.just_pressed(KeyCode::Escape) {
+                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+
+                let back_to_pause = options.gameplay.from_pause;
+                options.gameplay.from_pause = false;
+                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                menu.reset();
+                *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
+                return;
+            }
+
+            let mut moved = false;
+
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+                if options.gameplay.selection > 0 { options.gameplay.selection -= 1; } else { options.gameplay.selection = item_count - 1; }
+                moved = true;
+            }
+
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+                options.gameplay.selection = (options.gameplay.selection + 1) % item_count;
+                moved = true;
+            }
+
+            if moved {
+                sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+            }
+
+            // Update Item Visibility. Reuses the Shared ControlOptions Item
+            // Markers so Only One Options Screen Exists at a Time
+            for (item, variant, mut vis) in q.q_control_options_items.iter_mut() {
+                let want_selected = item.idx == options.gameplay.selection;
+                *vis = if variant.selected == want_selected {
+                    Visibility::Visible
+                } else {
+                    Visibility::Hidden
+                };
+            }
+
+            // Cursor Blink
+            let blink_on = (time.elapsed_secs() / 0.2).floor() as i32 % 2 == 0;
+            for mut v in q.q_cursor_light.iter_mut() {
+                *v = if blink_on { Visibility::Visible } else { Visibility::Hidden };
+            }
+            for mut v in q.q_cursor_dark.iter_mut() {
+                *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
+            }
+
+            // Cursor Positioning
+            let ui_scale = (w / BASE_W).round().max(1.0);
+            let hint_native_h = 12.0;
+            let hint_bottom_pad = 6.0;
+            let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+            let panel_left = (18.0 * ui_scale).round();
+            let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
+            let panel_right = ((BASE_W - 18.0) * ui_scale).round();
+            let panel_w = (panel_right - panel_left).max(1.0);
+            let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
+            let panel_h = (panel_bottom - panel_top).max(1.0);
+            let cursor_w = (19.0 * ui_scale).round();
+            let cursor_h = (10.0 * ui_scale).round();
+            let row_h = (16.0 * ui_scale).round().max(1.0);
+            let list_h = (item_count as f32 * row_h).round();
+            let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
+
+            let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
+                let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+                let mut w = 0.0f32;
+                for ch in text.chars() {
+                    if ch == ' ' { w += (MENU_FONT_SPACE_W * s).round(); continue; }
+                    if let Some(g) = menu_glyph(ch) { w += (g.advance * s).round(); }
+                }
+                w.max(1.0)
+            };
+
+            let mut max_item_w = 0.0f32;
+            for (_, label) in &items {
+                max_item_w = max_item_w.max(measure_menu_text_width(ui_scale, label));
+            }
+
+            let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
+            let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
+            let cursor_y = (list_top + options.gameplay.selection as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
+
+            for mut node in q.q_node.iter_mut() {
+                node.left = Val::Px(cursor_x);
+                node.top = Val::Px(cursor_y);
+            }
+
+            // Enter = Toggle the Selected Option or Back
+            if keyboard.just_pressed(KeyCode::Enter)
+                || keyboard.just_pressed(KeyCode::NumpadEnter)
+                || keyboard.just_pressed(KeyCode::Space)
+            {
+                sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+
+                match current_kind {
+                    Some(GameplayOptionKind::ReversiblePushwalls) => {
+                        resources.gameplay_settings.reversible_pushwalls = !resources.gameplay_settings.reversible_pushwalls;
+                        resources.gameplay_settings.set_changed(); // Explicitly mark as changed
+
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+                        spawn_gameplay_options_ui(
+                            &mut commands, &asset_server,
+                            w, h, scale, imgs,
+                            options.gameplay.selection,
+                            &resources.gameplay_settings,
+                        );
+                    }
+
+                    Some(GameplayOptionKind::Back) => {
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+
+                        let back_to_pause = options.gameplay.from_pause;
+                        options.gameplay.from_pause = false;
+                        spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                        menu.reset();
+                        *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
+                    }
+
+                    None => {}
                 }
             }
         }

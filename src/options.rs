@@ -24,6 +24,7 @@ impl Plugin for OptionsPlugin {
 			// Resources
 			.init_resource::<VideoSettings>()
 			.init_resource::<ControlSettings>()
+			.init_resource::<GameplaySettings>()
 			.init_resource::<SoundSettings>()
 			.init_resource::<ResolutionList>()
 			// Startup: Apply All Settings Once on Launch
@@ -279,6 +280,26 @@ impl Default for ControlSettings {
 			gamepad_sensitivity: 1.0,
 			gamepad_deadzone: 0.1,
 			key_bindings: KeyBindings::default(),
+		}
+	}
+}
+
+//  GAMEPLAY SETTINGS (Gameplay Screen)
+/// Opt-In Fidelity Tweaks That Deviate From the Original Game
+/// Everything Defaults to Classic Wolfenstein 3-D Behavior
+#[derive(Resource, Clone, Copy, PartialEq)]
+pub struct GameplaySettings {
+	/// When False (Default) Pushwalls Behave Like the Original / One Shot,
+	/// Consumed the Moment They Are Pushed and Never Pushable Again
+	/// When True the Marker Travels With the Wall so It Can Be Pushed Again,
+	/// Including Back, Which Prevents Getting Stuck by Shoving One the Wrong Way
+	pub reversible_pushwalls: bool,
+}
+
+impl Default for GameplaySettings {
+	fn default() -> Self {
+		Self {
+			reversible_pushwalls: false,
 		}
 	}
 }

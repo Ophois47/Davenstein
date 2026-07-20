@@ -9,6 +9,7 @@ use crate::audio::{PlaySfx, SfxKind};
 use crate::decorations::SolidStatics;
 use crate::enemies::EnemyKind;
 use crate::map::{MapGrid, Tile};
+use crate::options::GameplaySettings;
 use crate::player::{Player, PlayerControlLock};
 use crate::world::{RebuildWalls, WallRenderCache};
 
@@ -28,6 +29,10 @@ pub struct PushwallMarkers {
     width: usize,
     height: usize,
     marked: Vec<bool>,
+    // Tracks Which Pushwalls Have Already Been Counted as a Found Secret. In
+    // Reversible Mode the Marker Travels With the Wall, so Credit Must Travel
+    // Too or Re-Pushing the Same Wall Would Inflate the Secret Count
+    credited: Vec<bool>,
 }
 
 impl PushwallMarkers {
@@ -36,6 +41,7 @@ impl PushwallMarkers {
             width,
             height,
             marked: vec![false; width * height],
+            credited: vec![false; width * height],
         }
     }
 
@@ -71,6 +77,24 @@ impl PushwallMarkers {
     pub fn consume(&mut self, x: i32, z: i32) {
         if let Some(i) = self.idx(x, z) {
             self.marked[i] = false;
+        }
+    }
+
+    // Re-Mark a Tile as Pushable. Used by Reversible Mode so a Wall Stays
+    // Pushable Once It Has Slid to a New Tile
+    pub fn mark(&mut self, x: i32, z: i32) {
+        if let Some(i) = self.idx(x, z) {
+            self.marked[i] = true;
+        }
+    }
+
+    pub fn is_credited(&self, x: i32, z: i32) -> bool {
+        self.idx(x, z).map(|i| self.credited[i]).unwrap_or(false)
+    }
+
+    pub fn set_credited(&mut self, x: i32, z: i32) {
+        if let Some(i) = self.idx(x, z) {
+            self.credited[i] = true;
         }
     }
 }
@@ -129,6 +153,12 @@ pub struct ActivePushwall {
     pub state: u32,
     /// Visual Entity for Moving Wall (Small 4 Face "Block")
     pub entity: Entity,
+    /// Snapshot of the Reversible-Pushwalls Setting at Push Time, so Behavior
+    /// Stays Consistent for This Push Even if the Toggle Changes Mid-Slide
+    pub reversible: bool,
+    /// Tile This Push Began From. Equals a Prior Completed Record's dest When a
+    /// Reversible Wall Is Pushed Again, Used to Keep One Record per Wall Lineage
+    pub start: IVec2,
 }
 
 #[derive(Resource, Default)]
@@ -306,6 +336,7 @@ fn spawn_pushwall_visual(
 pub fn use_pushwalls(
     keys: Res<ButtonInput<KeyCode>>,
     lock: Res<PlayerControlLock>,
+    gameplay: Res<GameplaySettings>,
     grid: Option<Res<MapGrid>>,
     solid: Option<Res<SolidStatics>>,
     mut markers: ResMut<PushwallMarkers>,
@@ -408,9 +439,17 @@ pub fn use_pushwalls(
         return;
     }
 
-    // Consume Marker so Can't be Pushed Again
+    // Credit the Secret Once per Wall. In Reversible Mode the Marker Migrates
+    // With the Wall and Could Be Pushed Repeatedly, so Gate the Count on a
+    // Separate Credited Flag That Travels With the Wall
+    if !markers.is_credited(front.x, front.y) {
+        markers.set_credited(front.x, front.y);
+        level_score.secrets_found += 1;
+    }
+
+    // Consume the Marker at This Tile. Reversible Mode Re-Marks the Destination
+    // Tile When the Slide Completes so the Wall Can Be Pushed Again
     markers.consume(front.x, front.y);
-    level_score.secrets_found += 1; // Secret discovery counts when push starts
 
     // Spawn Visual Wall Centered on Pushwall Tile (Y is Half Wall Height = 0.5)
     let start_center = Vec3::new(front.x as f32, 0.5, front.y as f32);
@@ -423,6 +462,8 @@ pub fn use_pushwalls(
         dir,
         state: 1,
         entity: ent,
+        reversible: gameplay.reversible_pushwalls,
+        start: front,
     };
 
     pw_state.active = Some(active);
@@ -447,6 +488,7 @@ pub fn tick_pushwalls(
     mut pws: ResMut<PushwallState>,
     mut occ: ResMut<PushwallOcc>,
     mut grid: ResMut<MapGrid>,
+    mut markers: ResMut<PushwallMarkers>,
     q_enemies: Query<&OccupiesTile, (With<EnemyKind>, Without<Dead>)>,
     mut q_vis: Query<&mut Transform, With<PushwallVisual>>,
     q_children: Query<&Children>,
@@ -498,6 +540,18 @@ pub fn tick_pushwalls(
                     grid.set_plane0_code(dest.x as usize, dest.y as usize, active.wall_id);
                 }
 
+                // Reversible Mode Re-Marks the Resting Tile so the Wall Can Be
+                // Pushed Again, Carrying Its Secret Credit Forward
+                if active.reversible {
+                    markers.mark(dest.x, dest.y);
+                    markers.set_credited(dest.x, dest.y);
+                }
+
+                // Keep One Completed Record per Wall Lineage so a Load Stamps
+                // Only the Final Position. active.start Matches a Prior Record's
+                // dest When This Wall Had Already Moved
+                let start = active.start;
+                completed.items.retain(|c| c.dest != start);
                 completed.items.push(CompletedPushwall {
                     dest,
                     dir: active.dir,
@@ -524,6 +578,17 @@ pub fn tick_pushwalls(
                     grid.set_plane0_code(dest.x as usize, dest.y as usize, active.wall_id);
                 }
 
+                // Reversible Mode Re-Marks the Resting Tile so the Wall Can Be
+                // Pushed Again, Carrying Its Secret Credit Forward
+                if active.reversible {
+                    markers.mark(dest.x, dest.y);
+                    markers.set_credited(dest.x, dest.y);
+                }
+
+                // Keep One Completed Record per Wall Lineage so a Load Stamps
+                // Only the Final Position
+                let start = active.start;
+                completed.items.retain(|c| c.dest != start);
                 completed.items.push(CompletedPushwall {
                     dest,
                     dir: active.dir,
