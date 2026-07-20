@@ -82,7 +82,7 @@ fn splash_stretch_image(image: Handle<Image>) -> ImageNode {
 const BASE_W: f32 = 320.0;
 const BASE_H: f32 = 200.0;
 
-const MENU_CURSOR_TOP: f32 = 64.0;
+const MENU_CURSOR_TOP: f32 = 58.0;
 const MENU_ITEM_H: f32 = 13.0;
 const MENU_FONT_HEIGHT: f32 = 20.0;
 const MENU_FONT_SPACE_W: f32 = 8.0;
@@ -93,6 +93,10 @@ const MENU_FONT_SPACE_ADV_PX: f32 = 8.0;
 
 // Optional knob if you want the font smaller without touching UI scaling
 const MENU_FONT_DRAW_SCALE: f32 = 0.5;
+
+/// Extra Text Scale for the Key Bindings Rows so All of Them Fit. 1.0 Matches
+/// the Other Menus, Lower Is Smaller. Tune This One Number to Taste
+const KEY_BIND_TEXT_SCALE: f32 = 0.8;
 
 // Episode menu layout
 const EP_THUMB_X: f32 = 24.0; // left edge of the thumbnail column (in 320x200 space)
@@ -2326,9 +2330,12 @@ fn spawn_key_bindings_ui(
     let cursor_h = (10.0 * ui_scale).round();
     let row_h = (panel_h / item_count as f32).min(16.0 * ui_scale).round().max(1.0);
 
+    // Shrink Only the Key Bindings Row Text so 14 Rows Fit Without Overlap
+    let text_scale = (ui_scale * KEY_BIND_TEXT_SCALE).max(0.01);
+
     let mut max_item_w = 0.0f32;
     for t in &item_labels {
-        max_item_w = max_item_w.max(measure_menu_text_width(ui_scale, t));
+        max_item_w = max_item_w.max(measure_menu_text_width(text_scale, t));
     }
 
     let list_h = (item_count as f32 * row_h).round();
@@ -2347,7 +2354,7 @@ fn spawn_key_bindings_ui(
             imgs.menu_font_gray.clone(),
             text_x,
             y,
-            ui_scale,
+            text_scale,
             item_labels[idx],
             if is_selected { Visibility::Hidden } else { Visibility::Visible },
         );
@@ -2362,7 +2369,7 @@ fn spawn_key_bindings_ui(
             imgs.menu_font_white.clone(),
             text_x,
             y,
-            ui_scale,
+            text_scale,
             item_labels[idx],
             if is_selected { Visibility::Visible } else { Visibility::Hidden },
         );
@@ -7092,9 +7099,11 @@ fn splash_advance_on_any_input(
                 w.max(1.0)
             };
 
+            // Match the Renderer's Shrunk Row Text so the Cursor Lines Up
+            let text_scale = (ui_scale * KEY_BIND_TEXT_SCALE).max(0.01);
             let mut max_item_w = 0.0f32;
             for label in &items {
-                max_item_w = max_item_w.max(measure_menu_text_width(ui_scale, label));
+                max_item_w = max_item_w.max(measure_menu_text_width(text_scale, label));
             }
 
             let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
