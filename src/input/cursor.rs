@@ -1,24 +1,19 @@
 /*
 Davenstein - by David Petnick
-
-Cursor capture and release are device and window concerns, so they live in the
-input module rather than the player controller
-
-This was moved verbatim from 'player::grab_mouse' with behavior unchanged to
-keep the relocation behavior-preserving
-
-Known rough edges to address in a later pass
-- 'ControlLeft' releases the cursor here and is also the default 'fire' binding
-- Left or right click grabs the cursor, but once captured a click should fire
-  Both behaviors should be separated when the fire path moves to 'PlayerIntent'
-
-Platform Note
-The startup auto-grab and pointer-lock logic below is desktop-only
-Before the WASM and mobile work, gate this system with
-'#[cfg(not(target_arch = "wasm32"))]'
-Browsers require a user gesture to lock the pointer and touch devices have no
-cursor
 */
+
+//! Cursor Capture Policy. This Is a Device + Window Concern, so It Lives in the
+//! Input Module Rather Than the Player Controller.
+//!
+//! Faithful Wolf3D Behavior: There Is No OS Cursor During Play or in Menus. The
+//! Cursor Stays Hidden and Locked Whenever Mouselook Is On and the Window Is
+//! Focused, and Releases Only When Mouselook Is Off (Keyboard-Only Play) or the
+//! Window Loses Focus (Alt-Tab), Where the OS Reclaims the Pointer Anyway. It
+//! Re-Captures on Its Own Once Focus Returns, With No Manual Release Key.
+//!
+//! NOTE (Platform): Programmatic Pointer Lock Works on Native Desktop, but the
+//! Browser Requires a User Gesture to Lock. Before the WASM Push, Adapt This so
+//! the First Capture Happens on a Click (Touch Devices Have No Cursor at All).
 
 use bevy::prelude::*;
 use bevy::window::{
@@ -28,53 +23,26 @@ use bevy::window::{
     Window,
 };
 
-use crate::player::PlayerControlLock;
+use crate::options::ControlSettings;
 
 pub fn grab_mouse(
-    mouse: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
-    lock: Res<PlayerControlLock>,
-    mut startup_frames: Local<u8>,
-    mut startup_grab_done: Local<bool>,
+    controls: Res<ControlSettings>,
     mut q_cursor: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
 ) {
     let Some((window, mut cursor)) = q_cursor.iter_mut().next() else {
         return;
     };
 
-    // Release Cursor with Left Control
-    // Works Even While Menus are Open or Controls are Locked
-    if keys.just_pressed(KeyCode::ControlLeft) {
-        cursor.visible = true;
-        cursor.grab_mode = CursorGrabMode::None;
-        *startup_grab_done = true;
-        return;
-    }
+    // Capture Only While Mouselook Is On and the Window Is Focused. This Holds
+    // in Both Gameplay and Menus, Matching the Original's Always-Hidden Cursor
+    let want_capture = controls.mouselook_enabled && window.focused;
+    let captured = cursor.grab_mode != CursorGrabMode::None;
 
-    // Startup Grab Must Wait Until the OS Has Mapped and Focused the Window
-    if !*startup_grab_done {
-        if *startup_frames < 3 {
-            *startup_frames += 1;
-            return;
-        }
-
-        if window.focused {
-            cursor.visible = false;
-            cursor.grab_mode = CursorGrabMode::Locked;
-            *startup_grab_done = true;
-            return;
-        }
-    }
-
-    // Do Not Auto-Release Just Because a Menu is Open or Controls are Locked
-    // Menus are Keyboard Only
-    if lock.0 {
-        return;
-    }
-
-    // Grab Cursor by Clicking the Window After Manual Release
-    if mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Right) {
+    if want_capture && !captured {
         cursor.visible = false;
         cursor.grab_mode = CursorGrabMode::Locked;
+    } else if !want_capture && captured {
+        cursor.visible = true;
+        cursor.grab_mode = CursorGrabMode::None;
     }
 }
