@@ -3,17 +3,18 @@ Davenstein - by David Petnick
 */
 
 //! Cursor Capture Policy. This Is a Device + Window Concern, so It Lives in the
-//! Input Module Rather Than the Player Controller.
+//! Input Module Rather Than the Player Controller
 //!
-//! Faithful Wolf3D Behavior: There Is No OS Cursor During Play or in Menus. The
-//! Cursor Stays Hidden and Locked Whenever Mouselook Is On and the Window Is
-//! Focused, and Releases Only When Mouselook Is Off (Keyboard-Only Play) or the
-//! Window Loses Focus (Alt-Tab), Where the OS Reclaims the Pointer Anyway. It
-//! Re-Captures on Its Own Once Focus Returns, With No Manual Release Key.
+//! Faithful Wolf3D Behavior: There Is No OS Cursor While the Window Is Focused,
+//! in Gameplay or in Menus Alike. The Cursor Is Hidden Whenever Focused and
+//! Reappears Only on Focus Loss (Alt-Tab), Where the OS Reclaims It Anyway.
+//! Mouselook Only Controls Whether the Mouse Is Locked for Relative Look. With
+//! Mouselook Off (Keyboard-Only Play) the Cursor Stays Hidden but Unlocked, so
+//! the Mouse No Longer Turns the Player
 //!
 //! NOTE (Platform): Programmatic Pointer Lock Works on Native Desktop, but the
 //! Browser Requires a User Gesture to Lock. Before the WASM Push, Adapt This so
-//! the First Capture Happens on a Click (Touch Devices Have No Cursor at All).
+//! the First Lock Happens on a Click (Touch Devices Have No Cursor at All)
 
 use bevy::prelude::*;
 use bevy::window::{
@@ -33,16 +34,22 @@ pub fn grab_mouse(
         return;
     };
 
-    // Capture Only While Mouselook Is On and the Window Is Focused. This Holds
-    // in Both Gameplay and Menus, Matching the Original's Always-Hidden Cursor
-    let want_capture = controls.mouselook_enabled && window.focused;
-    let captured = cursor.grab_mode != CursorGrabMode::None;
+    // Hide the Cursor Whenever the Window Is Focused (Gameplay and Menus). Only
+    // Show It Again on Focus Loss so Alt-Tab Behaves Normally
+    let want_visible = !window.focused;
 
-    if want_capture && !captured {
-        cursor.visible = false;
-        cursor.grab_mode = CursorGrabMode::Locked;
-    } else if !want_capture && captured {
-        cursor.visible = true;
-        cursor.grab_mode = CursorGrabMode::None;
+    // Lock the Mouse for Relative Look Only When Mouselook Is On and Focused.
+    // With Mouselook Off the Cursor Stays Hidden but Unlocked (Keyboard-Only)
+    let want_grab = if controls.mouselook_enabled && window.focused {
+        CursorGrabMode::Locked
+    } else {
+        CursorGrabMode::None
+    };
+
+    if cursor.visible != want_visible {
+        cursor.visible = want_visible;
+    }
+    if cursor.grab_mode != want_grab {
+        cursor.grab_mode = want_grab;
     }
 }

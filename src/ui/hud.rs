@@ -5,10 +5,7 @@ Davenstein - by David Petnick
 use bevy::ecs::system::ParamSet;
 use bevy::prelude::*;
 use bevy::ui::widget::NodeImageMode;
-use bevy::window::{
-    CursorOptions,
-    PrimaryWindow,
-};
+use bevy::window::PrimaryWindow;
 
 use super::{
     HudState,
@@ -17,12 +14,12 @@ use super::{
 };
 use davelib::audio::{PlaySfx, SfxKind};
 use davelib::player::{
-    cursor_is_captured,
     GodMode,
     Player,
     PlayerControlLock,
 };
 use davelib::options::ControlSettings;
+use davelib::input::PlayerIntent;
 use davelib::level::CurrentLevel;
 
 #[derive(Component)]
@@ -496,9 +493,8 @@ pub(super) struct WeaponFireLocals {
 
 pub(crate) fn weapon_fire_and_viewmodel(
     time: Res<Time>,
-    mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
-    cursor: Single<&CursorOptions>,
+    intent: Res<PlayerIntent>,
     lock: Res<PlayerControlLock>,
     controls: Res<ControlSettings>,
     sprites: Option<Res<ViewModelSprites>>,
@@ -517,24 +513,14 @@ pub(crate) fn weapon_fire_and_viewmodel(
     let dt = time.delta();
     let dt_secs = dt.as_secs_f32();
 
-    // Only Allow Weapon Selection / Firing While Mouse is Locked
-    let locked = cursor_is_captured(cursor.grab_mode);
-    if !locked {
-        locals.armed = false;
-        locals.fire_anim_accum = 0.0;
-        locals.last_weapon = Some(hud.selected);
-
-        // Hard Snap Viewmodel to Idle if Unlocked
-        weapon.fire_cycle = 0;
-        weapon.showing_fire = false;
-        if let Ok(mut img) = vm_q.single_mut() {
-            img.image = sprites.idle(hud.selected);
-        }
-        return;
-    }
-
-    // Block Selection / Firing While Dead (Input Lock)
+    // Block Selection / Firing Whenever Not in Active Gameplay (Menus, Death,
+    // Level End). lock.0 Is Set True by Every Menu / Splash Step and on Death,
+    // so It Is the Authoritative "Not Playing" Signal. Cursor Capture Is No
+    // Longer Used to Gate Firing, so Keyboard-Only Play (Mouselook Off) Fires
     if lock.0 {
+        // Re-Arm the First-Frame Guard so the Input That Dismissed a Menu Does
+        // Not Also Fire on the Frame Gameplay Resumes
+        locals.armed = false;
         locals.fire_anim_accum = 0.0;
         locals.last_weapon = Some(hud.selected);
         locals.auto_linger = 0.0;
@@ -549,7 +535,8 @@ pub(crate) fn weapon_fire_and_viewmodel(
         return;
     }
 
-    // Prevent Very First Click (Used to Grab Cursor) From Also Firing
+    // Skip the First Gameplay Frame so the Input That Started / Resumed Play
+    // Does Not Also Fire on That Same Frame
     if !locals.armed {
         locals.armed = true;
         locals.fire_anim_accum = 0.0;
@@ -622,8 +609,10 @@ pub(crate) fn weapon_fire_and_viewmodel(
     let is_chaingun = hud.selected == WeaponSlot::Chaingun;
     let is_full_auto = is_machinegun || is_chaingun;
 
-    let trigger_down = mouse.pressed(MouseButton::Left);
-    let trigger_pressed = mouse.just_pressed(MouseButton::Left);
+    // Fire Comes From PlayerIntent, Which ORs the kb.fire Binding With the Left
+    // Mouse Button, so Both Mouse and Keyboard-Only Play Trigger the Weapon
+    let trigger_down = intent.fire;
+    let trigger_pressed = intent.fire_pressed;
 
     // Tick Cooldown
     weapon.cooldown.tick(dt);
