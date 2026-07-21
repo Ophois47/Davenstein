@@ -368,9 +368,14 @@ pub fn use_doors(
                     break;
                 }
 
-                state.want_open = true;
+                // Always Refresh the Hold-Open Timer. Only the Closed-to-Opening
+                // Transition Plays the Open Sound, Matching the AI Door Opener. A Door
+                // Another Actor Already Opened Does Not Sound a Second Time This Way
                 state.open_timer = DOOR_OPEN_SECS;
-                sfx_kind = Some(SfxKind::DoorOpen);
+                if !state.want_open {
+                    state.want_open = true;
+                    sfx_kind = Some(SfxKind::DoorOpen);
+                }
             }
             _ => {}
         }
