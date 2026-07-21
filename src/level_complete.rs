@@ -118,7 +118,8 @@ impl Default for MissionSuccessTally {
             target_bonus: 0,
             bonus_applied: false,
 
-            tick: Timer::from_seconds(1.0 / 120.0, TimerMode::Repeating),
+            // Count Rate Matches Original Wolf3D WL_INTER.C at One Percent Per 70Hz Step
+            tick: Timer::from_seconds(1.0 / 70.0, TimerMode::Repeating),
         }
     }
 }
@@ -662,7 +663,8 @@ pub fn tick_mission_success_tally(
         BETWEEN_PHASE_PAUSE_SECS + POST_NO_BONUS_PAD_SECS,
     );
 
-    const PCT_STEP: i32 = 2;
+    // One Percent Per Step so the Every-10 Beep Lands on Each Decade Like Wolf3D
+    const PCT_STEP: i32 = 1;
 
     fn crossed_multiple(prev: i32, new: i32, n: i32) -> bool {
         if n <= 0 || new <= prev {
