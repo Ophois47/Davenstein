@@ -380,6 +380,11 @@ fn make_corpse(
     ec.insert(davelib::actors::Dead);
     ec.remove::<davelib::ai::EnemyAi>();
 
+    // Mark the Restored Corpse as Already Looted. Without This the Once-Per-Corpse
+    // Drop Systems See a Fresh Corpse and Re-Drop Ammo on Every Load. Any Loot
+    // Still on the Floor Is Restored Separately by the Pickup Snapshot Instead
+    ec.insert(crate::pickups::DroppedLoot);
+
     match kind {
         EnemyKind::Guard => { ec.insert(GuardCorpse); }
         EnemyKind::Ss => { ec.insert(SsCorpse); }
