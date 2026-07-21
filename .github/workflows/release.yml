@@ -1136,12 +1136,12 @@ jobs:
 
       # Regenerate cargo-sources.json from Cargo.lock at build time so the
       # offline Flatpak build always matches the committed lockfile
-      - name: Set up Python for the Cargo sources generator
-        uses: actions/setup-python@v5
+      - name: Set Up Python for the Cargo Sources Generator
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
-      - name: Install Cargo sources generator dependencies
+      - name: Install Cargo Sources Generator Dependencies
         run: pip install "aiohttp==3.14.2" "tomlkit==0.15.1" "PyYAML==6.0.3"
 
       # The shared builder validates metadata, performs the locked offline Rust
@@ -1765,12 +1765,12 @@ jobs:
 
       # Regenerate cargo-sources.json from Cargo.lock at build time so the
       # offline Flatpak build always matches the committed lockfile
-      - name: Set up Python for the Cargo sources generator
-        uses: actions/setup-python@v5
+      - name: Set Up Python for the Cargo Sources Generator
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
-      - name: Install Cargo sources generator dependencies
+      - name: Install Cargo Sources Generator Dependencies
         run: pip install "aiohttp==3.14.2" "tomlkit==0.15.1" "PyYAML==6.0.3"
 
       # The shared builder validates metadata, performs the locked offline Rust
