@@ -22,17 +22,17 @@ const BASE_SENSITIVITY: f32 = 0.002;
 // Promote to ControlSettings if It Should Be Exposed in the Options Menu
 const KEY_TURN_SPEED: f32 = 2.6;
 
-// Read Keyboard and Mouse Input and Overwrite PlayerIntent for This Frame
-// Writes a Full Snapshot Every Call so Unpressed Inputs are Cleared
-// Prevents Stale Input Regardless of How Consumers are Gated
-pub fn gather_input(
-    time: Res<Time>,
-    keys: Res<ButtonInput<KeyCode>>,
-    mouse_buttons: Res<ButtonInput<MouseButton>>,
-    mouse_motion: Res<AccumulatedMouseMotion>,
-    q_cursor: Query<&CursorOptions, With<PrimaryWindow>>,
-    controls: Res<ControlSettings>,
-    mut intent: ResMut<PlayerIntent>,
+// Merge Keyboard and Mouse Input into the Shared PlayerIntent Accumulator
+// Called by the Neutral gather System as the Base Source Each Frame
+// Freshness is Owned by gather Which Resets the Accumulator to Default
+pub fn contribute(
+    acc: &mut PlayerIntent,
+    time: &Time,
+    keys: &ButtonInput<KeyCode>,
+    mouse_buttons: &ButtonInput<MouseButton>,
+    mouse_motion: &AccumulatedMouseMotion,
+    q_cursor: &Query<&CursorOptions, With<PrimaryWindow>>,
+    controls: &ControlSettings,
 ) {
     let kb = &controls.key_bindings;
 
@@ -102,13 +102,14 @@ pub fn gather_input(
         None
     };
 
-    *intent = PlayerIntent {
-        move_wish: wish,
-        run,
-        look_delta: look,
-        fire,
-        fire_pressed,
-        use_pressed,
-        weapon_select,
-    };
+    // Merge This Frame Contribution into the Shared Accumulator
+    // move_wish and look_delta Accumulate, Booleans Combine by OR
+    // weapon_select Keeps the First Source That Sets it, so Keyboard Wins Here
+    acc.move_wish += wish;
+    acc.run |= run;
+    acc.look_delta += look;
+    acc.fire |= fire;
+    acc.fire_pressed |= fire_pressed;
+    acc.use_pressed |= use_pressed;
+    acc.weapon_select = acc.weapon_select.or(weapon_select);
 }

@@ -8,7 +8,7 @@ use bevy::prelude::*;
 // Every Input Source Writes Into This Resource
 // Gameplay Systems Only Read It and Never Touch a Physical Device
 // This Lets New Input Methods Add One Source System Without Changing Gameplay Code
-// Rewritten in Full Every Frame by gather_input so It Never Becomes Stale
+// Reset to Default and Rebuilt Every Frame by gather so It Never Becomes Stale
 #[derive(Resource, Debug, Clone, Copy, Default)]
 pub struct PlayerIntent {
     // Desired Movement in the Player's Local Frame

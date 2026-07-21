@@ -542,7 +542,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     }
 
     // Weapon Selection From PlayerIntent. weapon_select Is a Device-Neutral
-    // 1..=4 Index (the Key Binding Lives in gather_input), Positional:
+    // 1..=4 Index (the Key Binding Lives in keyboard_mouse::contribute), Positional:
     // 1 = Knife, 2 = Pistol, 3 = MachineGun, 4 = Chaingun
     if let Some(slot) = intent.weapon_select.and_then(|n| match n {
         1 => Some(WeaponSlot::Knife),

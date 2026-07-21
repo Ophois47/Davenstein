@@ -100,9 +100,9 @@ pub fn cursor_is_captured(grab_mode: CursorGrabMode) -> bool {
 // grab_mouse moved to `crate::input::cursor::grab_mouse` (registered by InputPlugin).
 
 /// Apply the look delta gathered this frame (mouse and/or keyboard turn) to the
-/// player's orientation. The device reading now happens in
-/// `crate::input::sources::keyboard_mouse::gather_input`; this system only
-/// consumes `PlayerIntent`.
+/// player's orientation. The device reading now happens in the input sources
+/// (e.g. `crate::input::sources::keyboard_mouse::contribute`) and is merged by
+/// `crate::input::gather::gather`. This system only consumes `PlayerIntent`.
 ///
 /// Register AFTER `davelib::input::InputGather` so it reads fresh intent, e.g.
 /// `apply_look.after(davelib::input::InputGather)`.

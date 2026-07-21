@@ -16,6 +16,7 @@ davelib cannot access
 pub mod intent;
 pub mod cursor;
 pub mod sources;
+pub mod gather;
 
 use bevy::prelude::*;
 
@@ -35,7 +36,7 @@ impl Plugin for InputPlugin {
             .init_resource::<PlayerIntent>()
             .add_systems(
                 Update,
-                sources::keyboard_mouse::gather_input.in_set(InputGather),
+                gather::gather.in_set(InputGather),
             )
             .add_systems(Update, cursor::grab_mouse);
     }
