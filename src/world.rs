@@ -716,6 +716,7 @@ pub fn setup(
 		base_color_texture: Some(wall_tex.clone()),
 		unlit: true,
 		cull_mode: None,
+		alpha_mode: AlphaMode::Mask(0.5),
 		..default()
 	});
 
@@ -724,6 +725,7 @@ pub fn setup(
 		base_color: Color::srgb(0.75, 0.75, 0.75),
 		unlit: true,
 		cull_mode: None,
+		alpha_mode: AlphaMode::Mask(0.5),
 		..default()
 	});
 
@@ -731,12 +733,14 @@ pub fn setup(
 	let door_mat = materials.add(StandardMaterial {
 		base_color_texture: Some(wall_tex.clone()),
 		unlit: true,
+		alpha_mode: AlphaMode::Mask(0.5),
 		..default()
 	});
 
 	let floor_mat = materials.add(StandardMaterial {
 		base_color_texture: Some(floor_tex),
 		unlit: true,
+		alpha_mode: AlphaMode::Mask(0.5),
 		..default()
 	});
 
@@ -780,6 +784,7 @@ pub fn setup(
         base_color: current_level.0.ceiling_color(),
         unlit: true,
         cull_mode: None,
+        alpha_mode: AlphaMode::Mask(0.5),
         ..default()
     });
 
