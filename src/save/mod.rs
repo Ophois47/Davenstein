@@ -38,6 +38,12 @@ pub struct LoadGameRequested(pub Option<model::SaveGame>);
 #[derive(Resource, Default)]
 pub struct PendingDeadRestore(pub Vec<model::DeadEnemy>);
 
+/// Living-Enemy State From a Just-Loaded Save. Like PendingDeadRestore This
+/// Waits for the Rebuilt Enemies to Spawn, Then apply_pending_enemy_restore
+/// Matches Each by (kind, index) and Overwrites Its Health, Position, and Alert
+#[derive(Resource, Default)]
+pub struct PendingEnemyRestore(pub Vec<model::EnemySnapshot>);
+
 // Pickup Tiles That Should Remain (Un-Collected) From a Just-Loaded Save
 // apply_pending_pickup_restore Despawns Fresh Pickups Not in This Set
 // The bool Tracks Whether a Restore Is Pending (Empty Vec Is Valid: It Means
@@ -91,11 +97,13 @@ impl Plugin for SavePlugin {
         app.init_resource::<SaveGameRequested>()
             .init_resource::<LoadGameRequested>()
             .init_resource::<PendingDeadRestore>()
+            .init_resource::<PendingEnemyRestore>()
             .init_resource::<PendingPickupRestore>()
             .init_resource::<PendingDoorRestore>()
             .init_resource::<PendingPushwallRestore>()
             .add_systems(Update, handle_save_requests)
             .add_systems(Update, apply_pending_dead_restore)
+            .add_systems(Update, apply_pending_enemy_restore)
             .add_systems(Update, apply_pending_pickup_restore)
             .add_systems(Update, apply_pending_door_restore)
             .add_systems(Update, apply_pending_pushwall_restore);
@@ -114,6 +122,19 @@ fn handle_save_requests(
     q_dead: Query<
         (&davelib::enemies::EnemyKind, &davelib::enemies::SpawnIndex),
         With<davelib::actors::Dead>,
+    >,
+    // Living Enemies (Not Yet Dead). A Dying Enemy Has hp <= 0 but Is Not Dead
+    // Yet, so It Is Captured Here and Restored as a Corpse via the hp Check
+    q_alive: Query<
+        (
+            &davelib::enemies::EnemyKind,
+            &davelib::enemies::SpawnIndex,
+            &davelib::actors::Health,
+            &Transform,
+            &davelib::actors::OccupiesTile,
+            &davelib::ai::EnemyAi,
+        ),
+        Without<davelib::actors::Dead>,
     >,
     q_pickups: Query<(&crate::pickups::Pickup, Option<&crate::pickups::DroppedPickup>)>,
     q_doors: Query<(&davelib::map::DoorTile, &davelib::map::DoorState)>,
@@ -141,6 +162,22 @@ fn handle_save_requests(
     let dead: Vec<(davelib::enemies::EnemyKind, davelib::enemies::SpawnIndex)> =
         q_dead.iter().map(|(k, i)| (*k, *i)).collect();
     let dead_enemies = capture::capture_dead_enemies(&dead);
+
+    // Every Living Enemy With Its Health, Position, and Alert State. Load Matches
+    // Each One by (kind, index), so the Restored Skill Must Line Up With the Save.
+    // #1 Ensures That, Keeping the Spawn Set and Its Indices Aligned
+    let enemies: Vec<model::EnemySnapshot> = q_alive
+        .iter()
+        .map(|(kind, idx, hp, tf, occ, ai)| model::EnemySnapshot {
+            kind: capture::enemy_kind_to_u8(*kind),
+            index: idx.0,
+            hp_cur: hp.cur,
+            pos: [tf.translation.x, tf.translation.y, tf.translation.z],
+            tile: [occ.0.x, occ.0.y],
+            ai_state: capture::ai_state_to_u8(ai.state),
+            last_step: [ai.last_step.x, ai.last_step.y],
+        })
+        .collect();
 
     // Tiles That Still Hold a Pickup Are the Un-Collected Ones (Collecting
     // Despawns the Entity), so on Load We Despawn Any Pickup Not in This Set
@@ -209,6 +246,7 @@ fn handle_save_requests(
         pushwall_state_saved,
         pickups_full,
         true,
+        enemies,
     );
 
     match storage::write_slot(slot, &game) {
@@ -254,6 +292,77 @@ fn apply_pending_dead_restore(
     }
 
     // Consume Pending Set so This Only Runs Once Per Load
+    pending.0.clear();
+}
+
+/// Restore Living-Enemy State After the Rebuild. Matches Each Rebuilt Enemy to
+/// Its Saved Twin by (kind, index) and Overwrites Health, Position, Occupied
+/// Tile, and Alert State. A Twin Saved With hp <= 0 (Dying) Becomes a Corpse
+fn apply_pending_enemy_restore(
+    mut commands: Commands,
+    mut pending: ResMut<PendingEnemyRestore>,
+    mut q_enemies: Query<
+        (
+            Entity,
+            &davelib::enemies::EnemyKind,
+            &davelib::enemies::SpawnIndex,
+            &mut davelib::actors::Health,
+            &mut Transform,
+            &mut davelib::actors::OccupiesTile,
+            &mut davelib::ai::EnemyAi,
+        ),
+        Without<davelib::actors::Dead>,
+    >,
+) {
+    if pending.0.is_empty() {
+        return;
+    }
+
+    // Wait Until Rebuilt Level Enemies Have Actually Spawned
+    // Empty Query Means Deferred Spawns Have Not Applied Yet
+    if q_enemies.is_empty() {
+        return;
+    }
+
+    // Index the Saved Enemies by (kind_u8, index) for a Fast Match. Clones Are
+    // Owned so the Pending List Can Clear at the End Without a Borrow Snag
+    let by_id: std::collections::HashMap<(u8, u32), model::EnemySnapshot> = pending
+        .0
+        .iter()
+        .map(|e| ((e.kind, e.index), e.clone()))
+        .collect();
+
+    for (entity, kind, idx, mut hp, mut tf, mut occ, mut ai) in q_enemies.iter_mut() {
+        let key = (capture::enemy_kind_to_u8(*kind), idx.0);
+        let Some(snap) = by_id.get(&key) else {
+            continue;
+        };
+
+        // Dying at Save Time (hp <= 0) Comes Back as a Corpse, so a Boss Caught
+        // Mid Death Animation Stays Dead Rather Than Resurrecting Alive
+        if snap.hp_cur <= 0 {
+            make_corpse(&mut commands, entity, *kind);
+            continue;
+        }
+
+        // Overwrite the Durable Mutable State. Transient AI (Move Target, Burst
+        // Fire) Is Left Alone so It Re-Derives on the Next Tick
+        hp.cur = snap.hp_cur;
+        tf.translation = Vec3::new(snap.pos[0], snap.pos[1], snap.pos[2]);
+        occ.0 = IVec2::new(snap.tile[0], snap.tile[1]);
+        ai.state = capture::ai_state_from_u8(snap.ai_state);
+        ai.last_step = IVec2::new(snap.last_step[0], snap.last_step[1]);
+
+        // Patrol Is a Dynamic Marker, Re-Insert It so a Restored Patroller Keeps
+        // Patrolling Instead of Standing Until the AI Re-Adds It
+        if matches!(ai.state, davelib::ai::EnemyAiState::Patrol) {
+            commands
+                .entity(entity)
+                .insert(davelib::ai_patrol::Patrol::default());
+        }
+    }
+
+    // Consume so This Only Runs Once Per Load
     pending.0.clear();
 }
 

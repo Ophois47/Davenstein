@@ -110,6 +110,24 @@ pub struct PickupSnapshot {
     pub dropped: bool,
 }
 
+/// A Single Living Enemy at Save Time, Matched Back to Its Rebuilt Twin by
+/// (kind, index). An hp_cur of 0 or Less Means the Enemy Was Dying and Comes
+/// Back as a Corpse, so a Boss Caught Mid Death Animation Stays Dead. Health,
+/// Position, and ai_state Restore the Mid-Fight Scene. Transient AI (the Move
+/// Target and Burst Fire) Is Not Stored and Re-Derives Next Tick, so the Save
+/// Format Stays Free of the AI Internals Slated for a Rewrite
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnemySnapshot {
+    pub kind: u8,
+    pub index: u32,
+    pub hp_cur: i32,
+    pub pos: [f32; 3],
+    pub tile: [i32; 2],
+    /// EnemyAiState as u8 (0 = Stand, 1 = Patrol, 2 = Chase), the Alert Level
+    pub ai_state: u8,
+    pub last_step: [i32; 2],
+}
+
 /// Player Position, Facing, and Vitals
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerSnapshot {
@@ -199,6 +217,12 @@ pub struct WorldSnapshot {
     /// Its Kind. Used Only When pickups_authoritative Is True
     #[serde(default)]
     pub pickups_full: Vec<PickupSnapshot>,
+
+    /// Every Living Enemy at Save Time, Matched Back by (kind, index) After the
+    /// Rebuild Spawns Them Fresh. Empty for Older Saves, Which Restore Only the
+    /// Dead Enemies as Corpses and Leave the Rest at Full Health
+    #[serde(default)]
+    pub enemies: Vec<EnemySnapshot>,
 }
 
 fn default_pushwall_tiles_moved() -> u8 {

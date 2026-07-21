@@ -81,6 +81,27 @@ pub fn enemy_kind_to_u8(kind: EnemyKind) -> u8 {
     }
 }
 
+// ---------- EnemyAiState <-> u8 ----------
+// Explicit, Stable Numbering for the Save Format, Same Reasoning as the Kind Map
+
+pub fn ai_state_to_u8(state: davelib::ai::EnemyAiState) -> u8 {
+    use davelib::ai::EnemyAiState::*;
+    match state {
+        Stand => 0,
+        Patrol => 1,
+        Chase => 2,
+    }
+}
+
+pub fn ai_state_from_u8(v: u8) -> davelib::ai::EnemyAiState {
+    use davelib::ai::EnemyAiState::*;
+    match v {
+        1 => Patrol,
+        2 => Chase,
+        _ => Stand,
+    }
+}
+
 /// Build the Dead-Enemy List From the Dead Enemies Currently in the World
 /// Each is Identified by Its Kind and Stable Per-Kind Spawn Index, Which is All
 /// Restore Needs to Put It Back as a Corpse on Load
@@ -115,6 +136,7 @@ pub fn capture_save_game(
     pushwall_state_saved: bool,
     pickups_full: Vec<PickupSnapshot>,
     pickups_authoritative: bool,
+    enemies: Vec<EnemySnapshot>,
 ) -> SaveGame {
     // Facing: Derive Yaw/Pitch From the Player's Transform Rotation. The Camera
     // Rotation is the Source of Truth (mouse_look Writes It via
@@ -175,6 +197,7 @@ pub fn capture_save_game(
         // Rebuild Alone Cannot Recreate Those Drops
         pickups_authoritative,
         pickups_full,
+        enemies,
     });
 
     // Snapshot the Cross-Level Episode Tally so a Mid-Episode Load Restores It,

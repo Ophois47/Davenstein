@@ -201,6 +201,7 @@ pub fn advance_level_finish(
 pub struct LoadRequestParams<'w> {
     load: ResMut<'w, crate::save::LoadGameRequested>,
     pending_dead: ResMut<'w, crate::save::PendingDeadRestore>,
+    pending_enemies: ResMut<'w, crate::save::PendingEnemyRestore>,
     pending_pickups: ResMut<'w, crate::save::PendingPickupRestore>,
     pending_doors: ResMut<'w, crate::save::PendingDoorRestore>,
     pending_pushwalls: ResMut<'w, crate::save::PendingPushwallRestore>,
@@ -260,6 +261,13 @@ pub fn load_game_finish(
     // corpses once the rebuilt level's enemies exist (a frame or two later).
     req.pending_dead.0 = match &game.world {
         Some(w) => w.dead_enemies.clone(),
+        None => Vec::new(),
+    };
+
+    // Stash the living-enemy set so apply_pending_enemy_restore can overwrite
+    // their health, position, and alert once the rebuilt enemies exist.
+    req.pending_enemies.0 = match &game.world {
+        Some(w) => w.enemies.clone(),
         None => Vec::new(),
     };
 
