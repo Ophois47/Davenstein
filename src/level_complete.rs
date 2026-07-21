@@ -8,6 +8,7 @@ use davelib::audio::{PlaySfx, SfxKind};
 use davelib::map::{MapGrid, Tile};
 use davelib::player::{Player, PlayerControlLock};
 use davelib::world::RebuildWalls;
+use davelib::input::PlayerIntent;
 
 /// Wall IDs for the Elevator Switch Textures 
 // (Wolfenstein Wall IDs, NOT Atlas Chunk Indices)
@@ -172,7 +173,7 @@ pub fn tick_elevator_exit_delay(
 }
 
 pub fn use_elevator_exit(
-    keys: Res<ButtonInput<KeyCode>>,
+    intent: Res<PlayerIntent>,
     mut lock: ResMut<PlayerControlLock>,
     win: ResMut<LevelComplete>,
     mut grid: ResMut<MapGrid>,
@@ -188,7 +189,9 @@ pub fn use_elevator_exit(
     if lock.0 || win.0 || exit_delay.active {
         return;
     }
-    if !keys.just_pressed(KeyCode::Space) {
+    // Elevator Exit Now Reads the Device-Neutral use_pressed Edge so Gamepad
+    // and the Rebindable use_door Key Both End the Mission, Not Only Spacebar
+    if !intent.use_pressed {
         return;
     }
 
@@ -458,6 +461,7 @@ pub fn sync_mission_success_stats_text(
 
 pub fn mission_success_input(
     keys: Res<ButtonInput<KeyCode>>,
+    intent: Res<PlayerIntent>,
     win: Res<LevelComplete>,
     mut tally: ResMut<MissionSuccessTally>,
     mut advance: ResMut<crate::ui::sync::AdvanceLevelRequested>,
@@ -469,8 +473,12 @@ pub fn mission_success_input(
         return;
     }
 
+    // Advance the Intermission on Any Action Input so Gamepad Matches Keyboard
+    // Fire or Use From PlayerIntent Plus Enter or Space, Like the Original Any Key
     let go = keys.just_pressed(KeyCode::Enter)
-        || keys.just_pressed(KeyCode::Space);
+        || keys.just_pressed(KeyCode::Space)
+        || intent.use_pressed
+        || intent.fire_pressed;
 
     if !go {
         return;
