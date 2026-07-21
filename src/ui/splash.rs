@@ -1145,7 +1145,7 @@ fn build_control_options_items(control: &ControlSettings) -> Vec<(ControlOptionK
         format!("Mouse Sens: {}", mouse_sens_display),
     ));
 
-    // Mouselook toggle (mouse turns you when ON; keyboard turn keys only when OFF)
+    // Mouselook Toggle, Mouse Turns You When ON, Keyboard Turn Keys Only When OFF
     let mouselook_label = if control.mouselook_enabled {
         "Mouselook: ON"
     } else {
@@ -6746,7 +6746,7 @@ fn splash_advance_on_any_input(
                 match current_kind {
                     Some(ControlOptionKind::InvertY) => {
                         resources.control_settings.invert_y = !resources.control_settings.invert_y;
-                        resources.control_settings.set_changed(); // Explicitly mark as changed
+                        resources.control_settings.set_changed(); // Explicitly Mark as Changed
 
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                         spawn_control_options_ui(
@@ -6759,7 +6759,7 @@ fn splash_advance_on_any_input(
 
                     Some(ControlOptionKind::Mouselook) => {
                         resources.control_settings.mouselook_enabled = !resources.control_settings.mouselook_enabled;
-                        resources.control_settings.set_changed(); // Explicitly mark as changed
+                        resources.control_settings.set_changed(); // Explicitly Mark as Changed
 
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                         spawn_control_options_ui(
@@ -6967,7 +6967,7 @@ fn splash_advance_on_any_input(
 
                     Some(GameplayOptionKind::ReversiblePushwalls) => {
                         resources.gameplay_settings.reversible_pushwalls = !resources.gameplay_settings.reversible_pushwalls;
-                        resources.gameplay_settings.set_changed(); // Explicitly mark as changed
+                        resources.gameplay_settings.set_changed(); // Explicitly Mark as Changed
 
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                         spawn_gameplay_options_ui(
