@@ -6036,8 +6036,8 @@ fn splash_advance_on_any_input(
             );
 
             // Track Hold State for Nudgeable Items
-            if is_nudgeable && (left_held || right_held) {
-                let dir: i8 = if right_held { 1 } else { -1 };
+            if is_nudgeable && (left_held || right_held || left_just || right_just) {
+                let dir: i8 = if right_held || right_just { 1 } else { -1 };
 
                 if left_just || right_just {
                     // Fresh Press: Immediate First Tick, Reset Hold State
@@ -6339,8 +6339,8 @@ fn splash_advance_on_any_input(
                 Some(SoundOptionKind::MasterVolume) | Some(SoundOptionKind::MusicVolume) | Some(SoundOptionKind::SfxVolume)
             );
 
-            if is_nudgeable && (left_held || right_held) {
-                let dir: i8 = if right_held { 1 } else { -1 };
+            if is_nudgeable && (left_held || right_held || left_just || right_just) {
+                let dir: i8 = if right_held || right_just { 1 } else { -1 };
 
                 if left_just || right_just {
                     options.sound.hold_dir = dir;
@@ -6594,8 +6594,8 @@ fn splash_advance_on_any_input(
                 Some(ControlOptionKind::MouseSensitivity) | Some(ControlOptionKind::GamepadSensitivity) | Some(ControlOptionKind::GamepadDeadzone)
             );
 
-            if is_nudgeable && (left_held || right_held) {
-                let dir: i8 = if right_held { 1 } else { -1 };
+            if is_nudgeable && (left_held || right_held || left_just || right_just) {
+                let dir: i8 = if right_held || right_just { 1 } else { -1 };
 
                 if left_just || right_just {
                     options.control.hold_dir = dir;
