@@ -57,7 +57,7 @@ pub struct Pickup {
     pub kind: PickupKind,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum PickupKind {
     Weapon(WeaponSlot),
     // +8 Map Spawn, +4 Enemy Drop
@@ -68,7 +68,7 @@ pub enum PickupKind {
     Key(KeyKind),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum KeyKind {
     Gold,
     Silver,
@@ -83,7 +83,7 @@ pub struct DroppedLoot;
 #[derive(Component, Debug, Clone, Copy)]
 pub struct DroppedPickup;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum HealthKind {
     FirstAid,
     Dinner,
@@ -100,7 +100,7 @@ impl HealthKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum TreasureKind {
     Cross,
     Chalice,

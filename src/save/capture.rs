@@ -113,6 +113,8 @@ pub fn capture_save_game(
     marked_tiles: Vec<[i32; 2]>,
     credited_tiles: Vec<[i32; 2]>,
     pushwall_state_saved: bool,
+    pickups_full: Vec<PickupSnapshot>,
+    pickups_authoritative: bool,
 ) -> SaveGame {
     // Facing: Derive Yaw/Pitch From the Player's Transform Rotation. The Camera
     // Rotation is the Source of Truth (mouse_look Writes It via
@@ -169,6 +171,10 @@ pub fn capture_save_game(
         pushwall_state_saved,
         marked_tiles,
         credited_tiles,
+        // Full Kinded Pickup List so a Load Restores Enemy Drops Like Keys. The Map
+        // Rebuild Alone Cannot Recreate Those Drops
+        pickups_authoritative,
+        pickups_full,
     });
 
     // Snapshot the Cross-Level Episode Tally so a Mid-Episode Load Restores It,

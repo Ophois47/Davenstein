@@ -46,6 +46,16 @@ pub struct PendingDeadRestore(pub Vec<model::DeadEnemy>);
 pub struct PendingPickupRestore {
     pub active: bool,
     pub present_tiles: Vec<[i32; 2]>,
+
+    // Frame Counter so We Wait for the Rebuild's Deferred Pickup Spawns Before
+    // Touching Them, Mirroring the Pushwall Restore
+    pub frames_waited: u32,
+
+    // When authoritative Is True the Load Despawns the Rebuilt Pickups and
+    // Re-Spawns full Verbatim (Map and Enemy Drops Alike). Older Saves Leave It
+    // False and Fall Back to the present_tiles Keep Set
+    pub authoritative: bool,
+    pub full: Vec<model::PickupSnapshot>,
 }
 
 // Door Tiles That Should Be Open From a Just-Loaded Save
@@ -105,7 +115,7 @@ fn handle_save_requests(
         (&davelib::enemies::EnemyKind, &davelib::enemies::SpawnIndex),
         With<davelib::actors::Dead>,
     >,
-    q_pickups: Query<&crate::pickups::Pickup>,
+    q_pickups: Query<(&crate::pickups::Pickup, Option<&crate::pickups::DroppedPickup>)>,
     q_doors: Query<(&davelib::map::DoorTile, &davelib::map::DoorState)>,
     completed_pushwalls: Res<davelib::pushwalls::CompletedPushwalls>,
     // Optional Because PushwallMarkers Is Inserted by setup and Does Not Exist
@@ -135,7 +145,19 @@ fn handle_save_requests(
     // Tiles That Still Hold a Pickup Are the Un-Collected Ones (Collecting
     // Despawns the Entity), so on Load We Despawn Any Pickup Not in This Set
     let present_pickups: Vec<[i32; 2]> =
-        q_pickups.iter().map(|p| [p.tile.x, p.tile.y]).collect();
+        q_pickups.iter().map(|(p, _)| [p.tile.x, p.tile.y]).collect();
+
+    // Every Live Pickup With Its Kind, Map-Placed and Enemy-Dropped Alike. The
+    // Load Re-Spawns This List Verbatim, Which Is the Only Way an Enemy-Dropped
+    // Item (a Boss Key) Survives, Since the Map Rebuild Cannot Recreate It
+    let pickups_full: Vec<model::PickupSnapshot> = q_pickups
+        .iter()
+        .map(|(p, dropped)| model::PickupSnapshot {
+            tile: [p.tile.x, p.tile.y],
+            kind: p.kind,
+            dropped: dropped.is_some(),
+        })
+        .collect();
 
     // Doors Whose want_open Is True Were Open (or Opening) at Save Time
     // Load Re-Opens These, Letting the Normal Door Tick / Auto-Close Take Over
@@ -185,6 +207,8 @@ fn handle_save_requests(
         marked_tiles,
         credited_tiles,
         pushwall_state_saved,
+        pickups_full,
+        true,
     );
 
     match storage::write_slot(slot, &game) {
@@ -272,31 +296,65 @@ fn apply_pending_pickup_restore(
     mut commands: Commands,
     mut pending: ResMut<PendingPickupRestore>,
     q_pickups: Query<(Entity, &crate::pickups::Pickup)>,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     if !pending.active {
         return;
     }
 
-    // Wait Until the Rebuilt Level's Pickups Have Actually Spawned
-    // If the Query Is Empty We Are Too Early (Deferred Spawns Not Applied Yet)
-    if q_pickups.is_empty() {
+    // Wait a Few Frames for the Rebuild's Deferred Pickup Spawns to Apply Before
+    // We Touch Them. A Frame Count Is Used Instead of "Pickups Exist" so the
+    // Authoritative Path Still Runs on a Level That Has No Map Pickups at All
+    if pending.frames_waited < 3 {
+        pending.frames_waited += 1;
         return;
     }
 
-    // Tiles That Should Keep Their Pickup (Un-Collected at Save Time)
-    let keep: std::collections::HashSet<(i32, i32)> =
-        pending.present_tiles.iter().map(|t| (t[0], t[1])).collect();
-
-    for (e, pickup) in q_pickups.iter() {
-        let tile = (pickup.tile.x, pickup.tile.y);
-        if !keep.contains(&tile) {
+    if pending.authoritative {
+        // The Save Is Authoritative: Despawn Every Rebuilt Pickup, Then Re-Spawn
+        // Exactly What Was Saved. This Restores Enemy-Dropped Items (Keys) the
+        // Map Rebuild Cannot Recreate, Matching How the Original Game Restored
+        // Its Whole Static-Object List
+        for (e, _) in q_pickups.iter() {
             commands.entity(e).try_despawn();
+        }
+        for snap in pending.full.iter() {
+            let tile = IVec2::new(snap.tile[0], snap.tile[1]);
+            let name = if snap.dropped { "Pickup_Drop" } else { "Pickup" };
+            crate::pickups::spawn_pickup_entity(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                &asset_server,
+                tile,
+                snap.kind,
+                snap.dropped,
+                name,
+            );
+        }
+    } else {
+        // Older Save Without a Kinded List: Keep the Un-Collected Map Pickups and
+        // Despawn the Rest. This Cannot Restore Enemy Drops, It Only Removes
+        // Pickups That Were Already Collected at Save Time
+        let keep: std::collections::HashSet<(i32, i32)> =
+            pending.present_tiles.iter().map(|t| (t[0], t[1])).collect();
+
+        for (e, pickup) in q_pickups.iter() {
+            let tile = (pickup.tile.x, pickup.tile.y);
+            if !keep.contains(&tile) {
+                commands.entity(e).try_despawn();
+            }
         }
     }
 
     // Consume So This Only Runs Once Per Load
     pending.active = false;
+    pending.frames_waited = 0;
     pending.present_tiles.clear();
+    pending.authoritative = false;
+    pending.full.clear();
 }
 
 /// Re-Opens Doors That Were Open in a Just-Loaded Save

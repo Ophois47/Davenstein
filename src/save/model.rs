@@ -100,6 +100,16 @@ pub struct EpisodeStatsSnapshot {
     pub levels: Vec<EpisodeLevelSnapshot>,
 }
 
+/// A Single Pickup Persisted With Its Kind so a Load Re-Spawns It Exactly.
+/// dropped Marks an Enemy Drop Such as a Boss Key, Which on Restore Gets Back
+/// Its DroppedPickup Marker and Small Y Lift That a Map Pickup Lacks
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PickupSnapshot {
+    pub tile: [i32; 2],
+    pub kind: crate::pickups::PickupKind,
+    pub dropped: bool,
+}
+
 /// Player Position, Facing, and Vitals
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerSnapshot {
@@ -176,6 +186,19 @@ pub struct WorldSnapshot {
     /// a Reversible Wall Again After a Load Cannot Re-Count the Same Secret
     #[serde(default)]
     pub credited_tiles: Vec<[i32; 2]>,
+
+    /// Whether This Save Carries a Full Kinded Pickup List (Always True for Saves
+    /// Written by the Current Build). When True the Load Is Authoritative: It
+    /// Despawns the Rebuilt Pickups and Re-Spawns pickups_full Verbatim, Which
+    /// Also Restores Enemy-Dropped Items (Keys) the Map Rebuild Cannot Recreate.
+    /// Older Saves Leave This False and Fall Back to the present_pickups Tile Set
+    #[serde(default)]
+    pub pickups_authoritative: bool,
+
+    /// Every Live Pickup at Save Time, Map-Placed and Enemy-Dropped Alike, With
+    /// Its Kind. Used Only When pickups_authoritative Is True
+    #[serde(default)]
+    pub pickups_full: Vec<PickupSnapshot>,
 }
 
 fn default_pushwall_tiles_moved() -> u8 {

@@ -271,10 +271,19 @@ pub fn load_game_finish(
         Some(w) => {
             req.pending_pickups.active = true;
             req.pending_pickups.present_tiles = w.present_pickups.clone();
+            req.pending_pickups.frames_waited = 0;
+
+            // Authoritative Pickup Restore: Re-Spawn Every Saved Pickup, Including
+            // Enemy Drops the Map Cannot Recreate. Older Saves Leave This False
+            req.pending_pickups.authoritative = w.pickups_authoritative;
+            req.pending_pickups.full = w.pickups_full.clone();
         }
         None => {
             req.pending_pickups.active = false;
             req.pending_pickups.present_tiles.clear();
+            req.pending_pickups.frames_waited = 0;
+            req.pending_pickups.authoritative = false;
+            req.pending_pickups.full.clear();
         }
     }
 
