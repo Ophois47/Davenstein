@@ -17,10 +17,12 @@ pub mod intent;
 pub mod cursor;
 pub mod sources;
 pub mod gather;
+pub mod menu;
 
 use bevy::prelude::*;
 
 pub use intent::PlayerIntent;
+pub use menu::MenuNav;
 
 // System Set Containing Per-Frame Intent Gathering
 // Order Consumers After This Set When They Must Read Fresh Intent in the Same Schedule
@@ -34,6 +36,7 @@ impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app
             .init_resource::<PlayerIntent>()
+            .init_resource::<MenuNav>()
             .add_systems(
                 Update,
                 gather::gather.in_set(InputGather),

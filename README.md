@@ -305,6 +305,7 @@ cargo run --bin pak_builder --release -- --root assets --out target/release/asse
 
 ## Known Bugs
 
+- Need to verify settings are saved and honored
 - Save and Load banners need to be resized
 - Change View size does not properly respect menu UI
 - End of level text glyphs need borders clipped

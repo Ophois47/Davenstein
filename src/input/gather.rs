@@ -22,6 +22,7 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::window::{CursorOptions, PrimaryWindow};
 
 use crate::input::intent::PlayerIntent;
+use crate::input::menu::MenuNav;
 use crate::input::sources::keyboard_mouse;
 use crate::input::sources::gamepad;
 use crate::options::ControlSettings;
@@ -37,6 +38,7 @@ pub fn gather(
     q_gamepads: Query<&Gamepad>,
     controls: Res<ControlSettings>,
     mut intent: ResMut<PlayerIntent>,
+    mut menu: ResMut<MenuNav>,
 ) {
     let mut acc = PlayerIntent::default();
 
@@ -57,4 +59,10 @@ pub fn gather(
     // Touch Contributes Here in a Later Milestone
 
     *intent = acc;
+
+    // Menu Navigation Uses the Same Reset-Then-Merge Pattern as PlayerIntent
+    let mut nav = MenuNav::default();
+    keyboard_mouse::contribute_menu(&mut nav, &keys);
+    gamepad::contribute_menu(&mut nav, &q_gamepads);
+    *menu = nav;
 }

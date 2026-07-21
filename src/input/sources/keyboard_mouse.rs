@@ -10,6 +10,7 @@ use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::window::{CursorOptions, PrimaryWindow};
 
 use crate::input::intent::PlayerIntent;
+use crate::input::menu::MenuNav;
 use crate::options::ControlSettings;
 use crate::player::cursor_is_captured;
 
@@ -112,4 +113,17 @@ pub fn contribute(
     acc.fire_pressed |= fire_pressed;
     acc.use_pressed |= use_pressed;
     acc.weapon_select = acc.weapon_select.or(weapon_select);
+}
+
+// Merge Keyboard Menu Navigation Into the Shared MenuNav Accumulator
+// Arrows or WASD Move, Enter or Space Confirms, Escape Cancels
+pub fn contribute_menu(nav: &mut MenuNav, keys: &ButtonInput<KeyCode>) {
+    nav.up |= keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::KeyW);
+    nav.down |= keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::KeyS);
+    nav.left |= keys.just_pressed(KeyCode::ArrowLeft) || keys.just_pressed(KeyCode::KeyA);
+    nav.right |= keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::KeyD);
+    nav.confirm |= keys.just_pressed(KeyCode::Enter)
+        || keys.just_pressed(KeyCode::Space)
+        || keys.just_pressed(KeyCode::NumpadEnter);
+    nav.cancel |= keys.just_pressed(KeyCode::Escape);
 }

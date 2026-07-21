@@ -144,6 +144,7 @@ struct SplashResources<'w> {
 pub struct SplashAdvanceInput<'w> {
 	pub keyboard: Res<'w, ButtonInput<KeyCode>>,
 	pub mouse: Res<'w, ButtonInput<MouseButton>>,
+    pub menu_nav: Res<'w, davelib::input::MenuNav>,
 }
 
 #[derive(Deserialize)]
@@ -3643,7 +3644,7 @@ impl Plugin for SplashPlugin {
         );
         app.add_systems(
             Update,
-            splash_advance_on_any_input,
+            splash_advance_on_any_input.after(davelib::input::InputGather),
         );
         app.add_systems(
             Update,
@@ -5285,6 +5286,7 @@ fn splash_advance_on_any_input(
 ) {
     let keyboard = &*input.keyboard;
     let mouse = &*input.mouse;
+    let nav = &*input.menu_nav;
     let Some(win) = q.q_win.iter().next() else { return; };
 
     let (w, h) = compute_scaled_size(win.width(), win.height());
@@ -5303,7 +5305,10 @@ fn splash_advance_on_any_input(
         }
     }
 
-    let any_key = keyboard.get_just_pressed().len() > 0 || mouse.get_just_pressed().len() > 0;
+    let any_key = keyboard.get_just_pressed().len() > 0
+        || mouse.get_just_pressed().len() > 0
+        || nav.confirm || nav.cancel || nav.pause
+        || nav.up || nav.down || nav.left || nav.right;
 
     match *resources.step {
         SplashStep::Splash0 => {
@@ -5377,7 +5382,7 @@ fn splash_advance_on_any_input(
 
             // Navigation
             let mut moved = false;
-            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) || nav.up {
                 if menu.selection > 0 {
                     menu.selection -= 1;
                 } else {
@@ -5385,7 +5390,7 @@ fn splash_advance_on_any_input(
                 }
                 moved = true;
             }
-            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) || nav.down {
                 menu.selection = (menu.selection + 1) % item_count;
                 moved = true;
             }
@@ -5632,11 +5637,11 @@ fn splash_advance_on_any_input(
 
             let mut moved = false;
 
-            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) || nav.up {
                 if episode.selection > 0 { episode.selection -= 1; } else { episode.selection = 5; }
                 moved = true;
             }
-            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) || nav.down {
                 episode.selection = (episode.selection + 1) % 6;
                 moved = true;
             }
@@ -5730,12 +5735,12 @@ fn splash_advance_on_any_input(
 
             let mut moved = false;
 
-            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) || nav.up {
                 if skill.selection > 0 { skill.selection -= 1; } else { skill.selection = 3; }
                 moved = true;
             }
 
-            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) || nav.down {
                 skill.selection = (skill.selection + 1) % 4;
                 moved = true;
             }
@@ -5877,7 +5882,7 @@ fn splash_advance_on_any_input(
 
                 let res_count = resources.res_list.entries.len();
 
-                if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+                if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) || nav.up {
                     if options.change_view.res_submenu_idx > 0 {
                         options.change_view.res_submenu_idx -= 1;
                     } else {
@@ -5886,7 +5891,7 @@ fn splash_advance_on_any_input(
                     sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
                 }
 
-                if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+                if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) || nav.down {
                     options.change_view.res_submenu_idx = (options.change_view.res_submenu_idx + 1) % res_count;
                     sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
                 }
@@ -5989,12 +5994,12 @@ fn splash_advance_on_any_input(
 
             let mut moved = false;
 
-            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) || nav.up {
                 if options.change_view.selection > 0 { options.change_view.selection -= 1; } else { options.change_view.selection = item_count - 1; }
                 moved = true;
             }
 
-            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) || nav.down {
                 options.change_view.selection = (options.change_view.selection + 1) % item_count;
                 moved = true;
             }
@@ -6293,12 +6298,12 @@ fn splash_advance_on_any_input(
 
             let mut moved = false;
 
-            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) || nav.up {
                 if options.sound.selection > 0 { options.sound.selection -= 1; } else { options.sound.selection = item_count - 1; }
                 moved = true;
             }
 
-            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) || nav.down {
                 options.sound.selection = (options.sound.selection + 1) % item_count;
                 moved = true;
             }
@@ -6547,12 +6552,12 @@ fn splash_advance_on_any_input(
 
             let mut moved = false;
 
-            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) || nav.up {
                 if options.control.selection > 0 { options.control.selection -= 1; } else { options.control.selection = item_count - 1; }
                 moved = true;
             }
 
-            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) || nav.down {
                 options.control.selection = (options.control.selection + 1) % item_count;
                 moved = true;
             }
@@ -6818,12 +6823,12 @@ fn splash_advance_on_any_input(
 
             let mut moved = false;
 
-            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) || nav.up {
                 if options.gameplay.selection > 0 { options.gameplay.selection -= 1; } else { options.gameplay.selection = item_count - 1; }
                 moved = true;
             }
 
-            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) || nav.down {
                 options.gameplay.selection = (options.gameplay.selection + 1) % item_count;
                 moved = true;
             }
@@ -7048,12 +7053,12 @@ fn splash_advance_on_any_input(
 
             let mut moved = false;
 
-            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) || nav.up {
                 if options.key_bindings.selection > 0 { options.key_bindings.selection -= 1; } else { options.key_bindings.selection = item_count - 1; }
                 moved = true;
             }
 
-            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) || nav.down {
                 options.key_bindings.selection = (options.key_bindings.selection + 1) % item_count;
                 moved = true;
             }
@@ -7347,11 +7352,11 @@ fn splash_advance_on_any_input(
 
             // Up/Down navigation with wrap.
             let mut moved = false;
-            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) || nav.up {
                 if episode.selection > 0 { episode.selection -= 1; } else { episode.selection = SLOT_ROWS - 1; }
                 moved = true;
             }
-            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) || nav.down {
                 episode.selection = (episode.selection + 1) % SLOT_ROWS;
                 moved = true;
             }
@@ -7454,11 +7459,11 @@ fn splash_advance_on_any_input(
 
             // Up/Down navigation with wrap.
             let mut moved = false;
-            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) {
+            if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) || nav.up {
                 if episode.selection > 0 { episode.selection -= 1; } else { episode.selection = SLOT_ROWS - 1; }
                 moved = true;
             }
-            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) {
+            if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) || nav.down {
                 episode.selection = (episode.selection + 1) % SLOT_ROWS;
                 moved = true;
             }
@@ -7619,7 +7624,7 @@ fn splash_advance_on_any_input(
                 return;
             }
 
-            if keyboard.just_pressed(KeyCode::Escape) {
+            if keyboard.just_pressed(KeyCode::Escape) || nav.pause {
                 let Some(imgs) = resources.imgs.as_ref() else { return; };
 
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });

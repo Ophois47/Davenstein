@@ -10,6 +10,7 @@ settings change and not when a pad connects mid-session
 use bevy::prelude::*;
 
 use crate::input::intent::PlayerIntent;
+use crate::input::menu::MenuNav;
 use crate::options::ControlSettings;
 
 // Look Rate for the Right Stick in Radians per Second
@@ -89,5 +90,19 @@ pub fn contribute(
             None
         };
         acc.weapon_select = acc.weapon_select.or(weapon);
+    }
+}
+
+// Merge Gamepad Menu Navigation Into the Shared MenuNav Accumulator
+// D-Pad Moves, South Confirms, East Cancels, Start Opens the Pause Menu
+pub fn contribute_menu(nav: &mut MenuNav, gamepads: &Query<&Gamepad>) {
+    for gp in gamepads.iter() {
+        nav.up |= gp.just_pressed(GamepadButton::DPadUp);
+        nav.down |= gp.just_pressed(GamepadButton::DPadDown);
+        nav.left |= gp.just_pressed(GamepadButton::DPadLeft);
+        nav.right |= gp.just_pressed(GamepadButton::DPadRight);
+        nav.confirm |= gp.just_pressed(GamepadButton::South);
+        nav.cancel |= gp.just_pressed(GamepadButton::East);
+        nav.pause |= gp.just_pressed(GamepadButton::Start);
     }
 }
