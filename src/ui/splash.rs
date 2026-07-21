@@ -1128,6 +1128,7 @@ enum ControlOptionKind {
     MouseSensitivity,
     Mouselook,
     InvertY,
+    GamepadEnabled,
     GamepadSensitivity,
     GamepadDeadzone,
     KeyBindings,
@@ -1155,6 +1156,10 @@ fn build_control_options_items(control: &ControlSettings) -> Vec<(ControlOptionK
     // Invert Y
     let invert_label = if control.invert_y { "Invert Y: ON" } else { "Invert Y: OFF" };
     items.push((ControlOptionKind::InvertY, invert_label.to_string()));
+
+    // Gamepad Toggle (Enables or Disables All Gamepad Input)
+    let gamepad_label = if control.gamepad_enabled { "Gamepad: ON" } else { "Gamepad: OFF" };
+    items.push((ControlOptionKind::GamepadEnabled, gamepad_label.to_string()));
 
     // Gamepad Sensitivity (0.1-10.0, display as 1-100)
     let gamepad_sens_display = (control.gamepad_sensitivity * 10.0).round() as i32;
@@ -6755,6 +6760,19 @@ fn splash_advance_on_any_input(
                     Some(ControlOptionKind::Mouselook) => {
                         resources.control_settings.mouselook_enabled = !resources.control_settings.mouselook_enabled;
                         resources.control_settings.set_changed(); // Explicitly mark as changed
+
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+                        spawn_control_options_ui(
+                            &mut commands, &asset_server,
+                            w, h, scale, imgs,
+                            options.control.selection,
+                            &resources.control_settings,
+                        );
+                    }
+
+                    Some(ControlOptionKind::GamepadEnabled) => {
+                        resources.control_settings.gamepad_enabled = !resources.control_settings.gamepad_enabled;
+                        resources.control_settings.set_changed(); // Explicitly Mark as Changed
 
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                         spawn_control_options_ui(

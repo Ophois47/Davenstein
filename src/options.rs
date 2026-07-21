@@ -329,6 +329,9 @@ pub struct ControlSettings {
 	/// When True, mouse motion turns/looks. When False, the mouse is ignored
 	/// for looking and you turn with the keyboard turn keys (classic style).
 	pub mouselook_enabled: bool,
+	/// When False, Skip All Gamepad Input, Including Menu Navigation
+	/// Default: true
+	pub gamepad_enabled: bool,
 	/// Multiplier Applied to Right Stick Axes
 	/// Range: 0.1 ..= 10.0
 	/// Default: 1.0
@@ -348,6 +351,7 @@ impl Default for ControlSettings {
 			mouse_sensitivity: 1.0,
 			invert_y: false,
 			mouselook_enabled: true,
+			gamepad_enabled: true,
 			gamepad_sensitivity: 1.0,
 			gamepad_deadzone: 0.1,
 			key_bindings: KeyBindings::default(),

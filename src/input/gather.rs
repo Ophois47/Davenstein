@@ -54,7 +54,10 @@ pub fn gather(
     );
 
     // Gamepad Merges on Top of the Base so Keyboard Keeps Priority
-    gamepad::contribute(&mut acc, &time, &q_gamepads, &controls);
+    // Skipped Entirely When the Gamepad Toggle is Off
+    if controls.gamepad_enabled {
+        gamepad::contribute(&mut acc, &time, &q_gamepads, &controls);
+    }
 
     // Touch Contributes Here in a Later Milestone
 
@@ -63,6 +66,8 @@ pub fn gather(
     // Menu Navigation Uses the Same Reset-Then-Merge Pattern as PlayerIntent
     let mut nav = MenuNav::default();
     keyboard_mouse::contribute_menu(&mut nav, &keys);
-    gamepad::contribute_menu(&mut nav, &q_gamepads);
+    if controls.gamepad_enabled {
+        gamepad::contribute_menu(&mut nav, &q_gamepads);
+    }
     *menu = nav;
 }
