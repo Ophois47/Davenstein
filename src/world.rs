@@ -712,11 +712,20 @@ pub fn setup(
 	let floor_tex = assets.floor_tex.clone();
 	commands.insert_resource(assets);
 
+	// World Geometry Renders via the Alpha-Mask Pass Only on the Raspberry Pi V3D
+	// Where the Opaque Pass Draws Nothing. Every Other Target Keeps the Opaque Pass
+	// Which is Cheaper and Free of the Sort Artifacts the Mask Pass Shows on Large Walls
+	let world_alpha_mode = if cfg!(all(target_arch = "aarch64", target_os = "linux")) {
+		AlphaMode::Mask(0.5)
+	} else {
+		AlphaMode::Opaque
+	};
+
 	let wall_mat = materials.add(StandardMaterial {
 		base_color_texture: Some(wall_tex.clone()),
 		unlit: true,
 		cull_mode: None,
-		alpha_mode: AlphaMode::Mask(0.5),
+		alpha_mode: world_alpha_mode,
 		..default()
 	});
 
@@ -725,7 +734,7 @@ pub fn setup(
 		base_color: Color::srgb(0.75, 0.75, 0.75),
 		unlit: true,
 		cull_mode: None,
-		alpha_mode: AlphaMode::Mask(0.5),
+		alpha_mode: world_alpha_mode,
 		..default()
 	});
 
@@ -733,14 +742,14 @@ pub fn setup(
 	let door_mat = materials.add(StandardMaterial {
 		base_color_texture: Some(wall_tex.clone()),
 		unlit: true,
-		alpha_mode: AlphaMode::Mask(0.5),
+		alpha_mode: world_alpha_mode,
 		..default()
 	});
 
 	let floor_mat = materials.add(StandardMaterial {
 		base_color_texture: Some(floor_tex),
 		unlit: true,
-		alpha_mode: AlphaMode::Mask(0.5),
+		alpha_mode: world_alpha_mode,
 		..default()
 	});
 
@@ -784,7 +793,7 @@ pub fn setup(
         base_color: current_level.0.ceiling_color(),
         unlit: true,
         cull_mode: None,
-        alpha_mode: AlphaMode::Mask(0.5),
+        alpha_mode: world_alpha_mode,
         ..default()
     });
 
@@ -1160,6 +1169,8 @@ pub fn setup(
 	
 	commands.spawn((
 		Camera3d::default(),
+		// MSAA Off on Every Target for Speed Since Pixel Art Does Not Benefit
+		Msaa::Off,
 		Projection::Perspective(PerspectiveProjection {
 			fov: fov_radians,
 			..default()
