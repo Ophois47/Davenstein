@@ -5,3 +5,6 @@
 
 # Flatpak-builder local cache and intermediate build state
 /.flatpak-builder/
+
+# Generated at build time from Cargo.lock by build-package.sh (do not commit)
+/packaging/flatpak/cargo-sources.json

@@ -97,6 +97,7 @@ for required_command in \
     head \
     install \
     mktemp \
+    python3 \
     rm \
     sed \
     sha256sum
@@ -107,6 +108,20 @@ do
         exit 1
     fi
 done
+
+# Confirm the Cargo Sources Generator Python Dependencies Are Present
+if ! python3 -c 'import aiohttp, tomlkit, yaml' >/dev/null 2>&1; then
+    printf 'Flatpak Cargo sources generator needs Python packages aiohttp, tomlkit, and PyYAML\n' >&2
+    printf 'Install them with: pip install aiohttp tomlkit PyYAML\n' >&2
+    exit 1
+fi
+
+# Regenerate the Vendored Cargo Sources From Cargo.lock so the Offline Build
+# Always Matches the Committed Lockfile, Never a Stale Committed Copy
+printf 'Regenerating cargo-sources.json from Cargo.lock\n'
+python3 "$SCRIPT_DIR/flatpak-cargo-generator.py" \
+    "$ROOT_DIR/Cargo.lock" \
+    -o "$SCRIPT_DIR/cargo-sources.json"
 
 # Validate Manifest Inputs and All Published Documentation
 for required_file in \
