@@ -23,6 +23,7 @@ use bevy::window::{CursorOptions, PrimaryWindow};
 
 use crate::input::intent::PlayerIntent;
 use crate::input::sources::keyboard_mouse;
+use crate::input::sources::gamepad;
 use crate::options::ControlSettings;
 
 // Read Every Input Source and Commit One Merged PlayerIntent for This Frame
@@ -33,6 +34,7 @@ pub fn gather(
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
     q_cursor: Query<&CursorOptions, With<PrimaryWindow>>,
+    q_gamepads: Query<&Gamepad>,
     controls: Res<ControlSettings>,
     mut intent: ResMut<PlayerIntent>,
 ) {
@@ -49,8 +51,10 @@ pub fn gather(
         &controls,
     );
 
-    // Additional Input Sources Merge on Top of the Base Here
-    // Gamepad Contributes Next, Then Touch in a Later Milestone
+    // Gamepad Merges on Top of the Base so Keyboard Keeps Priority
+    gamepad::contribute(&mut acc, &time, &q_gamepads, &controls);
+
+    // Touch Contributes Here in a Later Milestone
 
     *intent = acc;
 }

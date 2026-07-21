@@ -7,8 +7,9 @@ touch look input
 
 Current and Planned Sources
 - Keyboard and Mouse - Implemented
-- Gamepad - Planned with Existing gamepad_sensitivity and gamepad_deadzone Settings
+- Gamepad - Implemented with the gamepad_sensitivity and gamepad_deadzone Settings
 - Touch - Planned with a Virtual Stick, Look Drag Region, and On-Screen Buttons
 */
 
 pub mod keyboard_mouse;
+pub mod gamepad;
