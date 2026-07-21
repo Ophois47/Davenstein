@@ -303,10 +303,6 @@ cargo run --bin pak_builder --release -- --root assets --out dist/assets.pak
 cargo run --bin pak_builder --release -- --root assets --out target/release/assets.pak
 ```
 
-## Note!
-
-Left Control `LCtrl` releases the mouse from the window
-
 ## Known Bugs
 
 - Save and Load banners need to be resized
