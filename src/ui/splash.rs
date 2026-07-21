@@ -5371,6 +5371,16 @@ fn splash_advance_on_any_input(
                 return;
             }
 
+            // East on the Pause Menu Resumes, Matching the Back to Game Item
+            if is_pause && nav.cancel {
+                sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+                *resources.step = SplashStep::Done;
+                resources.lock.0 = false;
+                resources.music_mode.0 = MusicModeKind::Gameplay;
+                return;
+            }
+
             menu.selection = menu.selection.min(item_count - 1);
 
             // Ensure Menu UI Exists
@@ -5440,6 +5450,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
+                || nav.confirm
             {
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
@@ -5619,7 +5630,7 @@ fn splash_advance_on_any_input(
                 return;
             }
 
-            if keyboard.just_pressed(KeyCode::Escape) {
+            if keyboard.just_pressed(KeyCode::Escape) || nav.cancel {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
@@ -5678,6 +5689,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
+                || nav.confirm
             {
                 let episode_num = (episode.selection + 1) as u8;
 
@@ -5717,7 +5729,7 @@ fn splash_advance_on_any_input(
                 return;
             }
 
-            if keyboard.just_pressed(KeyCode::Escape) {
+            if keyboard.just_pressed(KeyCode::Escape) || nav.cancel {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
@@ -5791,6 +5803,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
+                || nav.confirm
             {
                 let episode_num = skill.episode_num.max(1).min(6);
 
@@ -5866,7 +5879,7 @@ fn splash_advance_on_any_input(
 
             // Resolution Sub Menu Mode
             if options.change_view.res_submenu_open {
-                if keyboard.just_pressed(KeyCode::Escape) {
+                if keyboard.just_pressed(KeyCode::Escape) || nav.cancel {
                     sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
                     options.change_view.res_submenu_open = false;
 
@@ -5899,6 +5912,7 @@ fn splash_advance_on_any_input(
                 if keyboard.just_pressed(KeyCode::Enter)
                     || keyboard.just_pressed(KeyCode::NumpadEnter)
                     || keyboard.just_pressed(KeyCode::Space)
+                    || nav.confirm
                 {
                     sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
@@ -5972,7 +5986,7 @@ fn splash_advance_on_any_input(
             }
 
             // Normal Change View Mode
-            if keyboard.just_pressed(KeyCode::Escape) {
+            if keyboard.just_pressed(KeyCode::Escape) || nav.cancel {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
@@ -6006,8 +6020,8 @@ fn splash_advance_on_any_input(
 
             // Left / Right for Inline Adjustable Items (With Hold-to-Accelerate)
             // A / D Trigger a Single Nudge on Press. Arrow Keys Support Hold Repeat
-            let left_just = keyboard.just_pressed(KeyCode::ArrowLeft) || keyboard.just_pressed(KeyCode::KeyA);
-            let right_just = keyboard.just_pressed(KeyCode::ArrowRight) || keyboard.just_pressed(KeyCode::KeyD);
+            let left_just = keyboard.just_pressed(KeyCode::ArrowLeft) || keyboard.just_pressed(KeyCode::KeyA) || nav.left;
+            let right_just = keyboard.just_pressed(KeyCode::ArrowRight) || keyboard.just_pressed(KeyCode::KeyD) || nav.right;
             let left_held = keyboard.pressed(KeyCode::ArrowLeft);
             let right_held = keyboard.pressed(KeyCode::ArrowRight);
 
@@ -6201,6 +6215,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
+                || nav.confirm
             {
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
@@ -6283,7 +6298,7 @@ fn splash_advance_on_any_input(
             let current_kind = items.get(options.sound.selection).map(|(k, _)| *k);
 
             // Escape = Back to Menu
-            if keyboard.just_pressed(KeyCode::Escape) {
+            if keyboard.just_pressed(KeyCode::Escape) || nav.cancel {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
@@ -6309,8 +6324,8 @@ fn splash_advance_on_any_input(
             }
 
             // Left / Right for Volume Sliders
-            let left_just = keyboard.just_pressed(KeyCode::ArrowLeft) || keyboard.just_pressed(KeyCode::KeyA);
-            let right_just = keyboard.just_pressed(KeyCode::ArrowRight) || keyboard.just_pressed(KeyCode::KeyD);
+            let left_just = keyboard.just_pressed(KeyCode::ArrowLeft) || keyboard.just_pressed(KeyCode::KeyA) || nav.left;
+            let right_just = keyboard.just_pressed(KeyCode::ArrowRight) || keyboard.just_pressed(KeyCode::KeyD) || nav.right;
             let left_held = keyboard.pressed(KeyCode::ArrowLeft);
             let right_held = keyboard.pressed(KeyCode::ArrowRight);
 
@@ -6463,6 +6478,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
+                || nav.confirm
             {
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
@@ -6537,7 +6553,7 @@ fn splash_advance_on_any_input(
             let current_kind = items.get(options.control.selection).map(|(k, _)| *k);
 
             // Escape = Back to Menu
-            if keyboard.just_pressed(KeyCode::Escape) {
+            if keyboard.just_pressed(KeyCode::Escape) || nav.cancel {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
@@ -6563,8 +6579,8 @@ fn splash_advance_on_any_input(
             }
 
             // Left / Right for Numeric Settings
-            let left_just = keyboard.just_pressed(KeyCode::ArrowLeft) || keyboard.just_pressed(KeyCode::KeyA);
-            let right_just = keyboard.just_pressed(KeyCode::ArrowRight) || keyboard.just_pressed(KeyCode::KeyD);
+            let left_just = keyboard.just_pressed(KeyCode::ArrowLeft) || keyboard.just_pressed(KeyCode::KeyA) || nav.left;
+            let right_just = keyboard.just_pressed(KeyCode::ArrowRight) || keyboard.just_pressed(KeyCode::KeyD) || nav.right;
             let left_held = keyboard.pressed(KeyCode::ArrowLeft);
             let right_held = keyboard.pressed(KeyCode::ArrowRight);
 
@@ -6718,6 +6734,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
+                || nav.confirm
             {
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
@@ -6808,7 +6825,7 @@ fn splash_advance_on_any_input(
             let current_kind = items.get(options.gameplay.selection).map(|(k, _)| *k);
 
             // Escape = Back to Menu
-            if keyboard.just_pressed(KeyCode::Escape) {
+            if keyboard.just_pressed(KeyCode::Escape) || nav.cancel {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
@@ -6902,6 +6919,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
+                || nav.confirm
             {
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
@@ -7029,7 +7047,7 @@ fn splash_advance_on_any_input(
             }
 
             // Escape = Back to the Control Options Screen
-            if keyboard.just_pressed(KeyCode::Escape) {
+            if keyboard.just_pressed(KeyCode::Escape) || nav.cancel {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
@@ -7334,7 +7352,7 @@ fn splash_advance_on_any_input(
             const SLOT_ROWS: usize = 10;
 
             // Esc -> back to the menu we came from.
-            if keyboard.just_pressed(KeyCode::Escape) {
+            if keyboard.just_pressed(KeyCode::Escape) || nav.cancel {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
@@ -7389,6 +7407,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
+                || nav.confirm
             {
                 let slot = episode.selection as u32;
 
@@ -7443,7 +7462,7 @@ fn splash_advance_on_any_input(
             const SLOT_ROWS: usize = 10;
 
             // Esc -> back to the pause menu (save is pause-only).
-            if keyboard.just_pressed(KeyCode::Escape) {
+            if keyboard.just_pressed(KeyCode::Escape) || nav.cancel {
                 sfx.write(PlaySfx { kind: SfxKind::MenuBack, pos: Vec3::ZERO });
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
@@ -7497,6 +7516,7 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
+                || nav.confirm
             {
                 let slot = episode.selection as u32;
 
