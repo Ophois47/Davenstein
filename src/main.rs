@@ -61,6 +61,7 @@ use bevy::asset::{
 	AssetPlugin,
 };
 use bevy::window::{PresentMode, WindowPlugin};
+use bevy::light::cluster::GlobalClusterSettings;
 
 use davelib::ai::EnemyAiPlugin;
 use davelib::map::MapGrid;
@@ -126,6 +127,17 @@ fn level_rebuild_requested(
 
 #[derive(Component)]
 struct BootUiCamera;
+
+/// Force CPU Light Clustering by Disabling the GPU Clustering Path
+// GPU Clustering Overflows on GPUs That Report Support They Cannot Actually Back
+// The Raspberry Pi V3D Tries a 12 GiB Z-Slice Buffer and Fails Device Validation
+// Wolfenstein 3-D Gains Nothing From GPU Clustering so CPU Clustering is Enough
+// Option Guards Against a Missing Renderer so This Never Panics When Headless
+fn disable_gpu_clustering(settings: Option<ResMut<GlobalClusterSettings>>) {
+	if let Some(mut settings) = settings {
+		settings.gpu_clustering = None;
+	}
+}
 
 fn spawn_boot_ui_camera(mut commands: Commands) {
 	commands.spawn((
@@ -217,6 +229,7 @@ fn main() {
 		.add_systems(Startup, setup_audio)
 		.add_systems(Startup, start_music.after(setup_audio))
 		.add_systems(Startup, spawn_boot_ui_camera)
+		.add_systems(Startup, disable_gpu_clustering)
 		.add_systems(
 			Update,
 			toggle_god_mode.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
