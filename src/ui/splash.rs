@@ -1046,8 +1046,13 @@ fn build_change_view_items(
         format!("Display: {}", video.display_mode.label()),
     ));
 
-    // Resolution (Only Shown in Windowed Mode)
-    if video.display_mode == DisplayMode::Windowed {
+    // Resolution: shown for Windowed and Exclusive Fullscreen.
+    // Hidden for Borderless, where the OS forces desktop resolution and the
+    // setting would have no effect.
+    if matches!(
+        video.display_mode,
+        DisplayMode::Windowed | DisplayMode::ExclusiveFullscreen
+    ) {
         let res_idx = res_list.index_of(video.resolution);
         items.push((
             ChangeViewKind::Resolution,
