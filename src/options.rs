@@ -214,7 +214,12 @@ impl Default for VideoSettings {
 	fn default() -> Self {
 		Self {
 			vsync: true,
+			#[cfg(not(feature = "software_render"))]
 			display_mode: DisplayMode::default(),
+			// Software (CPU) Renderers Default to a Small Window so the Resolution
+			// Setting Actually Shrinks the Surface llvmpipe Must Fill for More Speed
+			#[cfg(feature = "software_render")]
+			display_mode: DisplayMode::Windowed,
 			resolution: (1024, 768),
 			fov: 40.0,
 			view_size: 20,
