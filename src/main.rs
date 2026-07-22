@@ -187,18 +187,31 @@ fn main() {
 			..default()
 		});
 
-	// Software Rendering: Force the llvmpipe CPU Adapter for GPU-Less Fallback Targets
-	// Used Where Hardware Acceleration Is Unavailable Such as the Raspberry Pi V3D
-	// The WGPU_ADAPTER_NAME Environment Variable Still Overrides This Baked Default
+	// Software Rendering: Select llvmpipe and Strip GPU-Only Passes for CPU Speed
+	// Zeroing Storage Textures Drops Atmosphere SSAO and Environment Map Generation
+	// Zeroing the Compute Limits Forces CPU Preprocessing and CPU Light Clustering
+	// Texture Dimension Stays Native so the Full Resolution Surface Still Builds
+	// The WGPU_ADAPTER_NAME Environment Variable Still Overrides the Baked Adapter
 	#[cfg(feature = "software_render")]
-	let default_plugins = default_plugins.set(bevy::render::RenderPlugin {
-		render_creation: bevy::render::settings::WgpuSettings {
-			adapter_name: Some("llvmpipe".into()),
+	let default_plugins = {
+		let mut limits = bevy::render::settings::WgpuLimits::default();
+		limits.max_storage_textures_per_shader_stage = 0;
+		limits.max_compute_workgroup_size_x = 0;
+		limits.max_compute_workgroup_size_y = 0;
+		limits.max_compute_workgroup_size_z = 0;
+		limits.max_compute_invocations_per_workgroup = 0;
+		limits.max_compute_workgroup_storage_size = 0;
+		limits.max_compute_workgroups_per_dimension = 0;
+		default_plugins.set(bevy::render::RenderPlugin {
+			render_creation: bevy::render::settings::WgpuSettings {
+				adapter_name: Some("llvmpipe".into()),
+				constrained_limits: Some(limits),
+				..default()
+			}
+			.into(),
 			..default()
-		}
-		.into(),
-		..default()
-	});
+		})
+	};
 
 	App::new()
 		.add_plugins(pak_assets::PakAssetsPlugin)
