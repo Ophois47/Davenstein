@@ -263,6 +263,10 @@ pub fn spawn_decorations(
 	let quad_decal_puddle = meshes.add(Rectangle::new(0.95, 3.50));
 	let quad_decal_skel = meshes.add(Rectangle::new(0.95, 2.00));
 
+	// Cache One Material Per Plane1 Code so Identical Statics Share a Single Material
+	let mut mat_cache: std::collections::HashMap<u16, Handle<StandardMaterial>> =
+		std::collections::HashMap::new();
+
 	for y in 0..grid.height {
 		for x in 0..grid.width {
 			let idx = (y * grid.width + x) as usize;
@@ -307,15 +311,23 @@ pub fn spawn_decorations(
                 )
 			};
 
-			let tex: Handle<Image> = asset_server.load(tex_path);
-			let mat = materials.add(StandardMaterial {
-				base_color_texture: Some(tex),
-				alpha_mode: AlphaMode::Mask(0.5),
-				unlit: true,
-				double_sided: true,
-				depth_bias,
-				..default()
-			});
+			// Reuse One Material Per Plane1 Code, Since Every Tile of a Code
+			// Shares the Same Texture and Depth Bias and the Material Never Changes
+			let mat = if let Some(h) = mat_cache.get(&code) {
+				h.clone()
+			} else {
+				let tex: Handle<Image> = asset_server.load(tex_path);
+				let h = materials.add(StandardMaterial {
+					base_color_texture: Some(tex),
+					alpha_mode: AlphaMode::Mask(0.5),
+					unlit: true,
+					double_sided: true,
+					depth_bias,
+					..default()
+				});
+				mat_cache.insert(code, h.clone());
+				h
+			};
 
 			let mut e = commands.spawn((
 				Name::new(format!("Decoration({},{}) code={}", x, y, code)),
