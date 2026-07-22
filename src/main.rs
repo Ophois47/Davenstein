@@ -320,6 +320,19 @@ fn main() {
 		plugins
 	};
 
+	// Software Rendering: Force the llvmpipe CPU Adapter for GPU-Less Fallback Targets
+	// Used Where Hardware Acceleration Is Unavailable Such as the Raspberry Pi V3D
+	// The WGPU_ADAPTER_NAME Environment Variable Still Overrides This Baked Default
+	#[cfg(feature = "software_render")]
+	let default_plugins = default_plugins.set(bevy::render::RenderPlugin {
+		render_creation: bevy::render::settings::WgpuSettings {
+			adapter_name: Some("llvmpipe".into()),
+			..default()
+		}
+		.into(),
+		..default()
+	});
+
 	App::new()
 		.add_plugins(pak_assets::PakAssetsPlugin)
 		.add_plugins(default_plugins)

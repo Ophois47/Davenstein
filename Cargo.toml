@@ -23,9 +23,13 @@ path = "src/pak_builder.rs"
 # driver renders correctly (the GPU preprocessing path renders incorrectly).
 v3d = []
 
+# Ships the software (CPU) renderer by selecting Mesa's llvmpipe Vulkan adapter.
+# Build GPU-less targets (e.g. Raspberry Pi V3D) with `--features software_render`.
+# Correct but slow; lower the resolution for playable framerates.
+software_render = []
+
 [dependencies]
 bevy = { version = "0.19", features = ["wav", "debug"] }
-bevy_render = { version = "0.19", default-features = false, features = ["gles"] }
 dirs = "6"
 futures-lite = "2"
 memmap2 = "0.9"
