@@ -585,7 +585,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
 
     let (cooldown_secs, flash_secs, ammo_cost, max_dist) = match hud.selected {
         WeaponSlot::Knife => (10.0 * TIC, 12.0 * TIC, 0, 1.5),
-        WeaponSlot::Pistol => (25.0 * TIC, 16.0 * TIC, 1, BULLET_MAX_DIST),
+        WeaponSlot::Pistol => (24.0 * TIC, 24.0 * TIC, 1, BULLET_MAX_DIST),
         WeaponSlot::MachineGun => (12.0 * TIC, 6.0 * TIC, 1, BULLET_MAX_DIST),
         WeaponSlot::Chaingun => (6.0 * TIC, 8.0 * TIC, 1, BULLET_MAX_DIST),
     };
@@ -626,14 +626,12 @@ pub(crate) fn weapon_fire_and_viewmodel(
             let dur = weapon.flash.duration().as_secs_f32().max(0.0001);
             let t = (weapon.flash.elapsed_secs() / dur).clamp(0.0, 1.0);
 
-            let frame = if t < 0.25 {
-                1 // Raise
-            } else if t < 0.50 {
-                2 // Muzzle Flash
-            } else if t < 0.75 {
-                3 // Recover
+            let frame = if t < 0.33 {
+                2 // Muzzle Flash (Synced to the Shot)
+            } else if t < 0.66 {
+                3 // Recoil
             } else {
-                4 // Settle
+                4 // Recover
             };
 
             if let Ok(mut img) = vm_q.single_mut() {
@@ -809,7 +807,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
 
             if hud.selected == WeaponSlot::Pistol {
                 if let Ok(mut img) = vm_q.single_mut() {
-                    img.image = sprites.pistol_frame(1);
+                    img.image = sprites.pistol_frame(2); // Muzzle Flash on the Shot
                 }
             } else if hud.selected == WeaponSlot::Knife {
                 if let Ok(mut img) = vm_q.single_mut() {
