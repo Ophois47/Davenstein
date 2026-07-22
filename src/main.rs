@@ -163,6 +163,23 @@ fn disable_boot_ui_camera_when_player_camera_ready(
 	}
 }
 
+/// Force CPU Preprocessing on the Raspberry Pi V3D Renderer
+// The Broadcom V3D Driver Backs Bevy GPU Preprocessing Poorly so Geometry Breaks
+// Bevy Selects CPU Preprocessing When max_compute_workgroup_size_x Reports Zero
+// Zeroing Only the Compute Limits Leaves Texture and Storage Limits at Native
+// Values so the View Renders at Full Resolution Without Driver Validation Errors
+#[cfg(feature = "v3d")]
+fn v3d_constrained_limits() -> bevy::render::settings::WgpuLimits {
+	let mut limits = bevy::render::settings::WgpuLimits::default();
+	limits.max_compute_workgroup_size_x = 0;
+	limits.max_compute_workgroup_size_y = 0;
+	limits.max_compute_workgroup_size_z = 0;
+	limits.max_compute_invocations_per_workgroup = 0;
+	limits.max_compute_workgroup_storage_size = 0;
+	limits.max_compute_workgroups_per_dimension = 0;
+	limits
+}
+
 fn main() {
 	info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
 	let asset_file_path = if cfg!(debug_assertions) {
@@ -172,25 +189,37 @@ fn main() {
 	};
 	let high_scores = davelib::high_score::HighScores::load();
 
+	let default_plugins = DefaultPlugins
+		.set(AssetPlugin {
+			file_path: asset_file_path,
+			meta_check: AssetMetaCheck::Never,
+			watch_for_changes_override: Some(cfg!(debug_assertions)),
+			..default()
+		})
+		.set(ImagePlugin::default_nearest())
+		.set(WindowPlugin {
+			primary_window: Some(Window {
+				present_mode: PresentMode::AutoVsync,
+				..default()
+			}),
+			..default()
+		});
+
+	// V3D Renderer: Force CPU Preprocessing by Constraining Compute Limits to Zero
+	// This Set Runs Only for Raspberry Pi Builds Made With the v3d Cargo Feature
+	#[cfg(feature = "v3d")]
+	let default_plugins = default_plugins.set(bevy::render::RenderPlugin {
+		render_creation: bevy::render::settings::WgpuSettings {
+			constrained_limits: Some(v3d_constrained_limits()),
+			..default()
+		}
+		.into(),
+		..default()
+	});
+
 	App::new()
 		.add_plugins(pak_assets::PakAssetsPlugin)
-		.add_plugins(
-			DefaultPlugins
-				.set(AssetPlugin {
-					file_path: asset_file_path,
-					meta_check: AssetMetaCheck::Never,
-					watch_for_changes_override: Some(cfg!(debug_assertions)),
-					..default()
-				})
-				.set(ImagePlugin::default_nearest())
-				.set(WindowPlugin {
-					primary_window: Some(Window {
-						present_mode: PresentMode::AutoVsync,
-						..default()
-					}),
-					..default()
-				}),
-		)
+		.add_plugins(default_plugins)
 		.add_plugins(davelib::options::OptionsPlugin)
 		.add_plugins(davelib::input::InputPlugin)
 		.add_plugins(davelib::perf_overlay::PerfOverlayPlugin)
