@@ -52,6 +52,7 @@ use crate::ai_patrol::{
 };
 use crate::audio::{PlaySfx, SfxKind};
 use crate::decorations::SolidStatics;
+use crate::input::intent::PlayerIntent;
 use crate::enemies::{
     Dir8,
     EnemyTunings,
@@ -80,6 +81,14 @@ const MUTANT_SHOOT_PAUSE_SECS: f32 = 0.15;
 const LOS_FIRST_SHOT_DELAY_SECS: f32 = 0.02;
 const GUARD_SHOOT_COOLDOWN_SECS: f32 = 0.55;
 const GUARD_SHOOT_TOTAL_SECS: f32 = GUARD_SHOOT_PAUSE_SECS + GUARD_SHOOT_COOLDOWN_SECS;
+
+// FL_VISABLE approximation. In the 1992 game this flag was set by the sprite
+// scaler whenever an actor was actually drawn on screen; T_Shoot uses it to make
+// visible actors HARDER to hit (the player can see the shot coming and dodge).
+// Here we treat an actor as "visible to the player" when it lies within this
+// half-angle of the player's facing. Version-independent stand-in; widen/narrow
+// to taste, or wire to Bevy's ViewVisibility for a frame-exact match.
+const AI_VISABLE_HALF_ANGLE_DEG: f32 = 35.0;
 
 #[derive(Resource, Debug, Default)]
 pub struct AiTicker {
@@ -150,6 +159,10 @@ struct AiSharedData {
     dist_map: Vec<i32>,
     player_tile: IVec2,
     player_pos: Vec3,
+    // Is the player moving at run speed this tic? (thrustspeed >= RUNSPEED)
+    player_running: bool,
+    // Normalized XZ forward the player is facing; used for the FL_VISABLE cone.
+    player_forward: Vec2,
     player_area: Option<i32>,
     cached_area_map: AreaMap,
     cached_area_generation: Option<u64>,
@@ -531,35 +544,78 @@ impl AreaMap {
     }
 }
 
-fn wolf_hitscan_damage(dist_tiles: i32) -> i32 {
-    let r = rand::random::<u8>() as i32;
-    if dist_tiles <= 1 {
-        r / 4
-    } else {
-        r / 6
-    }
+// --- Wolf3D RNG (US_RndT analog) -------------------------------------------
+// The original pulls every random number from one shared 256-entry table via
+// US_RndT() (returns 0..=255). We mirror its statistics with a deterministic
+// xorshift, matching what combat/mod.rs already does for the player's gun.
+// (A bit-exact, table-driven US_RndT shared across the whole game is its own
+// checklist item.)
+fn xorshift32(s: &mut u32) -> u32 {
+    let mut x = *s;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *s = x;
+    x
 }
 
-fn wolf_far_miss_gate(dist_tiles: i32) -> bool {
-    if dist_tiles <= 3 {
-        true
-    } else {
-        let r = rand::random::<u8>() as i32;
-        (r / 12) >= dist_tiles
-    }
+fn rnd_byte(rng: &mut u32) -> i32 {
+    (xorshift32(rng) & 0xFF) as i32
 }
 
-fn wolf_boss_damage(dist_tiles: i32) -> i32 {
-    let effective_dist = (dist_tiles / 3).max(0);
-    let r = rand::random::<u8>() as i32;
-    
-    if effective_dist < 2 {
-        r / 4
-    } else if effective_dist < 4 {
-        r / 8
-    } else {
-        r / 16
+/// "Better shots." The original T_Shoot tests only `ssobj || bossobj`, and
+/// bossobj is Hans alone -- so Gretel and Mecha/Real Hitler do NOT get the
+/// accuracy bonus even though they fire with the same T_Shoot. Faithful to the
+/// 1992 source; flip this if you decide the omission was a bug.
+fn sharp_shooter(kind: EnemyKind) -> bool {
+    matches!(kind, EnemyKind::Ss | EnemyKind::Hans)
+}
+
+/// Faithful port of Wolf3D's `T_Shoot` (WOLFSRC/WL_ACT2.C).
+///
+/// * `dist_tiles`     Chebyshev tile distance to the player: `max(|dx|, |dy|)`.
+/// * `player_running` player moved at run speed this tic (`thrustspeed >= RUNSPEED`).
+/// * `actor_visible`  actor is on the player's screen (`FL_VISABLE`) -> the player
+///                    can see the shot coming and dodge, so it is harder to hit.
+///
+/// Returns `Some(damage)` on a hit (damage may legitimately be 0, exactly as in
+/// the original) and `None` on a miss. The caller still plays the fire SFX either
+/// way. `areabyplayer` and the `CheckLine` wall test are handled upstream.
+fn wolf_t_shoot(
+    dist_tiles: i32,
+    player_running: bool,
+    actor_visible: bool,
+    kind: EnemyKind,
+    rng: &mut u32,
+) -> Option<i32> {
+    let mut dist = dist_tiles.max(0);
+    if sharp_shooter(kind) {
+        dist = dist * 2 / 3; // ss are better shots
     }
+
+    // hitchance = base - dist*falloff, tested against US_RndT() (0..=255).
+    // Visible actor -> steeper falloff (*16): the player can dodge.
+    let hitchance = match (player_running, actor_visible) {
+        (true, true) => 160 - dist * 16,
+        (true, false) => 160 - dist * 8,
+        (false, true) => 256 - dist * 16,
+        (false, false) => 256 - dist * 8,
+    };
+
+    if rnd_byte(rng) >= hitchance {
+        return None; // missed
+    }
+
+    // Damage tapers with distance: r/4 point-blank, r/8 mid, r/16 far.
+    let damage = if dist < 2 {
+        rnd_byte(rng) >> 2
+    } else if dist < 4 {
+        rnd_byte(rng) >> 3
+    } else {
+        rnd_byte(rng) >> 4
+    };
+
+    Some(damage)
 }
 
 // SYSTEM 1: Prepare Shared Data and Handle Activation / Patrol
@@ -570,6 +626,7 @@ fn enemy_ai_prepare_and_activate(
     grid: Res<MapGrid>,
     solid: Res<SolidStatics>,
     q_player: Query<&GlobalTransform, With<Player>>,
+    intent: Res<PlayerIntent>,
     mut sfx: MessageWriter<PlaySfx>,
     mut alerted: Local<HashSet<Entity>>,
     wolf_plane1: Res<crate::level::WolfPlane1>,
@@ -601,6 +658,9 @@ fn enemy_ai_prepare_and_activate(
 
     shared.player_tile = player_tile;
     shared.player_pos = player_pos;
+    shared.player_running = intent.run;
+    let fwd = player_gt.forward();
+    shared.player_forward = Vec2::new(fwd.x, fwd.z).normalize_or_zero();
 
     let dt = time.delta_secs();
     ticker.accum += dt;
@@ -861,6 +921,7 @@ fn enemy_ai_combat(
     mut shoot_cd: Local<HashMap<Entity, f32>>,
     mut bursts: Local<HashMap<Entity, BurstFire>>,
     mut los_hold: Local<HashMap<Entity, f32>>,
+    mut rng: Local<u32>,
     tunings: Res<EnemyTunings>,
     shared: Res<AiSharedData>,
     q_enemies: Query<
@@ -880,6 +941,11 @@ fn enemy_ai_combat(
 ) {
     let dt = time.delta_secs();
 
+    // xorshift cannot start at 0; seed once with an arbitrary nonzero constant.
+    if *rng == 0 {
+        *rng = 0x9E37_79B9;
+    }
+
     shoot_cd.retain(|_, t| {
         *t -= dt;
         *t > 0.0
@@ -897,6 +963,18 @@ fn enemy_ai_combat(
 
         let my_tile = occ.0;
         let moving_now = moving.is_some() || shared.scheduled_move.contains(&e);
+
+        // FL_VISABLE: is this actor inside the player's forward view cone?
+        let actor_visible = {
+            let to_actor = Vec2::new(
+                tf.translation.x - player_pos.x,
+                tf.translation.z - player_pos.z,
+            );
+            let len = to_actor.length();
+            len > 1e-4
+                && (to_actor / len).dot(shared.player_forward)
+                    >= AI_VISABLE_HALF_ANGLE_DEG.to_radians().cos()
+        };
 
         let cd_now = shoot_cd.get(&e).copied().unwrap_or(0.0);
 
@@ -978,14 +1056,15 @@ fn enemy_ai_combat(
                     // General Chaingun Volley Continuation (After Initial Rocket)
                     } else if matches!(*kind, EnemyKind::General) {
                         // General Fires 4 Chaingun Bullets in Rapid Succession
-                        let hits = wolf_far_miss_gate(shoot_dist);
-                        let damage = if hits {
-                            wolf_boss_damage(shoot_dist)
-                        } else {
-                            0
-                        };
-
-                        enemy_fire.write(EnemyFire { kind: *kind, damage });
+                        if let Some(damage) = wolf_t_shoot(
+                            shoot_dist,
+                            shared.player_running,
+                            actor_visible,
+                            *kind,
+                            &mut rng,
+                        ) {
+                            enemy_fire.write(EnemyFire { kind: *kind, damage });
+                        }
 
                         // Insert / Update Chaingun Volley Component for View Tracking
                         commands.entity(e).insert(crate::enemies::GeneralChaingunVolley {
@@ -1003,20 +1082,15 @@ fn enemy_ai_combat(
                             });
                         }
                     } else {
-                        let hits = wolf_far_miss_gate(shoot_dist);
-                        let damage = if hits {
-                            match kind {
-                                EnemyKind::Hans
-                                | EnemyKind::Gretel
-                                | EnemyKind::MechaHitler
-                                | EnemyKind::Hitler => wolf_boss_damage(shoot_dist),
-                                _ => wolf_hitscan_damage(shoot_dist),
-                            }
-                        } else {
-                            0
-                        };
-
-                        enemy_fire.write(EnemyFire { kind: *kind, damage });
+                        if let Some(damage) = wolf_t_shoot(
+                            shoot_dist,
+                            shared.player_running,
+                            actor_visible,
+                            *kind,
+                            &mut rng,
+                        ) {
+                            enemy_fire.write(EnemyFire { kind: *kind, damage });
+                        }
                     }
 
                     if b.shots_left > 0 {
@@ -1248,17 +1322,15 @@ fn enemy_ai_combat(
                     // Regular Hitscan Shooting
                     shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
 
-                    let hits = wolf_far_miss_gate(shoot_dist);
-                    let damage = if hits {
-                        match kind {
-                            EnemyKind::Hans | EnemyKind::Gretel => wolf_boss_damage(shoot_dist),
-                            _ => wolf_hitscan_damage(shoot_dist),
-                        }
-                    } else {
-                        0
-                    };
-
-                    enemy_fire.write(EnemyFire { kind: *kind, damage });
+                    if let Some(damage) = wolf_t_shoot(
+                        shoot_dist,
+                        shared.player_running,
+                        actor_visible,
+                        *kind,
+                        &mut rng,
+                    ) {
+                        enemy_fire.write(EnemyFire { kind: *kind, damage });
+                    }
 
                     match kind {
                         EnemyKind::Guard => {
