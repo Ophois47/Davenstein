@@ -390,9 +390,9 @@ impl ViewModelSprites {
                 self.machinegun[SEQ[cycle % SEQ.len()]].clone()
             }
 
-            // Chaingun: Forward (1), Flash A (2), Forward (1), Flash B (3)
+            // Chaingun: Alternate the Two Flash Frames Like Wolf3D, No Rest Frame
             Chaingun => {
-                const SEQ: [usize; 4] = [1, 2, 1, 3];
+                const SEQ: [usize; 2] = [2, 3];
                 self.chaingun[SEQ[cycle % SEQ.len()]].clone()
             }
 
