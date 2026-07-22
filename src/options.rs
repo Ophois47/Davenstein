@@ -636,7 +636,7 @@ fn resize_world_canvas(
 	let want = world_canvas_size(win_w, win_h, settings.render_scale);
 
 	if want != canvas.size {
-		if let Some(image) = images.get_mut(&canvas.handle) {
+		if let Some(mut image) = images.get_mut(&canvas.handle) {
 			image.resize(Extent3d {
 				width: want.x,
 				height: want.y,

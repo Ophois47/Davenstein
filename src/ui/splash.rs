@@ -27,7 +27,6 @@ use davelib::audio::{
 use davelib::player::PlayerControlLock;
 use davelib::options::{
     DisplayMode,
-    RenderScale,
     ResolutionList,
     VideoSettings,
     SoundSettings,
