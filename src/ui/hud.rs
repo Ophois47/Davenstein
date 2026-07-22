@@ -2628,13 +2628,16 @@ pub(crate) fn sync_view_size_border(
 
 pub(crate) fn sync_viewmodel_visibility(
     lock: Res<PlayerControlLock>,
+    exit_delay: Res<crate::level_complete::ElevatorExitDelay>,
     mut commands: Commands,
     mut q_vm: Query<(Entity, Option<&mut Visibility>), With<ViewModelImage>>,
     mut last_unlocked: Local<Option<Visibility>>,
 ) {
     let Some((vm_e, vm_vis)) = q_vm.iter_mut().next() else { return; };
 
-    let should_hide = lock.0;
+    // Keep the Viewmodel Visible Through the Elevator Exit Delay so the Weapon
+    // Does Not Vanish Before the Mission Success Screen Appears
+    let should_hide = lock.0 && !exit_delay.active;
 
     if should_hide {
         if last_unlocked.is_none() {

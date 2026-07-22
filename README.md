@@ -309,9 +309,7 @@ cargo run --bin pak_builder --release -- --root assets --out target/release/asse
 - Save and Load banners need to be resized
 - Change View size does not properly respect menu UI
 - End of level text glyphs need borders clipped
-- End of level counter should be slowed just slightly
 - Machine gun firing sequence needs adjustment
-- Weapon disappears too soon before end level screen comes up
 - Some static decorations appear incorrect
 
 ## Screenshots
