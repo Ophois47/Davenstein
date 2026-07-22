@@ -27,6 +27,7 @@ use davelib::audio::{
 use davelib::player::PlayerControlLock;
 use davelib::options::{
     DisplayMode,
+    RenderScale,
     ResolutionList,
     VideoSettings,
     SoundSettings,
@@ -1025,6 +1026,7 @@ enum ChangeViewKind {
     Vsync,
     DisplayMode,
     Resolution,
+    RenderScale,
     Fov,
     ViewSize,
     Back,
@@ -1059,6 +1061,14 @@ fn build_change_view_items(
             format!("Resolution: {}", res_list.label_at(res_idx)),
         ));
     }
+
+    // Render Scale (Shown in Every Display Mode). Downscales the 3-D View and
+    // Upscales to Fill the Window, so It Works in Borderless (the Only
+    // Fullscreen the Pi Gets) Where a Resolution Change Cannot
+    items.push((
+        ChangeViewKind::RenderScale,
+        format!("Render Scale: {}", video.render_scale.label()),
+    ));
 
     // FOV
     items.push((
@@ -6109,6 +6119,18 @@ fn splash_advance_on_any_input(
                         sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
                         return;
                     }
+                    Some(ChangeViewKind::RenderScale) => {
+                        resources.video_settings.render_scale = if right_pressed {
+                            resources.video_settings.render_scale.next()
+                        } else {
+                            resources.video_settings.render_scale.prev()
+                        };
+                        resources.video_settings.set_changed(); // Explicitly Mark as Changed
+                        // Respawn so the Row Label Reflects the New Scale
+                        options.change_view.needs_respawn = true;
+                        sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+                        return;
+                    }
                     _ => {}
                 }
             }
@@ -6275,7 +6297,7 @@ fn splash_advance_on_any_input(
                         *resources.step = SplashStep::GameplayOptions;
                     }
 
-                    // DisplayMode, FOV, ViewSize are Adjusted by Left / Right, Enter Does Nothing Extra
+                    // DisplayMode, RenderScale, FOV, ViewSize are Adjusted by Left / Right, Enter Does Nothing Extra
                     _ => {}
                 }
             }

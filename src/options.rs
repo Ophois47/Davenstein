@@ -5,6 +5,8 @@ Davenstein - by David Petnick
 use bevy::camera;
 use bevy::prelude::*;
 use bevy::audio::{AudioSinkPlayback, Volume};
+use bevy::image::{Image, ImageSampler};
+use bevy::render::render_resource::{Extent3d, TextureFormat};
 use bevy::window::{
 	Monitor,
 	MonitorSelection,
@@ -34,10 +36,14 @@ impl Plugin for OptionsPlugin {
 				apply_video_settings_startup,
 				apply_sound_settings_startup,
 			).chain())
+			// Startup: Create the Persistent World Canvas Before Any Level
+			// Rebuild ('setup' Runs in PostUpdate, so This Always Precedes It)
+			.add_systems(Startup, create_world_canvas)
 			// Update: Deal With Changes
 			.add_systems(Update, (
 				apply_video_settings_on_change,
 				apply_view_size_on_change,
+				resize_world_canvas,
 				apply_sound_settings_on_change,
 				apply_control_settings_on_change,
 			))
@@ -109,6 +115,65 @@ impl DisplayMode {
 	}
 }
 
+/// Internal Render Scale for the 3-D View
+/// The World Renders Into an Off-Screen Canvas Sized to
+/// 'window_pixels * factor', Then a Present Camera Upscales That Canvas to
+/// Fill the Window (Nearest Neighbor). Lower Scales Shrink the Number of
+/// Pixels the GPU Shades, Which Is the Real Win on Weak Hardware Like the
+/// Raspberry Pi, and It Works in Any Display Mode (Including Borderless,
+/// the Only Fullscreen Wayland Allows)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RenderScale {
+	/// 100%, No Downscale (Canvas Matches the Window)
+	#[default]
+	Native,
+	Pct75,
+	Pct50,
+	Pct33,
+}
+
+impl RenderScale {
+	/// Cycle Forward Through Scales (Wraps Around)
+	pub fn next(self) -> Self {
+		match self {
+			RenderScale::Native => RenderScale::Pct75,
+			RenderScale::Pct75  => RenderScale::Pct50,
+			RenderScale::Pct50  => RenderScale::Pct33,
+			RenderScale::Pct33  => RenderScale::Native,
+		}
+	}
+
+	/// Cycle Backward Through Scales (Wraps Around)
+	pub fn prev(self) -> Self {
+		match self {
+			RenderScale::Native => RenderScale::Pct33,
+			RenderScale::Pct75  => RenderScale::Native,
+			RenderScale::Pct50  => RenderScale::Pct75,
+			RenderScale::Pct33  => RenderScale::Pct50,
+		}
+	}
+
+	/// Human Readable Label for the Menu
+	pub fn label(self) -> &'static str {
+		match self {
+			RenderScale::Native => "Native",
+			RenderScale::Pct75  => "75%",
+			RenderScale::Pct50  => "50%",
+			RenderScale::Pct33  => "33%",
+		}
+	}
+
+	/// Multiplier Applied to Window Pixels to Get the Canvas Size
+	pub fn factor(self) -> f32 {
+		match self {
+			RenderScale::Native => 1.0,
+			RenderScale::Pct75  => 0.75,
+			RenderScale::Pct50  => 0.5,
+			RenderScale::Pct33  => 1.0 / 3.0,
+		}
+	}
+}
+
 /// Which MSAA Preset User has Chosen
 /// Bevy 0.18 Treats 'MSAA' as a *Camera Component*, so Apply System
 /// Will Insert / Mutate it on any Camera Entity Tagged
@@ -140,6 +205,9 @@ pub struct VideoSettings {
 	/// HUD / Viewport Layout Reads This
 	pub view_size: u8,
 	pub msaa: MsaaSetting,
+	/// Internal Render Scale for the 3-D View (See 'RenderScale')
+	/// Defaults to 'Native' so Behavior Is Unchanged Until the User Opts In
+	pub render_scale: RenderScale,
 }
 
 impl Default for VideoSettings {
@@ -151,8 +219,37 @@ impl Default for VideoSettings {
 			fov: 40.0,
 			view_size: 20,
 			msaa: MsaaSetting::Off,
+			render_scale: RenderScale::default(),
 		}
 	}
+}
+
+/// Persistent Off-Screen Canvas the 3-D World Renders Into
+/// A Present Camera Upscales This to Fill the Window (Nearest Neighbor)
+/// The Handle Is Created Once at Startup and Reused, Only the Backing Image
+/// Is Resized When the Window Size or Render Scale Changes, so There Is No
+/// Per-Rebuild Asset Churn
+#[derive(Resource)]
+pub struct WorldCanvas {
+	pub handle: Handle<Image>,
+	/// Last Applied Canvas Size in Physical Pixels
+	pub size: UVec2,
+}
+
+/// Marks the Present Camera and Its Full-Screen Sprite so the Level Rebuild
+/// Path ('restart_despawn_level') Despawns Them Alongside the Player Camera
+/// Both the Present Camera and the Sprite Carry This Marker
+#[derive(Component)]
+pub struct WorldPresenter;
+
+/// Compute the Canvas Size in Physical Pixels for a Given Window Size + Scale
+/// Clamped to at Least 1x1 so a Degenerate Window Never Yields a Zero Texture
+pub fn world_canvas_size(win_w: u32, win_h: u32, scale: RenderScale) -> UVec2 {
+	let f = scale.factor();
+	UVec2::new(
+		((win_w as f32 * f).round() as u32).max(1),
+		((win_h as f32 * f).round() as u32).max(1),
+	)
 }
 
 /// List of Available Resolutions for Windowed Mode
@@ -485,6 +582,81 @@ fn populate_resolution_list(
 	res_list.entries = out;
 }
 
+/// Create the Persistent World Canvas Image Once at Startup
+/// Sized to the Current Window and Render Scale, Nearest-Sampled so the
+/// Upscale Stays Crisp and Chunky (Fitting for a Wolfenstein-Style Game)
+/// The 3-D Camera Points at This via a 'RenderTarget::Image' Added in 'setup'
+fn create_world_canvas(
+	mut commands: Commands,
+	mut images: ResMut<Assets<Image>>,
+	settings: Res<VideoSettings>,
+	q_window: Query<&Window, With<PrimaryWindow>>,
+) {
+	let (win_w, win_h) = q_window
+		.iter()
+		.next()
+		.map(|w| (
+			w.resolution.physical_width().max(1),
+			w.resolution.physical_height().max(1),
+		))
+		.unwrap_or((1280, 720));
+
+	let size = world_canvas_size(win_w, win_h, settings.render_scale);
+
+	// Rgba8Unorm Storage With an Srgb View Matches Bevy's Own
+	// Render-to-Texture Example and Keeps Colors Correct for a 3-D Pass
+	let mut image = Image::new_target_texture(
+		size.x,
+		size.y,
+		TextureFormat::Rgba8Unorm,
+		Some(TextureFormat::Rgba8UnormSrgb),
+	);
+	image.sampler = ImageSampler::nearest();
+
+	let handle = images.add(image);
+	commands.insert_resource(WorldCanvas { handle, size });
+}
+
+/// Keep the Canvas and the Present Sprite Matched to the Window and Scale
+/// Resizes the Backing Image in Place (No Handle Churn) Only When the Target
+/// Size Actually Changes, and Stretches the Sprite to Fill the Window Every
+/// Frame in the Present Camera's Logical Space (Camera2d Uses WindowSize
+/// Scaling, so 1 World Unit Maps to 1 Logical Pixel)
+fn resize_world_canvas(
+	settings: Res<VideoSettings>,
+	mut canvas: ResMut<WorldCanvas>,
+	mut images: ResMut<Assets<Image>>,
+	q_window: Query<&Window, With<PrimaryWindow>>,
+	mut q_sprite: Query<&mut Sprite, With<WorldPresenter>>,
+) {
+	let Some(window) = q_window.iter().next() else { return; };
+
+	let win_w = window.resolution.physical_width().max(1);
+	let win_h = window.resolution.physical_height().max(1);
+	let want = world_canvas_size(win_w, win_h, settings.render_scale);
+
+	if want != canvas.size {
+		if let Some(image) = images.get_mut(&canvas.handle) {
+			image.resize(Extent3d {
+				width: want.x,
+				height: want.y,
+				depth_or_array_layers: 1,
+			});
+			canvas.size = want;
+		}
+	}
+
+	let logical = Vec2::new(
+		window.resolution.width().max(1.0),
+		window.resolution.height().max(1.0),
+	);
+	for mut sprite in q_sprite.iter_mut() {
+		if sprite.custom_size != Some(logical) {
+			sprite.custom_size = Some(logical);
+		}
+	}
+}
+
 fn desired_present_mode(s: &VideoSettings) -> PresentMode {
 	if s.vsync {
 		PresentMode::AutoVsync
@@ -650,26 +822,33 @@ fn apply_video_settings_on_change(
 /// view_size 20 = Full Viewport (No Border)
 /// view_size 4  = Maximum Border (~80% Inset)
 /// The Camera Viewport is Inset Symmetrically, Leaving a Border Area
-/// That Shows the Window's Clear Color (Typically Dark Gray or Black)
+/// That Shows the 3-D Camera's Clear Color (Black, Set in 'setup')
 /// The Status Bar (44 Native Pixels) is Accounted For: the Viewport
 /// Only Shrinks the Area *Above* the Status Bar
-/// 
+///
+/// The Viewport Is Expressed in *Canvas* Pixels, Not Window Pixels, Because
+/// the 3-D Camera Renders Into the World Canvas ('RenderTarget::Image'). The
+/// Present Camera Upscales That Canvas to the Window, so the Border Scales
+/// Along With It. At the Default view_size 20 This Is a No-Op (Viewport None)
+///
 /// IMPORTANT: Only Applies During Gameplay (When Player Exists)
 /// This Prevents View Size Changes in Menus From Affecting Menu Rendering
 ///
-/// Tracks Last Applied State so the Viewport is Also Set When
-/// Entering Gameplay From the Menu (Not Just on Settings Change)
+/// Tracks Last Applied State (Including Canvas Size) so the Viewport Is Also
+/// Re-Applied When Entering Gameplay, on Settings Changes, and When the
+/// Canvas Resizes From a Window Resize or Render-Scale Change
 fn apply_view_size_on_change(
 	settings: Res<VideoSettings>,
+	canvas: Res<WorldCanvas>,
 	player_query: Query<(), With<player::Player>>,
-	q_window: Query<&Window, With<PrimaryWindow>>,
 	mut q_camera: Query<&mut Camera, With<Camera3d>>,
-	mut last_applied: Local<Option<(u8, bool)>>,
+	mut last_applied: Local<Option<(u8, bool, UVec2)>>,
 ) {
 	let has_player = !player_query.is_empty();
-	let current = (settings.view_size, has_player);
+	let current = (settings.view_size, has_player, canvas.size);
 
-	// Check if anything changed: settings, player existence, or first frame
+	// Check if anything changed: settings, player existence, canvas size, or
+	// first frame
 	let needs_apply = match *last_applied {
 		None => true,
 		Some(prev) => prev != current || settings.is_changed(),
@@ -690,12 +869,11 @@ fn apply_view_size_on_change(
 		return;
 	}
 
-	let Some(window) = q_window.iter().next() else { return; };
+	// Work in Canvas Pixels: the 3-D Camera Renders Into the Canvas
+	let cv_w = canvas.size.x;
+	let cv_h = canvas.size.y;
 
-	let win_w = window.resolution.physical_width();
-	let win_h = window.resolution.physical_height();
-
-	if win_w == 0 || win_h == 0 {
+	if cv_w == 0 || cv_h == 0 {
 		return;
 	}
 
@@ -709,14 +887,14 @@ fn apply_view_size_on_change(
 		return;
 	}
 
-	// Status Bar Height in Physical Pixels
+	// Status Bar Height in Canvas Pixels
 	const HUD_W: f32 = 320.0;
 	const STATUS_H: f32 = 44.0;
-	let hud_scale = (win_w as f32 / HUD_W).floor().max(1.0);
+	let hud_scale = (cv_w as f32 / HUD_W).floor().max(1.0);
 	let status_h_phys = (STATUS_H * hud_scale) as u32;
 
 	// Available Area Above Status Bar
-	let view_h = win_h.saturating_sub(status_h_phys);
+	let view_h = cv_h.saturating_sub(status_h_phys);
 	if view_h == 0 {
 		return;
 	}
@@ -726,12 +904,12 @@ fn apply_view_size_on_change(
 	// This Gives a Subtle Border at 19 and Large Border at 4
 	let inset_frac = (20.0 - vs) / 32.0;
 
-	let inset_x = (win_w as f32 * inset_frac).round() as u32;
+	let inset_x = (cv_w as f32 * inset_frac).round() as u32;
 	let inset_y = (view_h as f32 * inset_frac).round() as u32;
 
 	let vp_x = inset_x;
 	let vp_y = inset_y;
-	let vp_w = win_w.saturating_sub(inset_x * 2).max(1);
+	let vp_w = cv_w.saturating_sub(inset_x * 2).max(1);
 	let vp_h = view_h.saturating_sub(inset_y * 2).max(1);
 
 	let viewport = camera::Viewport {

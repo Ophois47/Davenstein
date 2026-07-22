@@ -4,9 +4,13 @@ Davenstein - by David Petnick
 
 use bevy::audio::SpatialListener;
 use bevy::prelude::*;
+use bevy::camera::RenderTarget;
 use bevy::ui::prelude::IsDefaultUiCamera;
+use bevy::window::PrimaryWindow;
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use std::f32::consts::{FRAC_PI_2, PI};
+
+use crate::options::{WorldCanvas, WorldPresenter};
 
 use crate::map::{
     DoorAnim,
@@ -275,6 +279,8 @@ pub fn setup(
 	current_level: Res<crate::level::CurrentLevel>,
 	mut level_score: ResMut<crate::level_score::LevelScore>,
 	skill_level: Res<crate::skill::SkillLevel>,
+	canvas: Res<WorldCanvas>,
+	q_window: Query<&Window, With<PrimaryWindow>>,
 ) {
 	// Map Load (Wolfenstein 3-D Planes)
 	let (plane0_text, plane1_text) = match current_level.0 {
@@ -1170,6 +1176,18 @@ pub fn setup(
 	
 	commands.spawn((
 		Camera3d::default(),
+		// Render the World Into the Off-Screen Canvas Instead of the Window
+		// The Present Camera (Below) Upscales It to Fill the Screen. This Is
+		// What Lets the Pi Draw Fewer Pixels While Still Filling Borderless
+		RenderTarget::Image(canvas.handle.clone().into()),
+		// Order Before the Present Camera so the Canvas Is Written This Frame
+		// Before the Sprite Samples It. Black Clear Shows as the "View Size"
+		// Border When the Viewport Is Inset (See 'apply_view_size_on_change')
+		Camera {
+			order: 0,
+			clear_color: Color::BLACK.into(),
+			..default()
+		},
 		// MSAA Off on Every Target for Speed Since Pixel Art Does Not Benefit
 		Msaa::Off,
 		// Tonemapping None and Deband Disabled Keep the Original Paletted Colors Exact and Skip a Pass
@@ -1179,12 +1197,43 @@ pub fn setup(
 			fov: fov_radians,
 			..default()
 		}),
-		IsDefaultUiCamera,
+		// NOTE: 'IsDefaultUiCamera' Moved to the Present Camera so the HUD /
+		// Menus Draw at Native Resolution (Crisp) on Top of the Upscaled World
 		Player,
 		PlayerKeys::default(),
 		crate::player::PlayerVitals::default(),
 		LookAngles::new(spawn_yaw, 0.0),
 		SpatialListener::new(0.2),
 		Transform::from_translation(player_pos).with_rotation(Quat::from_rotation_y(spawn_yaw)),
+	));
+
+	// Present Camera: Draws the World Canvas Full-Screen (Nearest-Neighbor
+	// Upscale) and Owns the UI. Ordered *After* the World Camera. Tagged
+	// 'WorldPresenter' so the Level Rebuild Path Despawns It With the Player
+	// Camera (See 'restart::restart_despawn_level')
+	commands.spawn((
+		Camera2d::default(),
+		Camera { order: 1, ..default() },
+		IsDefaultUiCamera,
+		WorldPresenter,
+	));
+
+	// Full-Screen Sprite Showing the Canvas. Initial 'custom_size' Is Set From
+	// the Current Window so the First Frame Fills the Screen. Thereafter
+	// 'resize_world_canvas' Keeps It Matched to the Window
+	let logical = q_window
+		.iter()
+		.next()
+		.map(|w| Vec2::new(
+			w.resolution.width().max(1.0),
+			w.resolution.height().max(1.0),
+		));
+
+	let mut sprite = Sprite::from_image(canvas.handle.clone());
+	sprite.custom_size = logical;
+
+	commands.spawn((
+		sprite,
+		WorldPresenter,
 	));
 }

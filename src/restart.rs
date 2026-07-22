@@ -60,6 +60,10 @@ pub fn restart_despawn_level(
     q_doors: Query<Entity, (With<DoorTile>, Without<ChildOf>)>,
     q_pushwalls: Query<Entity, (With<PushwallVisual>, Without<ChildOf>)>,
     q_lights: Query<Entity, With<PointLight>>,
+    // Present Camera + Full-Screen Sprite That Upscale the World Canvas. These
+    // Are Spawned in world::setup Alongside the Player Camera, so They Must Be
+    // Torn Down Here Too or a Stale Present Camera Would Linger After a Rebuild
+    q_presenter: Query<Entity, With<davelib::options::WorldPresenter>>,
     q_children: Query<&Children>,
 ) {
     fn despawn_tree(commands: &mut Commands, q_children: &Query<&Children>, e: Entity) {
@@ -80,6 +84,7 @@ pub fn restart_despawn_level(
     kill.extend(q_doors.iter());
     kill.extend(q_pushwalls.iter());
     kill.extend(q_lights.iter());
+    kill.extend(q_presenter.iter());
 
     for e in kill {
         despawn_tree(&mut commands, &q_children, e);
