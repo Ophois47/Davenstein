@@ -8,3 +8,9 @@
 
 # Generated at build time from Cargo.lock by build-package.sh (do not commit)
 /packaging/flatpak/cargo-sources.json
+
+saves/
+highscores.ron
+assets.pak
+DStein.zip
+0025-v3d-force-cpu-preprocessing.patch

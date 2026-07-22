@@ -17,6 +17,12 @@ doc = false
 name = "pak_builder"
 path = "src/pak_builder.rs"
 
+[features]
+# Enables the Raspberry Pi V3D renderer workaround. Build the Pi binary with
+# `--features v3d` to force Bevy onto CPU preprocessing, which the Broadcom V3D
+# driver renders correctly (the GPU preprocessing path renders incorrectly).
+v3d = []
+
 [dependencies]
 bevy = { version = "0.19", features = ["wav", "debug"] }
 dirs = "6"
