@@ -5,6 +5,7 @@ Davenstein - by David Petnick
 use bevy::audio::SpatialListener;
 use bevy::prelude::*;
 use bevy::ui::prelude::IsDefaultUiCamera;
+use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::map::{
@@ -1171,6 +1172,9 @@ pub fn setup(
 		Camera3d::default(),
 		// MSAA Off on Every Target for Speed Since Pixel Art Does Not Benefit
 		Msaa::Off,
+		// Tonemapping None and Deband Disabled Keep the Original Paletted Colors Exact and Skip a Pass
+		Tonemapping::None,
+		DebandDither::Disabled,
 		Projection::Perspective(PerspectiveProjection {
 			fov: fov_radians,
 			..default()
