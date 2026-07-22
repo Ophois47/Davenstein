@@ -1293,6 +1293,7 @@ jobs:
             --release \
             --locked \
             --target aarch64-unknown-linux-gnu \
+            --features software_render \
             --bin Davenstein
 
       - name: Build Asset Packer
@@ -1433,6 +1434,7 @@ jobs:
             --release \
             --locked \
             --target armv7-unknown-linux-gnueabihf \
+            --features software_render \
             --bin Davenstein
 
       - name: Validate Linux ARMv7 Executable
