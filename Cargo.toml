@@ -18,11 +18,6 @@ name = "pak_builder"
 path = "src/pak_builder.rs"
 
 [features]
-# Enables the Raspberry Pi V3D renderer workaround. Build the Pi binary with
-# `--features v3d` to force Bevy onto CPU preprocessing, which the Broadcom V3D
-# driver renders correctly (the GPU preprocessing path renders incorrectly).
-v3d = []
-
 # Ships the software (CPU) renderer by selecting Mesa's llvmpipe Vulkan adapter.
 # Build GPU-less targets (e.g. Raspberry Pi V3D) with `--features software_render`.
 # Correct but slow; lower the resolution for playable framerates.
