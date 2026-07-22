@@ -25,6 +25,7 @@ v3d = []
 
 [dependencies]
 bevy = { version = "0.19", features = ["wav", "debug"] }
+bevy_render = { version = "0.19", default-features = false, features = ["gles"] }
 dirs = "6"
 futures-lite = "2"
 memmap2 = "0.9"
