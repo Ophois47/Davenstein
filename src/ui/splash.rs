@@ -1046,9 +1046,9 @@ fn build_change_view_items(
         format!("Display: {}", video.display_mode.label()),
     ));
 
-    // Resolution: shown for Windowed and Exclusive Fullscreen.
-    // Hidden for Borderless, where the OS forces desktop resolution and the
-    // setting would have no effect.
+    // Resolution (Shown for Windowed and Exclusive Fullscreen)
+    // Hidden for Borderless, Where the OS Forces Desktop Resolution and the
+    // Setting Would Have No Effect
     if matches!(
         video.display_mode,
         DisplayMode::Windowed | DisplayMode::ExclusiveFullscreen

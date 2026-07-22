@@ -124,13 +124,13 @@ pub enum MsaaSetting {
 pub struct VideoSettings {
 	pub vsync: bool,
 	pub display_mode: DisplayMode,
-	/// Desired Resolution.
-	/// - 'Windowed'            -> Used Directly as the Window's Logical Size
-	/// - 'ExclusiveFullscreen' -> Snapped to the Nearest Video Mode the
-	///                            Monitor Actually Supports (see
-	///                            'desired_video_mode_selection')
+	/// Desired Resolution
+	/// - 'Windowed'             -> Used Directly as the Window's Logical Size
+	/// - 'ExclusiveFullscreen'  -> Snapped to the Nearest Video Mode the
+	///                             Monitor Actually Supports (See
+	///                             'desired_video_mode_selection')
 	/// - 'BorderlessFullscreen' -> Ignored (Borderless Always Matches the
-	///                            Desktop Resolution by Definition)
+	///                             Desktop Resolution by Definition)
 	pub resolution: (u32, u32),
 	/// Vertical FOV in *Degrees*. Clamped to 60..=120
 	/// Camera Setup Should Read This via 'Res<VideoSettings>'
@@ -493,22 +493,22 @@ fn desired_present_mode(s: &VideoSettings) -> PresentMode {
 	}
 }
 
-/// Pick the Best Exclusive-Fullscreen Video Mode for a Target Resolution.
+/// Pick the Best Exclusive-Fullscreen Video Mode for a Target Resolution
 ///
 /// Exclusive Fullscreen Can Only Use Modes the Monitor Actually Reports, so
 /// We Never Fabricate a 'VideoMode', We Choose the Closest Real One:
 ///   1. Smallest Difference in Total Pixel Count vs the Target
 ///   2. Tie-Break on Highest Refresh Rate
 /// This Means Picking a Lower Resolution Genuinely Shrinks the Framebuffer
-/// (Fewer Pixels to Shade), Which is the Win We Want on Low-End Hardware.
+/// (Fewer Pixels to Shade), Which Is the Win We Want on Low-End Hardware
 ///
 /// Falls Back to 'VideoModeSelection::Current' (Today's Behavior) When No
-/// Monitor Modes Are Available Yet, e.g. if the Query is Empty at Startup.
+/// Monitor Modes Are Available Yet, e.g. if the Query Is Empty at Startup
 ///
-/// NOTE: Modes From All Monitors Are Considered. On Multi-Monitor Setups the
+/// NOTE: Modes from All Monitors Are Considered. On Multi-Monitor Setups the
 /// Chosen Mode May Belong to a Monitor Other Than the One Fullscreen Lands On
 /// ('MonitorSelection::Current'). Fine for Single-Monitor Machines (the
-/// Target Audience Here); Revisit if We Ever Need Per-Monitor Correctness.
+/// Target Audience Here). Revisit if We Ever Need Per-Monitor Correctness
 fn desired_video_mode_selection(
 	target: (u32, u32),
 	q_monitors: &Query<&Monitor>,
@@ -516,14 +516,14 @@ fn desired_video_mode_selection(
 	let target_px = target.0 as i64 * target.1 as i64;
 
 	let mut best: Option<VideoMode> = None;
-	// Sort key, lower is better: (pixel distance, inverted refresh rate).
+	// Sort Key, Lower Is Better: (Pixel Distance, Inverted Refresh Rate)
 	let mut best_key: Option<(i64, u32)> = None;
 
 	for monitor in q_monitors.iter() {
 		for mode in &monitor.video_modes {
 			let px = mode.physical_size.x as i64 * mode.physical_size.y as i64;
 			let dist = (px - target_px).abs();
-			// u32::MAX - refresh so a HIGHER refresh sorts LOWER (wins ties).
+			// 'u32::MAX' - Refresh so a Higher Refresh Sorts Lower (Wins Ties)
 			let key = (dist, u32::MAX - mode.refresh_rate_millihertz);
 			if best_key.map_or(true, |bk| key < bk) {
 				best_key = Some(key);
@@ -592,10 +592,10 @@ fn apply_video_settings_on_change(
 	q_monitors: Query<&Monitor>,
 	mut q_window: Query<&mut Window, With<PrimaryWindow>>,
 	mut q_camera: Query<(&mut Msaa, &mut Projection), With<Camera>>,
-	// Remembers the last WindowMode we *requested*, so we can detect a change
-	// even when only the fullscreen VideoMode differs (both variants are
-	// WindowMode::Fullscreen). Tracking our own request instead of reading
-	// window.mode back also shields us from any backend normalization.
+	// Remembers the Last 'WindowMode' We *Requested*, so We Can Detect a
+	// Change Even When Only the Fullscreen 'VideoMode' Differs (Both Variants
+	// Are 'WindowMode::Fullscreen'). Tracking Our Own Request Instead of
+	// Reading 'window.mode' Back Also Shields Us from any Backend Normalization
 	mut last_requested_mode: Local<Option<WindowMode>>,
 ) {
 	if !settings.is_changed() {
@@ -608,11 +608,12 @@ fn apply_video_settings_on_change(
 			window.present_mode = want_present;
 		}
 
-		// WindowMode is Copy + PartialEq. Compare against what we last asked
-		// for (not window.mode) so that changing only the exclusive-fullscreen
-		// resolution — Fullscreen(Current) -> Fullscreen(Specific(..)) — is
-		// still detected and applied. The is_changed() guard above already
-		// stops this from firing every frame, so there's no resize cascade.
+		// 'WindowMode' Is 'Copy' + 'PartialEq'. Compare Against What We Last
+		// Asked for (Not 'window.mode') so That Changing Only the Exclusive
+		// Fullscreen Resolution, 'Fullscreen(Current)' to
+		// 'Fullscreen(Specific(..))', Is Still Detected and Applied. The
+		// 'is_changed()' Guard Above Already Stops This from Firing Every
+		// Frame, so There's No Resize Cascade
 		let want_mode = desired_window_mode(&settings, &q_monitors);
 		if *last_requested_mode != Some(want_mode) {
 			window.mode = want_mode;
