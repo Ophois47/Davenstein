@@ -586,7 +586,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     let (cooldown_secs, flash_secs, ammo_cost, max_dist) = match hud.selected {
         WeaponSlot::Knife => (10.0 * TIC, 12.0 * TIC, 0, 1.5),
         WeaponSlot::Pistol => (25.0 * TIC, 16.0 * TIC, 1, BULLET_MAX_DIST),
-        WeaponSlot::MachineGun => (12.0 * TIC, 8.0 * TIC, 1, BULLET_MAX_DIST),
+        WeaponSlot::MachineGun => (12.0 * TIC, 6.0 * TIC, 1, BULLET_MAX_DIST),
         WeaponSlot::Chaingun => (6.0 * TIC, 8.0 * TIC, 1, BULLET_MAX_DIST),
     };
 
@@ -666,7 +666,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
                 if hud.selected == WeaponSlot::Pistol {
                     img.image = sprites.pistol_frame(0); // Idle
                 } else if is_machinegun && trigger_down && has_ammo {
-                    img.image = sprites.fire_frame(WeaponSlot::MachineGun, 1); // Forward
+                    img.image = sprites.fire_frame(WeaponSlot::MachineGun, 3); // Second Firing Frame Like Wolf3D
                 } else {
                     img.image = sprites.idle(hud.selected);
                 }
@@ -724,11 +724,11 @@ pub(crate) fn weapon_fire_and_viewmodel(
         }
     }
 
-    // MACHINEGUN: While Holding (and Not Flashing), Keep Forward Pose
+    // MACHINEGUN: While Holding (and Not Flashing), Hold the Second Firing Frame
     if is_machinegun && trigger_down && has_ammo && !weapon.showing_fire {
         if let Ok(mut img) = vm_q.single_mut() {
-            // Forward
-            img.image = sprites.fire_frame(WeaponSlot::MachineGun, 1);
+            // Second Firing Frame Like Wolf3D, Not the Rest Pose
+            img.image = sprites.fire_frame(WeaponSlot::MachineGun, 3);
         }
     }
 
