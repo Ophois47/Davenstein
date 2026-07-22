@@ -163,6 +163,73 @@ fn disable_boot_ui_camera_when_player_camera_ready(
 	}
 }
 
+/// Read a Named V3D Harness Environment Variable as a Trimmed String
+// The Harness Lets Us Sweep V3D Workarounds Without Rebuilding for Each Experiment
+#[cfg(feature = "v3d")]
+fn v3d_env(name: &str) -> Option<String> {
+	std::env::var(name).ok().map(|value| value.trim().to_string())
+}
+
+/// Parse the DAVE_PRESENT Variable Into a Bevy PresentMode for the Primary Window
+// Immediate and Mailbox Panic When Unsupported so AutoNoVsync Is the Safe Low Latency
+#[cfg(feature = "v3d")]
+fn v3d_present_mode() -> Option<PresentMode> {
+	let raw = v3d_env("DAVE_PRESENT")?;
+	match raw.to_ascii_lowercase().as_str() {
+		"fifo" => Some(PresentMode::Fifo),
+		"fiforelaxed" => Some(PresentMode::FifoRelaxed),
+		"mailbox" => Some(PresentMode::Mailbox),
+		"immediate" => Some(PresentMode::Immediate),
+		"autovsync" => Some(PresentMode::AutoVsync),
+		"autonovsync" => Some(PresentMode::AutoNoVsync),
+		other => {
+			warn!("##==> V3D: ignoring unknown DAVE_PRESENT value {other:?}");
+			None
+		}
+	}
+}
+
+/// Build Constrained Device Limits From the DAVE_* Environment Variables
+// Returns None When No Limit Knob Is Set so an Unconfigured Run Stays Fully Native
+// Bevy Combines These With the Adapter Limits by Taking the Worse Value per Field
+// Unset Fields Fall Back to the wgpu Defaults Which the Adapter Then Clamps to Native
+#[cfg(feature = "v3d")]
+fn v3d_constrained_limits() -> Option<bevy::render::settings::WgpuLimits> {
+	let storage_buffers = v3d_env("DAVE_STORAGE_BUFFERS").and_then(|v| v.parse::<u32>().ok());
+	let storage_textures = v3d_env("DAVE_STORAGE_TEXTURES").and_then(|v| v.parse::<u32>().ok());
+	let zero_compute = v3d_env("DAVE_COMPUTE").as_deref() == Some("0");
+	let texture_dim = v3d_env("DAVE_TEXDIM").and_then(|v| v.parse::<u32>().ok());
+
+	if storage_buffers.is_none() && storage_textures.is_none() && !zero_compute && texture_dim.is_none() {
+		return None;
+	}
+
+	let mut limits = bevy::render::settings::WgpuLimits::default();
+	if let Some(count) = storage_buffers {
+		limits.max_storage_buffers_per_shader_stage = count;
+	}
+	if let Some(count) = storage_textures {
+		limits.max_storage_textures_per_shader_stage = count;
+	}
+	if zero_compute {
+		limits.max_compute_workgroup_size_x = 0;
+		limits.max_compute_workgroup_size_y = 0;
+		limits.max_compute_workgroup_size_z = 0;
+		limits.max_compute_invocations_per_workgroup = 0;
+		limits.max_compute_workgroup_storage_size = 0;
+		limits.max_compute_workgroups_per_dimension = 0;
+	}
+	if let Some(dim) = texture_dim {
+		limits.max_texture_dimension_1d = dim;
+		limits.max_texture_dimension_2d = dim;
+	}
+
+	info!(
+		"##==> V3D harness limits: storage_buffers={storage_buffers:?} storage_textures={storage_textures:?} zero_compute={zero_compute} texture_dim={texture_dim:?}"
+	);
+	Some(limits)
+}
+
 /// Force CPU Vertex Preprocessing on the Raspberry Pi V3D Renderer
 // The Broadcom V3D Driver Backs Bevy GPU Preprocessing Poorly so Geometry Breaks
 // Overriding GpuPreprocessingSupport Keeps Every Device Limit at Its Native Value
@@ -210,6 +277,12 @@ fn main() {
 	};
 	let high_scores = davelib::high_score::HighScores::load();
 
+	// V3D Harness: Choose the Window Present Mode From DAVE_PRESENT When Provided
+	#[cfg(feature = "v3d")]
+	let present_mode = v3d_present_mode().unwrap_or(PresentMode::AutoVsync);
+	#[cfg(not(feature = "v3d"))]
+	let present_mode = PresentMode::AutoVsync;
+
 	let default_plugins = DefaultPlugins
 		.set(AssetPlugin {
 			file_path: asset_file_path,
@@ -220,16 +293,32 @@ fn main() {
 		.set(ImagePlugin::default_nearest())
 		.set(WindowPlugin {
 			primary_window: Some(Window {
-				present_mode: PresentMode::AutoVsync,
+				present_mode,
 				..default()
 			}),
 			..default()
 		});
 
-	// V3D Renderer: Force CPU Preprocessing Without Changing Any Device Limits
-	// This Plugin Runs Only for Raspberry Pi Builds Made With the v3d Cargo Feature
+	// V3D Harness: Apply Env Driven Limits and the Preprocessing Override When Asked
+	// This Whole Block Runs Only for Raspberry Pi Builds Made With the v3d Cargo Feature
 	#[cfg(feature = "v3d")]
-	let default_plugins = default_plugins.add(V3dRenderFixPlugin);
+	let default_plugins = {
+		let mut plugins = default_plugins;
+		if let Some(limits) = v3d_constrained_limits() {
+			plugins = plugins.set(bevy::render::RenderPlugin {
+				render_creation: bevy::render::settings::WgpuSettings {
+					constrained_limits: Some(limits),
+					..default()
+				}
+				.into(),
+				..default()
+			});
+		}
+		if v3d_env("DAVE_PREPROCESS").as_deref() == Some("cpu") {
+			plugins = plugins.add(V3dRenderFixPlugin);
+		}
+		plugins
+	};
 
 	App::new()
 		.add_plugins(pak_assets::PakAssetsPlugin)
