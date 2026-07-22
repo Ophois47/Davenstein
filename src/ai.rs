@@ -82,12 +82,12 @@ const LOS_FIRST_SHOT_DELAY_SECS: f32 = 0.02;
 const GUARD_SHOOT_COOLDOWN_SECS: f32 = 0.55;
 const GUARD_SHOOT_TOTAL_SECS: f32 = GUARD_SHOOT_PAUSE_SECS + GUARD_SHOOT_COOLDOWN_SECS;
 
-// FL_VISABLE approximation. In the 1992 game this flag was set by the sprite
-// scaler whenever an actor was actually drawn on screen; T_Shoot uses it to make
-// visible actors HARDER to hit (the player can see the shot coming and dodge).
-// Here we treat an actor as "visible to the player" when it lies within this
-// half-angle of the player's facing. Version-independent stand-in; widen/narrow
-// to taste, or wire to Bevy's ViewVisibility for a frame-exact match.
+// FL_VISABLE Approximation. In the 1992 Game This Flag was Set by the Sprite
+// Scaler Whenever an Actor was Actually Drawn on Screen; T_Shoot Uses it to Make
+// Visible Actors HARDER to Hit (the Player Can See the Shot Coming and Dodge).
+// Here we Treat an Actor as "Visible to the Player" When it Lies Within This
+// Half-Angle of the Player's Facing. Version-Independent Stand-In; Widen or
+// Narrow to Taste, or Wire to Bevy's ViewVisibility for a Frame-Exact Match
 const AI_VISABLE_HALF_ANGLE_DEG: f32 = 35.0;
 
 #[derive(Resource, Debug, Default)]
@@ -123,6 +123,9 @@ pub struct EnemyRocketShot {
 pub struct EnemyAi {
     pub state: EnemyAiState,
     pub last_step: IVec2,
+    // Reaction Countdown in Tics Before a Noticing Actor Commits to the Chase
+    // (0 = Not Yet Alerted). Mirrors the Original SightPlayer temp2 Timer
+    pub react_tics: u32,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -159,9 +162,9 @@ struct AiSharedData {
     dist_map: Vec<i32>,
     player_tile: IVec2,
     player_pos: Vec3,
-    // Is the player moving at run speed this tic? (thrustspeed >= RUNSPEED)
+    // Is the Player Moving at Run Speed This Tic? (thrustspeed >= RUNSPEED)
     player_running: bool,
-    // Normalized XZ forward the player is facing; used for the FL_VISABLE cone.
+    // Normalized XZ Forward the Player is Facing; Used for the FL_VISABLE Cone
     player_forward: Vec2,
     player_area: Option<i32>,
     cached_area_map: AreaMap,
@@ -296,6 +299,7 @@ fn attach_enemy_ai(
         commands.entity(e).insert(EnemyAi {
             state,
             last_step: IVec2::ZERO,
+            react_tics: 0,
         });
     }
 }
@@ -544,12 +548,12 @@ impl AreaMap {
     }
 }
 
-// --- Wolf3D RNG (US_RndT analog) -------------------------------------------
-// The original pulls every random number from one shared 256-entry table via
-// US_RndT() (returns 0..=255). We mirror its statistics with a deterministic
-// xorshift, matching what combat/mod.rs already does for the player's gun.
-// (A bit-exact, table-driven US_RndT shared across the whole game is its own
-// checklist item.)
+// --- Wolf3D RNG (US_RndT Analog) -------------------------------------------
+// The Original Pulls Every Random Number From One Shared 256-Entry Table via
+// US_RndT() (Returns 0..=255). We Mirror its Statistics With a Deterministic
+// xorshift, Matching What combat/mod.rs Already Does for the Player's Gun
+// (a Bit-Exact, Table-Driven US_RndT Shared Across the Whole Game is its Own
+// Checklist Item)
 fn xorshift32(s: &mut u32) -> u32 {
     let mut x = *s;
     x ^= x << 13;
@@ -563,24 +567,24 @@ fn rnd_byte(rng: &mut u32) -> i32 {
     (xorshift32(rng) & 0xFF) as i32
 }
 
-/// "Better shots." The original T_Shoot tests only `ssobj || bossobj`, and
-/// bossobj is Hans alone -- so Gretel and Mecha/Real Hitler do NOT get the
-/// accuracy bonus even though they fire with the same T_Shoot. Faithful to the
-/// 1992 source; flip this if you decide the omission was a bug.
+/// "Better Shots." The Original T_Shoot Tests Only `ssobj || bossobj`, and
+/// bossobj is Hans Alone -- so Gretel and Mecha/Real Hitler Do NOT Get the
+/// Accuracy Bonus Even Though They Fire With the Same T_Shoot. Faithful to the
+/// 1992 Source; Flip This if You Decide the Omission was a Bug.
 fn sharp_shooter(kind: EnemyKind) -> bool {
     matches!(kind, EnemyKind::Ss | EnemyKind::Hans)
 }
 
-/// Faithful port of Wolf3D's `T_Shoot` (WOLFSRC/WL_ACT2.C).
+/// Faithful Port of Wolf3D's `T_Shoot` (WOLFSRC/WL_ACT2.C).
 ///
-/// * `dist_tiles`     Chebyshev tile distance to the player: `max(|dx|, |dy|)`.
-/// * `player_running` player moved at run speed this tic (`thrustspeed >= RUNSPEED`).
-/// * `actor_visible`  actor is on the player's screen (`FL_VISABLE`) -> the player
-///                    can see the shot coming and dodge, so it is harder to hit.
+/// * `dist_tiles`     Chebyshev Tile Distance to the Player: `max(|dx|, |dy|)`.
+/// * `player_running` Player Moved at Run Speed This Tic (`thrustspeed >= RUNSPEED`).
+/// * `actor_visible`  Actor is on the Player's Screen (`FL_VISABLE`) -> the Player
+///                    Can See the Shot Coming and Dodge, so it is Harder to Hit.
 ///
-/// Returns `Some(damage)` on a hit (damage may legitimately be 0, exactly as in
-/// the original) and `None` on a miss. The caller still plays the fire SFX either
-/// way. `areabyplayer` and the `CheckLine` wall test are handled upstream.
+/// Returns `Some(damage)` on a Hit (Damage May Legitimately be 0, Exactly as in
+/// the Original) and `None` on a Miss. The Caller Still Plays the Fire SFX Either
+/// Way. `areabyplayer` and the `CheckLine` Wall Test are Handled Upstream.
 fn wolf_t_shoot(
     dist_tiles: i32,
     player_running: bool,
@@ -590,11 +594,11 @@ fn wolf_t_shoot(
 ) -> Option<i32> {
     let mut dist = dist_tiles.max(0);
     if sharp_shooter(kind) {
-        dist = dist * 2 / 3; // ss are better shots
+        dist = dist * 2 / 3; // SS are Better Shots
     }
 
-    // hitchance = base - dist*falloff, tested against US_RndT() (0..=255).
-    // Visible actor -> steeper falloff (*16): the player can dodge.
+    // hitchance = base - dist*falloff, Tested Against US_RndT() (0..=255).
+    // A Visible Actor Uses the Steeper Falloff (*16): the Player Can Dodge
     let hitchance = match (player_running, actor_visible) {
         (true, true) => 160 - dist * 16,
         (true, false) => 160 - dist * 8,
@@ -603,10 +607,10 @@ fn wolf_t_shoot(
     };
 
     if rnd_byte(rng) >= hitchance {
-        return None; // missed
+        return None; // Missed
     }
 
-    // Damage tapers with distance: r/4 point-blank, r/8 mid, r/16 far.
+    // Damage Tapers With Distance: r/4 Point-Blank, r/8 Mid, r/16 Far
     let damage = if dist < 2 {
         rnd_byte(rng) >> 2
     } else if dist < 4 {
@@ -616,6 +620,20 @@ fn wolf_t_shoot(
     };
 
     Some(damage)
+}
+
+/// Per-Class Reaction Delay in Tics (70 Hz) Before a Noticing Actor Engages,
+/// Taken Straight From the Original SightPlayer (WOLFSRC/WL_STATE.C). Guards
+/// Hesitate the Longest and Most Randomly; Dogs React Fast and Bosses Instantly.
+fn reaction_tics(kind: EnemyKind, rng: &mut u32) -> u32 {
+    match kind {
+        EnemyKind::Guard => 1 + (rnd_byte(rng) as u32) / 4,
+        EnemyKind::Officer => 2,
+        EnemyKind::Mutant | EnemyKind::Ss => 1 + (rnd_byte(rng) as u32) / 6,
+        EnemyKind::Dog => 1 + (rnd_byte(rng) as u32) / 8,
+        // Bosses and Special Actors React Almost Instantly
+        _ => 1,
+    }
 }
 
 // SYSTEM 1: Prepare Shared Data and Handle Activation / Patrol
@@ -629,6 +647,7 @@ fn enemy_ai_prepare_and_activate(
     intent: Res<PlayerIntent>,
     mut sfx: MessageWriter<PlaySfx>,
     mut alerted: Local<HashSet<Entity>>,
+    mut rng: Local<u32>,
     wolf_plane1: Res<crate::level::WolfPlane1>,
     tunings: Res<EnemyTunings>,
     mut shared: ResMut<AiSharedData>,
@@ -661,6 +680,11 @@ fn enemy_ai_prepare_and_activate(
     shared.player_running = intent.run;
     let fwd = player_gt.forward();
     shared.player_forward = Vec2::new(fwd.x, fwd.z).normalize_or_zero();
+
+    // xorshift Cannot Start at 0; Seed Once With a Distinct Nonzero Constant
+    if *rng == 0 {
+        *rng = 0x2545_F491;
+    }
 
     let dt = time.delta_secs();
     ticker.accum += dt;
@@ -782,15 +806,29 @@ fn enemy_ai_prepare_and_activate(
             let moving_now = moving.is_some() || shared.scheduled_move.contains(&e);
 
             if matches!(ai.state, EnemyAiState::Stand | EnemyAiState::Patrol) {
-                let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
-                if same_area && has_line_of_sight(&grid, my_tile, player_tile) {
-                    ai.state = EnemyAiState::Chase;
+                if ai.react_tics > 0 {
+                    // Already Noticed the Player. Count the Reaction Delay Down
+                    // Unconditionally (the Original Does Not Re-Check Sight Once
+                    // temp2 is Armed) and Commit to the Chase When it Expires
+                    ai.react_tics -= 1;
+                    if ai.react_tics == 0 {
+                        ai.state = EnemyAiState::Chase;
 
-                    if alerted.insert(e) && !matches!(*kind, EnemyKind::Mutant) {
-                        sfx.write(PlaySfx {
-                            kind: SfxKind::EnemyAlert(*kind),
-                            pos: tf.translation,
-                        });
+                        if alerted.insert(e) && !matches!(*kind, EnemyKind::Mutant) {
+                            sfx.write(PlaySfx {
+                                kind: SfxKind::EnemyAlert(*kind),
+                                pos: tf.translation,
+                            });
+                        }
+                    }
+                } else {
+                    let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
+                    if same_area && has_line_of_sight(&grid, my_tile, player_tile) {
+                        // First Tic the Actor Notices the Player. Arm the
+                        // Per-Class Reaction Delay Instead of Chasing Instantly
+                        // so the Actor Keeps Standing or Patrolling While it
+                        // "Reacts" (Original SightPlayer temp2)
+                        ai.react_tics = reaction_tics(*kind, &mut rng).max(1);
                     }
                 }
             }
@@ -941,7 +979,7 @@ fn enemy_ai_combat(
 ) {
     let dt = time.delta_secs();
 
-    // xorshift cannot start at 0; seed once with an arbitrary nonzero constant.
+    // xorshift Cannot Start at 0; Seed Once With an Arbitrary Nonzero Constant
     if *rng == 0 {
         *rng = 0x9E37_79B9;
     }
@@ -964,7 +1002,7 @@ fn enemy_ai_combat(
         let my_tile = occ.0;
         let moving_now = moving.is_some() || shared.scheduled_move.contains(&e);
 
-        // FL_VISABLE: is this actor inside the player's forward view cone?
+        // FL_VISABLE: is This Actor Inside the Player's Forward View Cone?
         let actor_visible = {
             let to_actor = Vec2::new(
                 tf.translation.x - player_pos.x,
