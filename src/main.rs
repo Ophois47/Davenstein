@@ -163,21 +163,42 @@ fn disable_boot_ui_camera_when_player_camera_ready(
 	}
 }
 
-/// Force CPU Preprocessing on the Raspberry Pi V3D Renderer
+/// Force CPU Vertex Preprocessing on the Raspberry Pi V3D Renderer
 // The Broadcom V3D Driver Backs Bevy GPU Preprocessing Poorly so Geometry Breaks
-// Bevy Selects CPU Preprocessing When max_compute_workgroup_size_x Reports Zero
-// Zeroing Only the Compute Limits Leaves Texture and Storage Limits at Native
-// Values so the View Renders at Full Resolution Without Driver Validation Errors
+// Overriding GpuPreprocessingSupport Keeps Every Device Limit at Its Native Value
+// Which Lets Atmosphere and Other Compute Passes Keep Working Under the CPU Path
+// Bevy Rebuilds GpuPreprocessingSupport in RenderStartup so This Override Runs Later
 #[cfg(feature = "v3d")]
-fn v3d_constrained_limits() -> bevy::render::settings::WgpuLimits {
-	let mut limits = bevy::render::settings::WgpuLimits::default();
-	limits.max_compute_workgroup_size_x = 0;
-	limits.max_compute_workgroup_size_y = 0;
-	limits.max_compute_workgroup_size_z = 0;
-	limits.max_compute_invocations_per_workgroup = 0;
-	limits.max_compute_workgroup_storage_size = 0;
-	limits.max_compute_workgroups_per_dimension = 0;
-	limits
+fn v3d_force_cpu_preprocessing(
+	mut support: ResMut<bevy::render::batching::gpu_preprocessing::GpuPreprocessingSupport>,
+) {
+	use bevy::render::batching::gpu_preprocessing::GpuPreprocessingMode;
+	support.max_supported_mode = GpuPreprocessingMode::None;
+	info!("##==> V3D: forced GpuPreprocessingMode::None (CPU vertex preprocessing)");
+}
+
+/// Register the V3D CPU Preprocessing Override on the Render Sub-App
+// The Override System Runs in RenderStartup After GpuPreprocessingSupport Is Built
+// RenderStartup Reruns on Every Device Acquisition so the Override Reapplies Cleanly
+#[cfg(feature = "v3d")]
+struct V3dRenderFixPlugin;
+
+#[cfg(feature = "v3d")]
+impl Plugin for V3dRenderFixPlugin {
+	fn build(&self, _app: &mut App) {}
+
+	fn finish(&self, app: &mut App) {
+		use bevy::render::{RenderApp, RenderStartup, init_gpu_resource};
+		use bevy::render::batching::gpu_preprocessing::GpuPreprocessingSupport;
+
+		if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+			render_app.add_systems(
+				RenderStartup,
+				v3d_force_cpu_preprocessing
+					.after(init_gpu_resource::<GpuPreprocessingSupport>),
+			);
+		}
+	}
 }
 
 fn main() {
@@ -205,17 +226,10 @@ fn main() {
 			..default()
 		});
 
-	// V3D Renderer: Force CPU Preprocessing by Constraining Compute Limits to Zero
-	// This Set Runs Only for Raspberry Pi Builds Made With the v3d Cargo Feature
+	// V3D Renderer: Force CPU Preprocessing Without Changing Any Device Limits
+	// This Plugin Runs Only for Raspberry Pi Builds Made With the v3d Cargo Feature
 	#[cfg(feature = "v3d")]
-	let default_plugins = default_plugins.set(bevy::render::RenderPlugin {
-		render_creation: bevy::render::settings::WgpuSettings {
-			constrained_limits: Some(v3d_constrained_limits()),
-			..default()
-		}
-		.into(),
-		..default()
-	});
+	let default_plugins = default_plugins.add(V3dRenderFixPlugin);
 
 	App::new()
 		.add_plugins(pak_assets::PakAssetsPlugin)
