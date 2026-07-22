@@ -222,6 +222,14 @@ fn pickup_base_rot() -> Quat {
     Quat::from_rotation_x(FRAC_PI_2)
 }
 
+/// Cache of the Shared Quad Meshes and Materials Used While Spawning Map Pickups
+/// so Every Pickup of a Size Shares One Mesh and Every Texture Shares One Material
+#[derive(Default)]
+struct PickupAssetCache {
+    meshes: std::collections::HashMap<(u32, u32), Handle<Mesh>>,
+    mats: std::collections::HashMap<&'static str, Handle<StandardMaterial>>,
+}
+
 /// - 29: Dog Food
 /// - 43: Key 1 (Gold)
 /// - 44: Key 2 (Silver)
@@ -241,6 +249,24 @@ pub(crate) fn spawn_pickup_entity(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     asset_server: &AssetServer,
+    tile: IVec2,
+    kind: PickupKind,
+    dropped: bool,
+    name: &'static str,
+) {
+    let mut cache = PickupAssetCache::default();
+    spawn_pickup_entity_cached(
+        commands, meshes, materials, asset_server, &mut cache, tile, kind, dropped, name,
+    );
+}
+
+/// Inner Pickup Spawn That Shares Meshes and Materials Through the Provided Cache
+fn spawn_pickup_entity_cached(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: &AssetServer,
+    cache: &mut PickupAssetCache,
     tile: IVec2,
     kind: PickupKind,
     dropped: bool,
@@ -277,17 +303,28 @@ pub(crate) fn spawn_pickup_entity(
         }
     };
 
-    let quad = meshes.add(Plane3d::default().mesh().size(w, h));
-    let tex: Handle<Image> = asset_server.load(tex_path);
+    // Reuse One Mesh Per Size and One Material Per Texture Across the Whole Map Load
+    let quad = cache
+        .meshes
+        .entry((w.to_bits(), h.to_bits()))
+        .or_insert_with(|| meshes.add(Plane3d::default().mesh().size(w, h)))
+        .clone();
 
-    let mat = materials.add(StandardMaterial {
-        base_color_texture: Some(tex),
-        alpha_mode: AlphaMode::Mask(0.5),
-        depth_bias: DEPTH_BIAS,
-        unlit: true,
-        cull_mode: None,
-        ..default()
-    });
+    let mat = cache
+        .mats
+        .entry(tex_path)
+        .or_insert_with(|| {
+            let tex: Handle<Image> = asset_server.load(tex_path);
+            materials.add(StandardMaterial {
+                base_color_texture: Some(tex),
+                alpha_mode: AlphaMode::Mask(0.5),
+                depth_bias: DEPTH_BIAS,
+                unlit: true,
+                cull_mode: None,
+                ..default()
+            })
+        })
+        .clone();
 
     let y = (h * 0.5) + if dropped { DROP_Y_LIFT } else { 0.0 };
 
@@ -362,15 +399,18 @@ pub fn spawn_pickups(
 
     let idx = |x: usize, z: usize| -> usize { z * grid.width + x };
 
+    let mut cache = PickupAssetCache::default();
+
     for z in 0..grid.height {
         for x in 0..grid.width {
             let v = plane1[idx(x, z)];
             if let Some(kind) = to_pickup_kind(v) {
-                spawn_pickup_entity(
+                spawn_pickup_entity_cached(
                     &mut commands,
                     &mut meshes,
                     &mut materials,
                     &asset_server,
+                    &mut cache,
                     IVec2::new(x as i32, z as i32),
                     kind,
                     false,
