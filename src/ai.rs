@@ -90,10 +90,21 @@ const GUARD_SHOOT_TOTAL_SECS: f32 = GUARD_SHOOT_PAUSE_SECS + GUARD_SHOOT_COOLDOW
 // Narrow to Taste, or Wire to Bevy's ViewVisibility for a Frame-Exact Match
 const AI_VISABLE_HALF_ANGLE_DEG: f32 = 35.0;
 
+// AMBUSHTILE (Plane0 Code 106) Marks a "Deaf" Guard Spot in the Original Maps.
+// Actors Spawned on it Get FL_AMBUSH: They Ignore Gunfire Noise and Wake Only
+// on Actual Sight (WOLFSRC/WL_ACT2.C, WOLFSRC/WL_DEF.H)
+const AMBUSHTILE: u16 = 106;
+
 #[derive(Resource, Debug, Default)]
 pub struct AiTicker {
     pub accum: f32,
 }
+
+// Set True by the Player's Gun Fire (Not the Knife) and Consumed Once per AI
+// Tic, Mirroring the Original Global `madenoise`. The Binary's Weapon System
+// Writes it; `capture_player_noise` Drains it Into AiSharedData for the Actors
+#[derive(Resource, Debug, Default)]
+pub struct PlayerNoise(pub bool);
 
 #[derive(Clone, Copy, Debug, Message)]
 pub struct EnemyFire {
@@ -126,6 +137,9 @@ pub struct EnemyAi {
     // Reaction Countdown in Tics Before a Noticing Actor Commits to the Chase
     // (0 = Not Yet Alerted). Mirrors the Original SightPlayer temp2 Timer
     pub react_tics: u32,
+    // FL_AMBUSH: a "Deaf" Actor That Ignores Gunfire Noise and Wakes Only on
+    // Sight. Set at Spawn for AMBUSHTILE Guards and All Bosses / Special Actors
+    pub ambush: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -166,6 +180,9 @@ struct AiSharedData {
     player_running: bool,
     // Normalized XZ Forward the Player is Facing; Used for the FL_VISABLE Cone
     player_forward: Vec2,
+    // Did the Player Fire a Gun This Tic? (Drained From PlayerNoise). Non-Ambush
+    // Actors in a Connected Area Wake on This Even Without Line of Sight
+    made_noise: bool,
     player_area: Option<i32>,
     cached_area_map: AreaMap,
     cached_area_generation: Option<u64>,
@@ -296,10 +313,21 @@ fn attach_enemy_ai(
             }
         }
 
+        // FL_AMBUSH: Bosses / Special Actors Are Always Deaf; Standard Enemies
+        // Are Deaf Only When Standing on an AMBUSHTILE (Plane0 Code 106)
+        let t = occ.0;
+        let on_ambush_tile = t.x >= 0
+            && t.y >= 0
+            && (t.x as usize) < grid.width
+            && (t.y as usize) < grid.height
+            && grid.plane0_code(t.x as usize, t.y as usize) == AMBUSHTILE;
+        let ambush = is_ambush_kind(*kind) || on_ambush_tile;
+
         commands.entity(e).insert(EnemyAi {
             state,
             last_step: IVec2::ZERO,
             react_tics: 0,
+            ambush,
         });
     }
 }
@@ -671,6 +699,28 @@ fn reaction_tics(kind: EnemyKind, rng: &mut u32) -> u32 {
     }
 }
 
+/// True for Actors That Spawn Deaf (FL_AMBUSH) Regardless of Tile: Every Boss
+/// and Special Actor in the Original. The Five Standard Enemy Types Are Deaf
+/// Only When Placed on an AMBUSHTILE.
+fn is_ambush_kind(kind: EnemyKind) -> bool {
+    !matches!(
+        kind,
+        EnemyKind::Guard
+            | EnemyKind::Ss
+            | EnemyKind::Officer
+            | EnemyKind::Mutant
+            | EnemyKind::Dog
+    )
+}
+
+// Drain the One-Shot PlayerNoise Flag Into Shared State Once per Tic so the
+// Activation Logic Can Treat Gunfire Like the Original Global `madenoise`. This
+// Runs Ahead of the Prepare System in the Fixed Chain
+fn capture_player_noise(mut player_noise: ResMut<PlayerNoise>, mut shared: ResMut<AiSharedData>) {
+    shared.made_noise = player_noise.0;
+    player_noise.0 = false;
+}
+
 // SYSTEM 1: Prepare Shared Data and Handle Activation / Patrol
 fn enemy_ai_prepare_and_activate(
     mut commands: Commands,
@@ -720,6 +770,8 @@ fn enemy_ai_prepare_and_activate(
     if *rng == 0 {
         *rng = 0x2545_F491;
     }
+
+    let made_noise = shared.made_noise;
 
     let dt = time.delta_secs();
     ticker.accum += dt;
@@ -858,21 +910,31 @@ fn enemy_ai_prepare_and_activate(
                     }
                 } else {
                     let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
-                    if same_area
-                        && check_sight(
+                    if same_area {
+                        // Original SightPlayer: an Actor in a Connected Area Wakes
+                        // on Sight; Non-Ambush Actors Also Wake on Gunfire Noise,
+                        // While Ambush (Deaf) Actors Ignore Noise and Need Sight
+                        let seen = check_sight(
                             *dir8,
                             my_tile,
                             player_tile,
                             tf.translation,
                             player_pos,
                             &grid,
-                        )
-                    {
-                        // First Tic the Actor Notices the Player. Arm the
-                        // Per-Class Reaction Delay Instead of Chasing Instantly
-                        // so the Actor Keeps Standing or Patrolling While it
-                        // "Reacts" (Original SightPlayer temp2)
-                        ai.react_tics = reaction_tics(*kind, &mut rng).max(1);
+                        );
+                        let heard = made_noise && !ai.ambush;
+                        if seen || heard {
+                            if seen {
+                                // The Original Clears FL_AMBUSH the First Time an
+                                // Actor Actually Sees the Player
+                                ai.ambush = false;
+                            }
+                            // First Tic the Actor Notices the Player. Arm the
+                            // Per-Class Reaction Delay Instead of Chasing Instantly
+                            // so the Actor Keeps Standing or Patrolling While it
+                            // "Reacts" (Original SightPlayer temp2)
+                            ai.react_tics = reaction_tics(*kind, &mut rng).max(1);
+                        }
                     }
                 }
             }
@@ -1757,6 +1819,7 @@ impl Plugin for EnemyAiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AiTicker>()
             .init_resource::<AiSharedData>()
+            .init_resource::<PlayerNoise>()
             .insert_resource(EnemyTunings::baseline())
             .add_message::<EnemyFire>()
             .add_message::<EnemyFireballShot>()
@@ -1774,6 +1837,12 @@ impl Plugin for EnemyAiPlugin {
                     .chain(),
             )
             .add_systems(Update, attach_enemy_ai.run_if(world_ready))
+            .add_systems(
+                FixedUpdate,
+                capture_player_noise
+                    .before(enemy_ai_prepare_and_activate)
+                    .run_if(world_ready),
+            )
             .add_systems(
                 FixedUpdate,
                 enemy_ai_prepare_and_activate

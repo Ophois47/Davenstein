@@ -501,6 +501,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     q_player: Query<&Transform, With<Player>>,
     mut sfx: MessageWriter<PlaySfx>,
     mut fire_ev: MessageWriter<crate::combat::FireShot>,
+    mut player_noise: ResMut<davelib::ai::PlayerNoise>,
     mut locals: Local<WeaponFireLocals>,
 ) {
     use crate::combat::WeaponSlot;
@@ -845,6 +846,12 @@ pub(crate) fn weapon_fire_and_viewmodel(
                 dir,
                 max_dist,
             });
+
+            // Gun Fire Makes Noise That Wakes Non-Ambush Guards (Original
+            // madenoise). The Knife is Silent Unless it Actually Connects
+            if hud.selected != WeaponSlot::Knife {
+                player_noise.0 = true;
+            }
         }
 
         has_ammo = ammo_cost == 0 || hud.ammo >= ammo_cost;
