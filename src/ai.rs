@@ -90,6 +90,12 @@ const GUARD_SHOOT_TOTAL_SECS: f32 = GUARD_SHOOT_PAUSE_SECS + GUARD_SHOOT_COOLDOW
 // Narrow to Taste, or Wire to Bevy's ViewVisibility for a Frame-Exact Match
 const AI_VISABLE_HALF_ANGLE_DEG: f32 = 35.0;
 
+// When True, a Chasing Actor With a Clear Shot Strafes Toward the Player via the
+// Faithful SelectDodgeDir Weave (T_Chase's dodge Branch) Instead of Beelining
+// the BFS Shortest Path. Out of Sight it Always Uses the BFS Chase. Flip to
+// False to Restore the Pure Beeline if the Weave Ever Feels Wrong
+const AI_DODGE_WHEN_VISIBLE: bool = true;
+
 // AMBUSHTILE (Plane0 Code 106) Marks a "Deaf" Guard Spot in the Original Maps.
 // Actors Spawned on it Get FL_AMBUSH: They Ignore Gunfire Noise and Wake Only
 // on Actual Sight (WOLFSRC/WL_ACT2.C, WOLFSRC/WL_DEF.H)
@@ -140,6 +146,9 @@ pub struct EnemyAi {
     // FL_AMBUSH: a "Deaf" Actor That Ignores Gunfire Noise and Wakes Only on
     // Sight. Set at Spawn for AMBUSHTILE Guards and All Bosses / Special Actors
     pub ambush: bool,
+    // FL_FIRSTATTACK: True on the First dodge After Noticing the Player, Which is
+    // the Only Time SelectDodgeDir is Allowed to Turn the Actor Around
+    pub first_attack: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -291,6 +300,114 @@ fn pick_chase_step(
     ChasePick::None
 }
 
+/// Faithful Port of Wolf3D's `SelectDodgeDir` (WOLFSRC/WL_STATE.C). Orders Five
+/// Preference Steps -- the Diagonal Straight Toward the Player First, Then the
+/// Two Cardinals Toward it, Then the Two Away -- Applies the Dominant-Axis Swap
+/// and the US_RndT() < 128 Weave, and Returns the First Step the Actor Can Take.
+/// Turning Around is Allowed Only on the First dodge After Noticing (first_attack);
+/// Otherwise it is a Last Resort. Diagonal Steps May not Cut Wall Corners or
+/// Squeeze Past Actors, and Closed Doors Are Left to the BFS Chase
+fn select_dodge_step(
+    grid: &MapGrid,
+    solid: &SolidStatics,
+    occupied: &HashSet<IVec2>,
+    my_tile: IVec2,
+    player_tile: IVec2,
+    last_step: IVec2,
+    first_attack: bool,
+    rng: &mut WolfRng,
+) -> Option<IVec2> {
+    let deltax = player_tile.x - my_tile.x;
+    let deltay = player_tile.y - my_tile.y;
+
+    // Toward-the-Player Cardinal on Each Axis. Ties (delta == 0) Resolve to the
+    // Negative Side, Matching the Original's east/west and north/south else Arms
+    let sx = if deltax > 0 { 1 } else { -1 };
+    let sy = if deltay > 0 { 1 } else { -1 };
+
+    let mut d1 = IVec2::new(sx, 0); // Toward in X
+    let mut d2 = IVec2::new(0, sy); // Toward in Y
+    let mut d3 = IVec2::new(-sx, 0); // Away in X
+    let mut d4 = IVec2::new(0, -sy); // Away in Y
+
+    // Prefer Stepping Along the Dominant Axis First
+    if deltax.abs() > deltay.abs() {
+        std::mem::swap(&mut d1, &mut d2);
+        std::mem::swap(&mut d3, &mut d4);
+    }
+
+    // Randomize a Bit for Dodging
+    if rng.us_rnd_t() < 128 {
+        std::mem::swap(&mut d1, &mut d2);
+        std::mem::swap(&mut d3, &mut d4);
+    }
+
+    // The Diagonal Straight Toward the Player is the Top Preference. d1 and d2
+    // Are Always One Horizontal and One Vertical, so Their Sum is That Diagonal
+    let d0 = d1 + d2;
+
+    // opposite[ob->dir]: Reversing is Forbidden Except on the First dodge
+    let turnaround = if first_attack || last_step == IVec2::ZERO {
+        None
+    } else {
+        Some(-last_step)
+    };
+
+    let passable = |t: IVec2| -> bool {
+        if t.x < 0 || t.y < 0 || t.x >= grid.width as i32 || t.y >= grid.height as i32 {
+            return false;
+        }
+        if t == player_tile {
+            return false;
+        }
+        if solid.is_solid(t.x, t.y) {
+            return false;
+        }
+        matches!(
+            grid.tile(t.x as usize, t.y as usize),
+            Tile::Empty | Tile::DoorOpen
+        )
+    };
+
+    let can_step = |step: IVec2| -> bool {
+        let dest = my_tile + step;
+        if !passable(dest) || occupied.contains(&dest) {
+            return false;
+        }
+        // Diagonal: Both Orthogonal Corners Must be Clear (no Corner Cutting and
+        // no Squeezing Between Two Actors), Exactly Like TryWalk
+        if step.x != 0 && step.y != 0 {
+            let side_x = my_tile + IVec2::new(step.x, 0);
+            let side_y = my_tile + IVec2::new(0, step.y);
+            if !passable(side_x) || !passable(side_y) {
+                return false;
+            }
+            if occupied.contains(&side_x) || occupied.contains(&side_y) {
+                return false;
+            }
+        }
+        true
+    };
+
+    for step in [d0, d1, d2, d3, d4] {
+        if step == IVec2::ZERO || Some(step) == turnaround {
+            continue;
+        }
+        if can_step(step) {
+            return Some(step);
+        }
+    }
+
+    // Turn Around Only as a Last Resort (Never on the First dodge)
+    if let Some(rev) = turnaround {
+        if can_step(rev) {
+            return Some(rev);
+        }
+    }
+
+    None
+}
+
 fn attach_enemy_ai(
     mut commands: Commands,
     grid: Res<MapGrid>,
@@ -328,6 +445,7 @@ fn attach_enemy_ai(
             last_step: IVec2::ZERO,
             react_tics: 0,
             ambush,
+            first_attack: false,
         });
     }
 }
@@ -491,9 +609,13 @@ fn check_sight(
 fn dir8_from_step(step: IVec2) -> Dir8 {
     match (step.x, step.y) {
         (0, 1) => Dir8(0),
+        (1, 1) => Dir8(1),
         (1, 0) => Dir8(2),
+        (1, -1) => Dir8(3),
         (0, -1) => Dir8(4),
+        (-1, -1) => Dir8(5),
         (-1, 0) => Dir8(6),
+        (-1, 1) => Dir8(7),
         _ => Dir8(0),
     }
 }
@@ -922,6 +1044,8 @@ fn enemy_ai_prepare_and_activate(
                     ai.react_tics -= 1;
                     if ai.react_tics == 0 {
                         ai.state = EnemyAiState::Chase;
+                        // Allow One Turnaround on the First dodge After Noticing
+                        ai.first_attack = true;
 
                         if alerted.insert(e) && !matches!(*kind, EnemyKind::Mutant) {
                             sfx.write(PlaySfx {
@@ -1577,6 +1701,7 @@ fn enemy_ai_movement(
     mut sfx: MessageWriter<PlaySfx>,
     tunings: Res<EnemyTunings>,
     mut shared: ResMut<AiSharedData>,
+    mut wolf_rng: ResMut<WolfRng>,
     mut q_doors: Query<(&DoorTile, &mut DoorState, &GlobalTransform)>,
     mut q_enemies: Query<
         (
@@ -1620,7 +1745,55 @@ fn enemy_ai_movement(
 
         let mut moved_or_acted = false;
 
-        if in_bounds(my_tile) {
+        // Dodge Weave: With a Clear Shot (CheckLine) the Actor Strafes Toward the
+        // Player -- Diagonal-First and Randomized -- Instead of Beelining, Exactly
+        // as T_Chase Switches to SelectDodgeDir. Out of Sight it Falls Through to
+        // the BFS Chase Below, Which Stands in for SelectChaseDir and Handles Doors
+        let dodge_step = if AI_DODGE_WHEN_VISIBLE
+            && in_bounds(my_tile)
+            && has_line_of_sight(&grid, my_tile, player_tile)
+        {
+            select_dodge_step(
+                &grid,
+                &solid,
+                &shared.occupied,
+                my_tile,
+                player_tile,
+                ai.last_step,
+                ai.first_attack,
+                &mut wolf_rng,
+            )
+        } else {
+            None
+        };
+
+        if let Some(step) = dodge_step {
+            ai.first_attack = false;
+            let dest = my_tile + step;
+            commands.entity(e).insert(PendingDir8(dir8_from_step(step)));
+            ai.last_step = step;
+
+            if CLAIM_TILE_EARLY {
+                occ.0 = dest;
+            }
+
+            let y = tf.translation.y;
+            let target = Vec3::new(dest.x as f32, y, dest.y as f32);
+            commands.entity(e).insert(EnemyMove {
+                target,
+                speed_tps: speed,
+            });
+
+            shared.scheduled_move.insert(e);
+            shared.occupied.insert(dest);
+            if CLAIM_TILE_EARLY {
+                shared.occupied.remove(&my_tile);
+            }
+
+            moved_or_acted = true;
+        }
+
+        if !moved_or_acted && in_bounds(my_tile) {
             let my_d = shared.dist_map[idx(my_tile)];
             if my_d >= 0 {
                 let mut best: Option<(i32, IVec2, Tile)> = None;
