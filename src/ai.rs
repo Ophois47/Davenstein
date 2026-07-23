@@ -425,6 +425,41 @@ fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
     }
 }
 
+/// Faithful Port of Wolf3D's `CheckSight` (WOLFSRC/WL_STATE.C), Minus the
+/// areabyplayer Gate the Caller Applies Separately. Sight is Automatic Inside a
+/// 1.5-Tile Square (MINSIGHT); Otherwise the Player Must Lie in the Half-Plane
+/// the Actor Faces (Cardinal Facings Only, Exactly Like the Original -- Diagonal
+/// Facings Impose no Restriction) and Must not be Occluded by a Wall.
+fn check_sight(
+    dir: Dir8,
+    my_tile: IVec2,
+    player_tile: IVec2,
+    my_pos: Vec3,
+    player_pos: Vec3,
+    grid: &MapGrid,
+) -> bool {
+    // MINSIGHT = 0x18000 Global Units = 1.5 Tiles. Open Square, so Strict "<"
+    const MINSIGHT_TILES: f32 = 1.5;
+    let dx = player_pos.x - my_pos.x;
+    let dz = player_pos.z - my_pos.z;
+    if dx.abs() < MINSIGHT_TILES && dz.abs() < MINSIGHT_TILES {
+        return true;
+    }
+
+    // Cardinal Facings (One Zero Component) Restrict Sight to the Front
+    // Half-Plane; Diagonal Facings Fall Through Unrestricted Like the Original
+    let step = patrol_step_8way(dir);
+    if step.x == 0 || step.y == 0 {
+        // In Front Means delta . facing >= 0 (the Boundary Still Counts as Seen)
+        if dx * step.x as f32 + dz * step.y as f32 < 0.0 {
+            return false;
+        }
+    }
+
+    // Corner / Wall Occlusion Trace
+    has_line_of_sight(grid, my_tile, player_tile)
+}
+
 fn dir8_from_step(step: IVec2) -> Dir8 {
     match (step.x, step.y) {
         (0, 1) => Dir8(0),
@@ -823,7 +858,16 @@ fn enemy_ai_prepare_and_activate(
                     }
                 } else {
                     let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
-                    if same_area && has_line_of_sight(&grid, my_tile, player_tile) {
+                    if same_area
+                        && check_sight(
+                            *dir8,
+                            my_tile,
+                            player_tile,
+                            tf.translation,
+                            player_pos,
+                            &grid,
+                        )
+                    {
                         // First Tic the Actor Notices the Player. Arm the
                         // Per-Class Reaction Delay Instead of Chasing Instantly
                         // so the Actor Keeps Standing or Patrolling While it
