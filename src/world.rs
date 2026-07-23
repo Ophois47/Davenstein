@@ -737,14 +737,12 @@ pub fn setup(
         AlphaMode::Opaque
     };
 
-    // Cull Back Faces on Opaque Walls: They Are Solid and Only Ever Seen From Outside,
-    // so Drawing Back Faces Wastes Fill Rate and Adds Extra Coplanar Surfaces That
-    // Worsen Depth Ties. Fall Back to No Culling Only in the Legacy Mask Path
-    let world_cull_mode = if force_mask {
-        None
-    } else {
-        Some(bevy::render::render_resource::Face::Back)
-    };
+    // Wall Face Culling. Back-Face Culling Was Tried for Opaque Walls but the V3D
+    // Vulkan Driver Stalls Pipeline Compilation at Level Load When the Cull Mode
+    // Differs From the Legacy Path, so We Keep cull_mode: None on Both Paths. Walls
+    // Are Grid-Aligned and Rarely Seen From Behind, so the Extra Back Faces Cost
+    // Little; Correctness and a Clean Level Load Matter More on This Hardware
+    let world_cull_mode = None;
 
     let wall_mat = materials.add(StandardMaterial {
         base_color_texture: Some(wall_tex.clone()),
