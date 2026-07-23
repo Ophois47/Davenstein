@@ -169,6 +169,10 @@ pub struct BurstFire {
 struct AiSharedData {
     occupied: HashSet<IVec2>,
     scheduled_move: HashSet<Entity>,
+    // Actors Currently in Their Shoot Animation (Post-Shot Pause). The Movement
+    // System Holds These in Place so an Enemy Stops to Fire Like the Original's
+    // Shoot State Rather Than Sliding Through the Shot
+    shooting: HashSet<Entity>,
     dist_map: Vec<i32>,
     player_tile: IVec2,
     player_pos: Vec3,
@@ -1209,7 +1213,7 @@ fn enemy_ai_combat(
     mut bursts: Local<HashMap<Entity, BurstFire>>,
     mut los_hold: Local<HashMap<Entity, f32>>,
     tunings: Res<EnemyTunings>,
-    shared: Res<AiSharedData>,
+    mut shared: ResMut<AiSharedData>,
     mut q_enemies: Query<
         (
             Entity,
@@ -1685,6 +1689,17 @@ fn enemy_ai_combat(
             }
         }
     }
+
+    // Republish Which Actors Are Mid-Fire so the Movement System Holds Them in
+    // Place. A Cooldown Above GUARD_SHOOT_COOLDOWN_SECS Means the Shoot Animation
+    // is Still Playing (Original: the Actor is in its Shoot State, Not Chasing),
+    // so the Enemy "Lines Up" and Fires Instead of Sliding Through the Shot
+    shared.shooting.clear();
+    for (&ent, &cd) in shoot_cd.iter() {
+        if cd > GUARD_SHOOT_COOLDOWN_SECS {
+            shared.shooting.insert(ent);
+        }
+    }
 }
 
 // SYSTEM 3: Handle Movement (Pathfinding and Door Opening)
@@ -1733,7 +1748,10 @@ fn enemy_ai_movement(
         let my_tile = occ.0;
         let moving_now = moving.is_some() || shared.scheduled_move.contains(&e);
 
-        if moving_now {
+        // Hold Position While Mid-Fire: an Actor in its Shoot Animation Stops to
+        // Shoot Rather Than Dodging Through it (Original T_Chase Enters the Shoot
+        // State and Does not Move Until it Finishes)
+        if moving_now || shared.shooting.contains(&e) {
             continue;
         }
 
