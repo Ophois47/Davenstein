@@ -8,6 +8,7 @@ use bevy::camera::RenderTarget;
 use bevy::ui::prelude::IsDefaultUiCamera;
 use bevy::window::PrimaryWindow;
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
+use bevy::render::render_resource::Face;
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use crate::options::{WorldCanvas, WorldPresenter};
@@ -737,12 +738,17 @@ pub fn setup(
         AlphaMode::Opaque
     };
 
-    // Wall Face Culling. Back-Face Culling Was Tried for Opaque Walls but the V3D
-    // Vulkan Driver Stalls Pipeline Compilation at Level Load When the Cull Mode
-    // Differs From the Legacy Path, so We Keep cull_mode: None on Both Paths. Walls
-    // Are Grid-Aligned and Rarely Seen From Behind, so the Extra Back Faces Cost
-    // Little; Correctness and a Clean Level Load Matter More on This Hardware
-    let world_cull_mode = None;
+    // Wall Face Culling. Back-Face Culling Is the Original StandardMaterial
+    // Default and Roughly Halves World Fragment Work by Skipping the Hidden Rear
+    // Face of Every Wall and Ceiling Quad, Which Matters Most at High Resolutions
+    // Like 4K Borderless. It Is Disabled Only on the Software (Pi/llvmpipe) Path,
+    // Where the V3D Vulkan Driver Stalls Pipeline Compilation at Level Load When
+    // the Cull Mode Differs From the Legacy Path. Desktop GPUs Cull for Free and
+    // Correctly, so Culling Is the Default There
+    #[cfg(feature = "software_render")]
+    let world_cull_mode: Option<Face> = None;
+    #[cfg(not(feature = "software_render"))]
+    let world_cull_mode: Option<Face> = Some(Face::Back);
 
     let wall_mat = materials.add(StandardMaterial {
         base_color_texture: Some(wall_tex.clone()),
@@ -821,6 +827,11 @@ pub fn setup(
     let ceiling_mat = materials.add(StandardMaterial {
         base_color: current_level.0.ceiling_color(),
         unlit: true,
+        // Left Double-Sided on Purpose: the Ceiling Plane Is Rotated 180 Degrees,
+        // so Its Culled Winding Cannot Be Verified Without a Run. Walls Are the
+        // Dominant Fragment Cost and Their Winding Is the Proven Default, so This
+        // Patch Culls Walls Only. Route This Through 'world_cull_mode' Later Once
+        // the Ceiling Is Confirmed to Render Correctly When Culled
         cull_mode: None,
         alpha_mode: world_alpha_mode,
         ..default()
