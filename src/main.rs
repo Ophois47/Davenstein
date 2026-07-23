@@ -198,7 +198,7 @@ fn main() {
 		.set(ImagePlugin::default_nearest())
 		.set(WindowPlugin {
 			primary_window: Some(Window {
-				present_mode: PresentMode::AutoVsync,
+				present_mode: PresentMode::Fifo,
 				..default()
 			}),
 			..default()

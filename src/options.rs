@@ -729,8 +729,17 @@ fn resize_world_canvas(
 
 fn desired_present_mode(s: &VideoSettings) -> PresentMode {
 	if s.vsync {
-		PresentMode::AutoVsync
+		// Explicit 'Fifo' Rather Than 'AutoVsync'. 'AutoVsync' Is a Best-Effort
+		// Selector, and for a Borderless Surface on X11 / NVIDIA It Can Resolve to
+		// an Unsynced Path, Which Tears Even Though Vsync Is Requested. 'Fifo' Is
+		// the One Present Mode the Vulkan Spec Requires Every Device to Support and
+		// Is Always Locked to Vertical Blank, so It Never Tears in Any Window Mode
+		PresentMode::Fifo
 	} else {
+		// Vsync Off: Prefer 'Mailbox' (Triple-Buffered, Tear-Free, Low Latency)
+		// When the Driver Offers It, Falling Back to 'Immediate' (Uncapped, May
+		// Tear) Otherwise. 'AutoNoVsync' Picks This Pair for Us Across Backends,
+		// so It Stays the Right Choice for the No-Vsync Case
 		PresentMode::AutoNoVsync
 	}
 }
