@@ -9,23 +9,18 @@ use crate::enemies::{Dir8, EnemyKind};
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct Patrol;
 
-/// Plane1 Path Arrow Codes (90..=97) to Dir8 Convention
-/// Wolf Arrow Meanings (Map-Space): N, E, S, W, NE, SE, SW, NW
-/// - +Y is "South", so N is (0,-1) => Dir8(4)
-/// - E is (+1,0) => Dir8(2)
-/// - S is (0,+1) => Dir8(0)
-/// - W is (-1,0) => Dir8(6)
+/// Plane1 Path-Arrow Codes (ICONARROWS = 90 ..= 97) to Dir8.
+///
+/// In the Original, `arrowtile - 90` is a dirtype Directly, in the Compass Order
+/// E, NE, N, NW, W, SW, S, SE (WOLFSRC/WL_STATE.C SelectPathDir). Davenstein's
+/// Dir8 is That Same Compass Rotated by +2 (Dir8 0 = South, 2 = East, 4 = North,
+/// 6 = West), so the Conversion is Just `(dirtype + 2) & 7`.
 pub fn patrol_dir_from_plane1(code: u16) -> Option<Dir8> {
-    match code {
-        90 => Some(Dir8(4)),
-        91 => Some(Dir8(2)),
-        92 => Some(Dir8(0)),
-        93 => Some(Dir8(6)),
-        94 => Some(Dir8(3)),
-        95 => Some(Dir8(1)),
-        96 => Some(Dir8(7)),
-        97 => Some(Dir8(5)),
-        _ => None,
+    if (90..=97).contains(&code) {
+        let dirtype = (code - 90) as u8;
+        Some(Dir8((dirtype + 2) & 7))
+    } else {
+        None
     }
 }
 
@@ -47,14 +42,11 @@ pub fn patrol_step_8way(dir: Dir8) -> IVec2 {
 }
 
 fn wolf_dir4_to_dir8(dir4: u8) -> Dir8 {
-    // 4 Directions N/E/S/W
-    match dir4 & 3 {
-        0 => Dir8(4), // N => -Y / -Z
-        1 => Dir8(2), // E => +X
-        2 => Dir8(0), // S => +Y / +Z
-        3 => Dir8(6), // W => -X
-        _ => Dir8(0),
-    }
+    // Original SpawnStand / SpawnPatrol Set `new->dir = dir * 2`, so the Map's
+    // dir4 (0..3) Selects the dirtype East, North, West, South. Rotate Into
+    // Davenstein's Dir8 (+2) the Same Way patrol_dir_from_plane1 Does.
+    let dirtype = (dir4 & 3) * 2; // 0, 2, 4, 6 = East, North, West, South
+    Dir8((dirtype + 2) & 7)
 }
 
 fn spawn_dir_and_patrol_from_bands(code: u16, base: u16) -> Option<(Dir8, bool)> {
@@ -71,12 +63,17 @@ fn spawn_dir_and_patrol_from_bands(code: u16, base: u16) -> Option<(Dir8, bool)>
     None
 }
 
-/// For Spawned Enemy, Derive From Raw Wolfenstein 3D Plane1 Code
+/// For a Spawned Enemy, Derive Facing + Patrol From the Raw Wolfenstein 3D
+/// Plane1 Code. Bases Match id's ScanInfoPlane (WOLFSRC/WL_GAME.C): Stand Codes
+/// at `base .. base+3`, Patrol at `base+4 .. base+7`, Repeated per Difficulty
+/// at +36 and +72.
 pub fn spawn_dir_and_patrol_for_kind(kind: EnemyKind, code: u16) -> Option<(Dir8, bool)> {
     match kind {
         EnemyKind::Guard => spawn_dir_and_patrol_from_bands(code, 108),
+        EnemyKind::Officer => spawn_dir_and_patrol_from_bands(code, 116),
         EnemyKind::Ss => spawn_dir_and_patrol_from_bands(code, 126),
         EnemyKind::Dog => spawn_dir_and_patrol_from_bands(code, 134),
+        EnemyKind::Mutant => spawn_dir_and_patrol_from_bands(code, 216),
         _ => None,
     }
 }
