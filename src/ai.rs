@@ -82,14 +82,6 @@ const LOS_FIRST_SHOT_DELAY_SECS: f32 = 0.02;
 const GUARD_SHOOT_COOLDOWN_SECS: f32 = 0.55;
 const GUARD_SHOOT_TOTAL_SECS: f32 = GUARD_SHOOT_PAUSE_SECS + GUARD_SHOOT_COOLDOWN_SECS;
 
-// FL_VISABLE Approximation. In the 1992 Game This Flag was Set by the Sprite
-// Scaler Whenever an Actor was Actually Drawn on Screen; T_Shoot Uses it to Make
-// Visible Actors HARDER to Hit (the Player Can See the Shot Coming and Dodge).
-// Here we Treat an Actor as "Visible to the Player" When it Lies Within This
-// Half-Angle of the Player's Facing. Version-Independent Stand-In; Widen or
-// Narrow to Taste, or Wire to Bevy's ViewVisibility for a Frame-Exact Match
-const AI_VISABLE_HALF_ANGLE_DEG: f32 = 35.0;
-
 // When True, a Chasing Actor With a Clear Shot Strafes Toward the Player via the
 // Faithful SelectDodgeDir Weave (T_Chase's dodge Branch) Instead of Beelining
 // the BFS Shortest Path. Out of Sight it Always Uses the BFS Chase. Flip to
@@ -187,8 +179,6 @@ struct AiSharedData {
     player_pos: Vec3,
     // Is the Player Moving at Run Speed This Tic? (thrustspeed >= RUNSPEED)
     player_running: bool,
-    // Normalized XZ Forward the Player is Facing; Used for the FL_VISABLE Cone
-    player_forward: Vec2,
     // Did the Player Fire a Gun This Tic? (Drained From PlayerNoise). Non-Ambush
     // Actors in a Connected Area Wake on This Even Without Line of Sight
     made_noise: bool,
@@ -933,8 +923,6 @@ fn enemy_ai_prepare_and_activate(
     shared.player_tile = player_tile;
     shared.player_pos = player_pos;
     shared.player_running = intent.run;
-    let fwd = player_gt.forward();
-    shared.player_forward = Vec2::new(fwd.x, fwd.z).normalize_or_zero();
 
     let made_noise = shared.made_noise;
 
@@ -1248,6 +1236,7 @@ fn enemy_ai_combat(
             Option<&crate::enemies::DogBite>,
             Option<&crate::enemies::DogBiteCooldown>,
             &mut TableRng,
+            Option<&ViewVisibility>,
         ),
         (With<EnemyKind>, Without<Dead>),
     >,
@@ -1264,7 +1253,7 @@ fn enemy_ai_combat(
     let player_tile = shared.player_tile;
     let player_pos = shared.player_pos;
 
-    for (e, kind, ai, occ, _dir8, tf, moving, dog_bite, dog_bite_cd, mut actor_rng) in
+    for (e, kind, ai, occ, _dir8, tf, moving, dog_bite, dog_bite_cd, mut actor_rng, view_vis) in
         q_enemies.iter_mut()
     {
         if !matches!(ai.state, EnemyAiState::Chase) {
@@ -1274,17 +1263,11 @@ fn enemy_ai_combat(
         let my_tile = occ.0;
         let moving_now = moving.is_some() || shared.scheduled_move.contains(&e);
 
-        // FL_VISABLE: is This Actor Inside the Player's Forward View Cone?
-        let actor_visible = {
-            let to_actor = Vec2::new(
-                tf.translation.x - player_pos.x,
-                tf.translation.z - player_pos.z,
-            );
-            let len = to_actor.length();
-            len > 1e-4
-                && (to_actor / len).dot(shared.player_forward)
-                    >= AI_VISABLE_HALF_ANGLE_DEG.to_radians().cos()
-        };
+        // FL_VISABLE: True When the Actor Was Actually Drawn on Screen Last Frame,
+        // Which is Precisely What the Original Flag Meant (the Sprite Scaler Set it
+        // While Drawing). Bevy Computes Exactly That as ViewVisibility, so we Read
+        // it Directly Instead of Approximating With a View Cone
+        let actor_visible = view_vis.is_some_and(|v| v.get());
 
         let cd_now = shoot_cd.get(&e).copied().unwrap_or(0.0);
 
