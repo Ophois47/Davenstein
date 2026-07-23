@@ -719,31 +719,52 @@ pub fn setup(
 	let floor_tex = assets.floor_tex.clone();
 	commands.insert_resource(assets);
 
-	// World Geometry Renders via the Alpha-Mask Pass Only on the Raspberry Pi V3D
-	// Where the Opaque Pass Draws Nothing. Every Other Target Keeps the Opaque Pass
-	// Which is Cheaper and Free of the Sort Artifacts the Mask Pass Shows on Large Walls
-	let world_alpha_mode = if cfg!(all(target_arch = "aarch64", target_os = "linux")) {
-		AlphaMode::Mask(0.5)
-	} else {
-		AlphaMode::Opaque
-	};
+	// World Geometry Alpha Mode. Historically the Pi V3D Build Forced the Alpha-Mask
+    // Pass Because Opaque Walls Rendered as Nothing; That Was a Depth-Buffer Symptom,
+    // Not a Real Transparency Need, and the Mask Pass is What Causes the Flickering /
+    // Texture-Swapping on Coplanar Grid Walls (Fragments in the Mask Pass Do Not Get
+    // Stable Depth Ordering, so Adjacent Same-Depth Faces Fight Every Frame). Walls Are
+    // Fully Opaque in a Wolfenstein Raycaster, so the Correct Fix is the Opaque Pass
+    // With Real Depth Writes Plus Back-Face Culling. We Keep a Runtime Escape Hatch:
+    // Set DSTEIN_WALL_MASK=1 to Restore the Old Mask Behavior if Opaque Walls Regress
+    // to Invisible on Some Driver Revision, so This Can Be Tested Without a Rebuild
+    let force_mask = std::env::var("DSTEIN_WALL_MASK")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    let world_alpha_mode = if force_mask {
+        AlphaMode::Mask(0.5)
+    } else {
+        AlphaMode::Opaque
+    };
 
-	let wall_mat = materials.add(StandardMaterial {
-		base_color_texture: Some(wall_tex.clone()),
-		unlit: true,
-		cull_mode: None,
-		alpha_mode: world_alpha_mode,
-		..default()
-	});
+    // Cull Back Faces on Opaque Walls: They Are Solid and Only Ever Seen From Outside,
+    // so Drawing Back Faces Wastes Fill Rate and Adds Extra Coplanar Surfaces That
+    // Worsen Depth Ties. Fall Back to No Culling Only in the Legacy Mask Path
+    let world_cull_mode = if force_mask {
+        None
+    } else {
+        Some(bevy::render::render_resource::Face::Back)
+    };
 
-	let wall_mat_dark = materials.add(StandardMaterial {
-		base_color_texture: Some(wall_tex.clone()),
-		base_color: Color::srgb(0.75, 0.75, 0.75),
-		unlit: true,
-		cull_mode: None,
-		alpha_mode: world_alpha_mode,
-		..default()
-	});
+    let wall_mat = materials.add(StandardMaterial {
+        base_color_texture: Some(wall_tex.clone()),
+        unlit: true,
+        cull_mode: world_cull_mode,
+        alpha_mode: world_alpha_mode,
+        ..default()
+    });
+
+    let wall_mat_dark = materials.add(StandardMaterial {
+        base_color_texture: Some(wall_tex.clone()),
+        base_color: Color::srgb(0.75, 0.75, 0.75),
+        unlit: true,
+        cull_mode: world_cull_mode,
+        alpha_mode: world_alpha_mode,
+        // Small Negative Depth Bias so the Dark Variant Deterministically Wins Depth
+        // Ties Against the Base Wall Material on Exactly Coplanar Grid Faces
+        depth_bias: -1.0,
+        ..default()
+    });
 
 	// Doors Use SAME Atlas Texture as Walls
 	let door_mat = materials.add(StandardMaterial {
