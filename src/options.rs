@@ -646,13 +646,15 @@ fn create_world_canvas(
 
 	let size = world_canvas_size(win_w, win_h, settings.render_scale);
 
-	// Rgba8Unorm Storage With an Srgb View Matches Bevy's Own
-	// Render-to-Texture Example and Keeps Colors Correct for a 3-D Pass
+	// Rgba8UnormSrgb Storage With No Separate View Format. GLES/V3D Lacks the
+	// VIEW_FORMATS Downlevel Flag, so an Srgb View Over a Unorm Texture Cannot
+	// Be Created on the Pi. Using a Single Srgb Target Keeps Colors Correct for
+	// the 3-D Pass While Staying Within What the OpenGL ES Driver Supports
 	let mut image = Image::new_target_texture(
 		size.x,
 		size.y,
-		TextureFormat::Rgba8Unorm,
-		Some(TextureFormat::Rgba8UnormSrgb),
+		TextureFormat::Rgba8UnormSrgb,
+		None,
 	);
 	image.sampler = ImageSampler::nearest();
 
