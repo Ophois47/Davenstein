@@ -68,7 +68,7 @@ impl DisplayMode {
 	/// True if Exclusive Fullscreen Should Be Skipped
 	/// (Wayland Does Not Support It)
 	fn skip_exclusive() -> bool {
-		std::env::var("WAYLAND_DISPLAY").is_ok()
+		std::env::var("WAYLAND_DISPLAY").map_or(false, |v| !v.is_empty())
 	}
 
 	/// Cycle Forward Through Display Modes (Wraps Around)
@@ -216,11 +216,21 @@ impl Default for VideoSettings {
 			vsync: true,
 			#[cfg(not(feature = "software_render"))]
 			display_mode: DisplayMode::default(),
-			// Software (CPU) Renderers Default to a Small Window so the Resolution
-			// Setting Actually Shrinks the Surface llvmpipe Must Fill for More Speed
+			// Software (CPU) Rendering Defaults to Exclusive Fullscreen at a Low Mode
+			// Which Makes the Monitor Switch Resolution so llvmpipe Fills Few Real Pixels
+			// Exclusive Fullscreen Needs X11 so Wayland Falls Back to Borderless Instead
 			#[cfg(feature = "software_render")]
-			display_mode: DisplayMode::Windowed,
+			display_mode: if DisplayMode::skip_exclusive() {
+				DisplayMode::BorderlessFullscreen
+			} else {
+				DisplayMode::ExclusiveFullscreen
+			},
+			#[cfg(not(feature = "software_render"))]
 			resolution: (1024, 768),
+			// Software Builds Target a Low Mode the Monitor Can Switch to so the Real
+			// Framebuffer Stays Small and Bevy Picks the Closest Reported Mode at Runtime
+			#[cfg(feature = "software_render")]
+			resolution: (320, 240),
 			fov: 40.0,
 			view_size: 20,
 			msaa: MsaaSetting::Off,
