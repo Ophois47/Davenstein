@@ -1197,10 +1197,8 @@ pub fn setup(
 			fov: fov_radians,
 			..default()
 		}),
-		// 'IsDefaultUiCamera' Lives Here (the Canvas Camera) so the HUD Renders
-		// Into the Low-Res Canvas and Upscales With the World for a Uniform Chunky
-		// Look. The HUD Sizes Off the Canvas via 'ui_ref_dims', Not the Window
-		IsDefaultUiCamera,
+		// NOTE: 'IsDefaultUiCamera' Moved to the Present Camera so the HUD /
+		// Menus Draw at Native Resolution (Crisp) on Top of the Upscaled World
 		Player,
 		PlayerKeys::default(),
 		crate::player::PlayerVitals::default(),
@@ -1210,12 +1208,13 @@ pub fn setup(
 	));
 
 	// Present Camera: Draws the World Canvas Full-Screen (Nearest-Neighbor
-	// Upscale). Ordered *After* the World Camera. UI Is Owned by the Canvas
-	// Camera Above so the HUD Upscales With the World. Tagged 'WorldPresenter'
-	// so the Level Rebuild Path Despawns It With the Player Camera
+	// Upscale) and Owns the UI. Ordered *After* the World Camera. Tagged
+	// 'WorldPresenter' so the Level Rebuild Path Despawns It With the Player
+	// Camera (See 'restart::restart_despawn_level')
 	commands.spawn((
 		Camera2d::default(),
 		Camera { order: 1, ..default() },
+		IsDefaultUiCamera,
 		WorldPresenter,
 	));
 
