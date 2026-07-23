@@ -163,6 +163,12 @@ fn spawn_menu_ui_camera(mut commands: Commands) {
 				clear_color: ClearColorConfig::None,
 				..default()
 			},
+			// MSAA Must Be Off Here. This Camera Composites Directly Onto the
+			// Existing 1-Sample Window Surface ('ClearColorConfig::None'), so a
+			// Multisampled (4x) Depth Attachment Would Not Match the 1-Sample
+			// Color Target and wgpu Rejects the Render Pass. A Pure 2-D UI Overlay
+			// Gains Nothing From MSAA Anyway
+			Msaa::Off,
 		))
 		.id();
 

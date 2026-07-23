@@ -805,7 +805,12 @@ fn apply_video_settings_startup(
 	settings: Res<VideoSettings>,
 	q_monitors: Query<&Monitor>,
 	mut q_window: Query<&mut Window, With<PrimaryWindow>>,
-	mut q_camera: Query<(&mut Msaa, &mut Projection), With<Camera>>,
+	// Restricted to the 3-D World Camera. MSAA Only Makes Sense (and Is Only Ever
+	// Wanted) for the World Pass; the 2-D Present and Menu Cameras Must Stay at One
+	// Sample so the Nearest-Neighbor Upscale Stays Crisp and the None-Clear Menu
+	// Camera's Depth Never Mismatches the Single-Sample Window Surface. FOV Is a
+	// Perspective-Only Concept and Likewise Belongs to the 3-D Camera
+	mut q_camera: Query<(&mut Msaa, &mut Projection), With<Camera3d>>,
 ) {
 	if let Some(mut window) = q_window.iter_mut().next() {
 		window.present_mode = desired_present_mode(&settings);
@@ -833,7 +838,10 @@ fn apply_video_settings_on_change(
 	settings: Res<VideoSettings>,
 	q_monitors: Query<&Monitor>,
 	mut q_window: Query<&mut Window, With<PrimaryWindow>>,
-	mut q_camera: Query<(&mut Msaa, &mut Projection), With<Camera>>,
+	// See 'apply_video_settings_startup': MSAA/FOV Target the 3-D World Camera
+	// Only, so Toggling MSAA On From the Menu Can Never Force the None-Clear 2-D
+	// Menu Camera to a Multisampled Depth That the Window Surface Cannot Match
+	mut q_camera: Query<(&mut Msaa, &mut Projection), With<Camera3d>>,
 	// Remembers the Last 'WindowMode' We *Requested*, so We Can Detect a
 	// Change Even When Only the Fullscreen 'VideoMode' Differs (Both Variants
 	// Are 'WindowMode::Fullscreen'). Tracking Our Own Request Instead of

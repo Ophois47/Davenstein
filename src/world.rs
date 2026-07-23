@@ -1238,6 +1238,11 @@ pub fn setup(
 	commands.spawn((
 		Camera2d::default(),
 		Camera { order: 1, ..default() },
+		// MSAA Off: This Camera Only Blits the Canvas to the Window With a
+		// Nearest-Neighbor Upscale. Multisampling It Would Waste Memory and
+		// Bandwidth and Soften the Deliberately Chunky Pixels. Keeping It at
+		// One Sample Also Keeps Its Sample Count Consistent With the Window
+		Msaa::Off,
 		WorldPresenter,
 	));
 
