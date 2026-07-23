@@ -451,7 +451,7 @@ fn check_sight(
     let step = patrol_step_8way(dir);
     if step.x == 0 || step.y == 0 {
         // In Front Means delta . facing >= 0 (the Boundary Still Counts as Seen)
-        if dx * step.x as f32 + dz * step.y as f32 < 0.0 {
+        if dx * (step.x as f32) + dz * (step.y as f32) < 0.0 {
             return false;
         }
     }
