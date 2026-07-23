@@ -93,11 +93,6 @@ const AI_DODGE_WHEN_VISIBLE: bool = true;
 // on Actual Sight (WOLFSRC/WL_ACT2.C, WOLFSRC/WL_DEF.H)
 const AMBUSHTILE: u16 = 106;
 
-#[derive(Resource, Debug, Default)]
-pub struct AiTicker {
-    pub accum: f32,
-}
-
 // Set True by the Player's Gun Fire (Not the Knife) and Consumed Once per AI
 // Tic, Mirroring the Original Global `madenoise`. The Binary's Weapon System
 // Writes it; `capture_player_noise` Drains it Into AiSharedData for the Actors
@@ -884,8 +879,6 @@ fn capture_player_noise(mut player_noise: ResMut<PlayerNoise>, mut shared: ResMu
 // SYSTEM 1: Prepare Shared Data and Handle Activation / Patrol
 fn enemy_ai_prepare_and_activate(
     mut commands: Commands,
-    time: Res<Time>,
-    mut ticker: ResMut<AiTicker>,
     grid: Res<MapGrid>,
     solid: Res<SolidStatics>,
     q_player: Query<&GlobalTransform, With<Player>>,
@@ -926,287 +919,280 @@ fn enemy_ai_prepare_and_activate(
 
     let made_noise = shared.made_noise;
 
-    let dt = time.delta_secs();
-    ticker.accum += dt;
+    // Recompute if Grid Topology Changed Within Level (Generation Bump),
+    // OR if Grid Resource Itself was Replaced (Level Rebuild / Load), the
+    // Latter is What Catches Fresh Grid Reusing Generation 0 From Prior Level
+    if grid.is_changed() || shared.cached_area_generation != Some(grid.generation) {
+        shared.cached_area_map = AreaMap::compute(&grid);
+        shared.cached_area_generation = Some(grid.generation);
+    }
 
-    while ticker.accum >= AI_TIC_SECS {
-        ticker.accum -= AI_TIC_SECS;
+    // Move Cached Map Out of Shared so the Rest of This Tick Can Freely
+    // Mutate Other Shared Fields (dist_map, occupied, scheduled_move) Without
+    // Borrow Conflict. It is Moved Back at the End of the Tick
+    let areas = std::mem::take(&mut shared.cached_area_map);
+    let player_area = areas.id(player_tile);
+    shared.player_area = player_area;
 
-        // Recompute if Grid Topology Changed Within Level (Generation Bump),
-        // OR if Grid Resource Itself was Replaced (Level Rebuild / Load), the
-        // Latter is What Catches Fresh Grid Reusing Generation 0 From Prior Level
-        if grid.is_changed() || shared.cached_area_generation != Some(grid.generation) {
-            shared.cached_area_map = AreaMap::compute(&grid);
-            shared.cached_area_generation = Some(grid.generation);
-        }
+    let w = grid.width as i32;
+    let h = grid.height as i32;
+    let in_bounds = |t: IVec2| t.x >= 0 && t.y >= 0 && t.x < w && t.y < h;
+    let idx = |t: IVec2| (t.y * w + t.x) as usize;
 
-        // Move Cached Map Out of Shared so Rest of Loop Can Freely
-        // Mutate Other Shared Fields (dist_map, occupied, scheduled_move) Without
-        // Borrow Conflict. It is Moved Back at the End of Loop Body
-        let areas = std::mem::take(&mut shared.cached_area_map);
-        let player_area = areas.id(player_tile);
-        shared.player_area = player_area;
+    // Reuse Existing Buffer Instead of Allocating Fresh Vec Every Tic.
+    // clear()+resize() Keeps Prior Allocation When Grid Size is
+    // Unchanged (Common Case), Reallocating Only on Level Size Change
+    shared.dist_map.clear();
+    shared.dist_map.resize(grid.width * grid.height, -1i32);
 
-        let w = grid.width as i32;
-        let h = grid.height as i32;
-        let in_bounds = |t: IVec2| t.x >= 0 && t.y >= 0 && t.x < w && t.y < h;
-        let idx = |t: IVec2| (t.y * w + t.x) as usize;
+    if in_bounds(player_tile)
+        && !solid.is_solid(player_tile.x, player_tile.y)
+        && grid.tile(player_tile.x as usize, player_tile.y as usize) != Tile::Wall
+    {
+        shared.dist_map[idx(player_tile)] = 0;
 
-        // Reuse Existing Buffer Instead of Allocating Fresh Vec Every Tic.
-        // clear()+resize() Keeps Prior Allocation When Grid Size is
-        // Unchanged (Common Case), Reallocating Only on Level Size Change
-        shared.dist_map.clear();
-        shared.dist_map.resize(grid.width * grid.height, -1i32);
+        let mut queue: Vec<IVec2> = vec![player_tile];
+        let mut qh: usize = 0;
 
-        if in_bounds(player_tile)
-            && !solid.is_solid(player_tile.x, player_tile.y)
-            && grid.tile(player_tile.x as usize, player_tile.y as usize) != Tile::Wall
-        {
-            shared.dist_map[idx(player_tile)] = 0;
+        let dirs = [
+            IVec2::new(1, 0),
+            IVec2::new(-1, 0),
+            IVec2::new(0, 1),
+            IVec2::new(0, -1),
+        ];
 
-            let mut queue: Vec<IVec2> = vec![player_tile];
-            let mut qh: usize = 0;
+        while qh < queue.len() {
+            let cur = queue[qh];
+            qh += 1;
 
-            let dirs = [
-                IVec2::new(1, 0),
-                IVec2::new(-1, 0),
-                IVec2::new(0, 1),
-                IVec2::new(0, -1),
-            ];
+            let base = shared.dist_map[idx(cur)];
+            let next = base + 1;
 
-            while qh < queue.len() {
-                let cur = queue[qh];
-                qh += 1;
-
-                let base = shared.dist_map[idx(cur)];
-                let next = base + 1;
-
-                for step in dirs {
-                    let n = cur + step;
-                    if !in_bounds(n) {
-                        continue;
-                    }
-                    let ni = idx(n);
-                    if shared.dist_map[ni] >= 0 {
-                        continue;
-                    }
-
-                    if solid.is_solid(n.x, n.y) || grid.tile(n.x as usize, n.y as usize) == Tile::Wall {
-                        continue;
-                    }
-
-                    shared.dist_map[ni] = next;
-                    queue.push(n);
+            for step in dirs {
+                let n = cur + step;
+                if !in_bounds(n) {
+                    continue;
                 }
+                let ni = idx(n);
+                if shared.dist_map[ni] >= 0 {
+                    continue;
+                }
+
+                if solid.is_solid(n.x, n.y) || grid.tile(n.x as usize, n.y as usize) == Tile::Wall {
+                    continue;
+                }
+
+                shared.dist_map[ni] = next;
+                queue.push(n);
             }
         }
+    }
 
-        shared.scheduled_move.clear();
-        shared.occupied.clear();
+    shared.scheduled_move.clear();
+    shared.occupied.clear();
 
-        {
-            for (
-                _e,
-                _kind,
-                _ai,
-                occ,
-                _dir8,
-                _tf,
-                _moving,
-                _patrol,
-                _guard_pain,
-                _mutant_pain,
-                _ss_pain,
-                _officer_pain,
-                _dog_pain,
-                _rng,
-            ) in q_enemies.iter_mut()
-            {
-                shared.occupied.insert(occ.0);
-            }
-        }
-
+    {
         for (
-            e,
-            kind,
-            mut ai,
-            mut occ,
-            mut dir8,
-            tf,
-            moving,
-            patrol,
-            guard_pain,
-            mutant_pain,
-            ss_pain,
-            officer_pain,
-            dog_pain,
-            mut actor_rng,
+            _e,
+            _kind,
+            _ai,
+            occ,
+            _dir8,
+            _tf,
+            _moving,
+            _patrol,
+            _guard_pain,
+            _mutant_pain,
+            _ss_pain,
+            _officer_pain,
+            _dog_pain,
+            _rng,
         ) in q_enemies.iter_mut()
         {
-            let t = tunings.for_kind(*kind);
-            let my_tile = occ.0;
-            let moving_now = moving.is_some() || shared.scheduled_move.contains(&e);
+            shared.occupied.insert(occ.0);
+        }
+    }
 
-            if matches!(ai.state, EnemyAiState::Stand | EnemyAiState::Patrol) {
-                if ai.react_tics > 0 {
-                    // Already Noticed the Player. Count the Reaction Delay Down
-                    // Unconditionally (the Original Does Not Re-Check Sight Once
-                    // temp2 is Armed) and Commit to the Chase When it Expires
-                    ai.react_tics -= 1;
-                    if ai.react_tics == 0 {
-                        ai.state = EnemyAiState::Chase;
-                        // Allow One Turnaround on the First dodge After Noticing
-                        ai.first_attack = true;
+    for (
+        e,
+        kind,
+        mut ai,
+        mut occ,
+        mut dir8,
+        tf,
+        moving,
+        patrol,
+        guard_pain,
+        mutant_pain,
+        ss_pain,
+        officer_pain,
+        dog_pain,
+        mut actor_rng,
+    ) in q_enemies.iter_mut()
+    {
+        let t = tunings.for_kind(*kind);
+        let my_tile = occ.0;
+        let moving_now = moving.is_some() || shared.scheduled_move.contains(&e);
 
-                        if alerted.insert(e) && !matches!(*kind, EnemyKind::Mutant) {
-                            sfx.write(PlaySfx {
-                                kind: SfxKind::EnemyAlert(*kind),
-                                pos: tf.translation,
-                            });
-                        }
-                    }
-                } else {
-                    let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
-                    if same_area {
-                        // Original SightPlayer: an Actor in a Connected Area Wakes
-                        // on Sight; Non-Ambush Actors Also Wake on Gunfire Noise,
-                        // While Ambush (Deaf) Actors Ignore Noise and Need Sight
-                        let seen = check_sight(
-                            *dir8,
-                            my_tile,
-                            player_tile,
-                            tf.translation,
-                            player_pos,
-                            &grid,
-                        );
-                        let heard = made_noise && !ai.ambush;
-                        if seen || heard {
-                            if seen {
-                                // The Original Clears FL_AMBUSH the First Time an
-                                // Actor Actually Sees the Player
-                                ai.ambush = false;
-                            }
-                            // First Tic the Actor Notices the Player. Arm the
-                            // Per-Class Reaction Delay Instead of Chasing Instantly
-                            // so the Actor Keeps Standing or Patrolling While it
-                            // "Reacts" (Original SightPlayer temp2)
-                            ai.react_tics = reaction_tics(*kind, &mut actor_rng).max(1);
-                        }
-                    }
-                }
-            }
+        if matches!(ai.state, EnemyAiState::Stand | EnemyAiState::Patrol) {
+            if ai.react_tics > 0 {
+                // Already Noticed the Player. Count the Reaction Delay Down
+                // Unconditionally (the Original Does Not Re-Check Sight Once
+                // temp2 is Armed) and Commit to the Chase When it Expires
+                ai.react_tics -= 1;
+                if ai.react_tics == 0 {
+                    ai.state = EnemyAiState::Chase;
+                    // Allow One Turnaround on the First dodge After Noticing
+                    ai.first_attack = true;
 
-            let in_pain = guard_pain.is_some()
-                || ss_pain.is_some()
-                || dog_pain.is_some()
-                || officer_pain.is_some()
-                || mutant_pain.is_some();
-
-            if in_pain {
-                continue;
-            }
-
-            if matches!(ai.state, EnemyAiState::Stand) {
-                continue;
-            }
-
-            if matches!(ai.state, EnemyAiState::Patrol) {
-                if moving_now {
-                    continue;
-                }
-
-                if patrol.is_none() {
-                    continue;
-                }
-
-                if in_bounds(my_tile) {
-                    let code = wolf_plane1.0[idx(my_tile)];
-                    if let Some(new_dir) = patrol_dir_from_plane1(code) {
-                        *dir8 = new_dir;
-                    }
-                }
-
-                let step = patrol_step_8way(*dir8);
-                let dest = my_tile + step;
-
-                if step == IVec2::ZERO || !in_bounds(dest) || dest == player_tile {
-                    dir8.0 = (dir8.0 + 4) & 7;
-                    continue;
-                }
-
-                let diagonal = step.x != 0 && step.y != 0;
-                if diagonal {
-                    let a = my_tile + IVec2::new(step.x, 0);
-                    let b = my_tile + IVec2::new(0, step.y);
-
-                    if !in_bounds(a) || !in_bounds(b) {
-                        dir8.0 = (dir8.0 + 4) & 7;
-                        continue;
-                    }
-
-                    if shared.occupied.contains(&a) || shared.occupied.contains(&b) {
-                        dir8.0 = (dir8.0 + 4) & 7;
-                        continue;
-                    }
-
-                    if solid.is_solid(a.x, a.y) || solid.is_solid(b.x, b.y) {
-                        dir8.0 = (dir8.0 + 4) & 7;
-                        continue;
-                    }
-
-                    let ta = tile_at(&grid, a).unwrap_or(Tile::Wall);
-                    let tb = tile_at(&grid, b).unwrap_or(Tile::Wall);
-                    if matches!(ta, Tile::Wall | Tile::DoorClosed) || matches!(tb, Tile::Wall | Tile::DoorClosed) {
-                        dir8.0 = (dir8.0 + 4) & 7;
-                        continue;
-                    }
-                }
-
-                if solid.is_solid(dest.x, dest.y) || shared.occupied.contains(&dest) {
-                    dir8.0 = (dir8.0 + 4) & 7;
-                    continue;
-                }
-
-                match tile_at(&grid, dest).unwrap_or(Tile::Wall) {
-                    Tile::Wall => {
-                        dir8.0 = (dir8.0 + 4) & 7;
-                        continue;
-                    }
-                    Tile::DoorClosed => {
-                        if !matches!(*kind, EnemyKind::Dog) {
-                            try_open_door_at(dest, &mut q_doors, &mut sfx);
-                        }
-                        continue;
-                    }
-                    Tile::DoorOpen | Tile::Empty => {
-                        let patrol_speed = t.chase_speed_tps * 0.65;
-
-                        if CLAIM_TILE_EARLY {
-                            occ.0 = dest;
-                        }
-
-                        let y = tf.translation.y;
-                        let target = Vec3::new(dest.x as f32, y, dest.y as f32);
-
-                        commands.entity(e).insert(EnemyMove {
-                            target,
-                            speed_tps: patrol_speed,
+                    if alerted.insert(e) && !matches!(*kind, EnemyKind::Mutant) {
+                        sfx.write(PlaySfx {
+                            kind: SfxKind::EnemyAlert(*kind),
+                            pos: tf.translation,
                         });
-
-                        shared.scheduled_move.insert(e);
-                        shared.occupied.insert(dest);
-                        if CLAIM_TILE_EARLY {
-                            shared.occupied.remove(&my_tile);
+                    }
+                }
+            } else {
+                let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
+                if same_area {
+                    // Original SightPlayer: an Actor in a Connected Area Wakes
+                    // on Sight; Non-Ambush Actors Also Wake on Gunfire Noise,
+                    // While Ambush (Deaf) Actors Ignore Noise and Need Sight
+                    let seen = check_sight(
+                        *dir8,
+                        my_tile,
+                        player_tile,
+                        tf.translation,
+                        player_pos,
+                        &grid,
+                    );
+                    let heard = made_noise && !ai.ambush;
+                    if seen || heard {
+                        if seen {
+                            // The Original Clears FL_AMBUSH the First Time an
+                            // Actor Actually Sees the Player
+                            ai.ambush = false;
                         }
+                        // First Tic the Actor Notices the Player. Arm the
+                        // Per-Class Reaction Delay Instead of Chasing Instantly
+                        // so the Actor Keeps Standing or Patrolling While it
+                        // "Reacts" (Original SightPlayer temp2)
+                        ai.react_tics = reaction_tics(*kind, &mut actor_rng).max(1);
                     }
                 }
             }
         }
 
-        // Restore Area Map Into Cache so Next Tic (This Frame or Later
-        // One) Can Reuse it Without Recomputing
-        shared.cached_area_map = areas;
+        let in_pain = guard_pain.is_some()
+            || ss_pain.is_some()
+            || dog_pain.is_some()
+            || officer_pain.is_some()
+            || mutant_pain.is_some();
+
+        if in_pain {
+            continue;
+        }
+
+        if matches!(ai.state, EnemyAiState::Stand) {
+            continue;
+        }
+
+        if matches!(ai.state, EnemyAiState::Patrol) {
+            if moving_now {
+                continue;
+            }
+
+            if patrol.is_none() {
+                continue;
+            }
+
+            if in_bounds(my_tile) {
+                let code = wolf_plane1.0[idx(my_tile)];
+                if let Some(new_dir) = patrol_dir_from_plane1(code) {
+                    *dir8 = new_dir;
+                }
+            }
+
+            let step = patrol_step_8way(*dir8);
+            let dest = my_tile + step;
+
+            if step == IVec2::ZERO || !in_bounds(dest) || dest == player_tile {
+                dir8.0 = (dir8.0 + 4) & 7;
+                continue;
+            }
+
+            let diagonal = step.x != 0 && step.y != 0;
+            if diagonal {
+                let a = my_tile + IVec2::new(step.x, 0);
+                let b = my_tile + IVec2::new(0, step.y);
+
+                if !in_bounds(a) || !in_bounds(b) {
+                    dir8.0 = (dir8.0 + 4) & 7;
+                    continue;
+                }
+
+                if shared.occupied.contains(&a) || shared.occupied.contains(&b) {
+                    dir8.0 = (dir8.0 + 4) & 7;
+                    continue;
+                }
+
+                if solid.is_solid(a.x, a.y) || solid.is_solid(b.x, b.y) {
+                    dir8.0 = (dir8.0 + 4) & 7;
+                    continue;
+                }
+
+                let ta = tile_at(&grid, a).unwrap_or(Tile::Wall);
+                let tb = tile_at(&grid, b).unwrap_or(Tile::Wall);
+                if matches!(ta, Tile::Wall | Tile::DoorClosed) || matches!(tb, Tile::Wall | Tile::DoorClosed) {
+                    dir8.0 = (dir8.0 + 4) & 7;
+                    continue;
+                }
+            }
+
+            if solid.is_solid(dest.x, dest.y) || shared.occupied.contains(&dest) {
+                dir8.0 = (dir8.0 + 4) & 7;
+                continue;
+            }
+
+            match tile_at(&grid, dest).unwrap_or(Tile::Wall) {
+                Tile::Wall => {
+                    dir8.0 = (dir8.0 + 4) & 7;
+                    continue;
+                }
+                Tile::DoorClosed => {
+                    if !matches!(*kind, EnemyKind::Dog) {
+                        try_open_door_at(dest, &mut q_doors, &mut sfx);
+                    }
+                    continue;
+                }
+                Tile::DoorOpen | Tile::Empty => {
+                    let patrol_speed = t.chase_speed_tps * 0.65;
+
+                    if CLAIM_TILE_EARLY {
+                        occ.0 = dest;
+                    }
+
+                    let y = tf.translation.y;
+                    let target = Vec3::new(dest.x as f32, y, dest.y as f32);
+
+                    commands.entity(e).insert(EnemyMove {
+                        target,
+                        speed_tps: patrol_speed,
+                    });
+
+                    shared.scheduled_move.insert(e);
+                    shared.occupied.insert(dest);
+                    if CLAIM_TILE_EARLY {
+                        shared.occupied.remove(&my_tile);
+                    }
+                }
+            }
+        }
     }
+
+    // Restore Area Map Into Cache so Next Tic (This Frame or Later
+    // One) Can Reuse it Without Recomputing
+    shared.cached_area_map = areas;
 }
 
 // SYSTEM 2: Handle Combat (Shooting, Dog Bites, Burst Fire)
@@ -2015,8 +2001,7 @@ pub struct EnemyAiPlugin;
 
 impl Plugin for EnemyAiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<AiTicker>()
-            .init_resource::<AiSharedData>()
+        app.init_resource::<AiSharedData>()
             .init_resource::<PlayerNoise>()
             .insert_resource(EnemyTunings::baseline())
             .add_message::<EnemyFire>()

@@ -221,7 +221,11 @@ fn main() {
 		.add_plugins(EnemyAiPlugin)
 		.add_plugins(combat::CombatPlugin)
 		.add_plugins(episode_end::EpisodeEndPlugin)
-		.insert_resource(Time::<Fixed>::from_seconds(1.0 / 60.0))
+		// Wolf3D Ran its Whole Simulation at 70 Hz. Matching That Makes One
+		// FixedUpdate Equal Exactly One AI Tic (tics == 1), so the Ported
+		// Formulas Behave as They Did at Full Speed and the Manual Sub-Tick
+		// Accumulators (AiTicker, Pushwall Clock) Are no Longer Needed
+		.insert_resource(Time::<Fixed>::from_hz(70.0))
 		.insert_resource(high_scores)
 		.init_resource::<PlayerSettings>()
 		.init_resource::<PlayerControlLock>()
