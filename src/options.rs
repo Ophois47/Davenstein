@@ -296,16 +296,18 @@ pub struct ResolutionList {
 impl Default for ResolutionList {
 	fn default() -> Self {
 		Self {
+			// Curated Set of the Most Common Resolutions Plus a Retro 320x240 Option
+			// The Monitor Native Mode Is Added at Startup by populate_resolution_list
+			// Kept Short so the Whole List Fits on Small Low-Resolution Screens Too
 			entries: vec![
+				(320, 240),
 				(640, 480),
 				(800, 600),
 				(1024, 768),
 				(1280, 720),
 				(1366, 768),
-				(1600, 900),
 				(1920, 1080),
 				(2560, 1440),
-				(3840, 2160),
 			],
 		}
 	}
@@ -581,18 +583,22 @@ fn populate_resolution_list(
 ) {
 	use std::collections::BTreeSet;
 
+	// Start From the Curated Popular Presets and Add Only the Monitor's Native
+	// (Largest Reported) Mode, so the List Stays Short Enough to Fit a Low-Res
+	// Screen Instead of Ballooning With Dozens of Near-Duplicate Monitor Modes
 	let mut merged: BTreeSet<(u32, u32)> = res_list.entries.iter().copied().collect();
 	let before = merged.len();
 
+	let mut native: Option<(u32, u32)> = None;
 	let mut monitor_found = 0usize;
 
 	for monitor in q_monitors.iter() {
 		for mode in &monitor.video_modes {
-			let w = mode.physical_size.x;
-			let h = mode.physical_size.y;
-			if w >= 640 && h >= 480 {
-				monitor_found += 1;
-				merged.insert((w, h));
+			let (w, h) = (mode.physical_size.x, mode.physical_size.y);
+			monitor_found += 1;
+			let px = w as u64 * h as u64;
+			if native.map_or(true, |(nw, nh)| px > nw as u64 * nh as u64) {
+				native = Some((w, h));
 			}
 		}
 	}
@@ -602,11 +608,15 @@ fn populate_resolution_list(
 		return;
 	}
 
+	if let Some(n) = native {
+		merged.insert(n);
+	}
+
 	let mut out: Vec<(u32, u32)> = merged.into_iter().collect();
 	out.sort_by_key(|&(w, h)| ((w as u64) * (h as u64), w as u64, h as u64));
 
 	info!(
-		"Resolution list merged: {} -> {} entries ({} monitor modes seen)",
+		"Resolution list: {} presets + native -> {} entries ({} monitor modes seen)",
 		before,
 		out.len(),
 		monitor_found
