@@ -257,6 +257,22 @@ pub struct WorldCanvas {
 #[derive(Component)]
 pub struct WorldPresenter;
 
+/// Marks the Persistent Window-Space UI Camera That All Menus, Splash Screens,
+/// the Intermission Tally, and Debug Overlays Render To. Unlike the World Canvas
+/// Camera (Which Owns 'IsDefaultUiCamera' and Draws the Chunky Low-Res HUD Into
+/// the Off-Screen Canvas), This Camera Draws in the Window's Own Logical Pixel
+/// Space so Window-Laid-Out UI Keeps Its Intended Size on Every Display, Scale
+/// Factor, and render_scale. It Is Spawned Once and Never Despawned so Its Entity
+/// Stays Valid Across Level Rebuilds
+#[derive(Component)]
+pub struct MenuUiCamera;
+
+/// Stores the Entity of the Persistent 'MenuUiCamera' so Any Module Can Target
+/// a UI Root At It via 'UiTargetCamera' Without Re-Querying for the Camera Each
+/// Frame. Inserted Once at Startup When the Camera Is Spawned
+#[derive(Resource, Clone, Copy)]
+pub struct MenuUiCameraRef(pub Entity);
+
 /// UI Reference Dimensions the HUD Lays Itself Out Against, in Physical Pixels
 /// This Is the Canvas (Render Target) Size, Not the Window, so the HUD Scales
 /// With render_scale and Stays Chunky at Low Scales Once UI Draws Into the Canvas

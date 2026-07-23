@@ -60,8 +60,10 @@ use bevy::asset::{
 	AssetMetaCheck,
 	AssetPlugin,
 };
+use bevy::camera::ClearColorConfig;
 use bevy::window::{PresentMode, WindowPlugin};
 use bevy::light::cluster::GlobalClusterSettings;
+use davelib::options::{MenuUiCamera, MenuUiCameraRef};
 
 use davelib::ai::EnemyAiPlugin;
 use davelib::map::MapGrid;
@@ -125,9 +127,6 @@ fn level_rebuild_requested(
     r.0 || n.0 || a.0 || l.0.is_some()
 }
 
-#[derive(Component)]
-struct BootUiCamera;
-
 /// Force CPU Light Clustering on the Software Render Path Only
 // The llvmpipe Renderer Clusters Lights on the CPU Regardless so the GPU Compute
 // Clustering Dispatch Is Pure Overhead There. Desktop Builds Keep the GPU Path
@@ -138,28 +137,36 @@ fn disable_gpu_clustering(_settings: Option<ResMut<GlobalClusterSettings>>) {
 	}
 }
 
-fn spawn_boot_ui_camera(mut commands: Commands) {
-	commands.spawn((
-		BootUiCamera,
-		Camera2d::default(),
-		Camera {
-			order: -10,
-			..default()
-		},
-	));
-}
+/// Spawn the Persistent Window-Space UI Camera Once at Startup and Record Its
+/// Entity in 'MenuUiCameraRef'. This Camera Draws Every Window-Laid-Out UI Root
+/// (Menus, Splash, the Intermission Tally, Debug Overlays) at the Window's Own
+/// Logical Size, Independent of the Low-Res World Canvas
+///
+/// It Sits at a High Render 'order' (Above the World Present Camera at order 1)
+/// so Menus Composite On Top of the Presented Game, and Uses
+/// 'ClearColorConfig::None' so It Never Wipes the Game Behind It: When No Menu Is
+/// Open It Simply Draws Nothing and the Presented World Shows Through, and When a
+/// Full-Screen Menu Is Open That Menu's Own Opaque Background Covers the Game.
+/// It Deliberately Does NOT Carry 'IsDefaultUiCamera' - That Stays on the World
+/// Canvas Camera so the In-Game HUD Keeps Rendering Into the Canvas and Scaling
+/// With render_scale. It Is Never Despawned by the Level Rebuild Path, so Its
+/// Entity Stays Valid for the Whole Run
+fn spawn_menu_ui_camera(mut commands: Commands) {
+	let entity = commands
+		.spawn((
+			MenuUiCamera,
+			Camera2d::default(),
+			Camera {
+				// Above the World Present Camera (order 1) so Menus Draw on Top
+				order: 10,
+				// Composite Over the Game Instead of Clearing It (See Doc Above)
+				clear_color: ClearColorConfig::None,
+				..default()
+			},
+		))
+		.id();
 
-fn disable_boot_ui_camera_when_player_camera_ready(
-	mut q_boot: Query<&mut Camera, With<BootUiCamera>>,
-	q_ui_cam: Query<(), (With<Camera>, With<bevy::ui::prelude::IsDefaultUiCamera>, Without<BootUiCamera>)>,
-) {
-	if q_ui_cam.iter().next().is_none() {
-		return;
-	}
-
-	for mut cam in q_boot.iter_mut() {
-		cam.is_active = false;
-	}
+	commands.insert_resource(MenuUiCameraRef(entity));
 }
 
 fn main() {
@@ -253,7 +260,7 @@ fn main() {
 		.add_message::<RebuildWalls>()
 		.add_systems(Startup, setup_audio)
 		.add_systems(Startup, start_music.after(setup_audio))
-		.add_systems(Startup, spawn_boot_ui_camera)
+		.add_systems(Startup, spawn_menu_ui_camera)
 		.add_systems(Startup, disable_gpu_clustering)
 		.add_systems(
 			Update,
@@ -288,7 +295,6 @@ fn main() {
 				restart::restart_despawn_level,
 				setup,
 				ApplyDeferred,
-				disable_boot_ui_camera_when_player_camera_ready,
 				spawn_decorations,
 				pickups::spawn_pickups,
 			)

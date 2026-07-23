@@ -42,6 +42,9 @@ impl Plugin for UiPlugin {
 			.add_plugins(splash::SplashPlugin)
 			.add_systems(Startup, hud::setup_hud)
 			.add_systems(Startup, splash::setup_splash)
+			// Keep Window-Space UI (Menus, Splash, Intermission, Overlays) on the
+			// Persistent Menu Camera so It Never Falls Into the Low-Res World Canvas
+			.add_systems(Update, hud::route_window_ui_to_menu_camera)
 			// Core State / Sync Systems
 			.add_systems(Update, sync::apply_enemy_fire_to_player_vitals)
 			.add_systems(Update, sync::sync_player_hp_with_hud)

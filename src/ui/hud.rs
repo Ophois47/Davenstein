@@ -4,9 +4,10 @@ Davenstein - by David Petnick
 
 use bevy::ecs::system::ParamSet;
 use bevy::prelude::*;
+use bevy::ui::UiTargetCamera;
 use bevy::ui::widget::NodeImageMode;
 use bevy::window::PrimaryWindow;
-use davelib::options::{WorldCanvas, ui_ref_dims};
+use davelib::options::{MenuUiCameraRef, WorldCanvas, ui_ref_dims};
 
 use super::{
     HudState,
@@ -2691,6 +2692,60 @@ pub(crate) fn sync_viewmodel_visibility(
         None => {
             commands.entity(vm_e).insert(Visibility::Visible);
         }
+    }
+}
+
+/// Route Every Window-Laid-Out UI Root to the Persistent 'MenuUiCamera'
+///
+/// The World Canvas Camera Owns 'IsDefaultUiCamera', so Any UI Node Without an
+/// Explicit Target Would Otherwise Render Into the Low-Res Off-Screen Canvas and
+/// Appear Shrunken and Centered Once a Level Exists. Everything the Player Reads
+/// in Window Space - Main Menu, Options, Splash, Get-Psyched Loading, Episode-End
+/// Text, and Debug Overlays - Is a Top-Level Root ('Without<ChildOf>'), so We
+/// Target Each Such Root at the Menu Camera. The Only Top-Level Root That Must
+/// Stay on the Canvas Is 'HudRoot' (the Whole In-Game HUD Subtree Hangs Off It
+/// and Inherits Its Target), so It Is Explicitly Excluded
+///
+/// The Intermission Tally ('MissionSuccessOverlay') Is a Special Case: It Lives
+/// *Under* 'HudRoot' for Lifecycle Reasons but Is Laid Out in Logical Window
+/// Units, so It Is Given Its Own Explicit Target to Pull It Back Out of the
+/// Canvas and Onto the Menu Camera at Full Window Size
+///
+/// The '.insert' Is Guarded by 'Without<UiTargetCamera>' so Each Root Is Targeted
+/// Exactly Once and Freshly Spawned Menus Are Picked Up on the Following Frame
+pub(super) fn route_window_ui_to_menu_camera(
+    mut commands: Commands,
+    menu_cam: Option<Res<MenuUiCameraRef>>,
+    q_untargeted_roots: Query<
+        Entity,
+        (
+            With<Node>,
+            Without<ChildOf>,
+            Without<UiTargetCamera>,
+            Without<HudRoot>,
+        ),
+    >,
+    q_mission_overlay: Query<
+        Entity,
+        (
+            With<crate::level_complete::MissionSuccessOverlay>,
+            Without<UiTargetCamera>,
+        ),
+    >,
+) {
+    // The Camera Is Spawned at Startup; Bail Quietly if It Is Not Ready Yet
+    let Some(menu_cam) = menu_cam else {
+        return;
+    };
+
+    // Every Top-Level Window UI Root Except the HUD
+    for root in &q_untargeted_roots {
+        commands.entity(root).insert(UiTargetCamera(menu_cam.0));
+    }
+
+    // The Intermission Tally, Which Lives Under HudRoot but Renders in Window Space
+    for overlay in &q_mission_overlay {
+        commands.entity(overlay).insert(UiTargetCamera(menu_cam.0));
     }
 }
 
