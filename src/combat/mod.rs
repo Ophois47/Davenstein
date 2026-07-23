@@ -143,7 +143,7 @@ fn process_fire_shots(
     mut q_hp: Query<&mut Health, (With<EnemyKind>, Without<Dead>)>,
     mut q_ai: Query<&mut EnemyAi, (With<EnemyKind>, Without<Dead>)>,
     mut level_score: ResMut<davelib::level_score::LevelScore>,
-    mut rng: Local<u32>,
+    mut wolf_rng: ResMut<davelib::ai::WolfRng>,
 ) {
     let (Some(grid), Some(solid)) = (grid, solid) else {
         return;
@@ -158,19 +158,6 @@ fn process_fire_shots(
             // Guard / SS / Officer / Mutant
             _ => (0.48, 0.65, 0.50),
         }
-    }
-
-    fn xorshift32(s: &mut u32) -> u32 {
-        let mut x = *s;
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        *s = x;
-        x
-    }
-
-    fn rnd_byte(rng: &mut u32) -> i32 {
-        (xorshift32(rng) & 0xFF) as i32
     }
 
     fn ray_exit_dist_xz(origin: Vec3, dir: Vec3, w: usize, h: usize) -> Option<f32> {
@@ -226,25 +213,25 @@ fn process_fire_shots(
         (t_exit >= 0.0).then_some(t_exit)
     }
 
-    fn roll_gun_damage(dist_tiles: i32, rng: &mut u32) -> Option<i32> {
+    fn roll_gun_damage(dist_tiles: i32, rng: &mut davelib::ai::WolfRng) -> Option<i32> {
         let effective_dist = (dist_tiles.max(0) / 2).clamp(0, 20);
         // Treat 0 Damage as Miss so Hits Never Deal 0
         let damage = if effective_dist < 2 {
-            rnd_byte(rng) / 4
+            rng.us_rnd_t() / 4
         } else if effective_dist < 4 {
-            rnd_byte(rng) / 6
+            rng.us_rnd_t() / 6
         } else {
-            if (rnd_byte(rng) / 12) < effective_dist {
+            if (rng.us_rnd_t() / 12) < effective_dist {
                 return None;
             }
-            rnd_byte(rng) / 6
+            rng.us_rnd_t() / 6
         };
 
         (damage > 0).then_some(damage)
     }
 
-    fn roll_knife_damage(rng: &mut u32) -> i32 {
-        (rnd_byte(rng) / 4).max(1)
+    fn roll_knife_damage(rng: &mut davelib::ai::WolfRng) -> i32 {
+        (rng.us_rnd_t() / 4).max(1)
     }
 
     fn ray_hit_vertical_cylinder(
@@ -293,11 +280,6 @@ fn process_fire_shots(
         } else {
             None
         }
-    }
-
-    // Seed RNG Once
-    if *rng == 0 {
-        *rng = 0xC0FFEE_u32;
     }
 
     for shot in shots.read() {
@@ -355,9 +337,9 @@ fn process_fire_shots(
         // Enemy Hit Consumes Shot
         if let Some((e, kind, _t, dist_tiles)) = best {
             let mut dmg_opt = match shot.weapon {
-                WeaponSlot::Knife => Some(roll_knife_damage(&mut *rng)),
+                WeaponSlot::Knife => Some(roll_knife_damage(&mut wolf_rng)),
                 WeaponSlot::Pistol | WeaponSlot::MachineGun | WeaponSlot::Chaingun => {
-                    roll_gun_damage(dist_tiles, &mut *rng)
+                    roll_gun_damage(dist_tiles, &mut wolf_rng)
                 }
             };
 

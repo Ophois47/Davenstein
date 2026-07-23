@@ -2705,16 +2705,17 @@ fn tick_dog_bite(
     tunings: Res<EnemyTunings>,
     q_player: Query<&GlobalTransform, With<Player>>,
     mut enemy_fire: MessageWriter<crate::ai::EnemyFire>,
+    mut wolf_rng: ResMut<crate::ai::WolfRng>,
     mut q: Query<(Entity, &GlobalTransform, &mut DogBite, Option<&DogPain>), With<Dog>>,
 ) {
     let Some(player_gt) = q_player.iter().next() else { return; };
     let player_pos = player_gt.translation();
     let player_tile = IVec2::new(player_pos.x.round() as i32, player_pos.z.round() as i32);
 
-    // Wolf3D (1992): dog bite hits ~70% of the time and does (US_RndT() >> 4) damage (0..15)
-    // NOTE: This can yield 0 damage; if you decide you never want 0 from a *landed* bite
-    // we can clamp it to at least 1
-    const BITE_HIT_CHANCE: f32 = 0.70;
+    // Wolf3D (1992) T_Bite: the Bite Lands When US_RndT() < 180 (~70%) and Deals
+    // US_RndT() >> 4 Damage (0..=15). This Can Yield 0 From a Landed Bite, Exactly
+    // as in the Original; Clamp to at Least 1 Here if you Ever Want to Change That
+    const BITE_HIT_THRESHOLD: i32 = 180;
 
     for (e, gt, mut bite, pain) in q.iter_mut() {
         // Pain interrupts the bite immediately (no damage, no cooldown)
@@ -2735,8 +2736,10 @@ fn tick_dog_bite(
         let dy = (player_tile.y - dog_tile.y).abs();
         let dist_tiles = dx.max(dy) as f32;
 
-        if dist_tiles <= tunings.dog.attack_range_tiles && rand::random::<f32>() < BITE_HIT_CHANCE {
-            let dmg = (rand::random::<u8>() >> 4) as i32;
+        if dist_tiles <= tunings.dog.attack_range_tiles
+            && wolf_rng.us_rnd_t() < BITE_HIT_THRESHOLD
+        {
+            let dmg = wolf_rng.us_rnd_t() >> 4;
             enemy_fire.write(crate::ai::EnemyFire {
                 kind: EnemyKind::Dog,
                 damage: dmg,

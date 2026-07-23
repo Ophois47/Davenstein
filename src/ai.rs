@@ -611,23 +611,50 @@ impl AreaMap {
     }
 }
 
-// --- Wolf3D RNG (US_RndT Analog) -------------------------------------------
-// The Original Pulls Every Random Number From One Shared 256-Entry Table via
-// US_RndT() (Returns 0..=255). We Mirror its Statistics With a Deterministic
-// xorshift, Matching What combat/mod.rs Already Does for the Player's Gun
-// (a Bit-Exact, Table-Driven US_RndT Shared Across the Whole Game is its Own
-// Checklist Item)
-fn xorshift32(s: &mut u32) -> u32 {
-    let mut x = *s;
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^= x << 5;
-    *s = x;
-    x
+// --- Wolf3D RNG (Authentic US_RndT Table) ----------------------------------
+// The 256-Entry Table and the Pre-Increment Index Are Copied Verbatim From id's
+// WOLFSRC/ID_US_A.ASM. US_RndT Advances the Index (Wrapping at 256) and Returns
+// the Byte There, so Every Random Value the AI Draws is One of id's Own Numbers.
+// A Single Shared WolfRng Resource Mirrors the Original's One Global rndindex
+pub const RND_TABLE: [u8; 256] = [
+    0, 8, 109, 220, 222, 241, 149, 107, 75, 248, 254, 140,
+    16, 66, 74, 21, 211, 47, 80, 242, 154, 27, 205, 128,
+    161, 89, 77, 36, 95, 110, 85, 48, 212, 140, 211, 249,
+    22, 79, 200, 50, 28, 188, 52, 140, 202, 120, 68, 145,
+    62, 70, 184, 190, 91, 197, 152, 224, 149, 104, 25, 178,
+    252, 182, 202, 182, 141, 197, 4, 81, 181, 242, 145, 42,
+    39, 227, 156, 198, 225, 193, 219, 93, 122, 175, 249, 0,
+    175, 143, 70, 239, 46, 246, 163, 53, 163, 109, 168, 135,
+    2, 235, 25, 92, 20, 145, 138, 77, 69, 166, 78, 176,
+    173, 212, 166, 113, 94, 161, 41, 50, 239, 49, 111, 164,
+    70, 60, 2, 37, 171, 75, 136, 156, 11, 56, 42, 146,
+    138, 229, 73, 146, 77, 61, 98, 196, 135, 106, 63, 197,
+    195, 86, 96, 203, 113, 101, 170, 247, 181, 113, 80, 250,
+    108, 7, 255, 237, 129, 226, 79, 107, 112, 166, 103, 241,
+    24, 223, 239, 120, 198, 58, 60, 82, 128, 3, 184, 66,
+    143, 224, 145, 224, 81, 206, 163, 45, 63, 90, 168, 114,
+    59, 33, 159, 95, 28, 139, 123, 98, 125, 196, 15, 70,
+    194, 253, 54, 14, 109, 226, 71, 17, 161, 93, 186, 87,
+    244, 138, 20, 52, 123, 251, 26, 36, 17, 46, 52, 231,
+    232, 76, 31, 221, 84, 37, 216, 165, 212, 106, 197, 242,
+    98, 43, 39, 175, 254, 145, 190, 84, 118, 222, 187, 136,
+    120, 163, 236, 249,
+];
+
+// Shared Table-Driven RNG Standing in for the Original Global rndindex. Default
+// Index 0 Matches US_InitRndT(false), so the First Draw Returns RND_TABLE[1]
+#[derive(Resource, Debug, Default, Clone, Copy)]
+pub struct WolfRng {
+    index: usize,
 }
 
-fn rnd_byte(rng: &mut u32) -> i32 {
-    (xorshift32(rng) & 0xFF) as i32
+impl WolfRng {
+    // Faithful US_RndT: Pre-Increment the Wrapping Index, Then Return That Byte
+    // (0..=255) as an i32 Ready for the Shifts and Comparisons the Callers Use
+    pub fn us_rnd_t(&mut self) -> i32 {
+        self.index = (self.index + 1) & 0xFF;
+        RND_TABLE[self.index] as i32
+    }
 }
 
 /// "Better Shots." The Original T_Shoot Tests Only `ssobj || bossobj`, and
@@ -653,7 +680,7 @@ fn wolf_t_shoot(
     player_running: bool,
     actor_visible: bool,
     kind: EnemyKind,
-    rng: &mut u32,
+    rng: &mut WolfRng,
 ) -> Option<i32> {
     let mut dist = dist_tiles.max(0);
     if sharp_shooter(kind) {
@@ -669,17 +696,17 @@ fn wolf_t_shoot(
         (false, false) => 256 - dist * 8,
     };
 
-    if rnd_byte(rng) >= hitchance {
+    if rng.us_rnd_t() >= hitchance {
         return None; // Missed
     }
 
     // Damage Tapers With Distance: r/4 Point-Blank, r/8 Mid, r/16 Far
     let damage = if dist < 2 {
-        rnd_byte(rng) >> 2
+        rng.us_rnd_t() >> 2
     } else if dist < 4 {
-        rnd_byte(rng) >> 3
+        rng.us_rnd_t() >> 3
     } else {
-        rnd_byte(rng) >> 4
+        rng.us_rnd_t() >> 4
     };
 
     Some(damage)
@@ -688,12 +715,12 @@ fn wolf_t_shoot(
 /// Per-Class Reaction Delay in Tics (70 Hz) Before a Noticing Actor Engages,
 /// Taken Straight From the Original SightPlayer (WOLFSRC/WL_STATE.C). Guards
 /// Hesitate the Longest and Most Randomly; Dogs React Fast and Bosses Instantly.
-fn reaction_tics(kind: EnemyKind, rng: &mut u32) -> u32 {
+fn reaction_tics(kind: EnemyKind, rng: &mut WolfRng) -> u32 {
     match kind {
-        EnemyKind::Guard => 1 + (rnd_byte(rng) as u32) / 4,
+        EnemyKind::Guard => 1 + (rng.us_rnd_t() as u32) / 4,
         EnemyKind::Officer => 2,
-        EnemyKind::Mutant | EnemyKind::Ss => 1 + (rnd_byte(rng) as u32) / 6,
-        EnemyKind::Dog => 1 + (rnd_byte(rng) as u32) / 8,
+        EnemyKind::Mutant | EnemyKind::Ss => 1 + (rng.us_rnd_t() as u32) / 6,
+        EnemyKind::Dog => 1 + (rng.us_rnd_t() as u32) / 8,
         // Bosses and Special Actors React Almost Instantly
         _ => 1,
     }
@@ -732,7 +759,7 @@ fn enemy_ai_prepare_and_activate(
     intent: Res<PlayerIntent>,
     mut sfx: MessageWriter<PlaySfx>,
     mut alerted: Local<HashSet<Entity>>,
-    mut rng: Local<u32>,
+    mut wolf_rng: ResMut<WolfRng>,
     wolf_plane1: Res<crate::level::WolfPlane1>,
     tunings: Res<EnemyTunings>,
     mut shared: ResMut<AiSharedData>,
@@ -765,11 +792,6 @@ fn enemy_ai_prepare_and_activate(
     shared.player_running = intent.run;
     let fwd = player_gt.forward();
     shared.player_forward = Vec2::new(fwd.x, fwd.z).normalize_or_zero();
-
-    // xorshift Cannot Start at 0; Seed Once With a Distinct Nonzero Constant
-    if *rng == 0 {
-        *rng = 0x2545_F491;
-    }
 
     let made_noise = shared.made_noise;
 
@@ -933,7 +955,7 @@ fn enemy_ai_prepare_and_activate(
                             // Per-Class Reaction Delay Instead of Chasing Instantly
                             // so the Actor Keeps Standing or Patrolling While it
                             // "Reacts" (Original SightPlayer temp2)
-                            ai.react_tics = reaction_tics(*kind, &mut rng).max(1);
+                            ai.react_tics = reaction_tics(*kind, &mut wolf_rng).max(1);
                         }
                     }
                 }
@@ -1065,7 +1087,7 @@ fn enemy_ai_combat(
     mut shoot_cd: Local<HashMap<Entity, f32>>,
     mut bursts: Local<HashMap<Entity, BurstFire>>,
     mut los_hold: Local<HashMap<Entity, f32>>,
-    mut rng: Local<u32>,
+    mut wolf_rng: ResMut<WolfRng>,
     tunings: Res<EnemyTunings>,
     shared: Res<AiSharedData>,
     q_enemies: Query<
@@ -1084,11 +1106,6 @@ fn enemy_ai_combat(
     >,
 ) {
     let dt = time.delta_secs();
-
-    // xorshift Cannot Start at 0; Seed Once With an Arbitrary Nonzero Constant
-    if *rng == 0 {
-        *rng = 0x9E37_79B9;
-    }
 
     shoot_cd.retain(|_, t| {
         *t -= dt;
@@ -1205,7 +1222,7 @@ fn enemy_ai_combat(
                             shared.player_running,
                             actor_visible,
                             *kind,
-                            &mut rng,
+                            &mut wolf_rng,
                         ) {
                             enemy_fire.write(EnemyFire { kind: *kind, damage });
                         }
@@ -1231,7 +1248,7 @@ fn enemy_ai_combat(
                             shared.player_running,
                             actor_visible,
                             *kind,
-                            &mut rng,
+                            &mut wolf_rng,
                         ) {
                             enemy_fire.write(EnemyFire { kind: *kind, damage });
                         }
@@ -1471,7 +1488,7 @@ fn enemy_ai_combat(
                         shared.player_running,
                         actor_visible,
                         *kind,
-                        &mut rng,
+                        &mut wolf_rng,
                     ) {
                         enemy_fire.write(EnemyFire { kind: *kind, damage });
                     }
@@ -1820,6 +1837,7 @@ impl Plugin for EnemyAiPlugin {
         app.init_resource::<AiTicker>()
             .init_resource::<AiSharedData>()
             .init_resource::<PlayerNoise>()
+            .init_resource::<WolfRng>()
             .insert_resource(EnemyTunings::baseline())
             .add_message::<EnemyFire>()
             .add_message::<EnemyFireballShot>()
