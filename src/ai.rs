@@ -1755,6 +1755,21 @@ fn enemy_ai_movement(
             continue;
         }
 
+        // Stop to Shoot (Faithful T_Chase Priority): an Actor With a Clear Shot in
+        // Range Plants and Fires Rather Than Dodging Through it -- Combat Fires it
+        // While it Holds Still. It Only Dodges or Chases to Close the Distance When
+        // it Lacks a Shot, so it no Longer Zig-Zags Instead of Shooting
+        if t.can_shoot {
+            let dx = (player_tile.x - my_tile.x).abs();
+            let dy = (player_tile.y - my_tile.y).abs();
+            let shoot_dist = dx.max(dy);
+            if shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES
+                && has_line_of_sight(&grid, my_tile, player_tile)
+            {
+                continue;
+            }
+        }
+
         let mut moved_or_acted = false;
 
         // Dodge Weave: With a Clear Shot (CheckLine) the Actor Strafes Toward the
