@@ -6,6 +6,7 @@ use bevy::ecs::system::ParamSet;
 use bevy::prelude::*;
 use bevy::ui::widget::NodeImageMode;
 use bevy::window::PrimaryWindow;
+use davelib::options::{WorldCanvas, ui_ref_dims};
 
 use super::{
     HudState,
@@ -467,15 +468,16 @@ pub(crate) fn sync_hud_floor_digits(
 
 pub(crate) fn sync_viewmodel_size(
     q_win: Query<&Window, With<PrimaryWindow>>,
+    canvas: Option<Res<WorldCanvas>>,
     mut q_vm: Query<&mut Node, With<ViewModelImage>>,
 ) {
-    let Some(win) = q_win.iter().next() else { return; };
     let Some(mut node) = q_vm.iter_mut().next() else { return; };
+    let (_ui_w, ui_h) = ui_ref_dims(canvas.as_deref(), &q_win);
 
     const STATUS_BAR_H: f32 = 64.0;
     const VIEWMODEL_HEIGHT_FRAC: f32 = 0.62;
 
-    let view_h = (win.resolution.height() - STATUS_BAR_H).max(1.0);
+    let view_h = (ui_h - STATUS_BAR_H).max(1.0);
     let gun_px = view_h * VIEWMODEL_HEIGHT_FRAC;
 
     node.width = Val::Px(gun_px);
@@ -1368,7 +1370,7 @@ fn hud_stretch_image(image: Handle<Image>) -> ImageNode {
     }
 }
 
-fn compute_hud_layout(q_windows: &Query<&Window, With<PrimaryWindow>>) -> HudLayout {
+fn compute_hud_layout(canvas_w: f32) -> HudLayout {
     // --- Native Wolf HUD Sizing (Current Strip-Only HUD) ---
     const HUD_W: f32 = 320.0;
     const STATUS_H: f32 = 44.0;
@@ -1408,9 +1410,9 @@ fn compute_hud_layout(q_windows: &Query<&Window, With<PrimaryWindow>>) -> HudLay
     // Current Player Level
     const FLOOR_X: f32 = 14.0;
 
-    // Pixel-Perfect Integer Scale From Window Width
-    let win = q_windows.iter().next().expect("PrimaryWindow");
-    let win_w = win.resolution.width();
+    // Pixel-Perfect Integer Scale From the Canvas Width (Not the Window) so
+    // the HUD Scales With render_scale and Stays Chunky at Low Scales
+    let win_w = canvas_w;
     let hud_scale_i = (win_w / HUD_W).floor().max(1.0) as i32;
     let hud_scale = hud_scale_i as f32;
 
@@ -1550,6 +1552,7 @@ fn spawn_view_area(
 pub(super) fn sync_hud_layout_on_window_change(
     q_changed: Query<&Window, (With<PrimaryWindow>, Changed<Window>)>,
     q_win: Query<&Window, With<PrimaryWindow>>,
+    canvas: Option<Res<WorldCanvas>>,
     mut set: ParamSet<(
         Query<
             (
@@ -1594,11 +1597,13 @@ pub(super) fn sync_hud_layout_on_window_change(
         >,
     )>,
 ) {
-    if q_changed.iter().next().is_none() {
+    let canvas_changed = canvas.as_ref().map_or(false, |c| c.is_changed());
+    if q_changed.iter().next().is_none() && !canvas_changed {
         return;
     }
 
-    let layout = compute_hud_layout(&q_win);
+    let (ui_w, _ui_h) = ui_ref_dims(canvas.as_deref(), &q_win);
+    let layout = compute_hud_layout(ui_w);
 
     {
         let mut q = set.p0();
@@ -2409,14 +2414,13 @@ pub(crate) fn sync_view_size_border(
     settings: Res<davelib::options::VideoSettings>,
     player_query: Query<(), With<Player>>,
     q_window: Query<&Window, With<PrimaryWindow>>,
+    canvas: Option<Res<WorldCanvas>>,
     q_border_root: Query<Entity, With<ViewSizeBorderRoot>>,
     q_hud_root: Query<Entity, With<HudRoot>>,
     mut last_state: Local<Option<(u8, bool, u32, u32)>>,
 ) {
     let has_player = !player_query.is_empty();
-    let Some(window) = q_window.iter().next() else { return; };
-    let win_w = window.resolution.width();
-    let win_h = window.resolution.height();
+    let (win_w, win_h) = ui_ref_dims(canvas.as_deref(), &q_window);
 
     let vs = settings.view_size.clamp(4, 20);
     let current = (vs, has_player, win_w as u32, win_h as u32);
@@ -2695,10 +2699,12 @@ pub(crate) fn setup_hud(
     asset_server: Res<AssetServer>,
     hud: Res<HudState>,
     q_windows: Query<&Window, With<PrimaryWindow>>,
+    canvas: Option<Res<WorldCanvas>>,
     current_level: Res<CurrentLevel>,
 ) {
     let assets = load_hud_setup_assets(&mut commands, &asset_server, &hud);
-    let layout = compute_hud_layout(&q_windows);
+    let (ui_w, _ui_h) = ui_ref_dims(canvas.as_deref(), &q_windows);
+    let layout = compute_hud_layout(ui_w);
 
     // Root HUD Node (Full Screen), COLUMN so status bar lands at the bottom
     let root = commands
