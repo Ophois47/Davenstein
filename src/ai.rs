@@ -315,7 +315,7 @@ fn select_dodge_step(
     player_tile: IVec2,
     last_step: IVec2,
     first_attack: bool,
-    rng: &mut WolfRng,
+    rng: &mut TableRng,
 ) -> Option<IVec2> {
     let deltax = player_tile.x - my_tile.x;
     let deltay = player_tile.y - my_tile.y;
@@ -413,6 +413,7 @@ fn attach_enemy_ai(
     grid: Res<MapGrid>,
     wolf_plane1: Res<crate::level::WolfPlane1>,
     mut q_new: Query<(Entity, &EnemyKind, &OccupiesTile, &mut Dir8), (Added<EnemyKind>, Without<EnemyAi>)>,
+    mut spawn_seq: Local<usize>,
 ) {
     let w = grid.width as i32;
 
@@ -440,13 +441,21 @@ fn attach_enemy_ai(
             && grid.plane0_code(t.x as usize, t.y as usize) == AMBUSHTILE;
         let ambush = is_ambush_kind(*kind) || on_ambush_tile;
 
-        commands.entity(e).insert(EnemyAi {
-            state,
-            last_step: IVec2::ZERO,
-            react_tics: 0,
-            ambush,
-            first_attack: false,
-        });
+        // Stride the Seeds (151 is Coprime With 256) so Consecutively Spawned
+        // Actors Start at Well-Separated Points in the Table Rather Than Adjacent
+        let rng_seed = spawn_seq.wrapping_mul(151);
+        *spawn_seq = spawn_seq.wrapping_add(1);
+
+        commands.entity(e).insert((
+            EnemyAi {
+                state,
+                last_step: IVec2::ZERO,
+                react_tics: 0,
+                ambush,
+                first_attack: false,
+            },
+            TableRng::seeded(rng_seed),
+        ));
     }
 }
 
@@ -736,8 +745,12 @@ impl AreaMap {
 // --- Wolf3D RNG (Authentic US_RndT Table) ----------------------------------
 // The 256-Entry Table and the Pre-Increment Index Are Copied Verbatim From id's
 // WOLFSRC/ID_US_A.ASM. US_RndT Advances the Index (Wrapping at 256) and Returns
-// the Byte There, so Every Random Value the AI Draws is One of id's Own Numbers.
-// A Single Shared WolfRng Resource Mirrors the Original's One Global rndindex
+// the Byte There, so Every Random Value Drawn is One of id's Own Numbers.
+//
+// Where the DOS Game Kept One Global rndindex, we Give Each Actor its Own Cursor
+// (a TableRng Component) and the Player's Weapon a System-Local One. Same Table,
+// but no Shared Mutable State: the ECS Can Schedule These Systems Freely and Each
+// Actor's Randomness is Independent and Deterministic
 pub const RND_TABLE: [u8; 256] = [
     0, 8, 109, 220, 222, 241, 149, 107, 75, 248, 254, 140,
     16, 66, 74, 21, 211, 47, 80, 242, 154, 27, 205, 128,
@@ -763,16 +776,24 @@ pub const RND_TABLE: [u8; 256] = [
     120, 163, 236, 249,
 ];
 
-// Shared Table-Driven RNG Standing in for the Original Global rndindex. Default
-// Index 0 Matches US_InitRndT(false), so the First Draw Returns RND_TABLE[1]
-#[derive(Resource, Debug, Default, Clone, Copy)]
-pub struct WolfRng {
+/// A Per-Owner Cursor Into id's [`RND_TABLE`]. Actors Carry One as a Component
+/// so the AI Systems Never Share Mutable RNG State; the Player's Weapon Holds one
+/// in a `Local`. Default Index 0 Matches `US_InitRndT(false)`, so the First Draw
+/// Returns `RND_TABLE[1]`.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct TableRng {
     index: usize,
 }
 
-impl WolfRng {
-    // Faithful US_RndT: Pre-Increment the Wrapping Index, Then Return That Byte
-    // (0..=255) as an i32 Ready for the Shifts and Comparisons the Callers Use
+impl TableRng {
+    /// Start the Cursor at `seed` (Taken Mod 256). Handing Each Actor a Distinct
+    /// Seed Keeps Them From Drawing Identical Sequences in Lockstep.
+    pub fn seeded(seed: usize) -> Self {
+        Self { index: seed & 0xFF }
+    }
+
+    /// Faithful `US_RndT`: Pre-Increment the Wrapping Index, Then Return That Byte
+    /// (0..=255) as an `i32` Ready for the Shifts and Comparisons Callers Use.
     pub fn us_rnd_t(&mut self) -> i32 {
         self.index = (self.index + 1) & 0xFF;
         RND_TABLE[self.index] as i32
@@ -802,7 +823,7 @@ fn wolf_t_shoot(
     player_running: bool,
     actor_visible: bool,
     kind: EnemyKind,
-    rng: &mut WolfRng,
+    rng: &mut TableRng,
 ) -> Option<i32> {
     let mut dist = dist_tiles.max(0);
     if sharp_shooter(kind) {
@@ -837,7 +858,7 @@ fn wolf_t_shoot(
 /// Per-Class Reaction Delay in Tics (70 Hz) Before a Noticing Actor Engages,
 /// Taken Straight From the Original SightPlayer (WOLFSRC/WL_STATE.C). Guards
 /// Hesitate the Longest and Most Randomly; Dogs React Fast and Bosses Instantly.
-fn reaction_tics(kind: EnemyKind, rng: &mut WolfRng) -> u32 {
+fn reaction_tics(kind: EnemyKind, rng: &mut TableRng) -> u32 {
     match kind {
         EnemyKind::Guard => 1 + (rng.us_rnd_t() as u32) / 4,
         EnemyKind::Officer => 2,
@@ -881,7 +902,6 @@ fn enemy_ai_prepare_and_activate(
     intent: Res<PlayerIntent>,
     mut sfx: MessageWriter<PlaySfx>,
     mut alerted: Local<HashSet<Entity>>,
-    mut wolf_rng: ResMut<WolfRng>,
     wolf_plane1: Res<crate::level::WolfPlane1>,
     tunings: Res<EnemyTunings>,
     mut shared: ResMut<AiSharedData>,
@@ -901,6 +921,7 @@ fn enemy_ai_prepare_and_activate(
             Option<&crate::enemies::SsPain>,
             Option<&crate::enemies::OfficerPain>,
             Option<&crate::enemies::DogPain>,
+            &mut TableRng,
         ),
         (With<EnemyKind>, Without<Player>, Without<Dead>),
     >,
@@ -1010,6 +1031,7 @@ fn enemy_ai_prepare_and_activate(
                 _ss_pain,
                 _officer_pain,
                 _dog_pain,
+                _rng,
             ) in q_enemies.iter_mut()
             {
                 shared.occupied.insert(occ.0);
@@ -1030,6 +1052,7 @@ fn enemy_ai_prepare_and_activate(
             ss_pain,
             officer_pain,
             dog_pain,
+            mut actor_rng,
         ) in q_enemies.iter_mut()
         {
             let t = tunings.for_kind(*kind);
@@ -1079,7 +1102,7 @@ fn enemy_ai_prepare_and_activate(
                             // Per-Class Reaction Delay Instead of Chasing Instantly
                             // so the Actor Keeps Standing or Patrolling While it
                             // "Reacts" (Original SightPlayer temp2)
-                            ai.react_tics = reaction_tics(*kind, &mut wolf_rng).max(1);
+                            ai.react_tics = reaction_tics(*kind, &mut actor_rng).max(1);
                         }
                     }
                 }
@@ -1211,10 +1234,9 @@ fn enemy_ai_combat(
     mut shoot_cd: Local<HashMap<Entity, f32>>,
     mut bursts: Local<HashMap<Entity, BurstFire>>,
     mut los_hold: Local<HashMap<Entity, f32>>,
-    mut wolf_rng: ResMut<WolfRng>,
     tunings: Res<EnemyTunings>,
     shared: Res<AiSharedData>,
-    q_enemies: Query<
+    mut q_enemies: Query<
         (
             Entity,
             &EnemyKind,
@@ -1225,6 +1247,7 @@ fn enemy_ai_combat(
             Option<&EnemyMove>,
             Option<&crate::enemies::DogBite>,
             Option<&crate::enemies::DogBiteCooldown>,
+            &mut TableRng,
         ),
         (With<EnemyKind>, Without<Dead>),
     >,
@@ -1241,7 +1264,9 @@ fn enemy_ai_combat(
     let player_tile = shared.player_tile;
     let player_pos = shared.player_pos;
 
-    for (e, kind, ai, occ, _dir8, tf, moving, dog_bite, dog_bite_cd) in q_enemies.iter() {
+    for (e, kind, ai, occ, _dir8, tf, moving, dog_bite, dog_bite_cd, mut actor_rng) in
+        q_enemies.iter_mut()
+    {
         if !matches!(ai.state, EnemyAiState::Chase) {
             continue;
         }
@@ -1346,7 +1371,7 @@ fn enemy_ai_combat(
                             shared.player_running,
                             actor_visible,
                             *kind,
-                            &mut wolf_rng,
+                            &mut actor_rng,
                         ) {
                             enemy_fire.write(EnemyFire { kind: *kind, damage });
                         }
@@ -1372,7 +1397,7 @@ fn enemy_ai_combat(
                             shared.player_running,
                             actor_visible,
                             *kind,
-                            &mut wolf_rng,
+                            &mut actor_rng,
                         ) {
                             enemy_fire.write(EnemyFire { kind: *kind, damage });
                         }
@@ -1612,7 +1637,7 @@ fn enemy_ai_combat(
                         shared.player_running,
                         actor_visible,
                         *kind,
-                        &mut wolf_rng,
+                        &mut actor_rng,
                     ) {
                         enemy_fire.write(EnemyFire { kind: *kind, damage });
                     }
@@ -1701,7 +1726,6 @@ fn enemy_ai_movement(
     mut sfx: MessageWriter<PlaySfx>,
     tunings: Res<EnemyTunings>,
     mut shared: ResMut<AiSharedData>,
-    mut wolf_rng: ResMut<WolfRng>,
     mut q_doors: Query<(&DoorTile, &mut DoorState, &GlobalTransform)>,
     mut q_enemies: Query<
         (
@@ -1711,6 +1735,7 @@ fn enemy_ai_movement(
             &mut OccupiesTile,
             &Transform,  // Changed from &mut Dir8 to just &Transform
             Option<&EnemyMove>,
+            &mut TableRng,
         ),
         (With<EnemyKind>, Without<Dead>),
     >,
@@ -1729,7 +1754,7 @@ fn enemy_ai_movement(
         IVec2::new(0, -1),
     ];
 
-    for (e, kind, mut ai, mut occ, tf, moving) in q_enemies.iter_mut() {
+    for (e, kind, mut ai, mut occ, tf, moving, mut actor_rng) in q_enemies.iter_mut() {
         if !matches!(ai.state, EnemyAiState::Chase) {
             continue;
         }
@@ -1761,7 +1786,7 @@ fn enemy_ai_movement(
                 player_tile,
                 ai.last_step,
                 ai.first_attack,
-                &mut wolf_rng,
+                &mut actor_rng,
             )
         } else {
             None
@@ -2010,7 +2035,6 @@ impl Plugin for EnemyAiPlugin {
         app.init_resource::<AiTicker>()
             .init_resource::<AiSharedData>()
             .init_resource::<PlayerNoise>()
-            .init_resource::<WolfRng>()
             .insert_resource(EnemyTunings::baseline())
             .add_message::<EnemyFire>()
             .add_message::<EnemyFireballShot>()

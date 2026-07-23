@@ -2705,8 +2705,16 @@ fn tick_dog_bite(
     tunings: Res<EnemyTunings>,
     q_player: Query<&GlobalTransform, With<Player>>,
     mut enemy_fire: MessageWriter<crate::ai::EnemyFire>,
-    mut wolf_rng: ResMut<crate::ai::WolfRng>,
-    mut q: Query<(Entity, &GlobalTransform, &mut DogBite, Option<&DogPain>), With<Dog>>,
+    mut q: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &mut DogBite,
+            Option<&DogPain>,
+            &mut crate::ai::TableRng,
+        ),
+        With<Dog>,
+    >,
 ) {
     let Some(player_gt) = q_player.iter().next() else { return; };
     let player_pos = player_gt.translation();
@@ -2717,7 +2725,7 @@ fn tick_dog_bite(
     // as in the Original; Clamp to at Least 1 Here if you Ever Want to Change That
     const BITE_HIT_THRESHOLD: i32 = 180;
 
-    for (e, gt, mut bite, pain) in q.iter_mut() {
+    for (e, gt, mut bite, pain, mut actor_rng) in q.iter_mut() {
         // Pain interrupts the bite immediately (no damage, no cooldown)
         if pain.is_some() {
             commands.entity(e).remove::<DogBite>();
@@ -2737,9 +2745,9 @@ fn tick_dog_bite(
         let dist_tiles = dx.max(dy) as f32;
 
         if dist_tiles <= tunings.dog.attack_range_tiles
-            && wolf_rng.us_rnd_t() < BITE_HIT_THRESHOLD
+            && actor_rng.us_rnd_t() < BITE_HIT_THRESHOLD
         {
-            let dmg = wolf_rng.us_rnd_t() >> 4;
+            let dmg = actor_rng.us_rnd_t() >> 4;
             enemy_fire.write(crate::ai::EnemyFire {
                 kind: EnemyKind::Dog,
                 damage: dmg,

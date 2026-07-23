@@ -143,7 +143,7 @@ fn process_fire_shots(
     mut q_hp: Query<&mut Health, (With<EnemyKind>, Without<Dead>)>,
     mut q_ai: Query<&mut EnemyAi, (With<EnemyKind>, Without<Dead>)>,
     mut level_score: ResMut<davelib::level_score::LevelScore>,
-    mut wolf_rng: ResMut<davelib::ai::WolfRng>,
+    mut rng: Local<davelib::ai::TableRng>,
 ) {
     let (Some(grid), Some(solid)) = (grid, solid) else {
         return;
@@ -213,7 +213,7 @@ fn process_fire_shots(
         (t_exit >= 0.0).then_some(t_exit)
     }
 
-    fn roll_gun_damage(dist_tiles: i32, rng: &mut davelib::ai::WolfRng) -> Option<i32> {
+    fn roll_gun_damage(dist_tiles: i32, rng: &mut davelib::ai::TableRng) -> Option<i32> {
         let effective_dist = (dist_tiles.max(0) / 2).clamp(0, 20);
         // Treat 0 Damage as Miss so Hits Never Deal 0
         let damage = if effective_dist < 2 {
@@ -230,7 +230,7 @@ fn process_fire_shots(
         (damage > 0).then_some(damage)
     }
 
-    fn roll_knife_damage(rng: &mut davelib::ai::WolfRng) -> i32 {
+    fn roll_knife_damage(rng: &mut davelib::ai::TableRng) -> i32 {
         (rng.us_rnd_t() / 4).max(1)
     }
 
@@ -337,9 +337,9 @@ fn process_fire_shots(
         // Enemy Hit Consumes Shot
         if let Some((e, kind, _t, dist_tiles)) = best {
             let mut dmg_opt = match shot.weapon {
-                WeaponSlot::Knife => Some(roll_knife_damage(&mut wolf_rng)),
+                WeaponSlot::Knife => Some(roll_knife_damage(&mut rng)),
                 WeaponSlot::Pistol | WeaponSlot::MachineGun | WeaponSlot::Chaingun => {
-                    roll_gun_damage(dist_tiles, &mut wolf_rng)
+                    roll_gun_damage(dist_tiles, &mut rng)
                 }
             };
 
