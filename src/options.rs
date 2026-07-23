@@ -646,10 +646,9 @@ fn create_world_canvas(
 
 	let size = world_canvas_size(win_w, win_h, settings.render_scale);
 
-	// Rgba8UnormSrgb Storage With No Separate View Format. GLES/V3D Lacks the
-	// VIEW_FORMATS Downlevel Flag, so an Srgb View Over a Unorm Texture Cannot
-	// Be Created on the Pi. Using a Single Srgb Target Keeps Colors Correct for
-	// the 3-D Pass While Staying Within What the OpenGL ES Driver Supports
+	// Single Srgb Target, No Separate View Format. The Pi's V3D GPU Lacks the
+	// VIEW_FORMATS Downlevel Flag, so an Srgb View Over a Unorm Texture Cannot Be
+	// Created There; a Single Srgb Target Keeps Colors Correct Without It
 	let mut image = Image::new_target_texture(
 		size.x,
 		size.y,
@@ -680,7 +679,17 @@ fn resize_world_canvas(
 	let win_h = window.resolution.physical_height().max(1);
 	let want = world_canvas_size(win_w, win_h, settings.render_scale);
 
-	if want != canvas.size {
+	// Resize the Backing Canvas Image Only When the Target Size Truly Changes.
+	// On the Pi's V3D Vulkan Driver, Resizing a Render-Target Image in Place While
+	// the 3-D Camera Has It Bound Can Stall the Pipeline at Level Load (the Game
+	// Hangs on Start After the Window Settles to Native Resolution). Set
+	// DSTEIN_NO_CANVAS_RESIZE=1 to Freeze the Canvas at Its Created Size and Skip
+	// the In-Place Resize Entirely, Which Avoids the Stall; the Present Sprite Still
+	// Stretches to Fill the Window, so the Image Just Upscales From Its Initial Size
+	let skip_resize = std::env::var("DSTEIN_NO_CANVAS_RESIZE")
+		.map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+		.unwrap_or(false);
+	if !skip_resize && want != canvas.size {
 		if let Some(mut image) = images.get_mut(&canvas.handle) {
 			image.resize(Extent3d {
 				width: want.x,
