@@ -247,6 +247,24 @@ pub struct WorldCanvas {
 #[derive(Component)]
 pub struct WorldPresenter;
 
+/// UI Reference Dimensions the HUD Lays Itself Out Against, in Physical Pixels
+/// This Is the Canvas (Render Target) Size, Not the Window, so the HUD Scales
+/// With render_scale and Stays Chunky at Low Scales Once UI Draws Into the Canvas
+/// Falls Back to the Window (Then a Safe Default) When the Canvas Is Not Ready
+/// Yet, Which Can Happen During Startup Before 'create_world_canvas' Has Run
+pub fn ui_ref_dims(
+	canvas: Option<&WorldCanvas>,
+	q_win: &Query<&Window, With<PrimaryWindow>>,
+) -> (f32, f32) {
+	if let Some(c) = canvas {
+		(c.size.x.max(1) as f32, c.size.y.max(1) as f32)
+	} else if let Some(w) = q_win.iter().next() {
+		(w.resolution.width().max(1.0), w.resolution.height().max(1.0))
+	} else {
+		(1280.0, 720.0)
+	}
+}
+
 /// Compute the Canvas Size in Physical Pixels for a Given Window Size + Scale
 /// Clamped to at Least 1x1 so a Degenerate Window Never Yields a Zero Texture
 pub fn world_canvas_size(win_w: u32, win_h: u32, scale: RenderScale) -> UVec2 {
