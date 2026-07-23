@@ -21,6 +21,25 @@ use crate::map::{
 #[derive(Component)]
 pub struct Player;
 
+/// Render-Interpolation Snapshots for the Player Camera
+///
+/// 'player_move' Advances the Player at the Fixed 70 Hz Tic Rate (the Authentic
+/// Wolf3D Heartbeat). On a Display Refreshing at Any Rate That Is Not a Multiple
+/// of 70 - 60, 120, 144 Hz and So On - Drawing the Raw Tic Position Makes Walking
+/// and Strafing Judder, Because Some Frames Advance the Sim and Some Do Not. We
+/// Instead Remember the Player's Position at the End of the Two Most Recent Tics
+/// and Draw the Camera at a Point Interpolated Between Them, by How Far the
+/// Current Fixed Step Has Progressed. The Simulation Stays Exactly 70 Hz; Only
+/// the *Displayed* Position Is Smoothed. Rotation Is Not Touched Here Because
+/// 'apply_look' Already Runs Per Frame and Is Smooth
+#[derive(Component, Clone, Copy)]
+pub struct PlayerRenderInterp {
+    /// Player Translation at the End of the Previous Fixed Tic
+    pub prev: Vec3,
+    /// Player Translation at the End of the Most Recent Fixed Tic
+    pub curr: Vec3,
+}
+
 #[derive(Component, Default, Clone, Copy)]
 pub struct PlayerKeys {
     pub gold: bool,
@@ -272,6 +291,62 @@ pub fn player_move(
 
     transform.translation.x = pos.x;
     transform.translation.z = pos.y;
+}
+
+/// Attach 'PlayerRenderInterp' to a Newly Spawned Player, Seeded to Its Current
+/// Position so the First Frames Interpolate From the Right Place Rather Than the
+/// Origin. Runs Before the Fixed Loop so the Snapshot Systems See the Component
+/// on the First Tic After the Player Appears. The Player Is Respawned Each Level,
+/// so This Re-Seeds Automatically on Every Level Load
+pub fn init_player_render_interp(
+    mut commands: Commands,
+    q: Query<(Entity, &Transform), (With<Player>, Without<PlayerRenderInterp>)>,
+) {
+    for (entity, transform) in &q {
+        commands.entity(entity).insert(PlayerRenderInterp {
+            prev: transform.translation,
+            curr: transform.translation,
+        });
+    }
+}
+
+/// Runs in 'FixedFirst', Before 'player_move'. Shifts the Snapshot Window Forward
+/// (Last Tic's End Becomes This Tic's Start) and Restores the True Tic-Aligned
+/// Position, Undoing Last Frame's Interpolated (Between-Tics) Value so the
+/// Simulation Always Steps From an Exact Tic Pose Instead of Drifting
+pub fn player_interp_restore_before_tic(
+    mut q: Query<(&mut Transform, &mut PlayerRenderInterp), With<Player>>,
+) {
+    for (mut transform, mut interp) in &mut q {
+        interp.prev = interp.curr;
+        transform.translation = interp.curr;
+    }
+}
+
+/// Runs in 'FixedLast', After 'player_move'. Records the New Tic-Aligned Position
+/// as the Current Snapshot Endpoint
+pub fn player_interp_capture_after_tic(
+    mut q: Query<(&Transform, &mut PlayerRenderInterp), With<Player>>,
+) {
+    for (transform, mut interp) in &mut q {
+        interp.curr = transform.translation;
+    }
+}
+
+/// Runs Every Rendered Frame, After the Fixed Loop and Before Transform
+/// Propagation. Places the Camera at the Position Interpolated Between the Two
+/// Most Recent Tic Snapshots by the Fraction of the Current Fixed Step Elapsed
+/// ('overstep_fraction'). This Is the Piece That Removes the 70-vs-60 Judder and
+/// Also Keeps Motion Smooth on 120 Hz / 144 Hz Displays, With the Simulation
+/// Still Running at the Authentic 70 Hz
+pub fn apply_player_render_interp(
+    fixed_time: Res<Time<Fixed>>,
+    mut q: Query<(&mut Transform, &PlayerRenderInterp), With<Player>>,
+) {
+    let alpha = fixed_time.overstep_fraction();
+    for (mut transform, interp) in &mut q {
+        transform.translation = interp.prev.lerp(interp.curr, alpha);
+    }
 }
 
 pub fn use_doors(

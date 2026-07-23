@@ -84,6 +84,10 @@ use davelib::player::{
     apply_look,
     door_animate,
     door_auto_close,
+    init_player_render_interp,
+    player_interp_capture_after_tic,
+    player_interp_restore_before_tic,
+    apply_player_render_interp,
     player_move,
     toggle_god_mode,
     use_doors,
@@ -351,6 +355,14 @@ fn main() {
 		.add_systems(FixedUpdate, door_auto_close.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
 		.add_systems(FixedUpdate, door_animate.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
 		.add_systems(FixedUpdate, player_move.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
+		// Camera Render Interpolation: Seed the Snapshots When the Player Spawns,
+		// Bracket the Fixed Tic to Record Tic-Aligned Positions, and Every Frame
+		// Draw the Camera Interpolated Between the Two Most Recent Tics. This Keeps
+		// the 70 Hz Simulation Faithful While Presenting Smoothly at Any Refresh Rate
+		.add_systems(PreUpdate, init_player_render_interp.run_if(world_ready))
+		.add_systems(FixedFirst, player_interp_restore_before_tic.run_if(world_ready))
+		.add_systems(FixedLast, player_interp_capture_after_tic.run_if(world_ready))
+		.add_systems(Update, apply_player_render_interp.run_if(world_ready))
 		.add_systems(FixedUpdate, pickups::drop_guard_ammo.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
 		.add_systems(FixedUpdate, pickups::drop_mutant_ammo.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
 		.add_systems(FixedUpdate, pickups::drop_ss_loot.run_if(world_ready).run_if(|lock: Res<PlayerControlLock>| !lock.0))
