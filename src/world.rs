@@ -760,9 +760,12 @@ pub fn setup(
         unlit: true,
         cull_mode: world_cull_mode,
         alpha_mode: world_alpha_mode,
-        // Small Negative Depth Bias so the Dark Variant Deterministically Wins Depth
-        // Ties Against the Base Wall Material on Exactly Coplanar Grid Faces
-        depth_bias: -1.0,
+        // NOTE: depth_bias Was Removed Here. On the Pi's V3D Vulkan Driver, a Material
+        // With a Non-Zero depth_bias Forces an Extra Render-Pipeline Specialization
+        // That Stalls Pipeline Compilation at Level Load (the Game Hangs on Start).
+        // Opaque Walls With Real Depth Writes Already Resolve the Coplanar Flicker
+        // Without It; the Dark Variant Only Differs in base_color, so It Shares the
+        // Same Depth Behavior as the Base Wall and Does Not Need a Bias
         ..default()
     });
 
