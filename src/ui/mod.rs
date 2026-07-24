@@ -67,7 +67,14 @@ impl Plugin for UiPlugin {
 			.add_systems(Update, hud::sync_hud_layout_on_window_change)
 			.add_systems(Update, hud::sync_mission_overlay_layout_on_window_change)
 			.add_systems(Update, hud::sync_viewmodel_size)
-			.add_systems(Update, hud::sync_viewmodel_visibility)
+			// Order After the Get-Psyched Loading Tick so the Frame It Clears the
+			// Control Lock (Loading Finished) the Viewmodel Is Restored the *Same*
+			// Frame the Teal Screen Is Removed - No One-Frame Gap Where the World Is
+			// Visible but the Weapon Has Not Come Up Yet
+			.add_systems(
+				Update,
+				hud::sync_viewmodel_visibility.after(splash::SplashUpdateSet::PsychedLoading),
+			)
 			.add_systems(Update, hud::weapon_fire_and_viewmodel)
 			.add_systems(Update, hud::sync_hud_hp_digits)
 			.add_systems(Update, hud::sync_hud_ammo_digits)

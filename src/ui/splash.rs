@@ -7900,6 +7900,7 @@ fn auto_get_psyched_on_level_start(
     mut psyched: ResMut<PsychedLoad>,
     mut lock: ResMut<PlayerControlLock>,
     mut music_mode: ResMut<MusicMode>,
+    q_splash_roots: Query<Entity, (With<SplashUi>, Without<ChildOf>)>,
 ) {
     if *step != SplashStep::Done {
         let ready = grid.is_some() && solid.is_some() && markers.is_some();
@@ -7918,6 +7919,15 @@ fn auto_get_psyched_on_level_start(
     }
 
     if level_changed || ready_rise {
+        // Despawn Any Lingering Menu (SplashUi) Roots the Instant the Teal Loading
+        // Screen Appears. The New Game Path Sets Step to Done Without Clearing the
+        // Menu, and UI Now Targets the Frame It Spawns (No One-Frame Delay), so the
+        // Clear Must Be Atomic With the Loading Spawn or the "Get Psyched" Panel
+        // Briefly Reveals the Red Menu Beneath It. Wolf3D Showed a Clean Cut
+        for e in q_splash_roots.iter() {
+            commands.entity(e).try_despawn();
+        }
+
         let win: &Window = q_win.into_inner();
         begin_get_psyched_loading(
             &mut commands,
