@@ -6,7 +6,8 @@ use bevy::camera;
 use bevy::prelude::*;
 use bevy::audio::{AudioSinkPlayback, Volume};
 use bevy::image::{Image, ImageSampler};
-use bevy::render::render_resource::{Extent3d, TextureFormat};
+use bevy::camera::RenderTarget;
+use bevy::render::render_resource::TextureFormat;
 use bevy::window::{
 	Monitor,
 	MonitorSelection,
@@ -688,6 +689,7 @@ fn resize_world_canvas(
 	mut images: ResMut<Assets<Image>>,
 	q_window: Query<&Window, With<PrimaryWindow>>,
 	mut q_sprite: Query<&mut Sprite, With<WorldPresenter>>,
+	mut q_cameras: Query<&mut Camera>,
 ) {
 	let Some(window) = q_window.iter().next() else { return; };
 
@@ -706,14 +708,46 @@ fn resize_world_canvas(
 		.map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 		.unwrap_or(false);
 	if !skip_resize && want != canvas.size {
-		if let Some(mut image) = images.get_mut(&canvas.handle) {
-			image.resize(Extent3d {
-				width: want.x,
-				height: want.y,
-				depth_or_array_layers: 1,
-			});
-			canvas.size = want;
+		// RECREATE the Canvas Image at the New Size Rather Than Resizing It in
+		// Place. Resizing a Render-Target Image in Place Leaves the World Camera's
+		// Auto-Managed DEPTH Texture at the OLD Size, so the Next 3-D Pass Has a
+		// Depth Attachment That No Longer Matches the Resized Color Attachment;
+		// wgpu Rejects the Mismatched Sizes and Aborts the Frame - the Crash Seen
+		// When Switching Window Mode. A Fresh Image Forces the Color and Its Depth
+		// to Be Allocated Together at the New Size. All Three Consumers of the Old
+		// Handle (World Camera, HUD Camera, Present Sprite) Are Repointed Below
+		let old = canvas.handle.clone();
+
+		let mut image = Image::new_target_texture(
+			want.x,
+			want.y,
+			TextureFormat::Rgba8UnormSrgb,
+			None,
+		);
+		image.sampler = ImageSampler::nearest();
+		let new_handle = images.add(image);
+
+		// Repoint the Two Cameras That Render Into the Canvas (World + HUD). The
+		// Present and Menu Cameras Target the Window, so the Handle Guard Skips Them
+		for mut cam in q_cameras.iter_mut() {
+			let targets_canvas =
+				matches!(&cam.target, RenderTarget::Image(t) if t.handle == old);
+			if targets_canvas {
+				cam.target = RenderTarget::Image(new_handle.clone().into());
+			}
 		}
+
+		// Repoint the Present Sprite That Displays the Canvas
+		for mut sprite in q_sprite.iter_mut() {
+			if sprite.image == old {
+				sprite.image = new_handle.clone();
+			}
+		}
+
+		canvas.handle = new_handle;
+		canvas.size = want;
+		// 'old' Drops Here; With Every Consumer Repointed It Has No Strong Handles
+		// Left, so the Previous Image and Its Depth Are Released Automatically
 	}
 
 	let logical = Vec2::new(
