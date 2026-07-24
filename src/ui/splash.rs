@@ -7872,7 +7872,8 @@ fn begin_get_psyched_loading(
 fn spawn_get_psyched_ui_on_active(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    q_win: Single<&Window, With<PrimaryWindow>>,
+    q_win: Query<&Window, With<PrimaryWindow>>,
+    canvas: Option<Res<davelib::options::WorldCanvas>>,
     psyched: Res<PsychedLoad>,
     q_loading: Query<(), With<LoadingUi>>,
     q_hud_root: Query<Entity, With<crate::ui::hud::HudRoot>>,
@@ -7881,8 +7882,12 @@ fn spawn_get_psyched_ui_on_active(
         return;
     }
     let Some(hud_root) = q_hud_root.iter().next() else { return; };
-    let win = q_win.into_inner();
-    spawn_get_psyched_ui(&mut commands, &asset_server, win.width(), win.height(), hud_root);
+    // Size the Loading Panel From the Same Reference the HUD Uses - the Canvas
+    // Render Resolution via 'ui_ref_dims', Not the Window. As a HudRoot Child It
+    // Lives in Canvas-Pixel Space; Passing Window Pixels Made It Overflow the
+    // Canvas at Any Non-Native Render Scale or DPI Scale (Enormous, Top-Left Only)
+    let (ref_w, ref_h) = davelib::options::ui_ref_dims(canvas.as_deref(), &q_win);
+    spawn_get_psyched_ui(&mut commands, &asset_server, ref_w, ref_h, hud_root);
 }
 
 fn tick_get_psyched_loading(
