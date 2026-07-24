@@ -149,6 +149,17 @@ fn choose_tile_path_from_plane1(code: u16) -> Option<&'static str> {
 /// Wolf3D WL_ACT1.C statinfo[]
 /// Block vs Dressing vs Pickup
 /// Index: IDX = Plane1_Code - 23
+///
+/// Note on the Gibs Indices 34 (Code 57) and 38 (Code 61): In Wolf3D These Are
+/// bo_gibs Near-Death Health Pickups. This Engine Has No Gibs Pickup Path -
+/// 'to_pickup_kind' in pickups.rs Maps Only Codes 29 and 43..=56 - so Marking
+/// Them 'Pickup' Made 'spawn_decorations' Skip Them While Nothing Else Spawned
+/// Them Either, Leaving Both Codes Rendering as an Invisible, Empty Tile. They
+/// Are Classified 'Dressing' so the Existing Decoration Path Renders Their Gibs
+/// Sprites (PATHS[34]/PATHS[38]). As Dressing They Are Non-Blocking, Matching a
+/// Walked-Over Pickup, and Code 61 Is Already a Floor Decal via
+/// 'is_floor_decal_plane1' so It Lies Flat Like a Debris Pile. The Near-Death
+/// Heal Behavior Is Not Restored - It Did Not Function Before This Change Either
 const STAT_KIND: [StatKind; 49] = [
     StatKind::Dressing, // 0 puddle
     StatKind::Block,    // 1 green barrel
@@ -184,11 +195,11 @@ const STAT_KIND: [StatKind; 49] = [
     StatKind::Pickup,   // 31 bible
     StatKind::Pickup,   // 32 crown
     StatKind::Pickup,   // 33 1UP
-    StatKind::Pickup,   // 34 gibs
+    StatKind::Dressing, // 34 gibs (Code 57) - Rendered as Dressing, See Header Note
     StatKind::Block,    // 35 barrel
     StatKind::Block,    // 36 well
     StatKind::Block,    // 37 empty well
-    StatKind::Pickup,   // 38 gibs 2
+    StatKind::Dressing, // 38 gibs 2 (Code 61) - Rendered as Dressing, See Header Note
     StatKind::Block,    // 39 flag
     StatKind::Block,    // 40 call apogee (WL6)
     StatKind::Dressing, // 41 junk
