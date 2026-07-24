@@ -12,6 +12,24 @@
       using the Bevy game engine.
     </p>
   </description>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/Ophois47/Davenstein/main/docs/screenshots/davenstein-gameplay-room.png</image>
+      <caption>Exploring a room in the first episode</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Ophois47/Davenstein/main/docs/screenshots/davenstein-combat.png</image>
+      <caption>Combat against a guard</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Ophois47/Davenstein/main/docs/screenshots/davenstein-corridor.png</image>
+      <caption>A corridor deeper in the level</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Ophois47/Davenstein/main/docs/screenshots/davenstein-menu.png</image>
+      <caption>The main menu</caption>
+    </screenshot>
+  </screenshots>
   <launchable type="desktop-id">io.github.ophois47.davenstein.desktop</launchable>
   <url type="homepage">https://github.com/Ophois47/Davenstein</url>
   <url type="bugtracker">https://github.com/Ophois47/Davenstein/issues</url>
@@ -19,6 +37,7 @@
     <name>David Petnick</name>
   </developer>
   <releases>
+    <release version="1.0.0-beta2" date="2026-07-24"/>
     <release version="1.0.0-beta1" date="2026-07-21"/>
     <release version="1.0.0-alpha.10" date="2026-07-19"/>
     <release version="1.0.0-alpha.9" date="2026-07-19"/>

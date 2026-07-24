@@ -55,4 +55,5 @@ modules:
           - .git
           - target
           - highscores.ron
+          - settings.ron
           - saves
