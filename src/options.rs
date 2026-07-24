@@ -689,7 +689,7 @@ fn resize_world_canvas(
 	mut images: ResMut<Assets<Image>>,
 	q_window: Query<&Window, With<PrimaryWindow>>,
 	mut q_sprite: Query<&mut Sprite, With<WorldPresenter>>,
-	mut q_cameras: Query<&mut Camera>,
+	mut q_targets: Query<&mut RenderTarget>,
 ) {
 	let Some(window) = q_window.iter().next() else { return; };
 
@@ -729,11 +729,11 @@ fn resize_world_canvas(
 
 		// Repoint the Two Cameras That Render Into the Canvas (World + HUD). The
 		// Present and Menu Cameras Target the Window, so the Handle Guard Skips Them
-		for mut cam in q_cameras.iter_mut() {
+		for mut target in q_targets.iter_mut() {
 			let targets_canvas =
-				matches!(&cam.target, RenderTarget::Image(t) if t.handle == old);
+				matches!(&*target, RenderTarget::Image(t) if t.handle == old);
 			if targets_canvas {
-				cam.target = RenderTarget::Image(new_handle.clone().into());
+				*target = RenderTarget::Image(new_handle.clone().into());
 			}
 		}
 
