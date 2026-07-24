@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::camera::RenderTarget;
 use bevy::ui::prelude::IsDefaultUiCamera;
 use bevy::camera::ClearColorConfig;
-use bevy::render::view::RenderLayers;
+use bevy::camera::visibility::RenderLayers;
 use bevy::window::PrimaryWindow;
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::render::render_resource::Face;
