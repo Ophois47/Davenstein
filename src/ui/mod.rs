@@ -51,11 +51,11 @@ impl Plugin for UiPlugin {
 			// One Frame, Rendered on the Default (Canvas) Camera, Then Snapped to the
 			// Menu Camera Next Frame - Seen as a Flicker When Opening Menus or
 			// Rebuilding an Option Row. PostUpdate Sees All Update Spawns (Commands
-			// Are Flushed at the Schedule Boundary) and '.before(UiSystem::Layout)'
+			// Are Flushed at the Schedule Boundary) and '.before(UiSystems::Layout)'
 			// Guarantees the Target Is Set Before Layout Reads It
 			.add_systems(
 				PostUpdate,
-				hud::route_window_ui_to_menu_camera.before(bevy::ui::UiSystem::Layout),
+				hud::route_window_ui_to_menu_camera.before(bevy::ui::UiSystems::Layout),
 			)
 			// Core State / Sync Systems
 			.add_systems(Update, sync::apply_enemy_fire_to_player_vitals)
