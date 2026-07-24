@@ -86,7 +86,7 @@ fn save_settings_on_change(
     }
 
     if let Some(timer) = debounce.as_mut() {
-        if !timer.tick(time.delta()).finished() {
+        if !timer.tick(time.delta()).just_finished() {
             return;
         }
     }
