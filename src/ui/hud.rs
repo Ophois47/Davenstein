@@ -2080,7 +2080,6 @@ fn spawn_status_bar(
 
 fn spawn_mission_success_overlay(
     commands: &mut Commands,
-    parent: Entity,
     hud_scale: f32,
     q_windows: &Query<&Window, With<PrimaryWindow>>,
     start_floor_num: i32,
@@ -2214,8 +2213,13 @@ fn spawn_mission_success_overlay(
         ));
     }
 
-    commands.entity(parent).with_children(|ui| {
-        ui.spawn((
+    // Spawn the Intermission Overlay as a TOP-LEVEL Root (Not Under HudRoot).
+    // Top-Level Roots Are Routed to the Full-Window MenuUiCamera and Lay Out
+    // Against the Window - Exactly Like the Menus, Which Render Correctly. As a
+    // Child of HudRoot It Instead Followed the Canvas Camera's Layout and Rendered
+    // Small and Centered. Marker-Driven Systems (Visibility Toggle, Tally Text,
+    // Layout Sync) Query by Component, so Re-Parenting Does Not Affect Them
+    commands.spawn((
             MissionSuccessOverlay,
             ZIndex(90),
             Visibility::Hidden,
@@ -2377,7 +2381,6 @@ fn spawn_mission_success_overlay(
                 );
             });
         });
-    });
 }
 
 fn spawn_game_over_overlay(commands: &mut Commands, parent: Entity, ui_font: Handle<Font>) {
@@ -2831,7 +2834,6 @@ pub(crate) fn setup_hud(
     let start_floor_num: i32 = current_level.0.floor_number();
     spawn_mission_success_overlay(
         &mut commands,
-        root,
         layout.hud_scale,
         &q_windows,
         start_floor_num,
