@@ -496,7 +496,7 @@ pub(crate) fn sync_viewmodel_size(
     let play_h = (ui_h - status_h_px).max(1.0);
 
     // View-Size Inset (Same (20 - vs) / 32 Fraction as the Camera Viewport)
-    let vs = settings.view_size.clamp(4, 20) as f32;
+    let vs = settings.view_size.clamp(5, 20) as f32;
     let inset_frac = (20.0 - vs) / 32.0;
     let inset_y = (play_h * inset_frac).round();
 
@@ -2450,7 +2450,7 @@ pub(crate) fn sync_view_size_border(
     let has_player = !player_query.is_empty();
     let (win_w, win_h) = ui_ref_dims(canvas.as_deref(), &q_window);
 
-    let vs = settings.view_size.clamp(4, 20);
+    let vs = settings.view_size.clamp(5, 20);
     let current = (vs, has_player, win_w as u32, win_h as u32);
 
     // Early out if nothing changed

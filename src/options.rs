@@ -907,7 +907,7 @@ fn apply_video_settings_on_change(
 
 /// Apply Classic Wolfenstein 3D "View Size" by Setting Camera Viewport
 /// view_size 20 = Full Viewport (No Border)
-/// view_size 4  = Maximum Border (~80% Inset)
+/// view_size 5  = Minimum View / Maximum Border
 /// The Camera Viewport is Inset Symmetrically, Leaving a Border Area
 /// That Shows the 3-D Camera's Clear Color (Black, Set in 'setup')
 /// The Status Bar (44 Native Pixels) is Accounted For: the Viewport
@@ -964,7 +964,7 @@ fn apply_view_size_on_change(
 		return;
 	}
 
-	let vs = settings.view_size.clamp(4, 20) as f32;
+	let vs = settings.view_size.clamp(5, 20) as f32;
 
 	if vs >= 20.0 {
 		// Full Viewport: Remove any Viewport Restriction
@@ -986,7 +986,7 @@ fn apply_view_size_on_change(
 		return;
 	}
 
-	// Inset Fraction: at view_size 4 Inset ~50%, at 19 Inset ~3%
+	// Inset Fraction: at view_size 5 Inset ~47%, at 19 Inset ~3%
 	// Linear Mapping: Fraction = (20 - view_size) / 32
 	// This Gives a Subtle Border at 19 and Large Border at 4
 	let inset_frac = (20.0 - vs) / 32.0;
@@ -1127,7 +1127,7 @@ impl VideoSettings {
 
 	/// Nudge View Size by `delta`, Clamped to 4..=20
 	pub fn nudge_view_size(&mut self, delta: i8) {
-		let new_val = (self.view_size as i16 + delta as i16).clamp(4, 20) as u8;
+		let new_val = (self.view_size as i16 + delta as i16).clamp(5, 20) as u8;
 		self.view_size = new_val;
 	}
 
