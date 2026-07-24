@@ -237,8 +237,15 @@ pub fn billboard_floor_decals(
 }
 
 /// Determines if Plane1 Code Should be Rendered as Floor Decal
+///
+/// Code 61 (gibs 2) Was Removed From This Set: The Original Wolf3D Engine Draws
+/// Every Static as an Upright, Player-Facing Billboard and Has No Floor Decals,
+/// so Laying the Gibs Pile Flat Made It Read as a Duplicate Beside the Adjacent
+/// Upright junk_c (Code 66) and Diverged From the Original. Rendering It Upright
+/// Matches Retail WL6. The Remaining Entries (23 puddle, 32 skeleton_flat, 63)
+/// Are Kept as an Intentional Port Enhancement
 fn is_floor_decal_plane1(code: u16) -> bool {
-    matches!(code, 23 | 32 | 61 | 63)
+    matches!(code, 23 | 32 | 63)
 }
 
 /// Spawn "Statics" (Decorations) From Plane1 Codes Using WL_ACT1.C statinfo[]
@@ -269,7 +276,11 @@ pub fn spawn_decorations(
 
 	solid.clear();
 
-	let quad_upright = meshes.add(Rectangle::new(0.95, 0.95));
+	// Upright Statics Are a Full Tile Tall (1.0) so They Match Wall Height Like
+	// the Original Wolf3D Billboards; a 0.95 Height Left Tall Sprites Such as
+	// Pillars, Lamps and Trees Sitting Noticeably Short of the Ceiling. Width Is
+	// Left at 0.95 so the Horizontal Footprint and Collision Are Unchanged
+	let quad_upright = meshes.add(Rectangle::new(0.95, 1.0));
 	let quad_decal_default = meshes.add(Rectangle::new(0.95, 1.20));
 	let quad_decal_puddle = meshes.add(Rectangle::new(0.95, 3.50));
 	let quad_decal_skel = meshes.add(Rectangle::new(0.95, 2.00));
@@ -311,7 +322,9 @@ pub fn spawn_decorations(
 				};
 				(mesh, -std::f32::consts::FRAC_PI_2, 0.01, 0.95, h, bias)
 			} else {
-				let (w, h) = (0.95, 0.95);
+				// Height 1.0 Keeps the Sprite Base on the Floor (y_pos = h * 0.5)
+				// While the Top Reaches Full Wall Height; Width Stays 0.95
+				let (w, h) = (0.95, 1.0);
 				(
                     quad_upright.clone(),
                     0.0,
