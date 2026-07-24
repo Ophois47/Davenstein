@@ -43,8 +43,20 @@ impl Plugin for UiPlugin {
 			.add_systems(Startup, hud::setup_hud)
 			.add_systems(Startup, splash::setup_splash)
 			// Keep Window-Space UI (Menus, Splash, Intermission, Overlays) on the
-			// Persistent Menu Camera so It Never Falls Into the Low-Res World Canvas
-			.add_systems(Update, hud::route_window_ui_to_menu_camera)
+			// Persistent Menu Camera so It Never Falls Into the Low-Res World Canvas.
+			//
+			// Runs in PostUpdate Before UI Layout - NOT Update - so a Root Spawned
+			// This Frame Is Retargeted Before It Is Laid Out. In Update It Raced the
+			// Menu-Spawn Systems: a Menu Spawned After This Ran Stayed Untargeted for
+			// One Frame, Rendered on the Default (Canvas) Camera, Then Snapped to the
+			// Menu Camera Next Frame - Seen as a Flicker When Opening Menus or
+			// Rebuilding an Option Row. PostUpdate Sees All Update Spawns (Commands
+			// Are Flushed at the Schedule Boundary) and '.before(UiSystem::Layout)'
+			// Guarantees the Target Is Set Before Layout Reads It
+			.add_systems(
+				PostUpdate,
+				hud::route_window_ui_to_menu_camera.before(bevy::ui::UiSystem::Layout),
+			)
 			// Core State / Sync Systems
 			.add_systems(Update, sync::apply_enemy_fire_to_player_vitals)
 			.add_systems(Update, sync::sync_player_hp_with_hud)
