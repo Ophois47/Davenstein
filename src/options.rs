@@ -859,8 +859,14 @@ fn apply_video_settings_startup(
 		window.present_mode = desired_present_mode(&settings);
 		window.mode = desired_window_mode(&settings, &q_monitors);
 		if settings.display_mode == DisplayMode::Windowed {
+			// settings.resolution Holds PHYSICAL Monitor-Mode Pixels (the List Is
+			// Built From 'mode.physical_size'), so Set the Physical Resolution
+			// Directly. '.set()' Treats Its Arguments as LOGICAL and Multiplies by
+			// the Display Scale Factor - on a 2x-DPI Display That Makes the Window
+			// Twice the Intended Size, Desyncing the Depth and Color Attachment
+			// Sizes and Crashing the Renderer (Only on Non-1x DPI, i.e. Windows)
 			let (w, h) = settings.resolution;
-			window.resolution.set(w as f32, h as f32);
+			window.resolution.set_physical_resolution(w, h);
 		}
 	}
 
@@ -914,13 +920,18 @@ fn apply_video_settings_on_change(
 		}
 
 		if settings.display_mode == DisplayMode::Windowed {
+			// Compare and Set in PHYSICAL Pixels. settings.resolution Is Physical
+			// (From 'mode.physical_size'); Comparing Against Logical 'width()' or
+			// Setting via '.set()' Applies the Display Scale Factor Twice and, on a
+			// 2x-DPI Display, Sizes the Window to Twice the Requested Pixels -
+			// Desyncing Depth vs Color and Crashing the Renderer on the Switch
 			let (w, h) = settings.resolution;
 			let (cur_w, cur_h) = (
-				window.resolution.width() as u32,
-				window.resolution.height() as u32,
+				window.resolution.physical_width(),
+				window.resolution.physical_height(),
 			);
 			if cur_w != w || cur_h != h {
-				window.resolution.set(w as f32, h as f32);
+				window.resolution.set_physical_resolution(w, h);
 			}
 		}
 	}
