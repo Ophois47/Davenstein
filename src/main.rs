@@ -53,6 +53,7 @@ mod pak_assets;
 mod pickups;
 mod restart;
 mod save;
+mod settings;
 mod ui;
 
 use bevy::prelude::*;
@@ -235,6 +236,7 @@ fn main() {
 		.add_plugins(davelib::perf_overlay::PerfOverlayPlugin)
 		.add_plugins(ui::UiPlugin)
 		.add_plugins(save::SavePlugin)
+		.add_plugins(settings::SettingsPlugin)
 		.add_plugins(EnemiesPlugin)
 		.add_plugins(EnemyAiPlugin)
 		.add_plugins(combat::CombatPlugin)

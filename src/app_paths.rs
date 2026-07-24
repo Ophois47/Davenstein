@@ -52,6 +52,10 @@ pub fn high_scores_path() -> io::Result<PathBuf> {
     Ok(data_root()?.join("highscores.ron"))
 }
 
+pub fn settings_path() -> io::Result<PathBuf> {
+    Ok(data_root()?.join("settings.ron"))
+}
+
 fn storage_mode_for(executable_dir: &Path) -> StorageMode {
     if executable_dir.join(PORTABLE_MARKER_FILE).is_file() {
         StorageMode::Portable
