@@ -2,7 +2,6 @@
 Davenstein - by David Petnick
 */
 
-use bevy::camera;
 use bevy::prelude::*;
 use bevy::audio::{AudioSinkPlayback, Volume};
 use bevy::image::{Image, ImageSampler};
@@ -947,66 +946,20 @@ fn apply_view_size_on_change(
 
 	*last_applied = Some(current);
 
-	// Only Apply View Size Changes During Gameplay (When Player Exists)
-	// In Menus, Always Use Full Viewport
-	if !has_player {
-		for mut cam in q_camera.iter_mut() {
-			cam.viewport = None;
-		}
-		return;
-	}
-
-	// Work in Canvas Pixels: the 3-D Camera Renders Into the Canvas
-	let cv_w = canvas.size.x;
-	let cv_h = canvas.size.y;
-
-	if cv_w == 0 || cv_h == 0 {
-		return;
-	}
-
-	let vs = settings.view_size.clamp(4, 20) as f32;
-
-	if vs >= 20.0 {
-		// Full Viewport: Remove any Viewport Restriction
-		for mut cam in q_camera.iter_mut() {
-			cam.viewport = None;
-		}
-		return;
-	}
-
-	// Status Bar Height in Canvas Pixels
-	const HUD_W: f32 = 320.0;
-	const STATUS_H: f32 = 44.0;
-	let hud_scale = (cv_w as f32 / HUD_W).floor().max(1.0);
-	let status_h_phys = (STATUS_H * hud_scale) as u32;
-
-	// Available Area Above Status Bar
-	let view_h = cv_h.saturating_sub(status_h_phys);
-	if view_h == 0 {
-		return;
-	}
-
-	// Inset Fraction: at view_size 4 Inset ~50%, at 19 Inset ~3%
-	// Linear Mapping: Fraction = (20 - view_size) / 32
-	// This Gives a Subtle Border at 19 and Large Border at 4
-	let inset_frac = (20.0 - vs) / 32.0;
-
-	let inset_x = (cv_w as f32 * inset_frac).round() as u32;
-	let inset_y = (view_h as f32 * inset_frac).round() as u32;
-
-	let vp_x = inset_x;
-	let vp_y = inset_y;
-	let vp_w = cv_w.saturating_sub(inset_x * 2).max(1);
-	let vp_h = view_h.saturating_sub(inset_y * 2).max(1);
-
-	let viewport = camera::Viewport {
-		physical_position: UVec2::new(vp_x, vp_y),
-		physical_size: UVec2::new(vp_w, vp_h),
-		..default()
-	};
-
+	// The 3-D Camera Always Renders the Full Canvas - Its Viewport Is Never Inset.
+	// View Size Is Drawn Authentically by 'sync_view_size_border' (in the HUD),
+	// Which Frames the View With an Opaque Wolf3D-Style Border so the World Shows
+	// Through Only the Smaller Central Window, While the Status Bar Stays Full-Width
+	// and Menus Stay Untouched.
+	//
+	// We Must NOT Inset This Camera's Viewport: the HUD Shares This Camera via
+	// 'IsDefaultUiCamera', and Bevy Lays a Camera's UI Out *Inside* Its Viewport, so
+	// an Inset Would Drag the Status Bar, Border, and Gun Into the Same Small
+	// Rectangle and Collapse the Whole Display. Keep the Viewport Cleared
 	for mut cam in q_camera.iter_mut() {
-		cam.viewport = Some(viewport.clone());
+		if cam.viewport.is_some() {
+			cam.viewport = None;
+		}
 	}
 }
 
