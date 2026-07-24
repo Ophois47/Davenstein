@@ -3679,6 +3679,10 @@ impl Plugin for SplashPlugin {
         );
         app.add_systems(
             Update,
+            spawn_get_psyched_ui_on_active.in_set(SplashUpdateSet::PsychedLoading),
+        );
+        app.add_systems(
+            Update,
             tick_get_psyched_loading.in_set(SplashUpdateSet::PsychedLoading),
         );
         app.add_systems(
@@ -7771,7 +7775,7 @@ pub(crate) fn setup_splash(mut commands: Commands, asset_server: Res<AssetServer
     });
 }
 
-fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win_w: f32, win_h: f32) {
+fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win_w: f32, win_h: f32, hud_root: Entity) {
     const HUD_W: f32 = 320.0;
 
     let hud_scale = (win_w / HUD_W).floor().max(1.0);
@@ -7795,7 +7799,7 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
     let bar_h = (1.0 * scale).max(1.0).round();
     let bar_top = (top + spr_h - bar_h).max(0.0);
 
-    commands
+    let loading = commands
         .spawn((
             LoadingUi,
             ZIndex(950),
@@ -7834,13 +7838,22 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
                 },
                 BackgroundColor(PSYCHED_RED),
             ));
-        });
+        })
+        .id();
+
+    // Parent the Loading Screen to HudRoot so It Shares the HUD's Canvas Camera
+    // and Per-Level Lifecycle. On the Always-On Menu Camera the Teal Panel Came Up
+    // a Beat Before the HUD (Whose Camera Is Despawned/Respawned Each Level Rebuild);
+    // as a HudRoot Child It Renders With the Status Bar - the 1992-Faithful Cut
+    commands.entity(hud_root).add_child(loading);
 }
 
 fn begin_get_psyched_loading(
-    commands: &mut Commands,
-    asset_server: &AssetServer,
-    win: &Window,
+    // The UI Is Now Spawned by 'spawn_get_psyched_ui_on_active' so It Can Be
+    // Parented to HudRoot; This Only Arms the Loading State
+    _commands: &mut Commands,
+    _asset_server: &AssetServer,
+    _win: &Window,
     psyched: &mut PsychedLoad,
     lock: &mut PlayerControlLock,
     music_mode: &mut MusicMode,
@@ -7850,7 +7863,26 @@ fn begin_get_psyched_loading(
 
     psyched.active = true;
     psyched.timer.reset();
-    spawn_get_psyched_ui(commands, asset_server, win.width(), win.height());
+}
+
+/// Spawn the "Get Psyched" Loading UI Once Loading Is Active, Parented to HudRoot
+/// so It Rides the Same Canvas Camera and Per-Level Lifecycle as the Status Bar
+/// (Appears With the HUD, Not Before It on the Menu Camera). Idempotent: Only
+/// Spawns When Active and None Exists Yet
+fn spawn_get_psyched_ui_on_active(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    q_win: Single<&Window, With<PrimaryWindow>>,
+    psyched: Res<PsychedLoad>,
+    q_loading: Query<(), With<LoadingUi>>,
+    q_hud_root: Query<Entity, With<crate::ui::hud::HudRoot>>,
+) {
+    if !psyched.active || !q_loading.is_empty() {
+        return;
+    }
+    let Some(hud_root) = q_hud_root.iter().next() else { return; };
+    let win = q_win.into_inner();
+    spawn_get_psyched_ui(&mut commands, &asset_server, win.width(), win.height(), hud_root);
 }
 
 fn tick_get_psyched_loading(
@@ -7858,7 +7890,7 @@ fn tick_get_psyched_loading(
     time: Res<Time>,
     mut lock: ResMut<PlayerControlLock>,
     mut psyched: ResMut<PsychedLoad>,
-    q_loading_roots: Query<Entity, (With<LoadingUi>, Without<bevy::prelude::ChildOf>)>,
+    q_loading_roots: Query<Entity, With<LoadingUi>>,
     mut q_bar: Query<(&mut Node, &PsychedBar)>,
 ) {
     if !psyched.active {
