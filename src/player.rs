@@ -127,6 +127,7 @@ pub fn cursor_is_captured(grab_mode: CursorGrabMode) -> bool {
 /// `apply_look.after(davelib::input::InputGather)`.
 pub fn apply_look(
     intent: Res<PlayerIntent>,
+    controls: Res<crate::options::ControlSettings>,
     mut q: Query<(&mut Transform, &mut LookAngles), With<Player>>,
     lock: Res<PlayerControlLock>,
 ) {
@@ -134,19 +135,34 @@ pub fn apply_look(
         return;
     }
 
+    let Ok((mut transform, mut look)) = q.single_mut() else {
+        return;
+    };
+
+    // Mouselook Off Means There Is No Vertical Aim, so the View Belongs on the
+    // Horizon. Force Pitch Back to 0, Which Also Un-Sticks the Camera When the
+    // Player Turns Mouselook Off While Looking Up or Down. Only Rewrites the
+    // Rotation While Pitch Is Actually Off-Level, so the Common Case Costs Nothing
+    if !controls.mouselook_enabled && look.pitch != 0.0 {
+        look.pitch = 0.0;
+        transform.rotation = Quat::from_euler(EulerRot::YXZ, look.yaw, look.pitch, 0.0);
+    }
+
     let delta = intent.look_delta;
     if delta == Vec2::ZERO {
         return;
     }
 
-    let Ok((mut transform, mut look)) = q.single_mut() else {
-        return;
-    };
-
     look.yaw += delta.x;
-    look.pitch += delta.y;
-    // ~ +/- 88 Degrees
-    look.pitch = look.pitch.clamp(-1.54, 1.54);
+
+    // Vertical Look Only Applies With Mouselook Enabled. When It Is Off, Pitch
+    // Stays Pinned to the Horizon Regardless of Mouse or Gamepad Input, so
+    // Toggling the Option Off Reliably Leaves the Player Looking Straight Ahead
+    if controls.mouselook_enabled {
+        look.pitch += delta.y;
+        // ~ +/- 88 Degrees
+        look.pitch = look.pitch.clamp(-1.54, 1.54);
+    }
 
     transform.rotation = Quat::from_euler(EulerRot::YXZ, look.yaw, look.pitch, 0.0);
 }
