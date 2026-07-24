@@ -310,7 +310,7 @@ cargo run --bin pak_builder --release -- --root assets --out target/release/asse
 
 ## Compatibility
 
-- Raspberry Pi 5 / V3D: not currently supported. Bevy's GPU rendering does not yet work on the Pi's V3D driver (Vulkan renders incorrectly; OpenGL can't present via wgpu), and the CPU software renderer, while correct, runs below playable framerates. This is an upstream limitation in Bevy/wgpu/Mesa, not a bug. Will revisit when V3D GPU support matures.
+- Raspberry Pi 5 / V3D: not currently supported. Bevy's GPU rendering does not yet work on the Pi's V3D driver (Vulkan renders incorrectly, OpenGL can't present via wgpu), and the CPU software renderer, while correct, runs below playable framerates. This is an upstream limitation in Bevy/wgpu/Mesa, not a bug. Will revisit when V3D GPU support matures.
 
 ## Screenshots
 

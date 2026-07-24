@@ -45,6 +45,23 @@ fn glyph_cell(c: char) -> (usize, usize) {
     (3, 0)
 }
 
+/// Half-Texel Inset Applied to the Top and Bottom Edge of Every Sampled Glyph
+/// Rect, in Atlas Pixels. The Level-End Text Renders on the World/HUD Canvas
+/// Camera and Is Sized in Canvas-Pixel Space, and the Intermission Overlay
+/// Further Multiplies the Glyph Size by a Fractional TEXT_SCALE (0.90). A 16px
+/// Glyph Cell Therefore Maps to a Non-Integer Number of Destination Pixels at
+/// Many Resolutions and Video Modes. Under Linear Filtering the Sampler Then
+/// Reaches Up to Half a Texel Past the Cell's Top or Bottom Edge into the 1px
+/// White Separator Row Between Atlas Rows, Painting a Thin White Seam Above or
+/// Below the Letters - Visible Only Where the Cell Lands on a Fractional
+/// Vertical Boundary. Pulling the Top Edge Down and the Bottom Edge Up by Half
+/// a Texel Snaps Both Edges Onto the First and Last Glyph Texel-Row Centers, so
+/// Every Bilinear Tap Stays Inside the Glyph and the Seam Cannot Appear. It Is
+/// a No-Op Under Nearest-Neighbor Sampling. Only the Vertical Edges Are Inset,
+/// Because the Seam Is Top/Bottom Only, so the Carefully Chosen Horizontal
+/// Divider-Avoidance Offsets for ':' '%' '!' Are Left Bit-for-Bit Unchanged
+const V_INSET: f32 = 0.5;
+
 fn glyph_rect_full(row: usize, col: usize) -> Rect {
     // 16x16 Glyphs with 1px Separators
     const GLYPH: f32 = 16.0;
@@ -54,7 +71,11 @@ fn glyph_rect_full(row: usize, col: usize) -> Rect {
     let x0 = col as f32 * STRIDE;
     let y0 = row as f32 * STRIDE;
 
-    Rect::from_corners(Vec2::new(x0, y0), Vec2::new(x0 + GLYPH, y0 + GLYPH))
+    // Inset the Top/Bottom by Half a Texel to Prevent White-Separator Bleed
+    Rect::from_corners(
+        Vec2::new(x0, y0 + V_INSET),
+        Vec2::new(x0 + GLYPH, y0 + GLYPH - V_INSET),
+    )
 }
 
 fn glyph_rect_sub(row: usize, col: usize, x_off: f32, w: f32) -> Rect {
@@ -65,7 +86,12 @@ fn glyph_rect_sub(row: usize, col: usize, x_off: f32, w: f32) -> Rect {
     let x0 = col as f32 * STRIDE + x_off;
     let y0 = row as f32 * STRIDE;
 
-    Rect::from_corners(Vec2::new(x0, y0), Vec2::new(x0 + w, y0 + GLYPH))
+    // Inset the Top/Bottom by Half a Texel to Prevent White-Separator Bleed
+    // Horizontal Extent Is Left Exactly as Requested so Divider Avoidance Holds
+    Rect::from_corners(
+        Vec2::new(x0, y0 + V_INSET),
+        Vec2::new(x0 + w, y0 + GLYPH - V_INSET),
+    )
 }
 
 fn glyph_rect_and_advance(c: char) -> (Rect, f32) {
