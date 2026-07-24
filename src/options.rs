@@ -928,11 +928,18 @@ fn apply_view_size_on_change(
 	settings: Res<VideoSettings>,
 	canvas: Res<WorldCanvas>,
 	player_query: Query<(), With<player::Player>>,
+	lock: Res<player::PlayerControlLock>,
 	mut q_camera: Query<&mut Camera, With<Camera3d>>,
-	mut last_applied: Local<Option<(u8, bool, UVec2)>>,
+	mut last_applied: Local<Option<(u8, bool, bool, UVec2)>>,
 ) {
 	let has_player = !player_query.is_empty();
-	let current = (settings.view_size, has_player, canvas.size);
+	// View Size Is a Gameplay Setting: the World Viewport Is Only Inset During
+	// Live Play. Whenever Control Is Locked (Pause Menu, and the End-of-Level
+	// Intermission, Which Raises the Lock) the Viewport Is Cleared so the World
+	// Fills the Frame Behind the Menu / Intermission Instead of Rendering as the
+	// Small View Window. Track 'lock.0' Too so the Change Is Applied the Frame the
+	// Lock Toggles
+	let current = (settings.view_size, has_player, lock.0, canvas.size);
 
 	// Check if anything changed: settings, player existence, canvas size, or
 	// first frame
@@ -947,9 +954,10 @@ fn apply_view_size_on_change(
 
 	*last_applied = Some(current);
 
-	// Only Apply View Size Changes During Gameplay (When Player Exists)
-	// In Menus, Always Use Full Viewport
-	if !has_player {
+	// Only Inset the Viewport During Live Gameplay. No Player (Menus) or Control
+	// Locked (Pause / Intermission) => Full Viewport so the World Is Not Shrunk to
+	// the View Window Behind Those Screens
+	if !has_player || lock.0 {
 		for mut cam in q_camera.iter_mut() {
 			cam.viewport = None;
 		}
