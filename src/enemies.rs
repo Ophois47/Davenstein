@@ -3068,6 +3068,51 @@ pub fn spawn_guard(
     )).id()
 }
 
+/// Spawn the Inert Dead Guard the Map Author Places With Wolf3D Object Code 124
+/// (SpawnDeadGuard in WL_ACT2.C). It Is Set Dressing, Not an Enemy: No AI, No
+/// Health, No Collision, and It Is Not Counted Toward the Level's Kill Total.
+/// It Shows the Same Corpse Frame a Killed Guard Settles On, on the Exact Same
+/// Upright Billboard Quad and Material as a Live Guard, so a Map-Placed Corpse
+/// and a Player-Made One Look Identical. Facing Is Handled by the Shared
+/// Decoration Billboard ('billboard_decorations'), Which Turns Any Entity With
+/// 'Decoration' + 'BillboardTilt' to Face the Player, so No Enemy AI or View
+/// Logic Touches It. This Is the Opening-Room Corpse in E1M1 That Explains Where
+/// the Player's Starting Pistol Came From
+pub fn spawn_dead_guard(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    sprites: &GuardSprites,
+    tile: IVec2,
+) -> Entity {
+    const TILE_SIZE: f32 = 1.0;
+    const WALL_H: f32 = 1.0;
+
+    let pos = Vec3::new(tile.x as f32 * TILE_SIZE, WALL_H * 0.5, tile.y as f32 * TILE_SIZE);
+
+    // Same Quad and Material Flags as a Live Guard, Showing the Corpse Texture
+    let quad = meshes.add(Mesh::from(Rectangle::new(0.85, 1.0)));
+    let mat = materials.add(StandardMaterial {
+        base_color_texture: Some(sprites.corpse.clone()),
+        alpha_mode: AlphaMode::Mask(0.5),
+        unlit: true,       // No Lighting on Sprites
+        cull_mode: None,   // Safe for Billboards
+        ..default()
+    });
+
+    commands.spawn((
+        Name::new(format!("DeadGuard({},{})", tile.x, tile.y)),
+        // Reuse the Decoration Billboard for Player-Facing. blocks: false Keeps the
+        // Corpse Walk-Through, Matching the Original Inert Object. Code 124 Is Not a
+        // 'statinfo' Static, so 'spawn_decorations' Ignores It and Never Double-Spawns
+        crate::decorations::Decoration { plane1_code: 124, blocks: false },
+        crate::decorations::BillboardTilt(0.0),
+        Mesh3d(quad),
+        MeshMaterial3d(mat),
+        Transform::from_translation(pos),
+    )).id()
+}
+
 pub fn spawn_mutant(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,

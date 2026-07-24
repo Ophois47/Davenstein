@@ -1200,6 +1200,24 @@ pub fn setup(
         commands.entity(_e).insert(crate::enemies::SpawnIndex(spawn_i as u32));
     }
 
+    // Dead Guard Set Dressing (Wolf3D Object Code 124). The Map Parser Treats 124
+    // as Neither a Guard Spawn nor a 'statinfo' Static, so It Would Otherwise Be
+    // Dropped. We Consume It Straight From plane1 and Spawn an Inert Corpse at Each
+    // Tile. E1M1 Has One in the Opening Room to Show Where the Starting Pistol Came
+    // From; Scanning Every Level Keeps Any Other Placed Corpses Working Too
+    for i in 0..plane1.len() {
+        if plane1[i] == 124 {
+            let tile = IVec2::new((i % 64) as i32, (i / 64) as i32);
+            crate::enemies::spawn_dead_guard(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                &enemy_sprites.guards,
+                tile,
+            );
+        }
+    }
+
 	let player_pos = Vec3::new(spawn.x as f32 * TILE_SIZE, 0.5, spawn.y as f32 * TILE_SIZE);
 
 	// Spawn Camera with Appropriate FOV for Wolfenstein 3-D Gameplay
