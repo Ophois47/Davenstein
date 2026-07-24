@@ -18,10 +18,14 @@ use crate::player::cursor_is_captured;
 // Moved Verbatim from the Old player::mouse_look
 const BASE_SENSITIVITY: f32 = 0.002;
 
-// Keyboard Turn Speed in Radians per Second
-// Provides Keyboard Yaw When Mouselook is Disabled or Supplements Mouse Input
-// Promote to ControlSettings if It Should Be Exposed in the Options Menu
-const KEY_TURN_SPEED: f32 = 2.6;
+// Keyboard Turn Speeds in Radians per Second. Two-Tier, Faithful to Wolf3D Where
+// Holding Run Turned Faster as Well as Moved Faster. The Base Rate Is Deliberately
+// Low so a Tap Makes a Fine Aiming Adjustment Instead of Whipping Past the Target,
+// While Holding Run Gives a Fast Spin for Getting Around. (Wolf3D Reserved Its
+// Turn *Ramp* for the Joystick; Keyboard Turning Was a Flat Rate Scaled by Run.)
+// Promote to ControlSettings if These Should Be Exposed in the Options Menu
+const KEY_TURN_SPEED: f32 = 1.4;     // ~80 deg/s, Precise for Aiming
+const KEY_TURN_SPEED_RUN: f32 = 3.0; // ~172 deg/s, Fast Spin While Running
 
 // Merge Keyboard and Mouse Input into the Shared PlayerIntent Accumulator
 // Called by the Neutral gather System as the Base Source Each Frame
@@ -75,12 +79,15 @@ pub fn contribute(
 
     // Keyboard Turning is Always Available so the Game is Fully Playable Without a Mouse
     // Uses Variable Delta Time Because Look is Applied Every Render Frame
+    // Run Speeds the Turn Up (Faithful to Wolf3D), so the Low Base Rate Can Stay
+    // Precise for Aiming Without Making Full Turns Feel Sluggish
     let dt = time.delta_secs();
+    let turn_speed = if run { KEY_TURN_SPEED_RUN } else { KEY_TURN_SPEED };
     if keys.pressed(kb.turn_left) {
-        look.x += KEY_TURN_SPEED * dt;
+        look.x += turn_speed * dt;
     }
     if keys.pressed(kb.turn_right) {
-        look.x -= KEY_TURN_SPEED * dt;
+        look.x -= turn_speed * dt;
     }
 
     // Action Edges Populated Now and Consumed Later
