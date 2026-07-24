@@ -310,8 +310,6 @@ cargo run --bin pak_builder --release -- --root assets --out target/release/asse
 - Change View size does not properly respect menu UI
 - End of level text glyphs need borders clipped
 - Some static decorations appear incorrect
-- Player weapons on screen need to be resized
-- Dead guard decoration in first room of E1M1 missing
 
 ## Compatibility
 

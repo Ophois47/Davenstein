@@ -470,19 +470,46 @@ pub(crate) fn sync_hud_floor_digits(
 pub(crate) fn sync_viewmodel_size(
     q_win: Query<&Window, With<PrimaryWindow>>,
     canvas: Option<Res<WorldCanvas>>,
+    settings: Res<davelib::options::VideoSettings>,
     mut q_vm: Query<&mut Node, With<ViewModelImage>>,
 ) {
     let Some(mut node) = q_vm.iter_mut().next() else { return; };
-    let (_ui_w, ui_h) = ui_ref_dims(canvas.as_deref(), &q_win);
+    let (ui_w, ui_h) = ui_ref_dims(canvas.as_deref(), &q_win);
 
-    const STATUS_BAR_H: f32 = 64.0;
-    const VIEWMODEL_HEIGHT_FRAC: f32 = 0.62;
+    // Faithful to Wolf3D's DrawPlayerWeapon (WL_DRAW.C):
+    //     SimpleScaleShape(viewwidth / 2, shapenum, viewheight + 1);
+    // The Square 64x64 Weapon Is Scaled so Its Height Equals 'viewheight' - the
+    // Height of the 3-D View Window - Centered Horizontally and Bottom-Anchored to
+    // That Window. Because the Sprite Is Square, Its On-Screen Width Equals Its
+    // Height. Tying It to 'viewheight' (Not the Screen) Is What Makes the Gun
+    // Shrink With the View-Size Setting Exactly Like the Original
+    //
+    // All Geometry Below Matches the Camera Viewport in options.rs and the Border
+    // in 'sync_view_size_border', so the Gun Stays Aligned to the 3-D View at Every
+    // Resolution, Render Scale, and Display Mode
+    const HUD_W: f32 = 320.0;
+    const STATUS_H: f32 = 44.0;
+    let hud_scale = (ui_w / HUD_W).floor().max(1.0);
+    let status_h_px = STATUS_H * hud_scale;
 
-    let view_h = (ui_h - STATUS_BAR_H).max(1.0);
-    let gun_px = view_h * VIEWMODEL_HEIGHT_FRAC;
+    // Play Area = Everything Above the Status Bar
+    let play_h = (ui_h - status_h_px).max(1.0);
 
-    node.width = Val::Px(gun_px);
-    node.height = Val::Px(gun_px);
+    // View-Size Inset (Same (20 - vs) / 32 Fraction as the Camera Viewport)
+    let vs = settings.view_size.clamp(4, 20) as f32;
+    let inset_frac = (20.0 - vs) / 32.0;
+    let inset_y = (play_h * inset_frac).round();
+
+    // 'viewheight': the Inset 3-D View Window Height
+    let view_h = (play_h - inset_y * 2.0).max(1.0);
+
+    // Square Gun: Height == Width == viewheight. The Enclosing Flex Container
+    // Centers It Horizontally and Bottom-Aligns It; the Bottom Margin Lifts It Off
+    // the Status Bar by the View's Bottom Border So It Bottoms on the View Window
+    // Rather Than the Full Play Area, Matching the Original at Reduced View Sizes
+    node.width = Val::Px(view_h);
+    node.height = Val::Px(view_h);
+    node.margin = UiRect::bottom(Val::Px(inset_y));
 }
 
 #[derive(Default)]
