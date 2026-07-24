@@ -82,6 +82,7 @@ use davelib::decorations::{
 use davelib::enemies::EnemiesPlugin;
 use davelib::player::{
     apply_look,
+    level_pitch_without_mouselook,
     door_animate,
     door_auto_close,
     init_player_render_interp,
@@ -281,6 +282,14 @@ fn main() {
 			apply_look
 				.after(davelib::input::InputGather)
 				.run_if(|lock: Res<PlayerControlLock>, win: Res<level_complete::LevelComplete>| !lock.0 && !win.0),
+		)
+		// Deliberately NOT Gated by the Control Lock, so It Also Runs While the
+		// Options Menu Is Open (Where Control Is Locked). This Levels the Pitch the
+		// Instant Mouselook Is Turned Off, so Returning to Play Always Looks Ahead.
+		// Ordered After 'apply_look' so It Has the Final Word on Pitch That Frame
+		.add_systems(
+			Update,
+			level_pitch_without_mouselook.after(apply_look),
 		)
 		.add_systems(Update, level_complete::tick_elevator_exit_delay)
 		.add_systems(Update, level_complete::sync_mission_success_overlay_visibility)

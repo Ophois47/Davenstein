@@ -139,15 +139,6 @@ pub fn apply_look(
         return;
     };
 
-    // Mouselook Off Means There Is No Vertical Aim, so the View Belongs on the
-    // Horizon. Force Pitch Back to 0, Which Also Un-Sticks the Camera When the
-    // Player Turns Mouselook Off While Looking Up or Down. Only Rewrites the
-    // Rotation While Pitch Is Actually Off-Level, so the Common Case Costs Nothing
-    if !controls.mouselook_enabled && look.pitch != 0.0 {
-        look.pitch = 0.0;
-        transform.rotation = Quat::from_euler(EulerRot::YXZ, look.yaw, look.pitch, 0.0);
-    }
-
     let delta = intent.look_delta;
     if delta == Vec2::ZERO {
         return;
@@ -165,6 +156,33 @@ pub fn apply_look(
     }
 
     transform.rotation = Quat::from_euler(EulerRot::YXZ, look.yaw, look.pitch, 0.0);
+}
+
+/// Pin the View to the Horizon Whenever Mouselook Is Disabled
+///
+/// Deliberately Runs Without the Control-Lock Guard That Gates 'apply_look', so
+/// It Also Fires While the Player Is Still Inside the Options Menu (Where Control
+/// Is Locked) Turning Mouselook Off. Without Mouselook There Is No Way to Aim Up
+/// or Down, so a Pitched View Would Otherwise Stay Stuck; Forcing Pitch to 0 the
+/// Moment Mouselook Is Off Guarantees the Player Returns to Level, Straight-Ahead
+/// View. It Early-Outs While Mouselook Is Enabled and Only Rewrites the Rotation
+/// While Pitch Is Actually Off-Level, so It Costs Nothing in the Normal Case
+pub fn level_pitch_without_mouselook(
+    controls: Res<crate::options::ControlSettings>,
+    mut q: Query<(&mut Transform, &mut LookAngles), With<Player>>,
+) {
+    if controls.mouselook_enabled {
+        return;
+    }
+
+    let Ok((mut transform, mut look)) = q.single_mut() else {
+        return;
+    };
+
+    if look.pitch != 0.0 {
+        look.pitch = 0.0;
+        transform.rotation = Quat::from_euler(EulerRot::YXZ, look.yaw, look.pitch, 0.0);
+    }
 }
 
 pub fn player_move(
