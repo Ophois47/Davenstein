@@ -6,6 +6,8 @@ use bevy::audio::SpatialListener;
 use bevy::prelude::*;
 use bevy::camera::RenderTarget;
 use bevy::ui::prelude::IsDefaultUiCamera;
+use bevy::camera::ClearColorConfig;
+use bevy::render::view::RenderLayers;
 use bevy::window::PrimaryWindow;
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::render::render_resource::Face;
@@ -1248,10 +1250,12 @@ pub fn setup(
 			fov: fov_radians,
 			..default()
 		}),
-		// 'IsDefaultUiCamera' Lives Here (the Canvas Camera) so the HUD Renders
-		// Into the Low-Res Canvas and Upscales With the World for a Uniform Chunky
-		// Look. The HUD Sizes Off the Canvas via 'ui_ref_dims', Not the Window
-		IsDefaultUiCamera,
+		// NOTE: 'IsDefaultUiCamera' Deliberately Does NOT Live on This Camera. This
+		// Camera Insets Its Viewport for View Size, and Bevy Lays a Camera's UI Out
+		// Inside Its Viewport - so Owning the HUD Here Would Shrink the Status Bar and
+		// Border Into the View Window. The HUD Lives on the Dedicated HUD Camera Below,
+		// Which Is Full-Canvas, so the World Scales Into the Window While the Status Bar
+		// Stays Full-Width. The HUD Still Sizes Off the Canvas via 'ui_ref_dims'
 		Player,
 		PlayerKeys::default(),
 		crate::player::PlayerVitals::default(),
@@ -1260,18 +1264,44 @@ pub fn setup(
 		Transform::from_translation(player_pos).with_rotation(Quat::from_rotation_y(spawn_yaw)),
 	));
 
+	// Dedicated HUD Camera. Renders the HUD Into the Canvas at FULL Canvas Size -
+	// Never Confined by the World Camera's View-Size Viewport - so the World (and
+	// Gun) Scale Into the Smaller View Window While the Status Bar Stays Full-Width
+	// and the Border Fills the Gutter. It Owns 'IsDefaultUiCamera' so Untargeted HUD
+	// Nodes Land Here, Uses 'ClearColorConfig::None' so It Composites Over the World
+	// the World Camera Already Drew, and Orders After the World (0) and Before the
+	// Present Camera. Tagged 'WorldPresenter' so the Level Rebuild Path Despawns It
+	commands.spawn((
+		Camera2d::default(),
+		RenderTarget::Image(canvas.handle.clone().into()),
+		Camera {
+			order: 1,
+			clear_color: ClearColorConfig::None,
+			..default()
+		},
+		Msaa::Off,
+		IsDefaultUiCamera,
+		WorldPresenter,
+	));
+
 	// Present Camera: Draws the World Canvas Full-Screen (Nearest-Neighbor
 	// Upscale). Ordered *After* the World Camera. UI Is Owned by the Canvas
 	// Camera Above so the HUD Upscales With the World. Tagged 'WorldPresenter'
 	// so the Level Rebuild Path Despawns It With the Player Camera
 	commands.spawn((
 		Camera2d::default(),
-		Camera { order: 1, ..default() },
+		// Order 2: After the World Camera (0) and HUD Camera (1) Have Finished
+		// Writing the Canvas, so This Frame's Fully-Composited Canvas Is Sampled
+		Camera { order: 2, ..default() },
 		// MSAA Off: This Camera Only Blits the Canvas to the Window With a
 		// Nearest-Neighbor Upscale. Multisampling It Would Waste Memory and
 		// Bandwidth and Soften the Deliberately Chunky Pixels. Keeping It at
 		// One Sample Also Keeps Its Sample Count Consistent With the Window
 		Msaa::Off,
+		// Layer 1 Isolates This Camera and the Canvas Sprite (Below) From the HUD
+		// Camera, Which Is a Camera2d on the Default Layer and Would Otherwise Draw
+		// the Canvas Sprite Back Into the Canvas (a Feedback Loop)
+		RenderLayers::layer(1),
 		WorldPresenter,
 	));
 
@@ -1291,6 +1321,9 @@ pub fn setup(
 
 	commands.spawn((
 		sprite,
+		// Same Isolation Layer as the Present Camera so ONLY It Draws the Canvas
+		// Sprite (Never the HUD Camera). See the Present Camera Note Above
+		RenderLayers::layer(1),
 		WorldPresenter,
 	));
 }
