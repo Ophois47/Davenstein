@@ -2,7 +2,7 @@
 [Desktop Entry]
 Type=Application
 Name=Davenstein
-Comment=Dave's Wolfenstein 3-D recreation written in Rust with the Bevy engine
+Comment=Dave Petnick's Wolfenstein 3-D recreation, written in Rust with the Bevy engine
 Exec=Davenstein
 Icon=io.github.ophois47.davenstein
 Terminal=false

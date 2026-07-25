@@ -3,13 +3,12 @@
   <!-- Keep the component ID synchronized with the manifest, desktop file, and exported icon -->
   <id>io.github.ophois47.davenstein</id>
   <name>Davenstein</name>
-  <summary>Dave's Wolfenstein 3-D recreation written in Rust with the Bevy engine</summary>
+  <summary>Dave Petnick's Wolfenstein 3-D recreation, written in Rust with the Bevy engine</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT OR Apache-2.0</project_license>
   <description>
     <p>
-      Davenstein is a ground-up recreation of Wolfenstein 3-D written in Rust
-      using the Bevy game engine.
+      A Wolfenstein 3-D recreation by David Petnick, written in Rust with the Bevy engine.
     </p>
   </description>
   <screenshots>

@@ -239,13 +239,12 @@ MANPAGE_DATE=${RPM_MANPAGE_DATE:-$(date -u '+%B %Y')}
 cat > "$PAYLOAD_ROOT/usr/share/man/man6/Davenstein.6" <<MANPAGE
 .TH DAVENSTEIN 6 "$MANPAGE_DATE" "Davenstein $RELEASE_VERSION" "Games"
 .SH NAME
-Davenstein \- a Wolfenstein 3-D recreation written in Rust
+Davenstein \- Dave Petnick's Wolfenstein 3-D recreation, written in Rust with the Bevy engine
 .SH SYNOPSIS
 .B Davenstein
 .RI [ arguments ]
 .SH DESCRIPTION
-Davenstein is a ground-up native recreation of Wolfenstein 3-D written in
-Rust using the Bevy game engine.
+A Wolfenstein 3-D recreation by David Petnick, written in Rust with the Bevy engine.
 .PP
 The RPM package runs the game in installed storage mode. Saves, high scores,
 and other writable data are stored in the current user's application data
@@ -285,7 +284,7 @@ cat > "$SPEC_PATH" <<SPEC
 Name:           davenstein
 Version:        $RPM_VERSION
 Release:        $RPM_RELEASE%{?dist}
-Summary:        Wolfenstein 3-D recreation written in Rust
+Summary:        Dave Petnick's Wolfenstein 3-D recreation, written in Rust with the Bevy engine
 
 License:        MIT OR Apache-2.0
 URL:            https://github.com/Ophois47/Davenstein
@@ -295,8 +294,7 @@ Requires:       hicolor-icon-theme
 Packager:       $PACKAGER
 
 %description
-Davenstein is a ground-up native recreation of Wolfenstein 3-D written in
-Rust using the Bevy game engine.
+A Wolfenstein 3-D recreation by David Petnick, written in Rust with the Bevy engine.
 
 This package installs Davenstein as a system application while retaining
 per-user save data and high-score storage.

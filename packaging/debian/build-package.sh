@@ -260,13 +260,12 @@ gzip -n -9 \
 cat > "$PACKAGE_ROOT/usr/share/man/man6/Davenstein.6" <<MANPAGE
 .TH DAVENSTEIN 6 "July 2026" "Davenstein $RELEASE_VERSION" "Games"
 .SH NAME
-Davenstein \- a Wolfenstein 3-D recreation written in Rust
+Davenstein \- Dave Petnick's Wolfenstein 3-D recreation, written in Rust with the Bevy engine
 .SH SYNOPSIS
 .B Davenstein
 .RI [ arguments ]
 .SH DESCRIPTION
-Davenstein is a ground-up native recreation of Wolfenstein 3-D written in
-Rust using the Bevy game engine.
+A Wolfenstein 3-D recreation by David Petnick, written in Rust with the Bevy engine.
 .PP
 The Debian package runs the game in installed storage mode. Saves, high
 scores, and other writable data are stored in the current user's application
@@ -302,9 +301,8 @@ Homepage: https://github.com/Ophois47/Davenstein
 Package: davenstein
 Architecture: $DEB_ARCH
 Depends: \${shlibs:Depends}
-Description: Wolfenstein 3-D recreation written in Rust
- Davenstein is a ground-up native recreation of Wolfenstein 3-D written in
- Rust using the Bevy game engine.
+Description: Dave Petnick's Wolfenstein 3-D recreation, written in Rust with the Bevy engine
+ A Wolfenstein 3-D recreation by David Petnick, written in Rust with the Bevy engine.
 CONTROL
 
 # Resolve Debian Package Dependencies From the Staged ELF Executable
@@ -342,9 +340,8 @@ Maintainer: $MAINTAINER
 Installed-Size: $INSTALLED_SIZE
 Depends: $SHLIBS_DEPENDS
 Homepage: https://github.com/Ophois47/Davenstein
-Description: Wolfenstein 3-D recreation written in Rust
- Davenstein is a ground-up native recreation of Wolfenstein 3-D written in
- Rust using the Bevy game engine.
+Description: Dave Petnick's Wolfenstein 3-D recreation, written in Rust with the Bevy engine
+ A Wolfenstein 3-D recreation by David Petnick, written in Rust with the Bevy engine.
  .
  This package installs Davenstein as a system application while retaining
  per-user save data and high-score storage.
