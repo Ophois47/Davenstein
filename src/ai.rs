@@ -1477,13 +1477,17 @@ fn enemy_ai_combat(
             continue;
         }
 
-        // Start Attacks Only When Not Moving
-        if moving_now {
-            continue;
-        }
-
-        // Dog Melee Bite
+        // Dog Melee Bite. Dogs Keep Their Pre-Existing Between-Move Bite Timing, so the
+        // Not-Moving Gate Lives Here Rather Than in Front of the Shoot Roll Below. When
+        // it Guarded Both, a Weaving Actor -- Which After the T_Chase Restoration is
+        // Moving on Almost Every Tic -- Got One Shoot Roll per Tile Crossed Instead of
+        // One per Tic, Cutting its Fire Rate at Range to Roughly a Thirtieth of the
+        // Original's and Leaving it Silent Until it Reached Point-Blank
         if matches!(*kind, EnemyKind::Dog) {
+            if moving_now {
+                continue;
+            }
+
             let can_see = has_line_of_sight(&grid, my_tile, player_tile);
             let dx = (player_tile.x - my_tile.x).abs();
             let dy = (player_tile.y - my_tile.y).abs();
@@ -1521,12 +1525,14 @@ fn enemy_ai_combat(
 
             let los_ready = held >= LOS_FIRST_SHOT_DELAY_SECS;
 
-            // T_Chase's Shoot Roll. With a Clear Line the Original Does Not Fire the
-            // Instant it Can: it Rolls US_RndT() < chance Every Tic and Dodges on Every
-            // Tic the Roll Fails. chance is 300 (Certain) Point Blank, Otherwise
-            // SHOOT_CHANCE_PER_TIC / dist. Paired With the Post-Shot Cooldown This Works
-            // Out at Roughly One Shot Every 1.7 s at Four Tiles, Which is About What the
-            // Original Averages -- and Crucially the Actor is Moving in Between.
+            // T_Chase's Shoot Roll, Taken Every Tic Whether or Not a Move is in
+            // Flight -- the Original Rolls and Walks in the Same Think. On Success the
+            // Actor Fires From Wherever it Stands, Mid-Tile Included; enemy_ai_move
+            // Freezes it There While shared.shooting Holds, Then the Interrupted Move
+            // Resumes. chance is 300 (Certain) Point Blank, Otherwise
+            // SHOOT_CHANCE_PER_TIC / dist Against US_RndT(). Paired With the Post-Shot
+            // Cooldown This Works Out at Roughly One Shot Every 1.7 s at Four Tiles,
+            // Which is About What the Original Averages.
             //
             // The Original Also Requires ob->distance < 0x4000 (More Than Halfway Into
             // the Tile) Before Granting the Certain Point-Blank chance at dist == 1. We
@@ -2072,6 +2078,7 @@ fn apply_pending_dir8(
 fn enemy_ai_move(
     mut commands: Commands,
     time: Res<Time>,
+    shared: Res<AiSharedData>,
     mut q: Query<
         (
             Entity,
@@ -2095,6 +2102,15 @@ fn enemy_ai_move(
             || officer_pain.is_some()
             || mutant_pain.is_some()
         {
+            continue;
+        }
+
+        // An Actor in its Shoot Animation Stops Dead Mid-Tile, Fires, Then Resumes the
+        // Interrupted Move -- the Original Parks ob->distance and T_Shoot Never Walks.
+        // enemy_ai_movement Only Prevents *New* Moves for a Shooter; This is What Holds
+        // a Move Already in Flight. Combat Rebuilds shared.shooting Before This System
+        // Runs Each Tic, so the Hold Releases the Tic the Animation Ends
+        if shared.shooting.contains(&e) {
             continue;
         }
 
