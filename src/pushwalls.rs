@@ -14,9 +14,6 @@ use crate::options::GameplaySettings;
 use crate::player::{Player, PlayerControlLock};
 use crate::world::{RebuildWalls, WallRenderCache};
 
-const WOLF_TIC_HZ: f32 = 70.0;
-const WOLF_TIC_SECS: f32 = 1.0 / WOLF_TIC_HZ;
-
 // 128 Tics Per Tile for Pushwalls (Stops at 256 for 2 Tiles)
 const PUSHWALL_TICS_PER_TILE: u32 = 128;
 const PUSHWALL_TOTAL_TICS: u32 = PUSHWALL_TICS_PER_TILE * 2;
@@ -179,17 +176,6 @@ impl PushwallOcc {
 
 #[derive(Component)]
 pub struct PushwallVisual;
-
-#[derive(Resource, Default)]
-pub struct PushwallClock {
-    accum: f32,
-}
-
-impl PushwallClock {
-    pub fn reset(&mut self) {
-        self.accum = 0.0;
-    }
-}
 
 #[derive(Debug)]
 pub struct ActivePushwall {
@@ -535,9 +521,7 @@ pub fn use_pushwalls(
 }
 
 pub fn tick_pushwalls(
-    time: Res<Time>,
     solid: Option<Res<SolidStatics>>,
-    mut clock: ResMut<PushwallClock>,
     mut pws: ResMut<PushwallState>,
     mut occ: ResMut<PushwallOcc>,
     mut grid: ResMut<MapGrid>,
@@ -566,11 +550,14 @@ pub fn tick_pushwalls(
         return;
     }
 
-    clock.accum += time.delta_secs();
+    // Time::<Fixed>::from_hz(70.0) Means One FixedUpdate is Exactly One Wolf3D Tic, so
+    // There is Nothing to Accumulate and Never More Than One Tic to Process. Advancing by
+    // an Integer Tic Keeps Pushwall Timing Bit-Exact Instead of Riding on f32 Round-Off.
+    // Still a Loop Purely so the Early Exits Below Can Go on Using break
+    let mut tics_to_run: u32 = 1;
 
-    // Process Multiple 70Hz Tics if FixedUpdate is Slow
-    while clock.accum >= WOLF_TIC_SECS {
-        clock.accum -= WOLF_TIC_SECS;
+    while tics_to_run > 0 {
+        tics_to_run -= 1;
 
         let old_block = active.state / PUSHWALL_TICS_PER_TILE;
         active.state += 1;

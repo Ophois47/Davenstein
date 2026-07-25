@@ -102,7 +102,6 @@ use davelib::pushwalls::{
     tick_pushwalls,
     PushwallOcc,
     PushwallState,
-    PushwallClock,
 };
 use davelib::world::{
     setup,
@@ -259,7 +258,6 @@ fn main() {
 		.init_resource::<PushwallOcc>()
 		.init_resource::<PushwallState>()
 		.init_resource::<davelib::pushwalls::CompletedPushwalls>()
-		.init_resource::<PushwallClock>()
 		.init_resource::<davelib::level::CurrentLevel>()
 		.init_resource::<davelib::audio::MusicMode>()
 		.init_resource::<level_complete::LevelComplete>()

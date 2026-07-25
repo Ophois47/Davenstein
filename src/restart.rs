@@ -20,7 +20,6 @@ use davelib::{
         PushwallVisual,
         PushwallState,
         PushwallOcc,
-        PushwallClock,
     },
 };
 use crate::level_complete::{
@@ -100,7 +99,6 @@ pub fn restart_finish(
     mut win: ResMut<LevelComplete>,
     mut pw_state: ResMut<PushwallState>,
     mut pw_occ: ResMut<PushwallOcc>,
-    mut pw_clock: ResMut<PushwallClock>,
 ) {
     // Keep Lives + Score, Reset Everything Else
     let lives = hud.lives;
@@ -118,7 +116,6 @@ pub fn restart_finish(
 
     pw_state.active = None;
     pw_occ.clear();
-    pw_clock.reset();
 
     // Consume Request so it Runs Once
     restart.0 = false;
@@ -136,7 +133,6 @@ pub fn new_game_finish(
     mut win: ResMut<LevelComplete>,
     mut pw_state: ResMut<PushwallState>,
     mut pw_occ: ResMut<PushwallOcc>,
-    mut pw_clock: ResMut<PushwallClock>,
 ) {
     if !new_game.0 {
         return;
@@ -154,7 +150,6 @@ pub fn new_game_finish(
 
     pw_state.active = None;
     pw_occ.clear();
-    pw_clock.reset();
     new_game.0 = false;
 }
 
@@ -167,7 +162,6 @@ pub fn advance_level_finish(
     mut win: ResMut<crate::level_complete::LevelComplete>,
     mut pw_state: ResMut<davelib::pushwalls::PushwallState>,
     mut pw_occ: ResMut<davelib::pushwalls::PushwallOcc>,
-    mut pw_clock: ResMut<davelib::pushwalls::PushwallClock>,
     mut q_vitals: Query<&mut davelib::player::PlayerVitals, With<davelib::player::Player>>,
     mut q_keys: Query<&mut davelib::player::PlayerKeys, With<davelib::player::Player>>,
 ) {
@@ -196,7 +190,6 @@ pub fn advance_level_finish(
 
     pw_state.active = None;
     pw_occ.clear();
-    pw_clock.reset();
 
     // Consume Request
     advance.0 = false;
@@ -231,7 +224,6 @@ pub struct LoadRuntimeParams<'w> {
     episode_stats: ResMut<'w, davelib::level_score::EpisodeStats>,
     pw_state: ResMut<'w, PushwallState>,
     pw_occ: ResMut<'w, PushwallOcc>,
-    pw_clock: ResMut<'w, PushwallClock>,
 }
 
 #[derive(SystemParam)]
@@ -374,7 +366,6 @@ pub fn load_game_finish(
 
     state.pw_state.active = None;
     state.pw_occ.clear();
-    state.pw_clock.reset();
 
     req.restart.0 = false;
     req.new_game.0 = false;
