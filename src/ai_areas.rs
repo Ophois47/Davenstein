@@ -75,6 +75,8 @@ pub struct AreaGraph {
 }
 
 impl Default for AreaGraph {
+    /// Hand-Written Rather Than Derived: std Only Implements `Default` for Arrays up to
+    /// Length 32, and `reachable` is `[bool; NUM_AREAS]` With NUM_AREAS == 37
     fn default() -> Self {
         Self {
             width: 0,
@@ -219,6 +221,11 @@ impl AreaGraph {
         AREATILE + u16::from(self.player_area.unwrap_or(0))
     }
 
+    /// Read the plane0 Floor Codes Straight Off the Grid. Only a Tile::Empty Tile Can
+    /// Carry an Area Number: a Wall or Door Keeps a Texture or Door Code in That Same
+    /// plane0 Slot, so Reading One as an Area Would Invent Connections That Do not Exist.
+    /// Codes Below AREATILE and Codes Past NUM_AREAS Are Left at -1 for
+    /// `adopt_missing_areas` or `assign_synthetic_areas` to Fill In
     fn read_area_codes(&mut self, grid: &MapGrid) {
         self.tile_area.clear();
         self.tile_area.resize(self.width * self.height, -1);
@@ -347,6 +354,11 @@ impl AreaGraph {
         }
     }
 
+    /// Index Every Door Tile Against the Two Areas it Joins. This is the Standing
+    /// Equivalent of the Original's `areaconnect` Matrix, Except the Original Bumps a
+    /// Counter as Each Door Opens Whereas This Records the Adjacency Once and Lets
+    /// `update_for_player` Poll the Live Open State. Safe Because Door Positions Never
+    /// Move Within a Level -- Only Whether They Are Open Changes
     fn build_door_links(&mut self, grid: &MapGrid) {
         self.door_links.clear();
 
