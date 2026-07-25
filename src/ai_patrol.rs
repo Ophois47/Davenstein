@@ -10,7 +10,6 @@ use crate::enemies::{Dir8, EnemyKind};
 pub struct Patrol;
 
 /// Plane1 Path-Arrow Codes (ICONARROWS = 90 ..= 97) to Dir8.
-///
 /// In the Original, `arrowtile - 90` is a dirtype Directly, in the Compass Order
 /// E, NE, N, NW, W, SW, S, SE (WOLFSRC/WL_STATE.C SelectPathDir). Davenstein's
 /// Dir8 is That Same Compass Rotated by +2 (Dir8 0 = South, 2 = East, 4 = North,

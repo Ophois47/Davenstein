@@ -305,9 +305,7 @@ cargo run --bin pak_builder --release -- --root assets --out target/release/asse
 
 ## Known Bugs
 
-- Menu UI must respect widescreen
 - Save and Load banners need reformatting
-- Selecting Back to Game with a gamepad also fires weapon
 
 ## Compatibility
 
