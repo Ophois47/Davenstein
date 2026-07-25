@@ -344,48 +344,63 @@ fn process_fire_shots(
             };
 
             // Surprise Double Damage if Not in Attack Mode Yet. DamageActor Tests
-            // FL_ATTACKMODE, Not the Stand State, and FL_ATTACKMODE is Set by
-            // FirstSighting -- so a *Patrolling* Actor Shot in the Back Takes the Same
-            // Double Damage and Engages the Same Way. Gating on Stand Alone Left
-            // Patrollers Taking Single Damage and Not Retaliating at All
-            if let Ok(mut ai) = q_ai.get_mut(e) {
-                if !matches!(ai.state, EnemyAiState::Chase) {
-                    if let Some(d) = dmg_opt.as_mut() {
-                        *d *= 2;
-                    }
+            // FL_ATTACKMODE, Not the Stand State -- so a *Patrolling* Actor Shot in the
+            // Back Takes the Same Double Damage. Only the Doubling Happens Here: the
+            // Wake Itself is Deferred Until the Damage Has Resolved, Because DamageActor
+            // Subtracts Hitpoints FIRST and Calls FirstSighting Only in the Survive
+            // Branch. Waking Before the Damage Landed Meant a Surprise One-Shot Kill
+            // Barked its Alert Line Over its Own Death Scream, and a Shot That Rolled a
+            // Complete Miss Woke and Barked an Actor GunAttack Would Have Left Asleep
+            let was_surprised = q_ai
+                .get(e)
+                .map(|ai| !matches!(ai.state, EnemyAiState::Chase))
+                .unwrap_or(false);
 
-                    // FirstSighting, Not Just a State Poke: Clear the Deaf Flag, Arm
-                    // the One Permitted Turnaround, and Cancel Any Half-Spent Reaction
-                    // Delay so the Hit Actor Engages Immediately Rather Than Finishing
-                    // a Countdown it No Longer Needs
-                    ai.state = EnemyAiState::Chase;
-                    ai.ambush = false;
-                    ai.first_attack = true;
-                    ai.react_tics = 0;
-
-                    // FirstSighting Also Plays the Alert Bark, and Waking by Damage Goes
-                    // Through FirstSighting Exactly Like Waking by Sight. ai.alerted is
-                    // the Same Once-per-Actor-Life Gate enemy_ai_prepare_and_activate
-                    // Uses, so the Two Wake Paths Cannot Double Up on the Bark
-                    if !ai.alerted && !matches!(kind, EnemyKind::Mutant) {
-                        ai.alerted = true;
-
-                        if let Ok((_, _, _, gt)) = q_alive.get(e) {
-                            sfx.write(PlaySfx {
-                                kind: SfxKind::EnemyAlert(kind),
-                                pos: gt.translation(),
-                            });
-                        }
-                    }
+            if was_surprised {
+                if let Some(d) = dmg_opt.as_mut() {
+                    *d *= 2;
                 }
             }
 
+            // A Missed Roll Never Reaches DamageActor at All: GunAttack Returns Before
+            // the Call, so a Miss Neither Wakes nor Barks the Target it Whistled Past.
+            // (The Shot Still Set madenoise, so Same-Area Actors Can Hear it -- That
+            // Path is the PlayerNoise Flag, Unaffected Here)
             let Some(dmg) = dmg_opt else {
                 continue;
             };
 
             if let Ok(mut hp) = q_hp.get_mut(e) {
                 hp.cur -= dmg;
+
+                // FirstSighting Runs Only When the Actor SURVIVED the Hit, Exactly as
+                // DamageActor's else Branch Does. A Killing Blow Goes Straight to the
+                // Kill Path Below: no State Poke, no Bark -- the Corpse Screams, it
+                // Does not Also Shout an Alert
+                if hp.cur > 0 && was_surprised {
+                    if let Ok(mut ai) = q_ai.get_mut(e) {
+                        // Not Just a State Poke: Clear the Deaf Flag, Arm the One
+                        // Permitted Turnaround, and Cancel Any Half-Spent Reaction
+                        // Delay so the Hit Actor Engages Immediately
+                        ai.state = EnemyAiState::Chase;
+                        ai.ambush = false;
+                        ai.first_attack = true;
+                        ai.react_tics = 0;
+
+                        // ai.alerted is the Same Once-per-Actor-Life Gate the Sight
+                        // Wake Uses, so the Two Paths Cannot Double Up on the Bark
+                        if !ai.alerted && !matches!(kind, EnemyKind::Mutant) {
+                            ai.alerted = true;
+
+                            if let Ok((_, _, _, gt)) = q_alive.get(e) {
+                                sfx.write(PlaySfx {
+                                    kind: SfxKind::EnemyAlert(kind),
+                                    pos: gt.translation(),
+                                });
+                            }
+                        }
+                    }
+                }
 
                 if hp.cur <= 0 {
                     hp.cur = 0;

@@ -1823,7 +1823,7 @@ fn enemy_ai_movement(
             &mut EnemyAi,
             &mut OccupiesTile,
             &Transform,  // Changed from &mut Dir8 to just &Transform
-            Option<&EnemyMove>,
+            Option<&mut EnemyMove>,
             &mut TableRng,
         ),
         (With<EnemyKind>, Without<Dead>),
@@ -1843,7 +1843,7 @@ fn enemy_ai_movement(
         IVec2::new(0, -1),
     ];
 
-    for (e, kind, mut ai, mut occ, tf, moving, mut actor_rng) in q_enemies.iter_mut() {
+    for (e, kind, mut ai, mut occ, tf, mut moving, mut actor_rng) in q_enemies.iter_mut() {
         if !matches!(ai.state, EnemyAiState::Chase) {
             continue;
         }
@@ -1852,6 +1852,19 @@ fn enemy_ai_movement(
         let speed = t.chase_speed_tps;
         let my_tile = occ.0;
         let moving_now = moving.is_some() || shared.scheduled_move.contains(&e);
+
+        // FirstSighting Triples a Waking Actor's Speed ("go faster when chasing
+        // player", WOLFSRC/WL_STATE.C), and in the Original That Reaches the Tile Step
+        // Already Underway, Because ob->speed is Read Every Move Tic. Here the Speed
+        // Was Baked Into the EnemyMove at Schedule Time, so a Patroller Shot or
+        // Alerted Mid-Step Kept Strolling Out its Patrol Move at 0.65x Before the
+        // Chase Ever Took Over -- Reading as a Wince Followed by Indifference. Raising
+        // the In-Flight Move to Chase Speed Here is That Same Read-Every-Tic Semantics
+        if let Some(mv) = moving.as_mut() {
+            if mv.speed_tps < speed {
+                mv.speed_tps = speed;
+            }
+        }
 
         // Hold Position While Mid-Fire: an Actor in its Shoot Animation Stops to
         // Shoot Rather Than Dodging Through it (Original T_Chase Enters the Shoot
