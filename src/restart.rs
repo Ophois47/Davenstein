@@ -133,6 +133,7 @@ pub fn new_game_finish(
     mut win: ResMut<LevelComplete>,
     mut pw_state: ResMut<PushwallState>,
     mut pw_occ: ResMut<PushwallOcc>,
+    mut god: ResMut<davelib::player::GodMode>,
 ) {
     if !new_game.0 {
         return;
@@ -150,6 +151,12 @@ pub fn new_game_finish(
 
     pw_state.active = None;
     pw_occ.clear();
+
+    // A New Game Starts a Fresh High-Score Run, so Any Lingering God Mode From the
+    // Previous Session is Cleared Here. GodMode is its Own Resource and is Not Covered by
+    // the HudState Reset Above, so Without This it Would Silently Carry Across
+    god.0 = false;
+
     new_game.0 = false;
 }
 

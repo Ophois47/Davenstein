@@ -842,6 +842,7 @@ pub fn collect_pickups(
     q_pickups: Query<(Entity, &Pickup)>,
     mut sfx: MessageWriter<PlaySfx>,
     mut level_score: ResMut<davelib::level_score::LevelScore>,
+    god: Res<davelib::player::GodMode>,
 ) {
     // MG / Chaingun Give 6 Bullets
     const WEAPON_PICKUP_BULLETS: i32 = 6;
@@ -973,7 +974,13 @@ pub fn collect_pickups(
 
                 emit_pickup_sfx(kind);
 
-                hud.score += t.points();
+                // God Mode Voids the Player's High-Score Run (the MIL Cheat in the
+                // Original Made the Same Point With an On-Screen Warning). We Freeze the
+                // Point Total While it is On but Still Count the Treasure Toward the
+                // Level's Completion Stats, so the Intermission Percentages Stay Honest
+                if !god.0 {
+                    hud.score += t.points();
+                }
                 // Intermission Tally
                 level_score.treasure_found += 1;
             }

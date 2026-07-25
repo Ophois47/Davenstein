@@ -521,6 +521,7 @@ pub fn apply_mission_success_bonus_to_player_score_once(
     current_level: Res<davelib::level::CurrentLevel>,
     level_score: Res<davelib::level_score::LevelScore>,
     mut episode_stats: ResMut<davelib::level_score::EpisodeStats>,
+    god: Res<davelib::player::GodMode>,
 ) {
     if !win.0 {
         return;
@@ -534,7 +535,10 @@ pub fn apply_mission_success_bonus_to_player_score_once(
         return;
     }
 
-    let add = tally.target_bonus.max(0);
+    // God Mode Voids the High-Score Run, so the Level-Completion Bonus is Withheld
+    // While it is On. episode_stats Still Records the Level Below, Because Those Drive
+    // Completion Percentages Rather Than the Point Total
+    let add = if god.0 { 0 } else { tally.target_bonus.max(0) };
     hud.score = hud.score.saturating_add(add);
 
     episode_stats.record_level(current_level.0, &level_score);
