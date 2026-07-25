@@ -126,11 +126,6 @@ const AI_BFS_CHASE: bool = false;
 // Symmetric Four-Cardinal Sweep if Your Copy Disagrees, or if the Bias Reads Badly
 const AI_FAITHFUL_SWEEP_BIAS: bool = true;
 
-// AMBUSHTILE (Plane0 Code 106) Marks a "Deaf" Guard Spot in the Original Maps.
-// Actors Spawned on it Get FL_AMBUSH: They Ignore Gunfire Noise and Wake Only
-// on Actual Sight (WOLFSRC/WL_ACT2.C, WOLFSRC/WL_DEF.H)
-const AMBUSHTILE: u16 = 106;
-
 // Set True by the Player's Gun Fire (Not the Knife) and Consumed Once per AI
 // Tic, Mirroring the Original Global `madenoise`. The Binary's Weapon System
 // Writes it; `capture_player_noise` Drains it Into AiSharedData for the Actors
@@ -558,7 +553,12 @@ fn attach_enemy_ai(
             && t.y >= 0
             && (t.x as usize) < grid.width
             && (t.y as usize) < grid.height
-            && grid.plane0_code(t.x as usize, t.y as usize) == AMBUSHTILE;
+            // AMBUSHTILE (plane0 Code 106) Marks a "Deaf" Guard Spot in the Original
+            // Maps. Actors Spawned on it Get FL_AMBUSH: They Ignore Gunfire Noise and
+            // Wake Only on Actual Sight (WOLFSRC/WL_ACT2.C, WOLFSRC/WL_DEF.H). The
+            // Constant Lives in ai_areas Next to AREATILE, Since the Area Solve Needs the
+            // Same Value to Reproduce SetupGameLevel's Ambush Fixup
+            && grid.plane0_code(t.x as usize, t.y as usize) == crate::ai_areas::AMBUSHTILE;
         let ambush = is_ambush_kind(*kind) || on_ambush_tile;
 
         // Stride the Seeds (151 is Coprime With 256) so Consecutively Spawned
