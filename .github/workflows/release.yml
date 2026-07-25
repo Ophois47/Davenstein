@@ -15,6 +15,9 @@ on:
           - linux-x86_64
           - linux-arm64
           - linux-armv7
+          - flatpak-x86_64
+          - flatpak-arm64
+          - flatpak-all
           - freebsd-x86_64
           - macos-arm64
           - macos-intel
@@ -1088,9 +1091,10 @@ jobs:
   #
   # The linux-x86_64 manual selection intentionally runs the existing Ubuntu
   # packages, Rocky Linux RPM package, and this Flatpak package in parallel
+  # Dedicated Flatpak selections run this job without the broader Linux jobs
   build-linux-flatpak:
     name: Build Linux x86_64 Flatpak Package
-    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-x86_64'
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-x86_64' || inputs.build_target == 'flatpak-x86_64' || inputs.build_target == 'flatpak-all'
     needs: release-preflight
     runs-on: ubuntu-24.04
     env:
@@ -1675,9 +1679,10 @@ jobs:
   #
   # The linux-arm64 manual selection intentionally runs the portable archive,
   # AppImage, and Flatpak package jobs together
+  # Dedicated Flatpak selections run this job without the broader Linux jobs
   build-linux-arm64-flatpak:
     name: Build Linux ARM64 Flatpak Package
-    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-arm64'
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-arm64' || inputs.build_target == 'flatpak-arm64' || inputs.build_target == 'flatpak-all'
     needs: release-preflight
     runs-on: ubuntu-24.04-arm
     env:
