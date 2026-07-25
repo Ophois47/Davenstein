@@ -69,6 +69,7 @@ use crate::player::{
     PlayerControlLock,
     PlayerDeathLatch,
 };
+use crate::pushwalls::PushwallOcc;
 
 const AI_TIC_SECS: f32 = 1.0 / 70.0;
 const DOOR_OPEN_SECS: f32 = 4.5;
@@ -136,6 +137,11 @@ pub struct EnemyAi {
     // FL_FIRSTATTACK: True on the First dodge After Noticing the Player, Which is
     // the Only Time SelectDodgeDir is Allowed to Turn the Actor Around
     pub first_attack: bool,
+    // FirstSighting Plays the Alert Bark Exactly Once per Actor Life. Kept on the
+    // Actor Rather Than in a System-Local Entity Set Because Bevy Recycles Entity
+    // Ids Across Level Rebuilds: a Recycled Id Silently Swallows the Bark of a Brand
+    // New Actor, and the Set Also Grows for the Whole Session
+    pub alerted: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -181,9 +187,6 @@ struct AiSharedData {
     // Did the Player Fire a Gun This Tic? (Drained From PlayerNoise). Non-Ambush
     // Actors in a Connected Area Wake on This Even Without Line of Sight
     made_noise: bool,
-    player_area: Option<i32>,
-    cached_area_map: AreaMap,
-    cached_area_generation: Option<u64>,
 }
 
 #[allow(dead_code)]
@@ -206,6 +209,7 @@ enum ChasePick {
 fn pick_chase_step(
     grid: &MapGrid,
     solid: &SolidStatics,
+    pw_occ: &PushwallOcc,
     occupied: &std::collections::HashSet<IVec2>,
     my_tile: IVec2,
     player_tile: IVec2,
@@ -266,6 +270,14 @@ fn pick_chase_step(
             continue;
         }
 
+        // A Pushwall in Motion Occupies Two Tiles That Still Read as Floor in the
+        // Grid, Because tick_pushwalls Only Stamps Tile::Wall When the Slide Ends.
+        // Without This Test an Actor Walks Clean Through the Moving Wall and Can Be
+        // Sealed Into Solid Geometry the Moment It Comes to Rest
+        if pw_occ.blocks(dest) {
+            continue;
+        }
+
         match t {
             Tile::Empty | Tile::DoorOpen => return ChasePick::MoveTo(dest),
             Tile::DoorClosed => return ChasePick::OpenDoor(dest),
@@ -275,7 +287,11 @@ fn pick_chase_step(
 
     if last_step != IVec2::ZERO {
         let dest = my_tile + reverse;
-        if dest != player_tile && !occupied.contains(&dest) && !solid.is_solid(dest.x, dest.y) {
+        if dest != player_tile
+            && !occupied.contains(&dest)
+            && !solid.is_solid(dest.x, dest.y)
+            && !pw_occ.blocks(dest)
+        {
             if let Some(t) = tile_at(grid, dest) {
                 match t {
                     Tile::Empty | Tile::DoorOpen => return ChasePick::MoveTo(dest),
@@ -299,6 +315,7 @@ fn pick_chase_step(
 fn select_dodge_step(
     grid: &MapGrid,
     solid: &SolidStatics,
+    pw_occ: &PushwallOcc,
     occupied: &HashSet<IVec2>,
     my_tile: IVec2,
     player_tile: IVec2,
@@ -350,6 +367,12 @@ fn select_dodge_step(
             return false;
         }
         if solid.is_solid(t.x, t.y) {
+            return false;
+        }
+        // Tiles Held by a Moving Pushwall Are Not Walkable Even Though the Grid
+        // Still Reports Them as Floor. player.rs Already Blocks the Player on These;
+        // Actors Have to Agree or They Weave Straight Through the Wall
+        if pw_occ.blocks(t) {
             return false;
         }
         matches!(
@@ -442,6 +465,7 @@ fn attach_enemy_ai(
                 react_tics: 0,
                 ambush,
                 first_attack: false,
+                alerted: false,
             },
             TableRng::seeded(rng_seed),
         ));
@@ -656,81 +680,6 @@ fn try_open_door_at(
     }
 }
 
-#[derive(Debug, Default)]
-struct AreaMap {
-    w: usize,
-    h: usize,
-    ids: Vec<i32>,
-}
-
-impl AreaMap {
-    fn compute(grid: &MapGrid) -> Self {
-        let w = grid.width;
-        let h = grid.height;
-
-        let mut ids = vec![-1; w * h];
-        let mut next_id: i32 = 0;
-
-        let passable = |t: Tile| matches!(t, Tile::Empty | Tile::DoorOpen);
-
-        for z in 0..h {
-            for x in 0..w {
-                let idx = z * w + x;
-                if ids[idx] != -1 {
-                    continue;
-                }
-
-                let t = grid.tile(x, z);
-                if !passable(t) {
-                    continue;
-                }
-
-                let mut stack = vec![IVec2::new(x as i32, z as i32)];
-                ids[idx] = next_id;
-
-                while let Some(p) = stack.pop() {
-                    let n4 = [
-                        IVec2::new(p.x + 1, p.y),
-                        IVec2::new(p.x - 1, p.y),
-                        IVec2::new(p.x, p.y + 1),
-                        IVec2::new(p.x, p.y - 1),
-                    ];
-
-                    for n in n4 {
-                        if n.x < 0 || n.y < 0 || n.x as usize >= w || n.y as usize >= h {
-                            continue;
-                        }
-                        let ni = n.y as usize * w + n.x as usize;
-                        if ids[ni] != -1 {
-                            continue;
-                        }
-
-                        let nt = grid.tile(n.x as usize, n.y as usize);
-                        if !passable(nt) {
-                            continue;
-                        }
-
-                        ids[ni] = next_id;
-                        stack.push(n);
-                    }
-                }
-
-                next_id += 1;
-            }
-        }
-
-        Self { w, h, ids }
-    }
-
-    fn id(&self, t: IVec2) -> Option<i32> {
-        if t.x < 0 || t.y < 0 || t.x as usize >= self.w || t.y as usize >= self.h {
-            return None;
-        }
-        let id = self.ids[t.y as usize * self.w + t.x as usize];
-        if id < 0 { None } else { Some(id) }
-    }
-}
-
 // --- Wolf3D RNG (Authentic US_RndT Table) ----------------------------------
 // The 256-Entry Table and the Pre-Increment Index Are Copied Verbatim From id's
 // WOLFSRC/ID_US_A.ASM. US_RndT Advances the Index (Wrapping at 256) and Returns
@@ -885,13 +834,14 @@ fn enemy_ai_prepare_and_activate(
     mut commands: Commands,
     grid: Res<MapGrid>,
     solid: Res<SolidStatics>,
+    pw_occ: Res<PushwallOcc>,
     q_player: Query<&GlobalTransform, With<Player>>,
     intent: Res<PlayerIntent>,
     mut sfx: MessageWriter<PlaySfx>,
-    mut alerted: Local<HashSet<Entity>>,
     wolf_plane1: Res<crate::level::WolfPlane1>,
     tunings: Res<EnemyTunings>,
     mut shared: ResMut<AiSharedData>,
+    mut areas: ResMut<crate::ai_areas::AreaGraph>,
     mut q_doors: Query<(&DoorTile, &mut DoorState, &GlobalTransform)>,
     mut q_enemies: Query<
         (
@@ -923,20 +873,18 @@ fn enemy_ai_prepare_and_activate(
 
     let made_noise = shared.made_noise;
 
-    // Recompute if Grid Topology Changed Within Level (Generation Bump),
-    // OR if Grid Resource Itself was Replaced (Level Rebuild / Load), the
-    // Latter is What Catches Fresh Grid Reusing Generation 0 From Prior Level
-    if grid.is_changed() || shared.cached_area_generation != Some(grid.generation) {
-        shared.cached_area_map = AreaMap::compute(&grid);
-        shared.cached_area_generation = Some(grid.generation);
+    // The Grid Resource Itself is Replaced on a Level Rebuild and the Fresh Grid
+    // Starts at Generation 0 Again, so Resource-Level Change Detection is What
+    // Catches a New Map That Happens to Match the Old One's Size and Generation
+    if grid.is_changed() {
+        areas.invalidate();
     }
 
-    // Move Cached Map Out of Shared so the Rest of This Tick Can Freely
-    // Mutate Other Shared Fields (dist_map, occupied, scheduled_move) Without
-    // Borrow Conflict. It is Moved Back at the End of the Tick
-    let areas = std::mem::take(&mut shared.cached_area_map);
-    let player_area = areas.id(player_tile);
-    shared.player_area = player_area;
+    // Refresh the Area Topology if the Level Changed, Then Solve areabyplayer for
+    // This Tic. The Topology Pass is Skipped Unless MapGrid Actually Moved, and the
+    // Reachability Solve Walks at Most 37 Areas
+    areas.sync_topology(&grid);
+    areas.update_for_player(&grid, player_tile);
 
     let w = grid.width as i32;
     let h = grid.height as i32;
@@ -983,6 +931,13 @@ fn enemy_ai_prepare_and_activate(
                 }
 
                 if solid.is_solid(n.x, n.y) || grid.tile(n.x as usize, n.y as usize) == Tile::Wall {
+                    continue;
+                }
+
+                // Do Not Route the Chase Distance Field Through a Moving Pushwall.
+                // The Two Tiles It Holds Read as Floor Until the Slide Ends, so the
+                // BFS Would Otherwise Hand Out a Path Straight Through the Wall
+                if pw_occ.blocks(n) {
                     continue;
                 }
 
@@ -1049,7 +1004,8 @@ fn enemy_ai_prepare_and_activate(
                     // Allow One Turnaround on the First dodge After Noticing
                     ai.first_attack = true;
 
-                    if alerted.insert(e) && !matches!(*kind, EnemyKind::Mutant) {
+                    if !ai.alerted && !matches!(*kind, EnemyKind::Mutant) {
+                        ai.alerted = true;
                         sfx.write(PlaySfx {
                             kind: SfxKind::EnemyAlert(*kind),
                             pos: tf.translation,
@@ -1057,8 +1013,11 @@ fn enemy_ai_prepare_and_activate(
                     }
                 }
             } else {
-                let same_area = player_area.is_some() && areas.id(my_tile) == player_area;
-                if same_area {
+                // areabyplayer[ob->areanumber]. The Actor Only Notices the Player
+                // When its Own Area is Joined to the Player's by a Chain of Open
+                // Doors. Open Geometry Alone Never Connects Two Areas, and That is
+                // Precisely What Keeps One Gunshot From Waking Half the Level
+                if areas.hears_player(my_tile) {
                     // Original SightPlayer: an Actor in a Connected Area Wakes
                     // on Sight; Non-Ambush Actors Also Wake on Gunfire Noise,
                     // While Ambush (Deaf) Actors Ignore Noise and Need Sight
@@ -1140,7 +1099,11 @@ fn enemy_ai_prepare_and_activate(
                     continue;
                 }
 
-                if solid.is_solid(a.x, a.y) || solid.is_solid(b.x, b.y) {
+                if solid.is_solid(a.x, a.y)
+                    || solid.is_solid(b.x, b.y)
+                    || pw_occ.blocks(a)
+                    || pw_occ.blocks(b)
+                {
                     dir8.0 = (dir8.0 + 4) & 7;
                     continue;
                 }
@@ -1153,7 +1116,10 @@ fn enemy_ai_prepare_and_activate(
                 }
             }
 
-            if solid.is_solid(dest.x, dest.y) || shared.occupied.contains(&dest) {
+            if solid.is_solid(dest.x, dest.y)
+                || pw_occ.blocks(dest)
+                || shared.occupied.contains(&dest)
+            {
                 dir8.0 = (dir8.0 + 4) & 7;
                 continue;
             }
@@ -1193,10 +1159,6 @@ fn enemy_ai_prepare_and_activate(
             }
         }
     }
-
-    // Restore Area Map Into Cache so Next Tic (This Frame or Later
-    // One) Can Reuse it Without Recomputing
-    shared.cached_area_map = areas;
 }
 
 // SYSTEM 2: Handle Combat (Shooting, Dog Bites, Burst Fire)
@@ -1707,6 +1669,7 @@ fn enemy_ai_movement(
     mut commands: Commands,
     grid: Res<MapGrid>,
     solid: Res<SolidStatics>,
+    pw_occ: Res<PushwallOcc>,
     mut sfx: MessageWriter<PlaySfx>,
     tunings: Res<EnemyTunings>,
     mut shared: ResMut<AiSharedData>,
@@ -1783,6 +1746,7 @@ fn enemy_ai_movement(
             select_dodge_step(
                 &grid,
                 &solid,
+                &pw_occ,
                 &shared.occupied,
                 my_tile,
                 player_tile,
@@ -1833,7 +1797,10 @@ fn enemy_ai_movement(
 
                     let tile = grid.tile(dest.x as usize, dest.y as usize);
 
-                    if tile == Tile::Wall || solid.is_solid(dest.x, dest.y) {
+                    if tile == Tile::Wall
+                        || solid.is_solid(dest.x, dest.y)
+                        || pw_occ.blocks(dest)
+                    {
                         continue;
                     }
 
@@ -1902,7 +1869,15 @@ fn enemy_ai_movement(
 
         // Fallback Pathfinding
         if !moved_or_acted {
-            match pick_chase_step(&grid, &solid, &shared.occupied, my_tile, player_tile, ai.last_step) {
+            match pick_chase_step(
+                &grid,
+                &solid,
+                &pw_occ,
+                &shared.occupied,
+                my_tile,
+                player_tile,
+                ai.last_step,
+            ) {
                 ChasePick::MoveTo(dest) => {
                     if dest != player_tile && !shared.occupied.contains(&dest) {
                         let step = dest - my_tile;
@@ -2036,6 +2011,7 @@ impl Plugin for EnemyAiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AiSharedData>()
             .init_resource::<PlayerNoise>()
+            .init_resource::<crate::ai_areas::AreaGraph>()
             .insert_resource(EnemyTunings::baseline())
             .add_message::<EnemyFire>()
             .add_message::<EnemyFireballShot>()
@@ -2053,11 +2029,12 @@ impl Plugin for EnemyAiPlugin {
                     .chain(),
             )
             .add_systems(Update, attach_enemy_ai.run_if(world_ready))
+            // Deliberately Ungated. The Drain Has to Run Even While the World is
+            // Being Torn Down and Rebuilt, or a Shot Fired on the Way Out of a Level
+            // Stays Latched and Wakes the Next Level's Guards on Their First Tic
             .add_systems(
                 FixedUpdate,
-                capture_player_noise
-                    .before(enemy_ai_prepare_and_activate)
-                    .run_if(world_ready),
+                capture_player_noise.before(enemy_ai_prepare_and_activate),
             )
             .add_systems(
                 FixedUpdate,

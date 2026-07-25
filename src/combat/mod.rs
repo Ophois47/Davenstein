@@ -343,13 +343,25 @@ fn process_fire_shots(
                 }
             };
 
-            // Surprise Double Damage if Not in Attack Mode Yet
+            // Surprise Double Damage if Not in Attack Mode Yet. DamageActor Tests
+            // FL_ATTACKMODE, Not the Stand State, and FL_ATTACKMODE is Set by
+            // FirstSighting -- so a *Patrolling* Actor Shot in the Back Takes the Same
+            // Double Damage and Engages the Same Way. Gating on Stand Alone Left
+            // Patrollers Taking Single Damage and Not Retaliating at All
             if let Ok(mut ai) = q_ai.get_mut(e) {
-                if ai.state == EnemyAiState::Stand {
+                if !matches!(ai.state, EnemyAiState::Chase) {
                     if let Some(d) = dmg_opt.as_mut() {
                         *d *= 2;
                     }
+
+                    // FirstSighting, Not Just a State Poke: Clear the Deaf Flag, Arm
+                    // the One Permitted Turnaround, and Cancel Any Half-Spent Reaction
+                    // Delay so the Hit Actor Engages Immediately Rather Than Finishing
+                    // a Countdown it No Longer Needs
                     ai.state = EnemyAiState::Chase;
+                    ai.ambush = false;
+                    ai.first_attack = true;
+                    ai.react_tics = 0;
                 }
             }
 

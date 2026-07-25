@@ -578,13 +578,68 @@ pub fn tick_pushwalls(
 
         // Boundary Crossing Every 128 Tics
         if new_block != old_block {
+            let dest = active.base + active.dir;
+
+            // Guard the Tile the Wall Is About to Occupy. The Original Only Tested
+            // the Tile One Step Further Ahead (MovePWalls Checks
+            // tilemap[pwallx+pwalldir.x]), Which Leaves a 128-Tic Window Where an
+            // Actor Can Step Into the Moving Wall and Then Be Sealed Inside Solid
+            // Geometry the Instant the Slide Ends. That Actor Later Walks Back Out
+            // Through the Wall Face, Because the Dodge and Fallback Pickers Only
+            // Validate the Destination Tile and Never the Actor's Own. Stopping Short
+            // Keeps the Wall and the Actor Out of Each Other Instead
+            if is_blocked_for_push(&grid, &solid, &q_enemies, dest) {
+                if active.base == active.start {
+                    // Nothing Has Moved Yet and the Origin Tile Is Still Solid, so
+                    // Treat the Push as a No-Op and Hand the Marker Back so the Wall
+                    // Can Be Tried Again. Secret Credit Was Already Awarded at Push
+                    // Time and Is Deliberately Not Refunded; the Separate credited
+                    // Grid Stops the Retry From Counting Twice
+                    markers.mark(active.base.x, active.base.y);
+                } else {
+                    // One Tile Was Already Crossed, so Seal the Wall Where It Stands.
+                    // That Tile Was Emptied at the Previous Boundary and Has to Become
+                    // Solid Again
+                    grid.set_tile(active.base.x as usize, active.base.y as usize, Tile::Wall);
+                    grid.set_plane0_code(
+                        active.base.x as usize,
+                        active.base.y as usize,
+                        active.wall_id,
+                    );
+
+                    // Reversible Mode Re-Marks the Resting Tile so the Wall Can Be
+                    // Pushed Again, Carrying Its Secret Credit Forward
+                    if active.reversible {
+                        markers.mark(active.base.x, active.base.y);
+                        markers.set_credited(active.base.x, active.base.y);
+                    }
+
+                    // Keep One Completed Record per Wall Lineage so a Load Stamps Only
+                    // the Final Position
+                    let start = active.start;
+                    completed.items.retain(|c| c.dest != start);
+                    completed.items.push(CompletedPushwall {
+                        dest: active.base,
+                        dir: active.dir,
+                        wall_id: active.wall_id,
+                        tiles_moved: 1,
+                    });
+                }
+
+                // Use the Completed-State Sentinel so the Visual Survives Until Static
+                // Wall Geometry Has Been Rebuilt
+                active.state = PUSHWALL_TOTAL_TICS + 1;
+
+                occ.clear();
+                rebuild.write(RebuildWalls { skip: None });
+                break;
+            }
+
             // The Tile Behind the Moving Wall Becomes Walkable
             if in_bounds(&grid, active.base) {
                 grid.set_tile(active.base.x as usize, active.base.y as usize, Tile::Empty);
                 grid.set_plane0_code(active.base.x as usize, active.base.y as usize, 0);
             }
-
-            let dest = active.base + active.dir;
 
             // The Wall Has Completed Its Normal Two-Tile Slide
             if active.state >= PUSHWALL_TOTAL_TICS {

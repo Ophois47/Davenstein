@@ -5,6 +5,7 @@ Davenstein - by David Petnick
 pub mod actors;
 pub mod app_paths;
 pub mod ai;
+pub mod ai_areas;
 pub mod ai_patrol;
 pub mod audio;
 pub mod decorations;

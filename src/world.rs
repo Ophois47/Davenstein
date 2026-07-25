@@ -716,6 +716,12 @@ pub fn setup(
 	// Fresh Completed Pushwall Record for the New Level (Load Restore Repopulates)
 	commands.insert_resource(crate::pushwalls::CompletedPushwalls::default());
 
+	// A Gunshot Fired on the Previous Map Must Not Wake Anyone on This One. The Flag
+	// is One-Shot and Drained Once per AI Tic, but a Level Rebuild Can Straddle That
+	// Drain and Leave it Latched. The Original Clears madenoise Every PlayLoop Frame,
+	// so a Fresh False Here is the Equivalent Guarantee at Level Granularity
+	commands.insert_resource(crate::ai::PlayerNoise(false));
+
 	// Assets / Materials
 	let assets = load_assets(&asset_server);
 	let wall_tex = assets.wall_tex.clone();
