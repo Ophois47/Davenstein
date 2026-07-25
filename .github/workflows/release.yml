@@ -15,6 +15,7 @@ on:
           - linux-x86_64
           - linux-arm64
           - linux-armv7
+          - rpm-x86_64
           - flatpak-x86_64
           - flatpak-arm64
           - flatpak-all
@@ -772,7 +773,7 @@ jobs:
   # This preserves an Enterprise Linux 9 runtime baseline for the RPM package.
   build-linux-rpm:
     name: Build Linux x86_64 RPM Package
-    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-x86_64'
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-x86_64' || inputs.build_target == 'rpm-x86_64'
     needs: release-preflight
     runs-on: ubuntu-latest
     env:
