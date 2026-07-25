@@ -305,8 +305,8 @@ cargo run --bin pak_builder --release -- --root assets --out target/release/asse
 
 ## Known Bugs
 
-- Some static decorations appear incorrect
-- Pillar decorations are not properly sized
+- Menu UI must respect widescreen
+- Save and Load banners need reformatting
 
 ## Compatibility
 

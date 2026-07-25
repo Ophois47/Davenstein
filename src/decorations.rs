@@ -115,8 +115,8 @@ fn choose_tile_path_from_plane1(code: u16) -> Option<&'static str> {
         "textures/decorations/stat_19_skeleton_relax.png",
         "textures/decorations/stat_20_key1.png",
         "textures/decorations/stat_21_key2.png",
-        "textures/decorations/stat_22_stuff_a.png",
-        "textures/decorations/stat_23_stuff_b.png",
+        "textures/decorations/stat_22_bunk_bed.png",
+        "textures/decorations/stat_23_basket.png",
         "textures/decorations/stat_24_good_food.png",
         "textures/decorations/stat_25_first_aid.png",
         "textures/decorations/stat_26_clip.png",
@@ -131,12 +131,12 @@ fn choose_tile_path_from_plane1(code: u16) -> Option<&'static str> {
         "textures/decorations/stat_35_barrel.png",
         "textures/decorations/stat_36_well.png",
         "textures/decorations/stat_37_empty_well.png",
-        "textures/decorations/stat_38_gibs2.png",
+        "textures/decorations/stat_38_blood_pool.png",
         "textures/decorations/stat_39_flag.png",
         "textures/decorations/stat_40_call_apogee.png",
-        "textures/decorations/stat_41_junk_a.png",
-        "textures/decorations/stat_42_junk_b.png",
-        "textures/decorations/stat_43_junk_c.png",
+        "textures/decorations/stat_41_bones_2.png",
+        "textures/decorations/stat_42_bones_3.png",
+        "textures/decorations/stat_43_bones_4.png",
         "textures/decorations/stat_44_pots.png",
         "textures/decorations/stat_45_stove.png",
         "textures/decorations/stat_46_spears.png",
@@ -150,16 +150,15 @@ fn choose_tile_path_from_plane1(code: u16) -> Option<&'static str> {
 /// Block vs Dressing vs Pickup
 /// Index: IDX = Plane1_Code - 23
 ///
-/// Note on the Gibs Indices 34 (Code 57) and 38 (Code 61): In Wolf3D These Are
-/// bo_gibs Near-Death Health Pickups. This Engine Has No Gibs Pickup Path -
-/// 'to_pickup_kind' in pickups.rs Maps Only Codes 29 and 43..=56 - so Marking
-/// Them 'Pickup' Made 'spawn_decorations' Skip Them While Nothing Else Spawned
-/// Them Either, Leaving Both Codes Rendering as an Invisible, Empty Tile. They
-/// Are Classified 'Dressing' so the Existing Decoration Path Renders Their Gibs
-/// Sprites (PATHS[34]/PATHS[38]). As Dressing They Are Non-Blocking, Matching a
-/// Walked-Over Pickup, and Code 61 Is Already a Floor Decal via
-/// 'is_floor_decal_plane1' so It Lies Flat Like a Debris Pile. The Near-Death
-/// Heal Behavior Is Not Restored - It Did Not Function Before This Change Either
+/// Note on Indices 34 (Code 57, Gibs) and 38 (Code 61, Blood Pool): Wolf3D
+/// Classifies Both as bo_gibs Near-Death Health Pickups. This Engine Has No
+/// Gibs Pickup Path - 'to_pickup_kind' in pickups.rs Maps Only Codes 29 and
+/// 43..=56 - so Marking Them 'Pickup' Made 'spawn_decorations' Skip Them While
+/// Nothing Else Spawned Them Either, Leaving Both Codes as Invisible, Empty
+/// Tiles. They Are Classified 'Dressing' so the Decoration Path Renders the
+/// Correct Gibs and Blood Pool Sprites. As Dressing They Are Non-Blocking,
+/// Matching a Walked-Over Pickup. The Near-Death Heal Behavior Is Not Restored
+/// Because It Did Not Function Before This Change Either
 const STAT_KIND: [StatKind; 49] = [
     StatKind::Dressing, // 0 puddle
     StatKind::Block,    // 1 green barrel
@@ -183,8 +182,8 @@ const STAT_KIND: [StatKind; 49] = [
     StatKind::Dressing, // 19 skeleton relax
     StatKind::Pickup,   // 20 key 1
     StatKind::Pickup,   // 21 key 2
-    StatKind::Block,    // 22 "stuff" (WL6)
-    StatKind::Dressing, // 23 "stuff"
+    StatKind::Block,    // 22 bunk bed
+    StatKind::Dressing, // 23 basket
     StatKind::Pickup,   // 24 good food
     StatKind::Pickup,   // 25 first aid
     StatKind::Pickup,   // 26 clip
@@ -199,12 +198,12 @@ const STAT_KIND: [StatKind; 49] = [
     StatKind::Block,    // 35 barrel
     StatKind::Block,    // 36 well
     StatKind::Block,    // 37 empty well
-    StatKind::Dressing, // 38 gibs 2 (Code 61) - Rendered as Dressing, See Header Note
+    StatKind::Dressing, // 38 blood pool (Code 61) - Rendered as Dressing, See Header Note
     StatKind::Block,    // 39 flag
     StatKind::Block,    // 40 call apogee (WL6)
-    StatKind::Dressing, // 41 junk
-    StatKind::Dressing, // 42 junk
-    StatKind::Dressing, // 43 junk
+    StatKind::Dressing, // 41 bones 2
+    StatKind::Dressing, // 42 bones 3
+    StatKind::Dressing, // 43 bones 4
     StatKind::Dressing, // 44 pots (WL6)
     StatKind::Block,    // 45 stove
     StatKind::Block,    // 46 spears
@@ -238,11 +237,11 @@ pub fn billboard_floor_decals(
 
 /// Determines if Plane1 Code Should be Rendered as Floor Decal
 ///
-/// Code 61 (gibs 2) Was Removed From This Set: The Original Wolf3D Engine Draws
+/// Code 61 (Blood Pool) Was Removed From This Set: The Original Wolf3D Engine
 /// Every Static as an Upright, Player-Facing Billboard and Has No Floor Decals,
-/// so Laying the Gibs Pile Flat Made It Read as a Duplicate Beside the Adjacent
-/// Upright junk_c (Code 66) and Diverged From the Original. Rendering It Upright
-/// Matches Retail WL6. The Remaining Entries (23 puddle, 32 skeleton_flat, 63)
+/// so Laying the Blood Pool Flat Made It Read as a Duplicate Beside the Adjacent
+/// Upright Bones 4 (Code 66) and Diverged From the Original. Rendering It Upright
+/// Matches Retail WL6. The Remaining Entries (23 Puddle, 32 Skeleton Flat, 63)
 /// Are Kept as an Intentional Port Enhancement
 fn is_floor_decal_plane1(code: u16) -> bool {
     matches!(code, 23 | 32 | 63)
