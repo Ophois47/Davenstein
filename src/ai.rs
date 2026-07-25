@@ -89,6 +89,19 @@ const GUARD_SHOOT_TOTAL_SECS: f32 = GUARD_SHOOT_PAUSE_SECS + GUARD_SHOOT_COOLDOW
 // False to Restore the Pure Beeline if the Weave Ever Feels Wrong
 const AI_DODGE_WHEN_VISIBLE: bool = true;
 
+// T_Chase Has no Pathfinding at All. SelectChaseDir is a Greedy, Four-Way, One-Tile
+// Lookahead That Snags on Wall Corners, Walks Into Dead Ends, and Loses the Player
+// Regularly -- Which is a Large Part of How 1992 Pursuit Actually Felt.
+//
+// This Port's BFS Distance Field is Strictly Smarter: it Floods Outward From the
+// Player Every Tic and Hands Every Actor the Optimal Route From Anywhere on the Map,
+// Around Any Number of Corners, Whether or Not it Has Ever Seen the Player. That is
+// the Single Biggest Reason Actors Read as More Relentless Than the Original.
+//
+// False = Faithful SelectChaseDir (the BFS is Not Even Computed). True = Restore the
+// Omniscient BFS Chase
+const AI_BFS_CHASE: bool = false;
+
 // AMBUSHTILE (Plane0 Code 106) Marks a "Deaf" Guard Spot in the Original Maps.
 // Actors Spawned on it Get FL_AMBUSH: They Ignore Gunfire Noise and Wake Only
 // on Actual Sight (WOLFSRC/WL_ACT2.C, WOLFSRC/WL_DEF.H)
@@ -198,14 +211,25 @@ fn burst_profile(kind: EnemyKind) -> Option<(u8, u32, f32)> {
     }
 }
 
-#[allow(dead_code)]
 enum ChasePick {
     MoveTo(IVec2),
     OpenDoor(IVec2),
     None,
 }
 
-#[allow(dead_code)]
+/// Faithful Port of Wolf3D's `SelectChaseDir` (WOLFSRC/WL_STATE.C).
+///
+/// Four-Way, One-Tile Lookahead, no Search. The Preference Order is the Cardinal
+/// Toward the Player on the Dominant Axis (`d[1]`), Then the Other Toward-Player
+/// Cardinal (`d[2]`), Then Carrying Straight On (`olddir`), Then a Randomly Directed
+/// Sweep of the Remaining Cardinals, and Finally the Turnaround. Turnaround is
+/// Excluded From Every Earlier Step, Exactly as `opposite[olddir]` is in the Original.
+///
+/// A Closed Door Counts as a Legal Step for Anything That Can Open One: `TryWalk`
+/// Calls `OpenDoor`, Leaves `ob->dir` Pointing at the Door, and Sets `ob->distance`
+/// Negative so the Actor Waits in Place Until it Opens. Dogs and Fake Hitler Use
+/// `CHECKDIAG` Instead of `CHECKSIDE`, Which Rejects a Door Outright, so for Them the
+/// Search Moves On to the Next Direction -- That is What `can_open_doors` Selects.
 fn pick_chase_step(
     grid: &MapGrid,
     solid: &SolidStatics,
@@ -214,91 +238,112 @@ fn pick_chase_step(
     my_tile: IVec2,
     player_tile: IVec2,
     last_step: IVec2,
+    can_open_doors: bool,
+    rng: &mut TableRng,
 ) -> ChasePick {
     let dx = player_tile.x - my_tile.x;
     let dz = player_tile.y - my_tile.y;
 
-    let xdir = if dx > 0 { 1 } else if dx < 0 { -1 } else { 0 };
-    let zdir = if dz > 0 { 1 } else if dz < 0 { -1 } else { 0 };
-
-    let primary_x = dx.abs() >= dz.abs();
-
-    let mut candidates: [IVec2; 6] = [
-        IVec2::ZERO,
-        IVec2::ZERO,
-        IVec2::ZERO,
-        IVec2::ZERO,
-        IVec2::ZERO,
-        IVec2::ZERO,
-    ];
-
-    let toward_x = IVec2::new(xdir, 0);
-    let toward_z = IVec2::new(0, zdir);
-
-    if primary_x {
-        candidates[0] = toward_x;
-        candidates[1] = toward_z;
+    // d[1] and d[2]: the Cardinal Toward the Player on Each Axis, nodir When Already
+    // Aligned on That Axis
+    let toward_x = if dx > 0 {
+        Some(IVec2::new(1, 0))
+    } else if dx < 0 {
+        Some(IVec2::new(-1, 0))
     } else {
-        candidates[0] = toward_z;
-        candidates[1] = toward_x;
-    }
+        None
+    };
+    let toward_z = if dz > 0 {
+        Some(IVec2::new(0, 1))
+    } else if dz < 0 {
+        Some(IVec2::new(0, -1))
+    } else {
+        None
+    };
 
-    candidates[2] = IVec2::new(0, 1);
-    candidates[3] = IVec2::new(0, -1);
-    candidates[4] = IVec2::new(1, 0);
-    candidates[5] = IVec2::new(-1, 0);
+    // The Original Swaps d[1] and d[2] When |dy| > |dx| so the Dominant Axis Leads
+    let (first, second) = if dz.abs() > dx.abs() {
+        (toward_z, toward_x)
+    } else {
+        (toward_x, toward_z)
+    };
 
-    let reverse = -last_step;
+    // opposite[olddir]. With no Previous Step There is no Turnaround to Exclude
+    let turnaround = if last_step == IVec2::ZERO {
+        None
+    } else {
+        Some(-last_step)
+    };
 
-    for step in candidates {
-        if step == IVec2::ZERO {
-            continue;
-        }
-        if last_step != IVec2::ZERO && step == reverse {
-            continue;
-        }
-
+    let try_step = |step: IVec2| -> Option<ChasePick> {
         let dest = my_tile + step;
 
         if dest == player_tile || occupied.contains(&dest) {
-            continue;
+            return None;
+        }
+        if solid.is_solid(dest.x, dest.y) || pw_occ.blocks(dest) {
+            return None;
         }
 
-        let Some(t) = tile_at(grid, dest) else { continue; };
+        match tile_at(grid, dest) {
+            Some(Tile::Empty) | Some(Tile::DoorOpen) => Some(ChasePick::MoveTo(dest)),
+            Some(Tile::DoorClosed) if can_open_doors => Some(ChasePick::OpenDoor(dest)),
+            _ => None,
+        }
+    };
 
-        if solid.is_solid(dest.x, dest.y) {
+    // d[1], Then d[2]. Either is Skipped When it Equals the Turnaround
+    for cand in [first, second] {
+        let Some(step) = cand else { continue };
+        if Some(step) == turnaround {
             continue;
         }
-
-        // A Pushwall in Motion Occupies Two Tiles That Still Read as Floor in the
-        // Grid, Because tick_pushwalls Only Stamps Tile::Wall When the Slide Ends.
-        // Without This Test an Actor Walks Clean Through the Moving Wall and Can Be
-        // Sealed Into Solid Geometry the Moment It Comes to Rest
-        if pw_occ.blocks(dest) {
-            continue;
-        }
-
-        match t {
-            Tile::Empty | Tile::DoorOpen => return ChasePick::MoveTo(dest),
-            Tile::DoorClosed => return ChasePick::OpenDoor(dest),
-            _ => {}
+        if let Some(pick) = try_step(step) {
+            return pick;
         }
     }
 
+    // olddir: Carry Straight On Before Abandoning the Direct Approach
     if last_step != IVec2::ZERO {
-        let dest = my_tile + reverse;
-        if dest != player_tile
-            && !occupied.contains(&dest)
-            && !solid.is_solid(dest.x, dest.y)
-            && !pw_occ.blocks(dest)
-        {
-            if let Some(t) = tile_at(grid, dest) {
-                match t {
-                    Tile::Empty | Tile::DoorOpen => return ChasePick::MoveTo(dest),
-                    Tile::DoorClosed => return ChasePick::OpenDoor(dest),
-                    _ => {}
-                }
+        if let Some(pick) = try_step(last_step) {
+            return pick;
+        }
+    }
+
+    // US_RndT() > 128 Decides Which Way Round the Remaining Cardinals Are Swept. The
+    // Randomised Order Matters: it is Why Two Actors Boxed Into the Same Corner Do Not
+    // Unstick Themselves in Lockstep
+    let sweep = [
+        IVec2::new(0, -1),
+        IVec2::new(1, 0),
+        IVec2::new(0, 1),
+        IVec2::new(-1, 0),
+    ];
+
+    if rng.us_rnd_t() > 128 {
+        for step in sweep {
+            if Some(step) == turnaround {
+                continue;
             }
+            if let Some(pick) = try_step(step) {
+                return pick;
+            }
+        }
+    } else {
+        for step in sweep.into_iter().rev() {
+            if Some(step) == turnaround {
+                continue;
+            }
+            if let Some(pick) = try_step(step) {
+                return pick;
+            }
+        }
+    }
+
+    // Turnaround Only as a Last Resort, Then ob->dir = nodir and the Actor Holds Still
+    if let Some(step) = turnaround {
+        if let Some(pick) = try_step(step) {
+            return pick;
         }
     }
 
@@ -897,7 +942,10 @@ fn enemy_ai_prepare_and_activate(
     shared.dist_map.clear();
     shared.dist_map.resize(grid.width * grid.height, -1i32);
 
-    if in_bounds(player_tile)
+    // The Flood is Only Consumed by the BFS Chase Branch in enemy_ai_movement, so
+    // With the Faithful Chase Selected There is Nothing to Compute
+    if AI_BFS_CHASE
+        && in_bounds(player_tile)
         && !solid.is_solid(player_tile.x, player_tile.y)
         && grid.tile(player_tile.x as usize, player_tile.y as usize) != Tile::Wall
     {
@@ -1784,7 +1832,9 @@ fn enemy_ai_movement(
             moved_or_acted = true;
         }
 
-        if !moved_or_acted && in_bounds(my_tile) {
+        // Deliberate Deviation, Off by Default: Descend the Distance Field for an
+        // Optimal Route. SelectChaseDir Below is What the Original Actually Did
+        if AI_BFS_CHASE && !moved_or_acted && in_bounds(my_tile) {
             let my_d = shared.dist_map[idx(my_tile)];
             if my_d >= 0 {
                 let mut best: Option<(i32, IVec2, Tile)> = None;
@@ -1867,8 +1917,12 @@ fn enemy_ai_movement(
             }
         }
 
-        // Fallback Pathfinding
+        // SelectChaseDir: the Original's Entire Chase, and With AI_BFS_CHASE False the
+        // Only Thing Steering an Actor That Has no Clear Shot to Weave Toward
         if !moved_or_acted {
+            // dogobj and fakeobj Use CHECKDIAG in TryWalk, Which Refuses a Door Tile
+            let can_open_doors = !matches!(*kind, EnemyKind::Dog | EnemyKind::GhostHitler);
+
             match pick_chase_step(
                 &grid,
                 &solid,
@@ -1877,6 +1931,8 @@ fn enemy_ai_movement(
                 my_tile,
                 player_tile,
                 ai.last_step,
+                can_open_doors,
+                &mut actor_rng,
             ) {
                 ChasePick::MoveTo(dest) => {
                     if dest != player_tile && !shared.occupied.contains(&dest) {
@@ -1906,10 +1962,18 @@ fn enemy_ai_movement(
                     }
                 }
                 ChasePick::OpenDoor(door_tile) => {
-                    if !matches!(*kind, EnemyKind::Dog) {
-                        try_open_door_at(door_tile, &mut q_doors, &mut sfx);
-                        ai.last_step = IVec2::ZERO;
-                    }
+                    // TryWalk Opens the Door, Leaves ob->dir Pointing at it, and Sets
+                    // ob->distance Negative so the Actor Waits in Place Until it Opens.
+                    // Keeping last_step Pointed at the Door is the Equivalent: the Actor
+                    // Holds its Facing and olddir Stays Meaningful on the Next Pick,
+                    // Instead of Being Blanked and Wandering Off the Doorway
+                    try_open_door_at(door_tile, &mut q_doors, &mut sfx);
+
+                    let step = door_tile - my_tile;
+                    ai.last_step = step;
+                    commands
+                        .entity(e)
+                        .insert(PendingDir8(dir8_from_step(step)));
                 }
                 ChasePick::None => {}
             }

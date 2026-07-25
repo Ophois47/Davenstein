@@ -28,6 +28,11 @@ pub const AREATILE: u16 = 107;
 /// NUMAREAS From WOLFSRC/WL_DEF.H. Valid Area Numbers Are 0..=36
 pub const NUM_AREAS: usize = 37;
 
+/// The Deaf-Guard Marker (WOLFSRC/WL_DEF.H). it Sits on a Walkable Tile but Carries
+/// no Area Number of its Own, Which is Why SetupGameLevel Rewrites it to a
+/// Neighbouring Floor Code and Why `adopt_missing_areas` Has to Do the Same
+pub const AMBUSHTILE: u16 = 106;
+
 /// A Door Tile Together With the Two Areas it Joins. Door Positions Are Fixed for
 /// the Life of a Level, so the Link List is Built Once per Topology Change and Only
 /// the Door's Open State is Polled Each Tic
@@ -367,5 +372,214 @@ impl AreaGraph {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a MapGrid From a Small ASCII Floor Plan so Each Test Reads as a Map.
+    /// Legend: '#' Wall, 'D' Closed Door, 'd' Open Door, '1'..'9' Floor Carrying Area
+    /// Code AREATILE + Digit, 'a' AMBUSHTILE Floor, '.' Floor With no plane0 Code
+    fn grid(rows: &[&str]) -> MapGrid {
+        let height = rows.len();
+        let width = rows[0].chars().count();
+        assert!(
+            rows.iter().all(|r| r.chars().count() == width),
+            "ragged floor plan"
+        );
+
+        let mut plane0 = Vec::with_capacity(width * height);
+        let mut tiles = Vec::with_capacity(width * height);
+
+        for row in rows {
+            for c in row.chars() {
+                let (tile, code) = match c {
+                    '#' => (Tile::Wall, 1u16),
+                    'D' => (Tile::DoorClosed, 90u16),
+                    'd' => (Tile::DoorOpen, 90u16),
+                    'a' => (Tile::Empty, AMBUSHTILE),
+                    '.' => (Tile::Empty, 0u16),
+                    '1'..='9' => (Tile::Empty, AREATILE + (c as u16 - '0' as u16)),
+                    other => panic!("unknown floor plan char {other:?}"),
+                };
+                tiles.push(tile);
+                plane0.push(code);
+            }
+        }
+
+        MapGrid {
+            width,
+            height,
+            plane0,
+            tiles,
+            generation: 0,
+        }
+    }
+
+    /// Build the Grid, Solve areabyplayer for a Player Standing at `player`, and Hand
+    /// Both Back so a Test Can Keep Mutating Doors and Re-Solving
+    fn solve(rows: &[&str], player: IVec2) -> (AreaGraph, MapGrid) {
+        let g = grid(rows);
+        let mut a = AreaGraph::default();
+        a.sync_topology(&g);
+        a.update_for_player(&g, player);
+        (a, g)
+    }
+
+    fn t(x: i32, z: i32) -> IVec2 {
+        IVec2::new(x, z)
+    }
+
+    #[test]
+    fn closed_door_blocks_noise() {
+        let (a, _g) = solve(&["#####", "#1D2#", "#####"], t(1, 1));
+
+        assert!(a.hears_player(t(1, 1)), "player's own area must be reachable");
+        assert!(
+            !a.hears_player(t(3, 1)),
+            "a closed door must not join two areas"
+        );
+    }
+
+    #[test]
+    fn open_door_joins_two_areas() {
+        let (a, _g) = solve(&["#####", "#1d2#", "#####"], t(1, 1));
+
+        assert!(a.hears_player(t(3, 1)), "an open door must join two areas");
+    }
+
+    #[test]
+    fn opening_a_door_is_picked_up_without_a_topology_rebuild() {
+        let (mut a, mut g) = solve(&["#####", "#1D2#", "#####"], t(1, 1));
+        assert!(!a.hears_player(t(3, 1)));
+
+        // Door Links Are Position-Based, so Only the Live Tile State Has to Change.
+        // This is the Path door_animate Takes When a Door Finishes Opening
+        g.set_tile(2, 1, Tile::DoorOpen);
+        a.update_for_player(&g, t(1, 1));
+
+        assert!(a.hears_player(t(3, 1)));
+    }
+
+    #[test]
+    fn open_geometry_never_joins_two_areas() {
+        // The Whole Point of the Area Model: Two Differently Coded Floor Tiles Sitting
+        // Side by Side With no Door Between Them Are NOT Connected, Even Though You
+        // Could Walk From One to the Other. A Geometric Flood Fill Would Merge Them
+        let (a, _g) = solve(&["####", "#12#", "####"], t(1, 1));
+
+        assert!(a.hears_player(t(1, 1)));
+        assert!(
+            !a.hears_player(t(2, 1)),
+            "areaconnect is bumped by doors only, never by open geometry"
+        );
+    }
+
+    #[test]
+    fn a_wall_blocks_the_link() {
+        // An Unpushed Pushwall is Just a Wall Tile, Which is Why a Guard Inside a
+        // Secret Room Cannot Hear Gunfire Until the Wall Has Moved
+        let (a, _g) = solve(&["#####", "#1#2#", "#####"], t(1, 1));
+
+        assert!(!a.hears_player(t(3, 1)));
+    }
+
+    #[test]
+    fn reachability_is_transitive_through_open_doors() {
+        let (mut a, mut g) = solve(&["#######", "#1d2d3#", "#######"], t(1, 1));
+        assert!(a.hears_player(t(5, 1)), "two open doors must chain");
+
+        // Shut the Near Door and the Far Room Drops Out Again
+        g.set_tile(2, 1, Tile::DoorClosed);
+        a.update_for_player(&g, t(1, 1));
+
+        assert!(!a.hears_player(t(3, 1)));
+        assert!(!a.hears_player(t(5, 1)));
+    }
+
+    #[test]
+    fn ambush_tile_adopts_a_neighbouring_area() {
+        // SetupGameLevel Rewrites AMBUSHTILE to a Neighbouring Floor Code. Without the
+        // Equivalent Fixup a Guard Standing on One Would Belong to no Area and Could
+        // Never Notice the Player at All
+        let (a, _g) = solve(&["####", "#1a#", "####"], t(1, 1));
+
+        assert_eq!(a.area_at(t(2, 1)), Some(1));
+        assert!(a.hears_player(t(2, 1)));
+    }
+
+    #[test]
+    fn codeless_floor_adopts_a_neighbouring_area() {
+        // Covers Tiles a Pushwall Has Vacated and Any plane0 Code This Port Treats as
+        // Floor but the Original Did Not Give an Area Number
+        let (a, _g) = solve(&["#####", "#1..#", "#####"], t(1, 1));
+
+        assert_eq!(a.area_at(t(2, 1)), Some(1));
+        assert_eq!(a.area_at(t(3, 1)), Some(1));
+    }
+
+    #[test]
+    fn maps_without_any_area_codes_fall_back_to_synthetic_areas() {
+        // MapGrid::from_ascii Pushes plane0 == 0 for Floor. A Strict Port Would Leave
+        // Every Tile Area-Less and Every Actor Permanently Blind and Deaf, so the
+        // Fallback Has to Produce One Area per Door-Separated Region
+        let (mut a, mut g) = solve(&["#####", "#.D.#", "#####"], t(1, 1));
+
+        assert!(
+            a.hears_player(t(1, 1)),
+            "the AI must not go inert on a code-less map"
+        );
+        assert!(!a.hears_player(t(3, 1)), "the closed door still separates");
+
+        g.set_tile(2, 1, Tile::DoorOpen);
+        a.update_for_player(&g, t(1, 1));
+        assert!(a.hears_player(t(3, 1)));
+    }
+
+    #[test]
+    fn standing_in_a_doorway_keeps_the_previous_player_area() {
+        // Thrust Only Refreshes player->areanumber From a Floor Tile. Blanking it in a
+        // Doorway Would Drop the Player Out of Every Area for a Tic
+        let (mut a, g) = solve(&["#####", "#1d2#", "#####"], t(1, 1));
+        assert_eq!(a.player_area_code(), AREATILE + 1);
+
+        a.update_for_player(&g, t(2, 1));
+
+        assert_eq!(
+            a.player_area_code(),
+            AREATILE + 1,
+            "a doorway must not clear the player's area"
+        );
+        assert!(a.hears_player(t(1, 1)));
+    }
+
+    #[test]
+    fn an_actor_in_a_doorway_still_notices_via_its_neighbours() {
+        // A Door Tile Carries no Area of its Own. Falling Back to the Four Neighbours
+        // Stops an Actor Freezing While it Stands in an Open Doorway
+        let (a, _g) = solve(&["#####", "#1d2#", "#####"], t(1, 1));
+
+        assert_eq!(a.area_at(t(2, 1)), None);
+        assert!(a.hears_player(t(2, 1)));
+    }
+
+    #[test]
+    fn player_area_code_round_trips_for_the_pushwall_reveal() {
+        // use_pushwalls Stamps This Onto Revealed Tiles, Matching MovePWalls's
+        // player->areanumber + AREATILE
+        let (a, _g) = solve(&["#####", "#5#6#", "#####"], t(1, 1));
+
+        assert_eq!(a.player_area_code(), AREATILE + 5);
+    }
+
+    #[test]
+    fn out_of_bounds_tiles_have_no_area() {
+        let (a, _g) = solve(&["####", "#12#", "####"], t(1, 1));
+
+        assert_eq!(a.area_at(t(-1, 1)), None);
+        assert_eq!(a.area_at(t(99, 1)), None);
+        assert!(!a.hears_player(t(-5, -5)));
     }
 }
