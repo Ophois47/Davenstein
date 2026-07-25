@@ -176,6 +176,7 @@ fn handle_save_requests(
             tile: [occ.0.x, occ.0.y],
             ai_state: capture::ai_state_to_u8(ai.state),
             last_step: [ai.last_step.x, ai.last_step.y],
+            alerted: ai.alerted,
         })
         .collect();
 
@@ -352,6 +353,7 @@ fn apply_pending_enemy_restore(
         occ.0 = IVec2::new(snap.tile[0], snap.tile[1]);
         ai.state = capture::ai_state_from_u8(snap.ai_state);
         ai.last_step = IVec2::new(snap.last_step[0], snap.last_step[1]);
+        ai.alerted = snap.alerted;
 
         // Patrol Is a Dynamic Marker, Re-Insert It so a Restored Patroller Keeps
         // Patrolling Instead of Standing Until the AI Re-Adds It

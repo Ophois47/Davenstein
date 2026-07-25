@@ -126,6 +126,14 @@ pub struct EnemySnapshot {
     /// EnemyAiState as u8 (0 = Stand, 1 = Patrol, 2 = Chase), the Alert Level
     pub ai_state: u8,
     pub last_step: [i32; 2],
+    /// Whether This Actor Has Already Spent its One Alert Bark. Without it a Save Loaded
+    /// Mid-Firefight Re-Barks Every Guard That Had Already Shouted.
+    ///
+    /// serde(default) Deliberately Avoids a SAVE_FORMAT_VERSION Bump: the Version Check
+    /// in storage.rs is Exact, so Bumping Would Reject Every Existing Save. An Older Save
+    /// Restores false, Which Costs at Most One Extra Bark per Actor on Legacy Saves
+    #[serde(default)]
+    pub alerted: bool,
 }
 
 /// Player Position, Facing, and Vitals
