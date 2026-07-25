@@ -110,6 +110,22 @@ const AI_DODGE_WHEN_VISIBLE: bool = true;
 // Omniscient BFS Chase
 const AI_BFS_CHASE: bool = false;
 
+// SelectChaseDir's Fallback Sweep -- the One it Reaches Only After d[1], d[2] and olddir
+// Have All Failed -- Iterates the dirtype Enum From north to west. dirtype Interleaves
+// Cardinals and Diagonals:
+//
+//   east=0, northeast=1, north=2, northwest=3, west=4, southwest=5, south=6, southeast=7
+//
+// So That Loop Covers north, northwest and west Only. Never east, Never south, and
+// Including One Diagonal. It Biases a Boxed-In Actor's Search North-West, and is Part of
+// Why 1992 Guards Wander Out of Corners the Odd Way They Do.
+//
+// The dirtype Ordering Itself is Certain: SelectDodgeDir's (d[1]+d[2])/2 Diagonal Trick
+// Only Works With Exactly This Interleaving. The Loop *Bounds* Are From Recollection of
+// WOLFSRC/WL_STATE.C and Have NOT Been Verified Against the Source. Set False for a
+// Symmetric Four-Cardinal Sweep if Your Copy Disagrees, or if the Bias Reads Badly
+const AI_FAITHFUL_SWEEP_BIAS: bool = true;
+
 // AMBUSHTILE (Plane0 Code 106) Marks a "Deaf" Guard Spot in the Original Maps.
 // Actors Spawned on it Get FL_AMBUSH: They Ignore Gunfire Noise and Wake Only
 // on Actual Sight (WOLFSRC/WL_ACT2.C, WOLFSRC/WL_DEF.H)
@@ -283,8 +299,36 @@ fn pick_chase_step(
         Some(-last_step)
     };
 
+    // CHECKDIAG: Anything Sitting in actorat Blocks -- Walls, Closed Doors, and Actors.
+    // A Fully Open Door Clears its actorat Slot in DoorOpening, Which is Why DoorOpen
+    // Passes Here. Used for a Diagonal's Target and Both of its Orthogonal Corners, so a
+    // Diagonal Step Can Never Open a Door
+    let diag_clear = |t: IVec2| -> bool {
+        if t == player_tile || occupied.contains(&t) {
+            return false;
+        }
+        if solid.is_solid(t.x, t.y) || pw_occ.blocks(t) {
+            return false;
+        }
+        matches!(tile_at(grid, t), Some(Tile::Empty) | Some(Tile::DoorOpen))
+    };
+
     let try_step = |step: IVec2| -> Option<ChasePick> {
         let dest = my_tile + step;
+
+        // A Diagonal Needs All Three Tiles Clear, Exactly as TryWalk's northwest Arm
+        // Tests (tilex, tiley-1), (tilex-1, tiley) and (tilex-1, tiley-1) Before
+        // Committing. No Corner Cutting and no Squeezing Between Two Actors
+        if step.x != 0 && step.y != 0 {
+            let side_x = my_tile + IVec2::new(step.x, 0);
+            let side_y = my_tile + IVec2::new(0, step.y);
+
+            if !diag_clear(dest) || !diag_clear(side_x) || !diag_clear(side_y) {
+                return None;
+            }
+
+            return Some(ChasePick::MoveTo(dest));
+        }
 
         if dest == player_tile || occupied.contains(&dest) {
             return None;
@@ -318,33 +362,44 @@ fn pick_chase_step(
         }
     }
 
-    // US_RndT() > 128 Decides Which Way Round the Remaining Cardinals Are Swept. The
-    // Randomised Order Matters: it is Why Two Actors Boxed Into the Same Corner Do Not
-    // Unstick Themselves in Lockstep
-    let sweep = [
+    // US_RndT() > 128 Decides Which Way Round the Sweep Runs. The Randomised Order
+    // Matters: it is Why Two Actors Boxed Into the Same Corner Do Not Unstick Themselves
+    // in Lockstep
+    let forward = rng.us_rnd_t() > 128;
+
+    // north, northwest, west -- the dirtype Range the Original Actually Walks
+    let biased = [
+        IVec2::new(0, -1),
+        IVec2::new(-1, -1),
+        IVec2::new(-1, 0),
+    ];
+
+    // All Four Cardinals, for When the Bias is Turned Off
+    let symmetric = [
         IVec2::new(0, -1),
         IVec2::new(1, 0),
         IVec2::new(0, 1),
         IVec2::new(-1, 0),
     ];
 
-    if rng.us_rnd_t() > 128 {
-        for step in sweep {
-            if Some(step) == turnaround {
-                continue;
-            }
-            if let Some(pick) = try_step(step) {
-                return pick;
-            }
-        }
+    let sweep: &[IVec2] = if AI_FAITHFUL_SWEEP_BIAS {
+        &biased
     } else {
-        for step in sweep.into_iter().rev() {
-            if Some(step) == turnaround {
-                continue;
-            }
-            if let Some(pick) = try_step(step) {
-                return pick;
-            }
+        &symmetric
+    };
+
+    for i in 0..sweep.len() {
+        let step = if forward {
+            sweep[i]
+        } else {
+            sweep[sweep.len() - 1 - i]
+        };
+
+        if Some(step) == turnaround {
+            continue;
+        }
+        if let Some(pick) = try_step(step) {
+            return pick;
         }
     }
 
