@@ -8220,23 +8220,36 @@ pub(crate) fn spawn_cheat_message_ui(
     ));
 
     // Each Line Spawned Individually and Centered, the Way US_CPrint Centered the
-    // Original's Message Line by Line. Empty Lines Still Advance the Pen
+    // Original's Message Line by Line. Empty Lines Still Advance the Pen.
+    //
+    // Faux-Bold by Double Strike: the Same Glyphs Are Drawn Twice, the Second Pass
+    // One Pixel Right, So Every Vertical Stroke Widens by a Pixel. This is NOT the
+    // Original's Look -- Wolf3D Drew Menu-Box Text Once, With no Bold and no Shadow --
+    // it is a Deliberate Enhancement Purely to Give the Warning More Weight. There is
+    // Explicitly no Offset Shadow Pass, Which the Original Never Had Either. Revert
+    // This Patch to Return to the Single-Strike Text
     let mut pen_y = panel_top + pad;
     for line in &lines {
         if !line.is_empty() {
             let lw = measure_line(line, s);
             let line_left = (panel_left + (panel_w - lw) * 0.5).round();
 
-            spawn_menu_bitmap_text(
-                commands,
-                root,
-                imgs.menu_font_black.clone(),
-                line_left,
-                pen_y,
-                font_scale,
-                line,
-                Visibility::Visible,
-            );
+            // Both Passes Are the Same Black Glyphs at the Same Size; Only the Second
+            // is Nudged. One Physical Pixel Regardless of ui_scale, so the Thickening
+            // Stays Hairline Instead of Growing With the Window and Swallowing the
+            // Letterforms
+            for strike_dx in [0.0f32, 1.0] {
+                spawn_menu_bitmap_text(
+                    commands,
+                    root,
+                    imgs.menu_font_black.clone(),
+                    line_left + strike_dx,
+                    pen_y,
+                    font_scale,
+                    line,
+                    Visibility::Visible,
+                );
+            }
         }
         pen_y += line_h;
     }
