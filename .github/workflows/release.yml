@@ -30,10 +30,82 @@ permissions:
   contents: read
 
 jobs:
+  release-preflight:
+    name: Validate Release Version
+    runs-on: ubuntu-latest
+    outputs:
+      release_version: ${{ steps.version.outputs.release_version }}
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      # Cargo.toml is the version authority for manual builds. Tagged builds
+      # must use the same version so package contents, metadata, and filenames
+      # cannot disagree with the GitHub release tag.
+      - name: Resolve and Validate Release Version
+        id: version
+        shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+
+          cargo_version=$(
+            python3 - <<'PY'
+          import pathlib
+          import tomllib
+
+          manifest_path = pathlib.Path("Cargo.toml")
+          with manifest_path.open("rb") as manifest_file:
+              manifest = tomllib.load(manifest_file)
+
+          package = manifest.get("package")
+          if not isinstance(package, dict):
+              raise SystemExit("Cargo.toml does not contain a [package] table")
+
+          version = package.get("version")
+          if not isinstance(version, str) or not version.strip():
+              raise SystemExit("Cargo.toml does not contain a non-empty [package].version")
+
+          print(version)
+          PY
+          )
+
+          release_version="$cargo_version"
+
+          if [[ "$REF_TYPE" == "tag" ]]; then
+            if [[ "$REF_NAME" != v* ]]; then
+              echo "::error title=Invalid release tag::Expected a tag beginning with v, received '$REF_NAME'"
+              exit 1
+            fi
+
+            tag_version="${REF_NAME#v}"
+
+            if [[ -z "$tag_version" ]]; then
+              echo "::error title=Invalid release tag::The release tag does not contain a version after v"
+              exit 1
+            fi
+
+            if [[ "$tag_version" != "$cargo_version" ]]; then
+              echo "::error title=Release version mismatch::Git tag '$REF_NAME' specifies '$tag_version', but Cargo.toml specifies '$cargo_version'"
+              exit 1
+            fi
+
+            release_version="$tag_version"
+          fi
+
+          printf 'release_version=%s\n' "$release_version" >> "$GITHUB_OUTPUT"
+          echo "Validated Davenstein release version $release_version"
+
   build-windows:
     name: Build Windows Installer
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'windows'
+    needs: release-preflight
     runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
 
     steps:
       - name: Check Out Source
@@ -41,20 +113,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Resolve Release Version
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
-          fi
-
-          test -n "$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building Windows version $version"
 
       - name: Install Cross
         run: cargo install cross --version 0.2.5 --locked
@@ -92,11 +150,11 @@ jobs:
 
       - name: Build Installer
         working-directory: packaging/windows
-        run: makensis "-DVERSION=${{ steps.version.outputs.version }}" installer.nsi
+        run: makensis "-DVERSION=${{ env.RELEASE_VERSION }}" installer.nsi
 
       - name: Build Windows Portable Archive
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ env.RELEASE_VERSION }}
         run: packaging/windows/build-portable.sh
 
       - name: Validate Windows Portable Archive
@@ -158,8 +216,8 @@ jobs:
       - name: Create Checksum
         working-directory: packaging/windows
         run: |
-          sha256sum "Davenstein-Setup-${{ steps.version.outputs.version }}.exe" \
-            > "Davenstein-Setup-${{ steps.version.outputs.version }}.exe.sha256"
+          sha256sum "Davenstein-Setup-${{ env.RELEASE_VERSION }}.exe" \
+            > "Davenstein-Setup-${{ env.RELEASE_VERSION }}.exe.sha256"
 
       - name: Stage Windows Release Packages
         run: |
@@ -180,7 +238,10 @@ jobs:
   build-windows-arm64:
     name: Build Windows ARM64 Portable Archive
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'windows-arm64'
+    needs: release-preflight
     runs-on: windows-11-arm
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
 
     steps:
       - name: Check Out Source
@@ -193,27 +254,6 @@ jobs:
           rustup default stable
           rustc -vV
           cargo -vV
-
-      - name: Resolve Release Version
-        id: version
-        shell: pwsh
-        run: |
-          $match = Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1
-
-          if (-not $match) {
-              throw "Could not determine the Davenstein version"
-          }
-
-          $cargoVersion = $match.Matches[0].Groups[1].Value
-
-          if ($env:GITHUB_REF -like "refs/tags/v*") {
-              $version = $env:GITHUB_REF_NAME.Substring(1)
-          } else {
-              $version = $cargoVersion
-          }
-
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "Building Windows ARM64 version $version"
 
       - name: Build Davenstein for Windows ARM64
         shell: pwsh
@@ -247,7 +287,7 @@ jobs:
       - name: Build Windows ARM64 Portable Archive
         shell: pwsh
         run: |
-          $version = "${{ steps.version.outputs.version }}"
+          $version = "${{ env.RELEASE_VERSION }}"
           $archiveBase = "Davenstein-$version-windows-arm64"
           $portableRoot = Join-Path $PWD "target\portable"
           $stageDir = Join-Path $portableRoot $archiveBase
@@ -347,7 +387,10 @@ jobs:
   build-linux:
     name: Build Linux x86_64 Packages
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-x86_64'
+    needs: release-preflight
     runs-on: ubuntu-22.04
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
 
     steps:
       - name: Check Out Source
@@ -376,28 +419,14 @@ jobs:
             libxrandr-dev \
             pkg-config
 
-      - name: Resolve Release Version
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
-          fi
-
-          test -n "$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building Linux version $version"
-
       - name: Build Davenstein AppImage
         run: |
-          VERSION="${{ steps.version.outputs.version }}" \
+          VERSION="${{ env.RELEASE_VERSION }}" \
             packaging/linux/build-appimage.sh
 
       - name: Build Linux Portable Archive
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ env.RELEASE_VERSION }}
         run: packaging/linux/build-portable.sh
 
       # Reuse the Ubuntu 22.04 x86_64 release binary so the Debian package
@@ -405,7 +434,7 @@ jobs:
       # requirements such as libasound2t64 and glibc 2.39.
       - name: Build Debian Package
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ env.RELEASE_VERSION }}
         run: packaging/debian/build-package.sh
 
       # Validate the archive as both a standalone Debian artifact and an
@@ -414,7 +443,7 @@ jobs:
       - name: Validate Debian Package
         shell: bash
         run: |
-          release_version="${{ steps.version.outputs.version }}"
+          release_version="${{ env.RELEASE_VERSION }}"
           deb="target/debian/Davenstein-${release_version}-linux-amd64.deb"
           checksum="${deb}.sha256"
 
@@ -741,7 +770,10 @@ jobs:
   build-linux-rpm:
     name: Build Linux x86_64 RPM Package
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-x86_64'
+    needs: release-preflight
     runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
     container:
       image: rockylinux:9
 
@@ -817,25 +849,6 @@ jobs:
           rpmbuild --version
           rpmlint --version
 
-      - name: Resolve Release Version
-        id: version
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version=$(
-              sed -nE \
-                's/^version = "([^"]+)"/\1/p' \
-                Cargo.toml |
-                head -n 1
-            )
-          fi
-
-          test -n "$version"
-
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building Linux RPM version $version"
-
       - name: Build Davenstein for Rocky Linux
         run: |
           cargo build \
@@ -857,7 +870,7 @@ jobs:
 
       - name: Build RPM Package
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ env.RELEASE_VERSION }}
         run: packaging/rpm/build-package.sh
 
       # Validate the RPM first as an archive, then as an installed package, and
@@ -866,7 +879,7 @@ jobs:
         run: |
           set -euxo pipefail
 
-          release_version="${{ steps.version.outputs.version }}"
+          release_version="${{ env.RELEASE_VERSION }}"
           rpm_file="target/rpm/Davenstein-${release_version}-linux-x86_64.rpm"
           checksum="${rpm_file}.sha256"
 
@@ -1078,7 +1091,10 @@ jobs:
   build-linux-flatpak:
     name: Build Linux x86_64 Flatpak Package
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-x86_64'
+    needs: release-preflight
     runs-on: ubuntu-24.04
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
 
     steps:
       - name: Check Out Source
@@ -1120,20 +1136,6 @@ jobs:
             org.freedesktop.Sdk//25.08 \
             org.freedesktop.Sdk.Extension.rust-stable//25.08
 
-      - name: Resolve Release Version
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
-          fi
-
-          test -n "$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building Linux x86_64 Flatpak version $version"
-
       # Regenerate cargo-sources.json from Cargo.lock at build time so the
       # offline Flatpak build always matches the committed lockfile
       - name: Set Up Python for the Cargo Sources Generator
@@ -1148,7 +1150,7 @@ jobs:
       # build, exports the stable application ref, and creates its checksum
       - name: Build Davenstein x86_64 Flatpak
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ env.RELEASE_VERSION }}
           FLATPAK_ARCH: x86_64
         run: packaging/flatpak/build-package.sh
 
@@ -1259,7 +1261,10 @@ jobs:
   build-linux-arm64:
     name: Build Linux ARM64 Portable Archive
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-arm64'
+    needs: release-preflight
     runs-on: ubuntu-22.04
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
 
     steps:
       - name: Check Out Source
@@ -1267,20 +1272,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Resolve Release Version
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
-          fi
-
-          test -n "$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building Linux ARM64 version $version"
 
       - name: Install Cross
         run: cargo install cross --version 0.2.5 --locked
@@ -1309,7 +1300,7 @@ jobs:
 
       - name: Build Linux ARM64 Portable Archive
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ env.RELEASE_VERSION }}
           ARCH: aarch64
           BINARY_PATH: ${{ github.workspace }}/target/aarch64-unknown-linux-gnu/release/Davenstein
         run: packaging/linux/build-portable.sh
@@ -1393,7 +1384,10 @@ jobs:
   build-linux-armv7:
     name: Build Linux ARMv7 Portable Archive
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-armv7'
+    needs: release-preflight
     runs-on: ubuntu-22.04
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
 
     steps:
       - name: Check Out Source
@@ -1401,20 +1395,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Resolve Release Version
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
-          fi
-
-          test -n "$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building Linux ARMv7 version $version"
 
       - name: Install Cross
         run: cargo install cross --version 0.2.5 --locked
@@ -1490,7 +1470,7 @@ jobs:
 
       - name: Build Linux ARMv7 Portable Archive
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ env.RELEASE_VERSION }}
           ARCH: armv7
           BINARY_PATH: ${{ github.workspace }}/target/armv7-unknown-linux-gnueabihf/release/Davenstein
         run: packaging/linux/build-portable.sh
@@ -1582,7 +1562,10 @@ jobs:
   build-linux-arm64-appimage:
     name: Build Linux ARM64 AppImage
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-arm64'
+    needs: release-preflight
     runs-on: ubuntu-22.04-arm
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
 
     steps:
       - name: Check Out Source
@@ -1608,25 +1591,11 @@ jobs:
             libxrandr-dev \
             pkg-config
 
-      - name: Resolve Release Version
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
-          fi
-
-          test -n "$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building Linux ARM64 AppImage version $version"
-
       # The generalized script builds natively for the runner architecture
       # ARCH selects the matching linuxdeploy tool, checksum, cleanup, and output name
       - name: Build Davenstein ARM64 AppImage
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ env.RELEASE_VERSION }}
           ARCH: aarch64
         run: packaging/linux/build-appimage.sh
 
@@ -1709,7 +1678,10 @@ jobs:
   build-linux-arm64-flatpak:
     name: Build Linux ARM64 Flatpak Package
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-arm64'
+    needs: release-preflight
     runs-on: ubuntu-24.04-arm
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
 
     steps:
       - name: Check Out Source
@@ -1751,20 +1723,6 @@ jobs:
             org.freedesktop.Sdk//25.08 \
             org.freedesktop.Sdk.Extension.rust-stable//25.08
 
-      - name: Resolve Release Version
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
-          fi
-
-          test -n "$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building Linux ARM64 Flatpak version $version"
-
       # Regenerate cargo-sources.json from Cargo.lock at build time so the
       # offline Flatpak build always matches the committed lockfile
       - name: Set Up Python for the Cargo Sources Generator
@@ -1779,7 +1737,7 @@ jobs:
       # build, exports the stable application ref, and creates its checksum
       - name: Build Davenstein ARM64 Flatpak
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ env.RELEASE_VERSION }}
           FLATPAK_ARCH: aarch64
         run: packaging/flatpak/build-package.sh
 
@@ -1890,7 +1848,10 @@ jobs:
   build-freebsd:
     name: Build FreeBSD x86_64 Packages
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'freebsd-x86_64'
+    needs: release-preflight
     runs-on: ubuntu-22.04
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
 
     steps:
       - name: Check Out Source
@@ -1898,20 +1859,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Resolve Release Version
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
-          fi
-
-          test -n "$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Building FreeBSD x86_64 version $version"
 
       - name: Install Cross
         run: cargo install cross --version 0.2.5 --locked
@@ -2043,7 +1990,7 @@ jobs:
 
       - name: Build FreeBSD Portable Archive
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ env.RELEASE_VERSION }}
           ARCH: x86_64
           BINARY_PATH: ${{ github.workspace }}/target/freebsd-stripped/Davenstein
           ASSETS_PATH: ${{ github.workspace }}/target/release/assets.pak
@@ -2052,7 +1999,7 @@ jobs:
       - name: Validate FreeBSD Portable Archive
         shell: bash
         run: |
-          version="${{ steps.version.outputs.version }}"
+          version="${{ env.RELEASE_VERSION }}"
           archive="target/portable/Davenstein-${version}-freebsd-x86_64.tar.gz"
           checksum="${archive}.sha256"
           extract_dir="$RUNNER_TEMP/davenstein-freebsd-portable"
@@ -2145,7 +2092,7 @@ jobs:
       - name: Build Native FreeBSD Package
         shell: freebsd {0}
         run: |
-          VERSION="${{ steps.version.outputs.version }}" \
+          VERSION="${{ env.RELEASE_VERSION }}" \
           ARCH=x86_64 \
           BINARY_PATH="$PWD/target/freebsd-stripped/Davenstein" \
           ASSETS_PATH="$PWD/target/release/assets.pak" \
@@ -2154,7 +2101,7 @@ jobs:
       - name: Validate Native FreeBSD Package
         shell: freebsd {0}
         run: |
-          version="${{ steps.version.outputs.version }}"
+          version="${{ env.RELEASE_VERSION }}"
           package="target/freebsd/Davenstein-${version}-freebsd-x86_64.pkg"
           checksum="${package}.sha256"
 
@@ -2269,7 +2216,7 @@ jobs:
 
       - name: Stage FreeBSD Release Packages
         run: |
-          version="${{ steps.version.outputs.version }}"
+          version="${{ env.RELEASE_VERSION }}"
 
           rm -rf target/release-artifacts/freebsd
           mkdir -p target/release-artifacts/freebsd
@@ -2300,8 +2247,10 @@ jobs:
   build-macos:
     name: Build Apple Silicon macOS App
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'macos-arm64' || inputs.build_target == 'macos-universal'
+    needs: release-preflight
     runs-on: macos-15
     env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
       MACOSX_DEPLOYMENT_TARGET: "11.0"
 
     steps:
@@ -2314,25 +2263,6 @@ jobs:
           rustup default stable
           rustc --version
           cargo --version
-
-      - name: Resolve Release Version
-        id: version
-        shell: bash
-        run: |
-          cargo_version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
-
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            release_version="${GITHUB_REF_NAME#v}"
-          else
-            release_version="$cargo_version"
-          fi
-
-          test -n "$cargo_version"
-          test -n "$release_version"
-
-          echo "cargo_version=$cargo_version" >> "$GITHUB_OUTPUT"
-          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
-          echo "Building Apple Silicon macOS version $release_version"
 
       - name: Build Davenstein for Apple Silicon
         run: cargo build --release --locked --bin Davenstein
@@ -2352,7 +2282,7 @@ jobs:
 
       - name: Build macOS Application Bundle
         env:
-          VERSION: ${{ steps.version.outputs.release_version }}
+          VERSION: ${{ env.RELEASE_VERSION }}
           BUNDLE_VERSION: ${{ github.run_number }}
           ARCH: aarch64
           BINARY_PATH: ${{ github.workspace }}/target/release/Davenstein
@@ -2417,6 +2347,7 @@ jobs:
   build-macos-intel:
     name: Build Intel macOS Component
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'macos-intel' || inputs.build_target == 'macos-universal'
+    needs: release-preflight
     runs-on: macos-15-intel
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
@@ -2460,34 +2391,17 @@ jobs:
     name: Build Universal macOS App
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'macos-universal'
     needs:
+      - release-preflight
       - build-macos
       - build-macos-intel
     runs-on: macos-15
     env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
       MACOSX_DEPLOYMENT_TARGET: "11.0"
 
     steps:
       - name: Check Out Source
         uses: actions/checkout@v7
-
-      - name: Resolve Release Version
-        id: version
-        shell: bash
-        run: |
-          cargo_version=$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -n 1)
-
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            release_version="${GITHUB_REF_NAME#v}"
-          else
-            release_version="$cargo_version"
-          fi
-
-          test -n "$cargo_version"
-          test -n "$release_version"
-
-          echo "cargo_version=$cargo_version" >> "$GITHUB_OUTPUT"
-          echo "release_version=$release_version" >> "$GITHUB_OUTPUT"
-          echo "Building Universal macOS version $release_version"
 
       - name: Download Apple Silicon macOS Package
         uses: actions/download-artifact@v8
@@ -2547,7 +2461,7 @@ jobs:
 
       - name: Build Universal macOS Application Bundle
         env:
-          VERSION: ${{ steps.version.outputs.release_version }}
+          VERSION: ${{ env.RELEASE_VERSION }}
           BUNDLE_VERSION: ${{ github.run_number }}
           ARCH: universal
           BINARY_PATH: ${{ github.workspace }}/target/macos-universal/Davenstein
@@ -2616,6 +2530,7 @@ jobs:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
+      - release-preflight
       - build-windows
       - build-windows-arm64
       - build-linux
