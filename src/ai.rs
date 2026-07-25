@@ -230,6 +230,7 @@ fn burst_profile(kind: EnemyKind) -> Option<(u8, u32, f32)> {
     }
 }
 
+#[derive(Debug)]
 enum ChasePick {
     MoveTo(IVec2),
     OpenDoor(IVec2),
@@ -2223,5 +2224,307 @@ impl Plugin for EnemyAiPlugin {
                     .in_set(AiFixedSet::Move)
                     .run_if(player_can_be_targeted),
             );
+    }
+}
+
+#[cfg(test)]
+mod chase_tests {
+    use super::*;
+    use crate::pushwalls::PushwallOcc;
+
+    /// Build a MapGrid From a Small ASCII Floor Plan so Each Test Reads as a Map.
+    /// Legend: '#' Wall, 'D' Closed Door, 'd' Open Door, '.' Floor. Area Codes Are
+    /// Irrelevant to the Chase, so Floor Carries plane0 == 0
+    fn grid(rows: &[&str]) -> MapGrid {
+        let height = rows.len();
+        let width = rows[0].chars().count();
+        assert!(
+            rows.iter().all(|r| r.chars().count() == width),
+            "ragged floor plan"
+        );
+
+        let mut plane0 = Vec::with_capacity(width * height);
+        let mut tiles = Vec::with_capacity(width * height);
+
+        for row in rows {
+            for c in row.chars() {
+                let (tile, code) = match c {
+                    '#' => (Tile::Wall, 1u16),
+                    'D' => (Tile::DoorClosed, 90u16),
+                    'd' => (Tile::DoorOpen, 90u16),
+                    '.' => (Tile::Empty, 0u16),
+                    other => panic!("unknown floor plan char {other:?}"),
+                };
+                tiles.push(tile);
+                plane0.push(code);
+            }
+        }
+
+        MapGrid {
+            width,
+            height,
+            plane0,
+            tiles,
+            generation: 0,
+        }
+    }
+
+    /// Everything pick_chase_step Consumes, With Open Defaults so Each Test Only
+    /// States What it Cares About. A Fixed RNG Seed Keeps the Sweep Direction
+    /// Deterministic Unless a Test Chooses Otherwise
+    struct Setup {
+        grid: MapGrid,
+        solid: SolidStatics,
+        pw_occ: PushwallOcc,
+        occupied: std::collections::HashSet<IVec2>,
+        rng: TableRng,
+    }
+
+    impl Setup {
+        fn new(rows: &[&str]) -> Self {
+            let g = grid(rows);
+            let solid = SolidStatics::new(g.width, g.height);
+            Self {
+                grid: g,
+                solid,
+                pw_occ: PushwallOcc::default(),
+                occupied: std::collections::HashSet::new(),
+                rng: TableRng::seeded(0),
+            }
+        }
+
+        fn pick(
+            &mut self,
+            my_tile: IVec2,
+            player_tile: IVec2,
+            last_step: IVec2,
+            can_open_doors: bool,
+        ) -> ChasePick {
+            pick_chase_step(
+                &self.grid,
+                &self.solid,
+                &self.pw_occ,
+                &self.occupied,
+                my_tile,
+                player_tile,
+                last_step,
+                can_open_doors,
+                &mut self.rng,
+            )
+        }
+    }
+
+    fn t(x: i32, z: i32) -> IVec2 {
+        IVec2::new(x, z)
+    }
+
+    /// Unwrap a MoveTo or Fail Loudly, so Assertions Read as Destinations
+    fn dest_of(pick: ChasePick) -> IVec2 {
+        match pick {
+            ChasePick::MoveTo(d) => d,
+            ChasePick::OpenDoor(d) => panic!("expected MoveTo, got OpenDoor({d:?})"),
+            ChasePick::None => panic!("expected MoveTo, got None"),
+        }
+    }
+
+    #[test]
+    fn dominant_axis_leads() {
+        // Player is Far East and Slightly South: |dx| > |dz|, so d[1] is the X Step
+        let mut s = Setup::new(&[
+            "#######",
+            "#.....#",
+            "#.....#",
+            "#######",
+        ]);
+
+        let d = dest_of(s.pick(t(1, 1), t(5, 2), IVec2::ZERO, true));
+        assert_eq!(d, t(2, 1), "the dominant-axis cardinal must be tried first");
+    }
+
+    #[test]
+    fn dominant_axis_swap_prefers_z() {
+        // |dz| > |dx| Swaps d[1] and d[2], Exactly as the Original Does
+        let mut s = Setup::new(&[
+            "#####",
+            "#...#",
+            "#...#",
+            "#...#",
+            "#...#",
+            "#####",
+        ]);
+
+        let d = dest_of(s.pick(t(1, 1), t(2, 4), IVec2::ZERO, true));
+        assert_eq!(d, t(1, 2), "|dz| > |dx| must lead with the Z step");
+    }
+
+    #[test]
+    fn blocked_d1_falls_to_d2() {
+        // A Wall Sits on the Dominant-Axis Step, so the Other Toward-Player Cardinal
+        // is Taken Instead
+        let mut s = Setup::new(&[
+            "#######",
+            "#.#...#",
+            "#.....#",
+            "#######",
+        ]);
+
+        let d = dest_of(s.pick(t(1, 1), t(5, 2), IVec2::ZERO, true));
+        assert_eq!(d, t(1, 2), "d[2] must be tried when d[1] is walled");
+    }
+
+    #[test]
+    fn turnaround_is_excluded_from_d1() {
+        // The Actor Just Stepped West, so East (Toward the Player) is its Turnaround.
+        // opposite[olddir] is Skipped in Every Preference Tier, so d[2] Wins Even
+        // Though East is Open
+        let mut s = Setup::new(&[
+            "#######",
+            "#.....#",
+            "#.....#",
+            "#######",
+        ]);
+
+        let d = dest_of(s.pick(t(2, 1), t(5, 2), IVec2::new(-1, 0), true));
+        assert_eq!(d, t(2, 2), "reversing outright must not be the first choice");
+    }
+
+    #[test]
+    fn olddir_is_tried_before_the_sweep() {
+        // Both North AND West Are Open, and the Fixed Seed Forces the Reverse Sweep,
+        // Which Tries West First Under Either Sweep Table. Only the olddir Tier Can
+        // Therefore Produce North -- if the Sweep Were Deciding, the Pick Would be West
+        let mut s = Setup::new(&[
+            "######",
+            "#....#",
+            "#..#.#",
+            "######",
+        ]);
+
+        // Actor at (2,2), Heading North, Player East at (4,2): d[1] is East Into the
+        // Wall at (3,2), d[2] is nodir (Aligned on Z), so the Pick Falls Straight to
+        // the olddir Tier
+        let d = dest_of(s.pick(t(2, 2), t(4, 2), IVec2::new(0, -1), true));
+        assert_eq!(
+            d,
+            t(2, 1),
+            "olddir must be preferred over the random sweep, which would go west"
+        );
+    }
+
+    #[test]
+    fn closed_door_is_opened_by_door_users_and_refused_by_dogs() {
+        let mut s = Setup::new(&[
+            "#####",
+            "#.D.#",
+            "#####",
+        ]);
+
+        // A Guard Heading East Meets the Door on d[1] and Opens it
+        match s.pick(t(1, 1), t(3, 1), IVec2::ZERO, true) {
+            ChasePick::OpenDoor(d) => assert_eq!(d, t(2, 1)),
+            other => panic!("door user must yield OpenDoor, got {other:?}"),
+        }
+
+        // A Dog (CHECKDIAG) Refuses the Door Tile. With Every Other Direction Walled
+        // the Pick Comes Back Empty Rather Than Parking the Dog at the Door
+        match s.pick(t(1, 1), t(3, 1), IVec2::ZERO, false) {
+            ChasePick::None => {}
+            other => panic!("a dog must not target a closed door, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn open_door_is_walked_through_by_everyone() {
+        let mut s = Setup::new(&[
+            "#####",
+            "#.d.#",
+            "#####",
+        ]);
+
+        // Dogs Included: a Fully Open Door Clears actorat in the Original, so
+        // CHECKDIAG Passes it Like Floor
+        let d = dest_of(s.pick(t(1, 1), t(3, 1), IVec2::ZERO, false));
+        assert_eq!(d, t(2, 1));
+    }
+
+    #[test]
+    fn pushwall_occupancy_blocks_a_step() {
+        // The Two Tiles a Sliding Pushwall Holds Read as Floor in the Grid; the
+        // Occupancy Resource is the Only Thing Standing Between an Actor and the
+        // Moving Wall. This is the Regression Test for the Original Walk-Through Bug
+        let mut s = Setup::new(&[
+            "#######",
+            "#.....#",
+            "#.....#",
+            "#######",
+        ]);
+        s.pw_occ.set(t(2, 2), t(3, 2));
+
+        // Actor on the Bottom Row so North is Open: the Biased Sweep Never Looks
+        // South or East, and a Test Must not Depend on Directions it Cannot Take
+        let d = dest_of(s.pick(t(1, 2), t(5, 2), IVec2::ZERO, true));
+        assert_eq!(d, t(1, 1), "a step into a moving pushwall must be refused");
+    }
+
+    #[test]
+    fn the_player_tile_is_never_entered() {
+        // Point-Blank: the Only Toward Step is the Player's Own Tile, Which TryWalk
+        // Never Enters. The Pick Must Route Around, Not Through
+        let mut s = Setup::new(&[
+            "#####",
+            "#...#",
+            "#...#",
+            "#####",
+        ]);
+
+        // Actor on the Bottom Row so the Route Around Runs North, Which Both Sweep
+        // Tables Can Take
+        let d = dest_of(s.pick(t(1, 2), t(2, 2), IVec2::ZERO, true));
+        assert_ne!(d, t(2, 2), "the pick must never move onto the player");
+    }
+
+    #[test]
+    fn fully_boxed_yields_none() {
+        let mut s = Setup::new(&[
+            "###",
+            "#.#",
+            "###",
+        ]);
+
+        match s.pick(t(1, 1), t(1, 1) + IVec2::new(0, -1), IVec2::ZERO, true) {
+            ChasePick::None => {}
+            other => panic!("a boxed actor must yield None, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn biased_sweep_diagonal_may_not_cut_corners() {
+        // Only Meaningful While the Faithful Sweep is On: its Northwest Candidate is
+        // a Diagonal, and TryWalk Demands Both Orthogonal Corners Clear Before a
+        // Diagonal Commits. Boxed Except for Northwest-With-a-Blocked-Corner, the
+        // Pick Must Refuse Rather Than Cut Through
+        if !AI_FAITHFUL_SWEEP_BIAS {
+            return;
+        }
+
+        let mut s = Setup::new(&[
+            "#####",
+            "#...#",
+            "#...#",
+            "#...#",
+            "#####",
+        ]);
+
+        // Actor Center, Player South so d[1]/d[2] Point South/None. Occupy Every
+        // Open Neighbour Except the Northwest Diagonal at (1,1), Then Block One of
+        // its Corners
+        for occ in [t(2, 1), t(3, 1), t(1, 2), t(3, 2), t(1, 3), t(3, 3)] {
+            s.occupied.insert(occ);
+        }
+
+        match s.pick(t(2, 2), t(2, 3), IVec2::ZERO, true) {
+            ChasePick::None => {}
+            other => panic!("a corner-cutting diagonal must be refused, got {other:?}"),
+        }
     }
 }
