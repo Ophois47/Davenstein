@@ -4840,8 +4840,7 @@ fn spawn_scores_ui(
 ) {
     let layout = MenuLayout::new(win_w, win_h);
     let ui_scale = layout.scale;
-    let top_red = layout.px(3.0);
-    let banner_y = layout.safe_top + top_red;
+    let banner_y = layout.safe_top;
     let banner_h = layout.px(MENU_BANNER_NATIVE_H);
 
     let root = commands
@@ -4875,20 +4874,6 @@ fn spawn_scores_ui(
             ChildOf(root),
         ))
         .id();
-
-    commands.spawn((
-        SplashUi,
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(0.0),
-            top: Val::Px(layout.safe_top),
-            width: Val::Px(layout.window_w),
-            height: Val::Px(top_red),
-            ..default()
-        },
-        BackgroundColor(Color::srgb(0.60, 0.0, 0.0)),
-        ChildOf(canvas),
-    ));
 
     spawn_centered_banner_title(
         commands,
@@ -5002,8 +4987,7 @@ fn spawn_load_select_ui(
 ) {
     let layout = MenuLayout::new(win_w, win_h);
     let ui_scale = layout.scale;
-    let top_red = layout.px(3.0);
-    let banner_y = layout.safe_top + top_red;
+    let banner_y = layout.safe_top;
     let banner_h = layout.px(MENU_BANNER_NATIVE_H);
     let banner_spec = if is_save {
         SAVE_BANNER_SPEC
@@ -5042,20 +5026,6 @@ fn spawn_load_select_ui(
             ChildOf(root),
         ))
         .id();
-
-    commands.spawn((
-        SplashUi,
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(0.0),
-            top: Val::Px(layout.safe_top),
-            width: Val::Px(layout.window_w),
-            height: Val::Px(top_red),
-            ..default()
-        },
-        BackgroundColor(Color::srgb(0.60, 0.0, 0.0)),
-        ChildOf(canvas),
-    ));
 
     spawn_centered_banner_title(
         commands,
