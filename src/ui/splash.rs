@@ -993,7 +993,7 @@ const MENU_LABELS_PAUSE: [&str; 9] = [
 ];
 
 #[derive(Resource)]
-struct SplashImages {
+pub(crate) struct SplashImages {
     splash0: Handle<Image>,
     splash1: Handle<Image>,
     episode_thumbs_atlas: Handle<Image>,
@@ -8057,4 +8057,161 @@ fn auto_get_psyched_on_level_start(
             &mut *music_mode,
         );
     }
+}
+
+// Spawn the Modal Cheat Message Box, Styled After the Original US_Message: a Grey
+// Panel With a Raised Bevel (Light Top and Left, Shadow Bottom and Right) and the
+// Black Menu Bitmap Font. It Lives Here Rather Than in cheat_message.rs Because the
+// Glyph Metrics, MenuLayout, and the Panel Idiom Are This Module's Private
+// Vocabulary; the Caller Owns the Lifecycle Through the CheatMessageUi Marker on the
+// Root. The Root Carries no SplashUi Tag on Purpose -- the Menu Machine's Blanket
+// Root Despawns Must Never Be the Thing That Removes This Box, or the Control Lock
+// it Holds Would Leak
+pub(crate) fn spawn_cheat_message_ui(
+    commands: &mut Commands,
+    imgs: &SplashImages,
+    win_w: f32,
+    win_h: f32,
+    text: &str,
+) {
+    // Positioning Goes Through MenuLayout so the Box Stays Centered in the 320x200
+    // Safe Area on Letterboxed Windows, Exactly Like Every Other Menu Panel
+    let layout = MenuLayout::new(win_w, win_h);
+    let ui_scale = layout.scale;
+    let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+    let line_h = ((MENU_FONT_HEIGHT * s) + s).round().max(1.0);
+
+    // Measure the Text Exactly as spawn_menu_bitmap_text Will Lay it Out, so the
+    // Panel is Sized to its Contents the Way the Original Message() Sized its Box
+    let mut max_line_w = 0.0f32;
+    let mut cur_line_w = 0.0f32;
+    let mut line_count = 1usize;
+
+    for ch in text.chars() {
+        if ch == '\n' {
+            max_line_w = max_line_w.max(cur_line_w);
+            cur_line_w = 0.0;
+            line_count += 1;
+            continue;
+        }
+        if ch == ' ' {
+            cur_line_w += (MENU_FONT_SPACE_W * s).round();
+            continue;
+        }
+        if let Some(g) = menu_glyph(ch) {
+            cur_line_w += (g.advance * s).round();
+        }
+    }
+    max_line_w = max_line_w.max(cur_line_w);
+
+    let text_w = max_line_w.max(1.0);
+    let text_h = ((line_count as f32) * line_h).max(1.0);
+
+    // Padding and Bevel in Base Pixels, Scaled Like Every Other Panel in This Module
+    let pad = layout.px(10.0);
+    let border_w = layout.px(2.0).max(1.0);
+
+    let panel_w = (text_w + pad * 2.0).round();
+    let panel_h = (text_h + pad * 2.0).round();
+
+    // Centered Horizontally in the Safe Area; Seated in the Upper Third Like the
+    // Original's Box, Which Sat Over the View Rather Than Dead Center
+    let panel_left = (layout.safe_left + (layout.safe_w - panel_w) * 0.5).round();
+    let panel_top = layout.y(28.0);
+
+    // The Root is the Only Entity the Caller Needs to Know About. Full-Window and
+    // Transparent so the Frozen Game Stays Visible Behind the Panel, Exactly as the
+    // Original Drew its Box Straight Over the Last Rendered Frame
+    let root = commands
+        .spawn((
+            crate::ui::cheat_message::CheatMessageUi,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                width: Val::Px(layout.window_w),
+                height: Val::Px(layout.window_h),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            GlobalZIndex(40),
+        ))
+        .id();
+
+    // Panel Fill: the Classic VGA Grey
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.61, 0.61, 0.61)),
+        ChildOf(root),
+    ));
+
+    // Raised Bevel: Light Top and Left, Shadow Bottom and Right -- the Original's
+    // Message Box Pops Toward You, Unlike the Sunken Menu Panels
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(panel_w),
+            height: Val::Px(border_w),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.87, 0.87, 0.87)),
+        ChildOf(root),
+    ));
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top),
+            width: Val::Px(border_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.87, 0.87, 0.87)),
+        ChildOf(root),
+    ));
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left),
+            top: Val::Px(panel_top + panel_h - border_w),
+            width: Val::Px(panel_w),
+            height: Val::Px(border_w),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.33, 0.33, 0.33)),
+        ChildOf(root),
+    ));
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(panel_left + panel_w - border_w),
+            top: Val::Px(panel_top),
+            width: Val::Px(border_w),
+            height: Val::Px(panel_h),
+            ..default()
+        },
+        BackgroundColor(Color::srgb(0.33, 0.33, 0.33)),
+        ChildOf(root),
+    ));
+
+    // The Message Itself, in the Black Menu Font the Episode-End Screens Already Use
+    spawn_menu_bitmap_text(
+        commands,
+        root,
+        imgs.menu_font_black.clone(),
+        panel_left + pad,
+        panel_top + pad,
+        ui_scale,
+        text,
+        Visibility::Visible,
+    );
 }

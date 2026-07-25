@@ -2,6 +2,7 @@
 Davenstein - by David Petnick
 */
 
+pub(crate) mod cheat_message;
 mod hud;
 pub(crate) mod level_end_font;
 mod splash;
@@ -28,7 +29,8 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
 	fn build(&self, app: &mut App) {
-		app.init_resource::<HudState>()
+		app.init_resource::<cheat_message::CheatMessageState>()
+			.init_resource::<HudState>()
 			.init_resource::<DamageFlash>()
 			.init_resource::<PickupFlash>()
 			.init_resource::<DeathOverlay>()
@@ -75,6 +77,12 @@ impl Plugin for UiPlugin {
 				Update,
 				hud::sync_viewmodel_visibility.after(splash::SplashUpdateSet::PsychedLoading),
 			)
+			// The Original's MIL Cheat Warning: a Modal Grey Box That Freezes Play
+			// Until Any Input. No Ordering Constraint is Needed Against the Splash
+			// Machine: its Gameplay Branch Bails While the Control Lock is Held, so
+			// the Pause Menu Cannot Open Underneath This Box in Any System Order
+			.add_systems(Update, cheat_message::trigger_cheat_message)
+			.add_systems(Update, cheat_message::dismiss_cheat_message)
 			.add_systems(Update, hud::weapon_fire_and_viewmodel)
 			.add_systems(Update, hud::sync_hud_hp_digits)
 			.add_systems(Update, hud::sync_hud_ammo_digits)

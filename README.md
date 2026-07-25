@@ -305,7 +305,6 @@ cargo run --bin pak_builder --release -- --root assets --out target/release/asse
 
 ## Known Bugs
 
-- Save and Load banners need reformatting
 
 ## Compatibility
 
