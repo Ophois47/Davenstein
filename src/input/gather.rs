@@ -7,6 +7,15 @@ This System is the Single Writer of PlayerIntent. It Resets to Default Each
 Frame, Lets Every Source Merge a Contribution, Then Commits One Merged Result
 Resetting to Default First is What Keeps Unpressed Inputs From Going Stale
 
+While PlayerControlLock is Held (Menus, Death, Level End) the Gameplay Intent is
+Silenced HERE, at the Source, Rather Than Trusting Every Downstream Consumer to
+Remember its Lock Gate. MenuNav is Deliberately Exempt or Menus Could Not be Driven.
+A Release Latch Then Keeps Fire Suppressed Across the Unlock Edge Until the Trigger
+is Actually Let Go: on a Gamepad the South Button is Both Menu Confirm and Fire, so
+the Press That Chose "Back to Game" Was Still Held on the First Unlocked Frames and
+Fired the Weapon. Keyboard Only Escaped the Same Bug by Accident of Binding (Enter
+Confirms, Ctrl Fires); a Clicked Menu Would Leak the Same Way Through Left Mouse
+
 Merge Contract Honored by Each Source contribute Function
 - Vectors move_wish and look_delta Accumulate Additively
 - Booleans run and fire and fire_pressed and use_pressed Combine by OR
@@ -37,6 +46,12 @@ pub fn gather(
     q_cursor: Query<&CursorOptions, With<PrimaryWindow>>,
     q_gamepads: Query<&Gamepad>,
     controls: Res<ControlSettings>,
+    // Optional Because the Binary's main Initializes the Resource; a Bare davelib
+    // App (Tests, Tools) Simply Runs Unlocked
+    lock: Option<Res<crate::player::PlayerControlLock>>,
+    // Armed While Control is Locked; Keeps Fire Suppressed After Unlock Until the
+    // Trigger is Released Once. A Local Because it is This System's Private Edge State
+    mut fire_release_latch: Local<bool>,
     mut intent: ResMut<PlayerIntent>,
     mut menu: ResMut<MenuNav>,
 ) {
@@ -60,6 +75,28 @@ pub fn gather(
     }
 
     // Touch Contributes Here in a Later Milestone
+
+    let locked = lock.map(|l| l.0).unwrap_or(false);
+
+    if locked {
+        // Menus, Death, and Level End: the Input Layer Itself Goes Quiet Instead of
+        // Every Consumer Individually Remembering to Check the Lock. Arming the Latch
+        // Here is What Makes the Unlock Edge Safe Below
+        *fire_release_latch = true;
+        acc = PlayerIntent::default();
+    } else if *fire_release_latch {
+        // First Unlocked Frames: the Finger That Confirmed "Back to Game" is Usually
+        // Still Down on a Button That Doubles as Fire. Hold Fire at False Until Every
+        // Fire Input Reads Released for a Frame, Then Disarm. Movement and Look Pass
+        // Through Untouched -- Walking Out of a Menu Should Feel Instant, Only the
+        // Trigger Needs the Release
+        if acc.fire || acc.fire_pressed {
+            acc.fire = false;
+            acc.fire_pressed = false;
+        } else {
+            *fire_release_latch = false;
+        }
+    }
 
     *intent = acc;
 
