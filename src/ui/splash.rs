@@ -42,6 +42,10 @@ pub const MENU_BANNER_PATH: &str = "textures/ui/menu_banner.png";
 pub const SCORE_BANNER_PATH: &str = "textures/ui/score_banner.png";
 pub const LOAD_BANNER_PATH: &str = "textures/ui/load_banner.png";
 pub const SAVE_BANNER_PATH: &str = "textures/ui/save_banner.png";
+const MENU_BANNER_BAND_PATH: &str = "textures/ui/menu_banner_band.png";
+const SCORE_BANNER_CENTER_PATH: &str = "textures/ui/score_banner_center.png";
+const LOAD_BANNER_CENTER_PATH: &str = "textures/ui/load_banner_center.png";
+const SAVE_BANNER_CENTER_PATH: &str = "textures/ui/save_banner_center.png";
 pub const MENU_HINT_PATH: &str = "textures/ui/menu_hint.png";
 pub const MENU_CURSOR_LIGHT_PATH: &str = "textures/ui/menu_cursor_light.png";
 pub const MENU_CURSOR_DARK_PATH: &str = "textures/ui/menu_cursor_dark.png";
@@ -81,6 +85,90 @@ fn splash_stretch_image(image: Handle<Image>) -> ImageNode {
 
 const BASE_W: f32 = 320.0;
 const BASE_H: f32 = 200.0;
+const MENU_BANNER_NATIVE_H: f32 = 48.0;
+const MENU_BANNER_SOURCE_W: f32 = 800.0;
+const MENU_BANNER_SOURCE_H: f32 = 97.0;
+const MENU_BANNER_BAND_SOURCE_W: f32 = 32.0;
+const MENU_BANNER_PLAQUE_SOURCE_H: f32 = 79.0;
+const MATCHED_BANNER_TITLE_NATIVE_H: f32 =
+    MENU_BANNER_NATIVE_H * MENU_BANNER_PLAQUE_SOURCE_H / MENU_BANNER_SOURCE_H;
+
+#[derive(Clone, Copy)]
+struct MenuLayout {
+    window_w: f32,
+    window_h: f32,
+    scale: f32,
+    safe_w: f32,
+    safe_h: f32,
+    safe_left: f32,
+    safe_top: f32,
+}
+
+impl MenuLayout {
+    fn new(window_w: f32, window_h: f32) -> Self {
+        let window_w = window_w.round().max(1.0);
+        let window_h = window_h.round().max(1.0);
+        let scale = (window_w / BASE_W)
+            .min(window_h / BASE_H)
+            .floor()
+            .max(1.0);
+        let safe_w = (BASE_W * scale).round();
+        let safe_h = (BASE_H * scale).round();
+        let safe_left = ((window_w - safe_w) * 0.5).round().max(0.0);
+        let safe_top = ((window_h - safe_h) * 0.5).round().max(0.0);
+
+        Self {
+            window_w,
+            window_h,
+            scale,
+            safe_w,
+            safe_h,
+            safe_left,
+            safe_top,
+        }
+    }
+
+    fn px(self, native: f32) -> f32 {
+        (native * self.scale).round()
+    }
+
+    fn x(self, native: f32) -> f32 {
+        (self.safe_left + self.px(native)).round()
+    }
+
+    fn y(self, native: f32) -> f32 {
+        (self.safe_top + self.px(native)).round()
+    }
+
+    fn safe_bottom(self) -> f32 {
+        self.safe_top + self.safe_h
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CenteredBannerTitleSpec {
+    center_path: &'static str,
+    source_width: f32,
+    source_height: f32,
+}
+
+const SCORE_BANNER_SPEC: CenteredBannerTitleSpec = CenteredBannerTitleSpec {
+    center_path: SCORE_BANNER_CENTER_PATH,
+    source_width: 224.0,
+    source_height: 56.0,
+};
+
+const LOAD_BANNER_SPEC: CenteredBannerTitleSpec = CenteredBannerTitleSpec {
+    center_path: LOAD_BANNER_CENTER_PATH,
+    source_width: 320.0,
+    source_height: 48.0,
+};
+
+const SAVE_BANNER_SPEC: CenteredBannerTitleSpec = CenteredBannerTitleSpec {
+    center_path: SAVE_BANNER_CENTER_PATH,
+    source_width: 320.0,
+    source_height: 48.0,
+};
 
 const MENU_CURSOR_TOP: f32 = 62.0;
 const MENU_ITEM_H: f32 = 13.0;
@@ -668,9 +756,9 @@ struct OptionsMenusLocalState {
     control: ControlOptionsLocalState,
     gameplay: GameplayOptionsLocalState,
     key_bindings: KeyBindingsLocalState,
-    /// Cached (w, h) From compute_scaled_size to Detect Window Resizes
-    /// and Respawn Menu UI. (0, 0) Means Not Yet Initialized
-    last_scaled_size: (f32, f32),
+    /// Cached Window Size Used to Respawn Menu UI After Any Resize, Including
+    /// Widescreen-Only Width Changes That Do Not Alter the Integer UI Scale
+    last_window_size: (f32, f32),
 }
 
 #[derive(Default)]
@@ -3692,6 +3780,140 @@ impl Plugin for SplashPlugin {
     }
 }
 
+fn spawn_banner_edge_tiles(
+    commands: &mut Commands,
+    canvas: Entity,
+    image: Handle<Image>,
+    left: f32,
+    top: f32,
+    width: f32,
+    height: f32,
+    tile_width: f32,
+) {
+    if width <= 0.0 || height <= 0.0 {
+        return;
+    }
+
+    let tile_width = tile_width.max(1.0);
+    let right = left + width;
+    let mut x = left;
+
+    while x < right {
+        let piece_width = (right - x).min(tile_width).max(1.0);
+
+        commands.spawn((
+            splash_stretch_image(image.clone()),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(x),
+                top: Val::Px(top),
+                width: Val::Px(piece_width),
+                height: Val::Px(height),
+                ..default()
+            },
+            ChildOf(canvas),
+        ));
+
+        x += piece_width;
+    }
+}
+
+fn spawn_banner_band(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    canvas: Entity,
+    layout: MenuLayout,
+    top: f32,
+) {
+    let edge = asset_server.load(MENU_BANNER_BAND_PATH);
+    let banner_h = layout.px(MENU_BANNER_NATIVE_H);
+    let edge_tile_w = (layout.safe_w * MENU_BANNER_BAND_SOURCE_W / MENU_BANNER_SOURCE_W)
+        .round()
+        .max(1.0);
+
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(top),
+            width: Val::Px(layout.window_w),
+            height: Val::Px(banner_h),
+            ..default()
+        },
+        BackgroundColor(Color::BLACK),
+        ChildOf(canvas),
+    ));
+
+    spawn_banner_edge_tiles(
+        commands,
+        canvas,
+        edge,
+        0.0,
+        top,
+        layout.window_w,
+        banner_h,
+        edge_tile_w,
+    );
+}
+
+fn spawn_options_banner(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    canvas: Entity,
+    layout: MenuLayout,
+    top: f32,
+) {
+    spawn_banner_band(commands, asset_server, canvas, layout, top);
+
+    let center = asset_server.load(MENU_BANNER_PATH);
+    let banner_h = layout.px(MENU_BANNER_NATIVE_H);
+    commands.spawn((
+        splash_stretch_image(center),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(layout.safe_left),
+            top: Val::Px(top),
+            width: Val::Px(layout.safe_w),
+            height: Val::Px(banner_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+}
+
+fn spawn_centered_banner_title(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    canvas: Entity,
+    layout: MenuLayout,
+    spec: CenteredBannerTitleSpec,
+    top: f32,
+) {
+    spawn_banner_band(commands, asset_server, canvas, layout, top);
+
+    let center = asset_server.load(spec.center_path);
+    let banner_h = layout.px(MENU_BANNER_NATIVE_H);
+    let title_h = layout.px(MATCHED_BANNER_TITLE_NATIVE_H).max(1.0);
+    let title_w = (title_h * spec.source_width / spec.source_height)
+        .round()
+        .max(1.0);
+    let left = (layout.safe_left + ((layout.safe_w - title_w) * 0.5).round()).max(0.0);
+    let title_top = (top + ((banner_h - title_h) * 0.5).round()).max(0.0);
+
+    commands.spawn((
+        splash_stretch_image(center),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(left),
+            top: Val::Px(title_top),
+            width: Val::Px(title_w),
+            height: Val::Px(title_h),
+            ..default()
+        },
+        ChildOf(canvas),
+    ));
+}
+
 fn compute_scaled_size(win_w: f32, win_h: f32) -> (f32, f32) {
     let scale = (win_w / BASE_W).min(win_h / BASE_H).floor().max(1.0);
     (BASE_W * scale, BASE_H * scale)
@@ -4606,22 +4828,16 @@ fn spawn_name_entry_ui(
 fn spawn_scores_ui(
     commands: &mut Commands,
     asset_server: &AssetServer,
-    w: f32,
-    h: f32,
+    win_w: f32,
+    win_h: f32,
     imgs: &SplashImages,
     high_scores: &davelib::high_score::HighScores,
 ) {
-    let banner = asset_server.load(SCORE_BANNER_PATH);
-    let ui_scale = (w / BASE_W).round().max(1.0);
-
-    // Match main menu banner approach EXACTLY
-    let banner_native_h = 48.0;
-    let top_red = (3.0 * ui_scale).round();
-
-    let banner_x = 0.0;
-    let banner_y = top_red;
-    let banner_w = w;
-    let banner_h = (banner_native_h * ui_scale).round();
+    let layout = MenuLayout::new(win_w, win_h);
+    let ui_scale = layout.scale;
+    let top_red = layout.px(3.0);
+    let banner_y = layout.safe_top + top_red;
+    let banner_h = layout.px(MENU_BANNER_NATIVE_H);
 
     let root = commands
         .spawn((
@@ -4637,7 +4853,7 @@ fn spawn_scores_ui(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::BLACK),
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
         ))
         .id();
 
@@ -4645,8 +4861,8 @@ fn spawn_scores_ui(
         .spawn((
             SplashUi,
             Node {
-                width: Val::Px(w),
-                height: Val::Px(h),
+                width: Val::Px(layout.window_w),
+                height: Val::Px(layout.window_h),
                 position_type: PositionType::Relative,
                 ..default()
             },
@@ -4655,14 +4871,13 @@ fn spawn_scores_ui(
         ))
         .id();
 
-    // Top red strip (matches menu exactly)
     commands.spawn((
         SplashUi,
         Node {
             position_type: PositionType::Absolute,
             left: Val::Px(0.0),
-            top: Val::Px(0.0),
-            width: Val::Px(w),
+            top: Val::Px(layout.safe_top),
+            width: Val::Px(layout.window_w),
             height: Val::Px(top_red),
             ..default()
         },
@@ -4670,38 +4885,15 @@ fn spawn_scores_ui(
         ChildOf(canvas),
     ));
 
-    // Black banner band
-    let band = commands
-        .spawn((
-            SplashUi,
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(banner_x),
-                top: Val::Px(banner_y),
-                width: Val::Px(banner_w),
-                height: Val::Px(banner_h),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(Color::BLACK),
-            ChildOf(canvas),
-        ))
-        .id();
+    spawn_centered_banner_title(
+        commands,
+        asset_server,
+        canvas,
+        layout,
+        SCORE_BANNER_SPEC,
+        banner_y,
+    );
 
-    // Centered score banner image inside the black band
-    commands.spawn((
-        SplashUi,
-        splash_stretch_image(banner),
-        Node {
-            width: Val::Px(banner_w),
-            height: Val::Px(banner_h),
-            ..default()
-        },
-        ChildOf(band),
-    ));
-
-    // Convert high scores to display format
     let mut rows: Vec<(String, String, String)> = Vec::new();
     for (i, entry) in high_scores.entries.iter().enumerate() {
         rows.push((
@@ -4711,7 +4903,6 @@ fn spawn_scores_ui(
         ));
     }
 
-    // Pad to 10 rows if needed (original Wolf3D always showed 10 slots)
     while rows.len() < 10 {
         let rank = rows.len() + 1;
         rows.push((
@@ -4736,31 +4927,25 @@ fn spawn_scores_ui(
         w.max(1.0)
     };
 
-    // CALCULATE AVAILABLE SPACE FOR SCORES LIST
-    let content_start_y = top_red + banner_h;
-    let bottom_pad = (6.0 * ui_scale).round();
-    let list_top_pad = (12.0 * ui_scale).round();
+    let content_start_y = banner_y + banner_h;
+    let bottom_pad = layout.px(6.0);
+    let list_top_pad = layout.px(12.0);
     let list_top = content_start_y + list_top_pad;
-    
-    // Calculate row spacing that fits all 10 entries
-    let row_spacing_available = (h - list_top - bottom_pad).max(1.0);
+    let row_spacing_available = (layout.safe_bottom() - list_top - bottom_pad).max(1.0);
     let row_step = if rows.len() > 1 {
         (row_spacing_available / rows.len() as f32).floor().max(1.0)
     } else {
-        (13.0 * ui_scale).round()
+        layout.px(13.0)
     };
 
-    // Column positions (in 320x200 space)
-    let rank_right = (72.0 * ui_scale).round();
-    let name_left = (88.0 * ui_scale).round();
-    let score_right = (272.0 * ui_scale).round();
+    let rank_right = layout.x(72.0);
+    let name_left = layout.x(88.0);
+    let score_right = layout.x(272.0);
 
     for (i, (rank, name, score)) in rows.iter().enumerate() {
         let y = (list_top + (i as f32) * row_step).round();
-
         let rank_w = measure_menu_text_width(ui_scale, rank);
         let score_w = measure_menu_text_width(ui_scale, score);
-
         let rank_x = (rank_right - rank_w).round().max(0.0);
         let score_x = (score_right - score_w).round().max(0.0);
 
@@ -4774,7 +4959,6 @@ fn spawn_scores_ui(
             rank,
             Visibility::Visible,
         );
-
         spawn_menu_bitmap_text(
             commands,
             canvas,
@@ -4785,7 +4969,6 @@ fn spawn_scores_ui(
             name,
             Visibility::Visible,
         );
-
         spawn_menu_bitmap_text(
             commands,
             canvas,
@@ -4802,27 +4985,26 @@ fn spawn_scores_ui(
 /// Load Game Slot List. Faithful Copy of spawn_scores_ui's Layout / Scaling, But
 /// Rows Come From Save Slot Metadata and Each is Tagged LoadSlotItem{idx} so
 /// Cursor Logic (2c) Can Highlight Selection
-// NOTE: Reuses SCORE_BANNER_PATH For Now (title art swap is a later)
 fn spawn_load_select_ui(
     commands: &mut Commands,
     asset_server: &AssetServer,
-    w: f32,
-    h: f32,
+    win_w: f32,
+    win_h: f32,
     imgs: &SplashImages,
     slots: &[Option<crate::save::storage::SlotMeta>],
     selection: usize,
     is_save: bool,
 ) {
-    let banner = asset_server.load(if is_save { SAVE_BANNER_PATH } else { LOAD_BANNER_PATH });
-    let ui_scale = (w / BASE_W).round().max(1.0);
-
-    let banner_native_h = 48.0;
-    let top_red = (3.0 * ui_scale).round();
-
-    let banner_x = 0.0;
-    let banner_y = top_red;
-    let banner_w = w;
-    let banner_h = (banner_native_h * ui_scale).round();
+    let layout = MenuLayout::new(win_w, win_h);
+    let ui_scale = layout.scale;
+    let top_red = layout.px(3.0);
+    let banner_y = layout.safe_top + top_red;
+    let banner_h = layout.px(MENU_BANNER_NATIVE_H);
+    let banner_spec = if is_save {
+        SAVE_BANNER_SPEC
+    } else {
+        LOAD_BANNER_SPEC
+    };
 
     let root = commands
         .spawn((
@@ -4838,7 +5020,7 @@ fn spawn_load_select_ui(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::BLACK),
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
         ))
         .id();
 
@@ -4846,8 +5028,8 @@ fn spawn_load_select_ui(
         .spawn((
             SplashUi,
             Node {
-                width: Val::Px(w),
-                height: Val::Px(h),
+                width: Val::Px(layout.window_w),
+                height: Val::Px(layout.window_h),
                 position_type: PositionType::Relative,
                 ..default()
             },
@@ -4856,14 +5038,13 @@ fn spawn_load_select_ui(
         ))
         .id();
 
-    // Top Red Strip
     commands.spawn((
         SplashUi,
         Node {
             position_type: PositionType::Absolute,
             left: Val::Px(0.0),
-            top: Val::Px(0.0),
-            width: Val::Px(w),
+            top: Val::Px(layout.safe_top),
+            width: Val::Px(layout.window_w),
             height: Val::Px(top_red),
             ..default()
         },
@@ -4871,37 +5052,15 @@ fn spawn_load_select_ui(
         ChildOf(canvas),
     ));
 
-    // Black Banner Band
-    let band = commands
-        .spawn((
-            SplashUi,
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(banner_x),
-                top: Val::Px(banner_y),
-                width: Val::Px(banner_w),
-                height: Val::Px(banner_h),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(Color::BLACK),
-            ChildOf(canvas),
-        ))
-        .id();
+    spawn_centered_banner_title(
+        commands,
+        asset_server,
+        canvas,
+        layout,
+        banner_spec,
+        banner_y,
+    );
 
-    commands.spawn((
-        SplashUi,
-        splash_stretch_image(banner),
-        Node {
-            width: Val::Px(banner_w),
-            height: Val::Px(banner_h),
-            ..default()
-        },
-        ChildOf(band),
-    ));
-
-    // Build Row Labels: "name" For Filled Slots, "- empty -" Otherwise
     let mut rows: Vec<String> = Vec::new();
     for slot in slots.iter() {
         match slot {
@@ -4914,21 +5073,17 @@ fn spawn_load_select_ui(
         rows.push("- empty -".to_string());
     }
 
-    // Layout
-    let content_start_y = top_red + banner_h;
-    let bottom_pad = (6.0 * ui_scale).round();
-    let list_top_pad = (12.0 * ui_scale).round();
+    let content_start_y = banner_y + banner_h;
+    let bottom_pad = layout.px(6.0);
+    let list_top_pad = layout.px(12.0);
     let list_top = content_start_y + list_top_pad;
-
-    let row_spacing_available = (h - list_top - bottom_pad).max(1.0);
+    let row_spacing_available = (layout.safe_bottom() - list_top - bottom_pad).max(1.0);
     let row_step = if rows.len() > 1 {
         (row_spacing_available / rows.len() as f32).floor().max(1.0)
     } else {
-        (13.0 * ui_scale).round()
+        layout.px(13.0)
     };
-
-    // Single Left Column For Slot Names (No Rank / Score Columns Here)
-    let name_left = (88.0 * ui_scale).round();
+    let name_left = layout.x(88.0);
 
     for (i, name) in rows.iter().enumerate() {
         let y = (list_top + (i as f32) * row_step).round();
@@ -4944,7 +5099,6 @@ fn spawn_load_select_ui(
             Visibility::Visible,
         );
 
-        // Tag Invisible Marker Entity Carrying Slot Index For 2c's Cursor
         commands.spawn((
             SplashUi,
             LoadSlotItem { idx: i },
@@ -4960,15 +5114,11 @@ fn spawn_load_select_ui(
         ));
     }
 
-    // Gun Cursor (Only One Screen's Cursor Exists at a Time Since
-    // Each Screen Despawns SplashUi on Exit)
     let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
     let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
-
-    let cursor_w = (10.0 * ui_scale).round();
-    let cursor_h = (10.0 * ui_scale).round();
-    // Sit Cursor Just Left of Name Column
-    let cursor_x = (name_left - (16.0 * ui_scale)).round().max(0.0);
+    let cursor_w = layout.px(10.0);
+    let cursor_h = layout.px(10.0);
+    let cursor_x = (name_left - layout.px(16.0)).round().max(0.0);
     let sel = selection.min(rows.len().saturating_sub(1));
     let sel_y = (list_top + (sel as f32) * row_step).round();
 
@@ -5009,68 +5159,47 @@ fn spawn_load_select_ui(
 fn spawn_menu_hint(
     commands: &mut Commands,
     asset_server: &AssetServer,
-    w: f32,
-    h: f32,
+    win_w: f32,
+    win_h: f32,
     imgs: &SplashImages,
     from_pause: bool,
 ) {
-    let banner = asset_server.load(MENU_BANNER_PATH);
+    let layout = MenuLayout::new(win_w, win_h);
+    let ui_scale = layout.scale;
     let hint = asset_server.load(MENU_HINT_PATH);
     let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
     let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
+    let banner_y = layout.y(3.0);
 
-    let ui_scale = (w / BASE_W).round().max(1.0);
-
-    // Banner Geometry
-    let banner_native_h = 48.0;
-    let top_red = (3.0 * ui_scale).round();
-
-    let banner_x = 0.0;
-    let banner_y = top_red;
-    let banner_w = w;
-    let banner_h = (banner_native_h * ui_scale).round();
-
-    // Hint Placement
     let hint_native_w = 103.0;
     let hint_native_h = 12.0;
     let hint_bottom_pad = 6.0;
+    let hint_w = layout.px(hint_native_w);
+    let hint_h = layout.px(hint_native_h);
+    let hint_x = layout.x((BASE_W - hint_native_w) * 0.5);
+    let hint_y = layout.y(BASE_H - hint_native_h - hint_bottom_pad);
 
-    let hint_w = (hint_native_w * ui_scale).round();
-    let hint_h = (hint_native_h * ui_scale).round();
-    let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
-    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
-
-    // Menu Panel + Items
     let labels: &[&str] = if from_pause {
         &MENU_LABELS_PAUSE
     } else {
         &MENU_LABELS_MAIN
     };
-
     let row_count = labels.len();
-
-    let panel_left = (76.0 * ui_scale).round();
-    let panel_top = (55.0 * ui_scale).round();
-    let panel_w = (178.0 * ui_scale).round();
-
-    let cursor_w = (19.0 * ui_scale).round();
-    let cursor_h = (10.0 * ui_scale).round();
-
-    let cursor_x = (panel_left + (18.0 * ui_scale).round()).round();
-    let cursor_y0 = (MENU_CURSOR_TOP * ui_scale).round();
-
-    let text_x = (cursor_x + cursor_w + (6.0 * ui_scale).round()).round();
-    let row_h = (MENU_ITEM_H * ui_scale).round();
-    let text_y0 = (cursor_y0 - (2.0 * ui_scale).round()).round();
-
-    let pad_y = (8.0 * ui_scale).round();
+    let panel_left = layout.x(76.0);
+    let panel_top = layout.y(55.0);
+    let panel_w = layout.px(178.0);
+    let cursor_w = layout.px(19.0);
+    let cursor_h = layout.px(10.0);
+    let cursor_x = panel_left + layout.px(18.0);
+    let cursor_y0 = layout.y(MENU_CURSOR_TOP);
+    let text_x = cursor_x + cursor_w + layout.px(6.0);
+    let row_h = layout.px(MENU_ITEM_H);
+    let text_y0 = cursor_y0 - layout.px(2.0);
+    let pad_y = layout.px(8.0);
     let desired_panel_h = (pad_y * 2.0 + row_h * row_count as f32).round();
-
-    // Never Overlap Hint
-    let max_panel_h = (hint_y - (2.0 * ui_scale).round() - panel_top).max(1.0);
+    let max_panel_h = (hint_y - layout.px(2.0) - panel_top).max(1.0);
     let panel_h = desired_panel_h.min(max_panel_h).max(1.0);
 
-    // Root + Canvas
     let root = commands
         .spawn((
             SplashUi,
@@ -5086,7 +5215,7 @@ fn spawn_menu_hint(
                 align_items: AlignItems::Center,
                 ..default()
             },
-            BackgroundColor(Color::BLACK),
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
         ))
         .id();
 
@@ -5094,8 +5223,8 @@ fn spawn_menu_hint(
         .spawn((
             SplashUi,
             Node {
-                width: Val::Px(w),
-                height: Val::Px(h),
+                width: Val::Px(layout.window_w),
+                height: Val::Px(layout.window_h),
                 position_type: PositionType::Relative,
                 ..default()
             },
@@ -5104,24 +5233,16 @@ fn spawn_menu_hint(
         ))
         .id();
 
-    // Full-Width Banner
-    commands.spawn((
-        splash_stretch_image(banner),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(banner_x),
-            top: Val::Px(banner_y),
-            width: Val::Px(banner_w),
-            height: Val::Px(banner_h),
-            ..default()
-        },
-        ChildOf(canvas),
-    ));
+    spawn_options_banner(
+        commands,
+        asset_server,
+        canvas,
+        layout,
+        banner_y,
+    );
 
-    // Darker Red Background Menu Panel with Sunken Border
-    let border_w = (2.0 * ui_scale).round().max(1.0);
+    let border_w = layout.px(2.0).max(1.0);
 
-    // Main Panel Background
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -5134,8 +5255,6 @@ fn spawn_menu_hint(
         BackgroundColor(Color::srgb(0.40, 0.0, 0.0)),
         ChildOf(canvas),
     ));
-
-    // Top Shadow (Darker, to Look Recessed)
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -5148,8 +5267,6 @@ fn spawn_menu_hint(
         BackgroundColor(Color::srgb(0.20, 0.0, 0.0)),
         ChildOf(canvas),
     ));
-
-    // Left Shadow (Darker)
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -5162,8 +5279,6 @@ fn spawn_menu_hint(
         BackgroundColor(Color::srgb(0.20, 0.0, 0.0)),
         ChildOf(canvas),
     ));
-
-    // Bottom Highlight (Lighter, "Light Source")
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -5176,8 +5291,6 @@ fn spawn_menu_hint(
         BackgroundColor(Color::srgb(0.70, 0.0, 0.0)),
         ChildOf(canvas),
     ));
-
-    // Right Highlight (Lighter)
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -5191,11 +5304,9 @@ fn spawn_menu_hint(
         ChildOf(canvas),
     ));
 
-    // Menu Text
     for (row_idx, &label) in labels.iter().enumerate() {
         let y = (text_y0 + row_idx as f32 * row_h).round();
 
-        // Pause Menu: "Return to Game" Always Yellow
         if from_pause && label == "Return to Game" {
             spawn_menu_bitmap_text(
                 commands,
@@ -5210,9 +5321,7 @@ fn spawn_menu_hint(
             continue;
         }
 
-        // Default Cursor Starts at Top
         let is_selected = row_idx == 0;
-
         let gray_run = spawn_menu_bitmap_text(
             commands,
             canvas,
@@ -5242,7 +5351,6 @@ fn spawn_menu_hint(
             .insert((EpisodeItem { idx: row_idx }, EpisodeTextVariant { selected: true }));
     }
 
-    // Gun Cursor
     commands.spawn((
         MenuCursor,
         MenuCursorLight,
@@ -5273,8 +5381,6 @@ fn spawn_menu_hint(
         },
         ChildOf(canvas),
     ));
-
-    // Bottom Hint
     commands.spawn((
         ImageNode::new(hint),
         Node {
@@ -5312,15 +5418,16 @@ fn splash_advance_on_any_input(
     let nav = &*input.menu_nav;
     let Some(win) = q.q_win.iter().next() else { return; };
 
-    let (w, h) = compute_scaled_size(win.width(), win.height());
+    let win_w = win.width().round().max(1.0);
+    let win_h = win.height().round().max(1.0);
+    let (w, h) = compute_scaled_size(win_w, win_h);
     let scale = w / BASE_W;
 
-    // Detect Window Resize: if Scaled Size Changed Since Last Frame,
-    // Despawn All Menu UI so it Gets Respawned at Correct Dimensions
-    // Skip on First Frame (last_scaled_size is (0,0)) to Avoid False Trigger
-    let size_changed = options.last_scaled_size != (0.0, 0.0)
-        && (options.last_scaled_size.0 != w || options.last_scaled_size.1 != h);
-    options.last_scaled_size = (w, h);
+    // Respawn Menu UI After Any Window Resize. Tracking the Full Window Size
+    // Also Catches Widescreen Width Changes That Keep the Same Integer Scale
+    let size_changed = options.last_window_size != (0.0, 0.0)
+        && options.last_window_size != (win_w, win_h);
+    options.last_window_size = (win_w, win_h);
 
     if size_changed && *resources.step != SplashStep::Done {
         for e in q.q_splash_roots.iter() {
@@ -5369,7 +5476,7 @@ fn splash_advance_on_any_input(
 
             if any_key {
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
-                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, false);
+                spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, false);
                 menu.reset();
                 *resources.step = SplashStep::Menu;
                 resources.music_mode.0 = MusicModeKind::Menu;
@@ -5408,7 +5515,7 @@ fn splash_advance_on_any_input(
 
             // Ensure Menu UI Exists
             if q.q_splash_roots.iter().next().is_none() {
-                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, is_pause);
+                spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, is_pause);
                 menu.reset();
                 menu.selection = menu.selection.min(item_count - 1);
             }
@@ -5446,14 +5553,12 @@ fn splash_advance_on_any_input(
                 menu.blink_light = !menu.blink_light;
             }
 
-            // Cursor Position Matches spawn_menu_hint
-            let ui_scale = (w / BASE_W).round().max(1.0);
-            let panel_left = (76.0 * ui_scale).round();
-            let cursor_w = (19.0 * ui_scale).round();
-            let cursor_x = (panel_left + (18.0 * ui_scale).round()).round();
-
-            let row_h = (MENU_ITEM_H * ui_scale).round();
-            let cursor_y0 = (MENU_CURSOR_TOP * ui_scale).round();
+            // Cursor Position Matches the Centered 320x200 Widescreen Safe Area
+            let menu_layout = MenuLayout::new(win_w, win_h);
+            let cursor_w = menu_layout.px(19.0);
+            let cursor_x = menu_layout.x(76.0 + 18.0);
+            let row_h = menu_layout.px(MENU_ITEM_H);
+            let cursor_y0 = menu_layout.y(MENU_CURSOR_TOP);
             let cursor_y = (cursor_y0 + menu.selection as f32 * row_h).round();
 
             for mut node in q.q_node.iter_mut() {
@@ -5519,7 +5624,7 @@ fn splash_advance_on_any_input(
                         }
 
                         let slots = crate::save::storage::read_all_slot_meta();
-                        spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection, false);
+                        spawn_load_select_ui(&mut commands, asset_server.as_ref(), win_w, win_h, imgs, &slots, episode.selection, false);
 
                         menu.reset();
                         *resources.step = SplashStep::LoadSelect;
@@ -5537,7 +5642,7 @@ fn splash_advance_on_any_input(
                         // Reuses Same Slot List Builder as Load (Shows Current
                         // Slot Contents). SaveSelect's Input Writes Instead of Reads
                         let slots = crate::save::storage::read_all_slot_meta();
-                        spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection, true);
+                        spawn_load_select_ui(&mut commands, asset_server.as_ref(), win_w, win_h, imgs, &slots, episode.selection, true);
 
                         menu.reset();
                         *resources.step = SplashStep::SaveSelect;
@@ -5623,7 +5728,7 @@ fn splash_advance_on_any_input(
                         }
 
                         let high_scores = &*resources.high_scores;
-                        spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs, high_scores);
+                        spawn_scores_ui(&mut commands, asset_server.as_ref(), win_w, win_h, imgs, high_scores);
 
                         menu.reset();
                         *resources.step = SplashStep::Scores;
@@ -5662,7 +5767,7 @@ fn splash_advance_on_any_input(
                     let back_to_pause = episode.from_pause;
                     episode.from_pause = false;
 
-                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                    spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, back_to_pause);
                     menu.reset();
                     *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                 }
@@ -6340,7 +6445,7 @@ fn splash_advance_on_any_input(
 
                 let back_to_pause = options.sound.from_pause;
                 options.sound.from_pause = false;
-                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, back_to_pause);
                 menu.reset();
                 *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                 return;
@@ -6551,7 +6656,7 @@ fn splash_advance_on_any_input(
 
                         let back_to_pause = options.sound.from_pause;
                         options.sound.from_pause = false;
-                        spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                        spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, back_to_pause);
                         menu.reset();
                         *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                     }
@@ -6595,7 +6700,7 @@ fn splash_advance_on_any_input(
 
                 let back_to_pause = options.control.from_pause;
                 options.control.from_pause = false;
-                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, back_to_pause);
                 menu.reset();
                 *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                 return;
@@ -6836,7 +6941,7 @@ fn splash_advance_on_any_input(
 
                         let back_to_pause = options.control.from_pause;
                         options.control.from_pause = false;
-                        spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                        spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, back_to_pause);
                         menu.reset();
                         *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                     }
@@ -6880,7 +6985,7 @@ fn splash_advance_on_any_input(
 
                 let back_to_pause = options.gameplay.from_pause;
                 options.gameplay.from_pause = false;
-                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, back_to_pause);
                 menu.reset();
                 *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                 return;
@@ -7013,7 +7118,7 @@ fn splash_advance_on_any_input(
 
                         let back_to_pause = options.gameplay.from_pause;
                         options.gameplay.from_pause = false;
-                        spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                        spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, back_to_pause);
                         menu.reset();
                         *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                     }
@@ -7244,7 +7349,7 @@ fn splash_advance_on_any_input(
                 }
 
                 let high_scores = &*resources.high_scores;
-                spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs, high_scores);
+                spawn_scores_ui(&mut commands, asset_server.as_ref(), win_w, win_h, imgs, high_scores);
 
                 *resources.step = SplashStep::Scores;
                 return;
@@ -7344,7 +7449,7 @@ fn splash_advance_on_any_input(
                 }
 
                 let high_scores = &*resources.high_scores;
-                spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs, high_scores);
+                spawn_scores_ui(&mut commands, asset_server.as_ref(), win_w, win_h, imgs, high_scores);
 
                 *resources.step = SplashStep::Scores;
             }
@@ -7360,7 +7465,7 @@ fn splash_advance_on_any_input(
             // Auto Respawn UI After Window Resize
             if q.q_splash_roots.iter().next().is_none() {
                 if let Some(imgs) = resources.imgs.as_ref() {
-                    spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &resources.high_scores);
+                    spawn_scores_ui(&mut commands, asset_server.as_ref(), win_w, win_h, imgs, &resources.high_scores);
                 }
                 return;
             }
@@ -7375,7 +7480,7 @@ fn splash_advance_on_any_input(
                     commands.entity(e).despawn();
                 }
 
-                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, back_to_pause);
                 menu.reset();
 
                 *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
@@ -7392,7 +7497,7 @@ fn splash_advance_on_any_input(
             if q.q_splash_roots.iter().next().is_none() {
                 if let Some(imgs) = resources.imgs.as_ref() {
                     let slots = crate::save::storage::read_all_slot_meta();
-                    spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection, false);
+                    spawn_load_select_ui(&mut commands, asset_server.as_ref(), win_w, win_h, imgs, &slots, episode.selection, false);
                 }
                 return;
             }
@@ -7409,7 +7514,7 @@ fn splash_advance_on_any_input(
                     let back_to_pause = episode.from_pause;
                     episode.from_pause = false;
 
-                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, back_to_pause);
+                    spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, back_to_pause);
                     menu.reset();
                     *resources.step = if back_to_pause { SplashStep::PauseMenu } else { SplashStep::Menu };
                 }
@@ -7430,13 +7535,14 @@ fn splash_advance_on_any_input(
                 sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
             }
 
-            // Reposition cursor to the selected slot row + blink (mirror EpisodeSelect).
-            let ui_scale = (w / BASE_W).round().max(1.0);
-            let content_start_y = (3.0 * ui_scale).round() + (48.0 * ui_scale).round();
-            let bottom_pad = (6.0 * ui_scale).round();
-            let list_top_pad = (12.0 * ui_scale).round();
+            // Reposition Cursor Within the Centered 320x200 Widescreen Safe Area
+            let menu_layout = MenuLayout::new(win_w, win_h);
+            let content_start_y = menu_layout.y(3.0 + MENU_BANNER_NATIVE_H);
+            let bottom_pad = menu_layout.px(6.0);
+            let list_top_pad = menu_layout.px(12.0);
             let list_top = content_start_y + list_top_pad;
-            let row_spacing_available = (h - list_top - bottom_pad).max(1.0);
+            let row_spacing_available =
+                (menu_layout.safe_bottom() - list_top - bottom_pad).max(1.0);
             let row_step = (row_spacing_available / SLOT_ROWS as f32).floor().max(1.0);
             let sel_y = (list_top + (episode.selection as f32) * row_step).round();
 
@@ -7502,7 +7608,7 @@ fn splash_advance_on_any_input(
             if q.q_splash_roots.iter().next().is_none() {
                 if let Some(imgs) = resources.imgs.as_ref() {
                     let slots = crate::save::storage::read_all_slot_meta();
-                    spawn_load_select_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &slots, episode.selection, true);
+                    spawn_load_select_ui(&mut commands, asset_server.as_ref(), win_w, win_h, imgs, &slots, episode.selection, true);
                 }
                 return;
             }
@@ -7517,7 +7623,7 @@ fn splash_advance_on_any_input(
 
                 if let Some(imgs) = resources.imgs.as_ref() {
                     episode.from_pause = false;
-                    spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, true);
+                    spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, true);
                     menu.reset();
                     *resources.step = SplashStep::PauseMenu;
                 }
@@ -7538,13 +7644,14 @@ fn splash_advance_on_any_input(
                 sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
             }
 
-            // Reposition cursor + blink (identical math to LoadSelect).
-            let ui_scale = (w / BASE_W).round().max(1.0);
-            let content_start_y = (3.0 * ui_scale).round() + (48.0 * ui_scale).round();
-            let bottom_pad = (6.0 * ui_scale).round();
-            let list_top_pad = (12.0 * ui_scale).round();
+            // Reposition Cursor Within the Centered 320x200 Widescreen Safe Area
+            let menu_layout = MenuLayout::new(win_w, win_h);
+            let content_start_y = menu_layout.y(3.0 + MENU_BANNER_NATIVE_H);
+            let bottom_pad = menu_layout.px(6.0);
+            let list_top_pad = menu_layout.px(12.0);
             let list_top = content_start_y + list_top_pad;
-            let row_spacing_available = (h - list_top - bottom_pad).max(1.0);
+            let row_spacing_available =
+                (menu_layout.safe_bottom() - list_top - bottom_pad).max(1.0);
             let row_step = (row_spacing_available / SLOT_ROWS as f32).floor().max(1.0);
             let sel_y = (list_top + (episode.selection as f32) * row_step).round();
 
@@ -7681,7 +7788,7 @@ fn splash_advance_on_any_input(
 
                     *resources.step = SplashStep::NameEntry;
                 } else {
-                    spawn_scores_ui(&mut commands, asset_server.as_ref(), w, h, imgs, &resources.high_scores);
+                    spawn_scores_ui(&mut commands, asset_server.as_ref(), win_w, win_h, imgs, &resources.high_scores);
                     *resources.step = SplashStep::Scores;
                 }
             }
@@ -7702,7 +7809,7 @@ fn splash_advance_on_any_input(
 
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
-                spawn_menu_hint(&mut commands, &asset_server, w, h, imgs, true);
+                spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, true);
                 menu.reset();
                 *resources.step = SplashStep::PauseMenu;
             }
