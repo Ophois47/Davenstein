@@ -31,9 +31,24 @@ Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47
 
 Every release package is accompanied by a `.sha256` checksum file
 
-Every listed release package is built and validated in continuous integration. The Flatpak, native DEB, RPM, and FreeBSD packages are additionally installed, integrity-checked, inspected, and removed during CI. The FreeBSD package is tested inside a FreeBSD 14.4 virtual machine. Direct interactive hardware testing is still pending
+Every listed release package is built and validated in continuous integration. The Flatpak, native DEB, RPM, and FreeBSD packages are additionally installed, integrity-checked, inspected, and removed during CI. The FreeBSD package is tested inside a FreeBSD 14.4 virtual machine. Release candidate packages have also undergone interactive runtime testing on available hardware, while broader platform-specific feedback remains welcome
 
-### Bug reports
+The ARM64 and ARMv7 packages support compatible ARM Linux systems, but they do not imply working Raspberry Pi V3D hardware acceleration. See Compatibility below for the current Raspberry Pi status
+
+### Davenstein 1.0.0 Highlights
+
+- Reconstructed enemy sight, hearing, reaction timing, pursuit, dodging, shooting, ambush, and area-connectivity behavior from the original Wolfenstein 3-D logic
+- Moved gameplay to the original 70 Hz simulation rate while interpolating camera presentation for smooth output on modern displays
+- Replaced ad hoc randomness with the original 256-byte `US_RndT` table through deterministic per-actor Rust components
+- Added internal render scaling, curated exclusive-fullscreen modes, a retro 320x240 resolution, and robust off-screen render-target management
+- Rebuilt the classic menus for widescreen displays while preserving their centered 320x200 composition
+- Added persistent video, sound, control, and gameplay settings through a debounced RON-backed Rust settings system
+- Refined weapon timing, viewmodel animation, input buffering, keyboard turning, and mouselook transitions
+- Completed validated release packaging across Windows, Linux, FreeBSD, macOS, x86_64, ARM64, and ARMv7
+
+Read the [complete Davenstein 1.0.0 technical release notes](docs/releases/1.0.0.md)
+
+### Bug Reports
 
 Please report all bugs to me, Dave! At: [dpetnick89@gmail.com]
 
@@ -79,7 +94,7 @@ Remove the package with:
 sudo dnf remove davenstein
 ```
 
-The native DEB and RPM packages store saves and high scores under the current user's platform data directory. The portable TAR.GZ package stores them under its own `data/` directory.
+The native DEB and RPM packages store saves, high scores, and settings under the current user's platform data directory. The portable TAR.GZ package stores them under its own `data/` directory.
 
 ### Flatpak Installation
 
@@ -101,7 +116,7 @@ Remove the application with:
 flatpak uninstall --user io.github.ophois47.davenstein
 ```
 
-The Flatpak packages use installed storage mode and keep saves and high scores inside the Flatpak application data sandbox for the current user.
+The Flatpak packages use installed storage mode and keep saves, high scores, and settings inside the Flatpak application data sandbox for the current user.
 
 ### FreeBSD Installation
 
@@ -147,9 +162,9 @@ cd Davenstein-*-freebsd-x86_64
 ./run-davenstein.sh
 ```
 
-The portable package stores saves and high scores under its own `data/` directory. The native package stores player data under the current user's platform data directory.
+The portable package stores saves, high scores, and settings under its own `data/` directory. The native package stores saves, high scores, and settings under the current user's platform data directory.
 
-### MacOS First Launch
+### macOS First Launch
 
 The macOS application is currently unsigned and not notarized
 
@@ -211,8 +226,8 @@ Build the release executable and rebuild `assets.pak` into `target/release`
 Or build manually with:
 
 ```bash
-cargo build --release
-cargo run --bin pak_builder --release -- --root assets --out target/release/assets.pak
+cargo build --release --locked
+cargo run --bin pak_builder --release --locked -- --root assets --out target/release/assets.pak
 ```
 
 ### Windows PowerShell
@@ -246,19 +261,19 @@ export CROSS_CONTAINER_ENGINE=podman
 ### Windows GNU
 
 ```bash
-cross build --release --target x86_64-pc-windows-gnu --target-dir target/win
+cross build --release --locked --target x86_64-pc-windows-gnu --target-dir target/win
 ```
 
 ### Linux ARM64 GNU
 
 ```bash
-cross build --release --target aarch64-unknown-linux-gnu --bin Davenstein
+cross build --release --locked --target aarch64-unknown-linux-gnu --bin Davenstein
 ```
 
 ### Linux ARMv7 GNU
 
 ```bash
-cross build --release --target armv7-unknown-linux-gnueabihf --target-dir target/arm
+cross build --release --locked --target armv7-unknown-linux-gnueabihf --target-dir target/arm
 ```
 
 ### FreeBSD x86_64
@@ -294,17 +309,14 @@ The release workflow builds and validates both formats, including native install
 ### Build or Rebuild `assets.pak`
 
 ```bash
-cargo run --bin pak_builder --release -- --root assets --out dist/assets.pak
+cargo run --bin pak_builder --release --locked -- --root assets --out dist/assets.pak
 ```
 
 ### Build or Rebuild `assets.pak` in the Release Directory
 
 ```bash
-cargo run --bin pak_builder --release -- --root assets --out target/release/assets.pak
+cargo run --bin pak_builder --release --locked -- --root assets --out target/release/assets.pak
 ```
-
-## Known Bugs
-
 
 ## Compatibility
 

@@ -2555,6 +2555,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Check Out Repository
+        uses: actions/checkout@v7
+
       - name: Download Release Artifacts
         uses: actions/download-artifact@v8
         with:
@@ -2571,4 +2574,4 @@ jobs:
           files: release/*
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
+          body_path: docs/releases/1.0.0.md
