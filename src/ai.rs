@@ -76,7 +76,15 @@ const DOOR_OPEN_SECS: f32 = 4.5;
 const CLAIM_TILE_EARLY: bool = true;
 
 // Shooting Constants
-const GUARD_SHOOT_MAX_DIST_TILES: i32 = 7;
+//
+// T_Chase Decides Whether to Shoot With chance = (tics<<4)/dist, Which at 70 Hz is
+// SHOOT_CHANCE_PER_TIC / dist Out of 256 Every Tic. That Integer Division is Also the
+// Original's Only Range Limit: From 17 Tiles Out the Quotient Rounds to 0 and the Actor
+// Never Fires at All. So the Engagement Range is Not a Tuned Number, it Falls Out of the
+// Formula. The Previous 7 Was Invented and Made Actors Stop Advancing and Start Trading
+// Shots Far Closer in Than the Original Ever Did
+const SHOOT_CHANCE_PER_TIC: i32 = 16;
+const GUARD_SHOOT_MAX_DIST_TILES: i32 = SHOOT_CHANCE_PER_TIC;
 const GUARD_SHOOT_PAUSE_SECS: f32 = 0.25;
 const MUTANT_SHOOT_PAUSE_SECS: f32 = 0.15;
 const LOS_FIRST_SHOT_DELAY_SECS: f32 = 0.02;
@@ -1458,8 +1466,24 @@ fn enemy_ai_combat(
 
             let los_ready = held >= LOS_FIRST_SHOT_DELAY_SECS;
 
+            // T_Chase's Shoot Roll. With a Clear Line the Original Does Not Fire the
+            // Instant it Can: it Rolls US_RndT() < chance Every Tic and Dodges on Every
+            // Tic the Roll Fails. chance is 300 (Certain) Point Blank, Otherwise
+            // SHOOT_CHANCE_PER_TIC / dist. Paired With the Post-Shot Cooldown This Works
+            // Out at Roughly One Shot Every 1.7 s at Four Tiles, Which is About What the
+            // Original Averages -- and Crucially the Actor is Moving in Between.
+            //
+            // The Original Also Requires ob->distance < 0x4000 (More Than Halfway Into
+            // the Tile) Before Granting the Certain Point-Blank chance at dist == 1. We
+            // Do Not Track Sub-Tile Progress the Same Way, so Any dist <= 1 Gets it
+            let chance = if shoot_dist <= 1 {
+                300
+            } else {
+                SHOOT_CHANCE_PER_TIC / shoot_dist
+            };
+
             if can_see && in_range {
-                if cd_now <= 0.0 && los_ready {
+                if cd_now <= 0.0 && los_ready && actor_rng.us_rnd_t() < chance {
                     commands
                         .entity(e)
                         .insert(PendingDir8(dir8_towards(my_tile, player_tile)));
@@ -1710,6 +1734,14 @@ fn enemy_ai_combat(
             shared.shooting.insert(ent);
         }
     }
+
+    // A Volley Still Running is Also the Actor's Shoot State: the Original's Boss Shoot
+    // Frames Run to Completion Without Moving. The Stop-to-Shoot Branch in
+    // enemy_ai_movement Used to Do This Holding Incidentally; With That Branch Gone the
+    // Burst Has to Declare Itself, or a Boss Would Stroll About Mid-Volley
+    for &ent in bursts.keys() {
+        shared.shooting.insert(ent);
+    }
 }
 
 // SYSTEM 3: Handle Movement (Pathfinding and Door Opening)
@@ -1766,21 +1798,11 @@ fn enemy_ai_movement(
             continue;
         }
 
-        // Stop to Shoot (Faithful T_Chase Priority): an Actor With a Clear Shot in
-        // Range Plants and Fires Rather Than Dodging Through it -- Combat Fires it
-        // While it Holds Still. It Only Dodges or Chases to Close the Distance When
-        // it Lacks a Shot, so it no Longer Zig-Zags Instead of Shooting
-        if t.can_shoot {
-            let dx = (player_tile.x - my_tile.x).abs();
-            let dy = (player_tile.y - my_tile.y).abs();
-            let shoot_dist = dx.max(dy);
-            if shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES
-                && has_line_of_sight(&grid, my_tile, player_tile)
-            {
-                continue;
-            }
-        }
-
+        // There is Deliberately no "Stop to Shoot" Branch Here. T_Chase Does Not Plant:
+        // With a Clear Line it Either Enters its Shoot State -- Which Holds it Still via
+        // shared.shooting, Populated at the End of enemy_ai_combat -- or Sets dodge =
+        // True and Weaves Toward the Player. Planting for the Whole Cooldown is What
+        // Made Actors Stand at Range Trading Shots Instead of Closing While Weaving
         let mut moved_or_acted = false;
 
         // Dodge Weave: With a Clear Shot (CheckLine) the Actor Strafes Toward the
