@@ -8061,12 +8061,16 @@ fn auto_get_psyched_on_level_start(
 
 // Spawn the Modal Cheat Message Box, Styled After the Original US_Message: a Grey
 // Panel With a Raised Bevel (Light Top and Left, Shadow Bottom and Right) and the
-// Black Menu Bitmap Font. It Lives Here Rather Than in cheat_message.rs Because the
-// Glyph Metrics, MenuLayout, and the Panel Idiom Are This Module's Private
-// Vocabulary; the Caller Owns the Lifecycle Through the CheatMessageUi Marker on the
-// Root. The Root Carries no SplashUi Tag on Purpose -- the Menu Machine's Blanket
-// Root Despawns Must Never Be the Thing That Removes This Box, or the Control Lock
-// it Holds Would Leak
+// Black Menu Bitmap Font. Geometry is Matched to the Original's Box as Measured From
+// the DOS Game: Roughly 20 Base Pixels of Margin Each Side (a Near-Full-Width Panel),
+// Top Edge Around y = 38, and the Text Drawn Large With Every Line Centered -- the
+// Original Laid its Message Out With US_CPrint, Which Centers Line by Line.
+//
+// It Lives Here Rather Than in cheat_message.rs Because the Glyph Metrics,
+// MenuLayout, and the Panel Idiom Are This Module's Private Vocabulary; the Caller
+// Owns the Lifecycle Through the CheatMessageUi Marker on the Root. The Root Carries
+// no SplashUi Tag on Purpose -- the Menu Machine's Blanket Root Despawns Must Never
+// Be the Thing That Removes This Box, or the Control Lock it Holds Would Leak
 pub(crate) fn spawn_cheat_message_ui(
     commands: &mut Commands,
     imgs: &SplashImages,
@@ -8077,47 +8081,59 @@ pub(crate) fn spawn_cheat_message_ui(
     // Positioning Goes Through MenuLayout so the Box Stays Centered in the 320x200
     // Safe Area on Letterboxed Windows, Exactly Like Every Other Menu Panel
     let layout = MenuLayout::new(win_w, win_h);
-    let ui_scale = layout.scale;
-    let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
-    let line_h = ((MENU_FONT_HEIGHT * s) + s).round().max(1.0);
 
-    // Measure the Text Exactly as spawn_menu_bitmap_text Will Lay it Out, so the
-    // Panel is Sized to its Contents the Way the Original Message() Sized its Box
-    let mut max_line_w = 0.0f32;
-    let mut cur_line_w = 0.0f32;
-    let mut line_count = 1usize;
-
-    for ch in text.chars() {
-        if ch == '\n' {
-            max_line_w = max_line_w.max(cur_line_w);
-            cur_line_w = 0.0;
-            line_count += 1;
-            continue;
-        }
-        if ch == ' ' {
-            cur_line_w += (MENU_FONT_SPACE_W * s).round();
-            continue;
-        }
-        if let Some(g) = menu_glyph(ch) {
-            cur_line_w += (g.advance * s).round();
-        }
-    }
-    max_line_w = max_line_w.max(cur_line_w);
-
-    let text_w = max_line_w.max(1.0);
-    let text_h = ((line_count as f32) * line_h).max(1.0);
-
-    // Padding and Bevel in Base Pixels, Scaled Like Every Other Panel in This Module
-    let pad = layout.px(10.0);
+    // Original Box Geometry in Base Pixels: 20 px Side Margins and a y = 38 Top Edge,
+    // Giving a Near-Full-Width Panel Rather Than One Hugging the Text
+    let side_margin = layout.px(20.0);
+    let pad = layout.px(8.0);
     let border_w = layout.px(2.0).max(1.0);
 
-    let panel_w = (text_w + pad * 2.0).round();
-    let panel_h = (text_h + pad * 2.0).round();
+    let panel_left = layout.x(20.0);
+    let panel_w = (layout.safe_w - side_margin * 2.0).round().max(1.0);
+    let panel_top = layout.y(38.0);
+    let inner_w = (panel_w - pad * 2.0).max(1.0);
 
-    // Centered Horizontally in the Safe Area; Seated in the Upper Third Like the
-    // Original's Box, Which Sat Over the View Rather Than Dead Center
-    let panel_left = (layout.safe_left + (layout.safe_w - panel_w) * 0.5).round();
-    let panel_top = layout.y(28.0);
+    // Measure One Line at a Given Glyph Scale, Mirroring spawn_menu_bitmap_text
+    let measure_line = |line: &str, s: f32| -> f32 {
+        let mut w = 0.0f32;
+        for ch in line.chars() {
+            if ch == ' ' {
+                w += (MENU_FONT_SPACE_W * s).round();
+                continue;
+            }
+            if let Some(g) = menu_glyph(ch) {
+                w += (g.advance * s).round();
+            }
+        }
+        w
+    };
+
+    let lines: Vec<&str> = text.split('\n').collect();
+
+    // The Original Draws This Message at Full Font Size, Where the Menus Here Draw at
+    // Half. Prefer the Largest Size That Still Fits the Panel Width, Stepping Down
+    // Only if the Widest Line Would Overflow -- so a Future Longer Message Degrades
+    // Gracefully Instead of Clipping. To Nudge the Box Smaller or Larger, Reorder or
+    // Trim This List
+    let mut text_mult = 1.0f32;
+    for mult in [2.0f32, 1.5, 1.25, 1.0] {
+        let s = (layout.scale * MENU_FONT_DRAW_SCALE * mult).max(0.01);
+        let widest = lines
+            .iter()
+            .map(|l| measure_line(l, s))
+            .fold(0.0f32, f32::max);
+        if widest <= inner_w {
+            text_mult = mult;
+            break;
+        }
+    }
+
+    let font_scale = layout.scale * text_mult;
+    let s = (font_scale * MENU_FONT_DRAW_SCALE).max(0.01);
+    let line_h = ((MENU_FONT_HEIGHT * s) + s).round().max(1.0);
+
+    let text_h = ((lines.len() as f32) * line_h).max(1.0);
+    let panel_h = (text_h + pad * 2.0).round();
 
     // The Root is the Only Entity the Caller Needs to Know About. Full-Window and
     // Transparent so the Frozen Game Stays Visible Behind the Panel, Exactly as the
@@ -8203,15 +8219,25 @@ pub(crate) fn spawn_cheat_message_ui(
         ChildOf(root),
     ));
 
-    // The Message Itself, in the Black Menu Font the Episode-End Screens Already Use
-    spawn_menu_bitmap_text(
-        commands,
-        root,
-        imgs.menu_font_black.clone(),
-        panel_left + pad,
-        panel_top + pad,
-        ui_scale,
-        text,
-        Visibility::Visible,
-    );
+    // Each Line Spawned Individually and Centered, the Way US_CPrint Centered the
+    // Original's Message Line by Line. Empty Lines Still Advance the Pen
+    let mut pen_y = panel_top + pad;
+    for line in &lines {
+        if !line.is_empty() {
+            let lw = measure_line(line, s);
+            let line_left = (panel_left + (panel_w - lw) * 0.5).round();
+
+            spawn_menu_bitmap_text(
+                commands,
+                root,
+                imgs.menu_font_black.clone(),
+                line_left,
+                pen_y,
+                font_scale,
+                line,
+                Visibility::Visible,
+            );
+        }
+        pen_y += line_h;
+    }
 }
