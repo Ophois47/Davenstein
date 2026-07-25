@@ -518,6 +518,14 @@ pub(super) struct WeaponFireLocals {
     fire_anim_accum: f32,
     last_weapon: Option<crate::combat::WeaponSlot>,
     auto_linger: f32,
+    // Seconds Remaining on a Buffered Semi-Auto Trigger Press. fire_pressed is a
+    // One-Frame Edge Tested Against cooldown.is_finished() on That Same Frame, so a
+    // Click Landing Even a Millisecond Before the Cooldown Expired Was Simply Eaten --
+    // Anything Above the Pistol's ~2.9 Clicks per Second Dropped Presses. The Original
+    // Cannot Drop One: buttonstate is a Polled Level, and the attackinfo -1 Stage
+    // Re-Fires if the Button Reads Down at Cycle End. Holding the Edge Alive for a
+    // Beat Reproduces That Polled Feel Without Making the Pistol Full-Auto
+    fire_buffer_secs: f32,
 }
 
 pub(crate) fn weapon_fire_and_viewmodel(
@@ -549,6 +557,8 @@ pub(crate) fn weapon_fire_and_viewmodel(
         // Re-Arm the First-Frame Guard so the Input That Dismissed a Menu Does
         // Not Also Fire on the Frame Gameplay Resumes
         locals.armed = false;
+        // A Press Buffered in the Old Mode Must Not Discharge Into the New One
+        locals.fire_buffer_secs = 0.0;
         locals.fire_anim_accum = 0.0;
         locals.last_weapon = Some(hud.selected);
         locals.auto_linger = 0.0;
@@ -775,12 +785,24 @@ pub(crate) fn weapon_fire_and_viewmodel(
     }
 
     // Fire Intent
+    // Keep a Fresh Press Alive Long Enough to Survive the Tail of a Cooldown.
+    // 0.2 s Comfortably Covers the Longest Cooldown Tail a Mashing Player Can Hit
+    // (Pistol, 0.343 s Cycle) While Staying Short Enough That a Stale Click From a
+    // Third of a Second Ago Never Fires a Shot the Player No Longer Wants
+    const FIRE_BUFFER_SECS: f32 = 0.2;
+
+    locals.fire_buffer_secs = (locals.fire_buffer_secs - dt_secs).max(0.0);
+    if trigger_pressed {
+        locals.fire_buffer_secs = FIRE_BUFFER_SECS;
+    }
+
     let wants_fire = if is_full_auto {
         // Hold to Fire
         trigger_down
     } else {
-        // Knife + Pistol Click to Fire
-        trigger_pressed
+        // Knife + Pistol Click to Fire, With the Buffered Edge Standing in for the
+        // Original's Polled Button so no Click is Ever Eaten by the Cooldown
+        trigger_pressed || locals.fire_buffer_secs > 0.0
     };
 
     // Prevent ROF Wobble: Allow Small Catch up Under Frame Jitter
@@ -804,6 +826,10 @@ pub(crate) fn weapon_fire_and_viewmodel(
 
         weapon.cooldown.reset();
         weapon.flash.reset();
+
+        // One Click, One Shot: the Press That Just Discharged May not Also Sit in the
+        // Buffer and Fire Again When the Next Cooldown Ends
+        locals.fire_buffer_secs = 0.0;
 
         // --- MachineGun: Show Muzzle Flash EXACTLY on the Shot Moment (Syncs With Sound) ---
         if is_machinegun {
