@@ -362,6 +362,21 @@ fn process_fire_shots(
                     ai.ambush = false;
                     ai.first_attack = true;
                     ai.react_tics = 0;
+
+                    // FirstSighting Also Plays the Alert Bark, and Waking by Damage Goes
+                    // Through FirstSighting Exactly Like Waking by Sight. ai.alerted is
+                    // the Same Once-per-Actor-Life Gate enemy_ai_prepare_and_activate
+                    // Uses, so the Two Wake Paths Cannot Double Up on the Bark
+                    if !ai.alerted && !matches!(kind, EnemyKind::Mutant) {
+                        ai.alerted = true;
+
+                        if let Ok((_, _, _, gt)) = q_alive.get(e) {
+                            sfx.write(PlaySfx {
+                                kind: SfxKind::EnemyAlert(kind),
+                                pos: gt.translation(),
+                            });
+                        }
+                    }
                 }
             }
 
