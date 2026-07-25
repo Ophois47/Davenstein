@@ -1391,7 +1391,8 @@ fn spawn_change_view_ui(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::BLACK),
+            // Extend the Menu Red Across the Full Window While the Classic Canvas Stays Centered
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
         ))
         .id();
 
@@ -1688,7 +1689,8 @@ fn spawn_sound_options_ui(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::BLACK),
+            // Extend the Menu Red Across the Full Window While the Classic Canvas Stays Centered
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
         ))
         .id();
 
@@ -1980,7 +1982,8 @@ fn spawn_control_options_ui(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::BLACK),
+            // Extend the Menu Red Across the Full Window While the Classic Canvas Stays Centered
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
         ))
         .id();
 
@@ -2274,7 +2277,8 @@ fn spawn_key_bindings_ui(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::BLACK),
+            // Extend the Menu Red Across the Full Window While the Classic Canvas Stays Centered
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
         ))
         .id();
 
@@ -2579,7 +2583,8 @@ fn spawn_gameplay_options_ui(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::BLACK),
+            // Extend the Menu Red Across the Full Window While the Classic Canvas Stays Centered
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
         ))
         .id();
 
@@ -2871,7 +2876,8 @@ fn spawn_resolution_submenu_ui(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::BLACK),
+            // Extend the Menu Red Across the Full Window While the Classic Canvas Stays Centered
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
         ))
         .id();
 
@@ -3939,7 +3945,8 @@ fn spawn_episode_select_ui(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::BLACK),
+            // Extend the Menu Red Across the Full Window While the Classic Canvas Stays Centered
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
         ))
         .id();
 
@@ -4264,7 +4271,8 @@ fn spawn_skill_select_ui(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            BackgroundColor(Color::BLACK),
+            // Extend the Menu Red Across the Full Window While the Classic Canvas Stays Centered
+            BackgroundColor(Color::srgb(0.55, 0.0, 0.0)),
         ))
         .id();
 
