@@ -3,7 +3,7 @@
   <!-- Keep the component ID synchronized with the manifest, desktop file, and exported icon -->
   <id>io.github.ophois47.davenstein</id>
   <name>Davenstein</name>
-  <summary>A ground-up Wolfenstein 3-D recreation written in Rust</summary>
+  <summary>Dave's Wolfenstein 3-D recreation written in Rust with the Bevy engine</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT OR Apache-2.0</project_license>
   <description>

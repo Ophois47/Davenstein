@@ -37,7 +37,7 @@ modules:
       - install -Dm644 target/release/assets.pak /app/bin/assets.pak
       - install -Dm644 packaging/flatpak/io.github.ophois47.davenstein.desktop /app/share/applications/io.github.ophois47.davenstein.desktop
       - install -Dm644 packaging/linux/davenstein.png /app/share/icons/hicolor/256x256/apps/io.github.ophois47.davenstein.png
-      - install -Dm644 packaging/flatpak/io.github.ophois47.davenstein.metainfo.xml /app/share/metainfo/io.github.ophois47.davenstein.metainfo.xml
+      - install -Dm644 packaging/flatpak/io.github.ophois47.davenstein.metainfo.generated.xml /app/share/metainfo/io.github.ophois47.davenstein.metainfo.xml
       # Include project documentation and all legal and third-party asset notices
       - install -Dm644 README.md /app/share/doc/io.github.ophois47.davenstein/README.md
       - install -Dm644 LICENSE-MIT /app/share/licenses/io.github.ophois47.davenstein/LICENSE-MIT

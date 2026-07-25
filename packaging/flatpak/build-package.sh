@@ -25,6 +25,7 @@ set -eu
 # Release Automation May Override:
 #     VERSION          Complete Release Version or Git Tag
 #     FLATPAK_ARCH     Native Flatpak Architecture
+#     RELEASE_DATE     AppStream Release Date in YYYY-MM-DD Form
 #
 # Flatpak Output:
 #     Davenstein-<version>-linux-<architecture>.flatpak
@@ -43,6 +44,8 @@ RUNTIME_VERSION="25.08"
 MANIFEST_PATH="$SCRIPT_DIR/$APP_ID.yml"
 DESKTOP_PATH="$SCRIPT_DIR/$APP_ID.desktop"
 METAINFO_PATH="$SCRIPT_DIR/$APP_ID.metainfo.xml"
+GENERATED_METAINFO_PATH="$SCRIPT_DIR/$APP_ID.metainfo.generated.xml"
+METAINFO_GENERATOR="$SCRIPT_DIR/generate-metainfo.py"
 
 # Resolve Release Version From Environment or Cargo Package Metadata
 RELEASE_VERSION=${VERSION:-$(sed -nE \
@@ -52,6 +55,11 @@ RELEASE_VERSION=${VERSION:-$(sed -nE \
 
 # Git Tags May Prefix the Release Version With v
 RELEASE_VERSION=${RELEASE_VERSION#v}
+
+# Use an Explicit CI-Supplied Date When Available, Otherwise Generate Today's
+# UTC Date. The Source MetaInfo Remains a Stable Template and Never Needs a
+# Manually Hardcoded Entry for Each Davenstein Release
+RELEASE_DATE=${RELEASE_DATE:-$(date -u +%F)}
 
 if [ -z "$RELEASE_VERSION" ]; then
     printf 'Could not determine the Davenstein release version\n' >&2
@@ -82,12 +90,13 @@ APP_BUILD_DIR="$TEMP_ROOT/build"
 REPO_DIR="$TEMP_ROOT/repo"
 
 # Remove Temporary Flatpak State on Normal Exit or Interruption
-trap 'rm -rf "$TEMP_ROOT"' EXIT HUP INT TERM
+trap 'rm -rf "$TEMP_ROOT"; rm -f "$GENERATED_METAINFO_PATH"' EXIT HUP INT TERM
 
 # Validate Required Packaging Tools Before Modifying Output
 for required_command in \
     appstreamcli \
     chmod \
+    date \
     desktop-file-validate \
     eu-elfcompress \
     eu-strip \
@@ -128,6 +137,7 @@ for required_file in \
     "$MANIFEST_PATH" \
     "$DESKTOP_PATH" \
     "$METAINFO_PATH" \
+    "$METAINFO_GENERATOR" \
     "$SCRIPT_DIR/cargo-sources.json" \
     "$ROOT_DIR/Cargo.lock" \
     "$ROOT_DIR/README.md" \
@@ -145,18 +155,21 @@ do
     fi
 done
 
-# Prevent Tagged Builds From Publishing Stale AppStream Release Metadata
-if ! grep -Fq \
-    "<release version=\"$RELEASE_VERSION\"" \
-    "$METAINFO_PATH"
-then
-    printf 'Flatpak MetaInfo does not describe release %s\n' \
-        "$RELEASE_VERSION" >&2
-    exit 1
-fi
+# Generate the Current AppStream Release Entry Into a Temporary Packaging Copy
+# so Cargo.toml Remains the Version Source of Truth and the Tracked XML Does Not
+# Need a Manual Version and Date Edit Before Every Build
+python3 "$METAINFO_GENERATOR" \
+    --input "$METAINFO_PATH" \
+    --output "$GENERATED_METAINFO_PATH" \
+    --version "$RELEASE_VERSION" \
+    --date "$RELEASE_DATE"
+
+grep -Fq \
+    "<release version=\"$RELEASE_VERSION\" date=\"$RELEASE_DATE\"/>" \
+    "$GENERATED_METAINFO_PATH"
 
 desktop-file-validate "$DESKTOP_PATH"
-appstreamcli validate --pedantic "$METAINFO_PATH"
+appstreamcli validate --pedantic "$GENERATED_METAINFO_PATH"
 
 # Require the Runtime, SDK, and Rust Extension Declared by the Manifest
 for runtime_id in \
