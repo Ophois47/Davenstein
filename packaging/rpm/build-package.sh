@@ -294,7 +294,8 @@ Requires:       hicolor-icon-theme
 Packager:       $PACKAGER
 
 %description
-A Wolfenstein 3-D recreation by David Petnick, written in Rust with the Bevy engine.
+A Wolfenstein 3-D recreation by David Petnick, written in Rust with the
+Bevy engine.
 
 This package installs Davenstein as a system application while retaining
 per-user save data and high-score storage.
