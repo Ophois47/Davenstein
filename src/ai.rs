@@ -222,6 +222,27 @@ struct AiSharedData {
 }
 
 #[allow(dead_code)]
+/// Query Filter Matching Any Actor Currently Playing a Pain Frame.
+///
+/// In the Original, DamageActor Ends With NewState(ob, painstate), and Every Pain State
+/// Carries think = NULL -- s_grdpain is {2, SPR_GRD_PAIN_1, 10, NULL, NULL,
+/// &s_grdchase1}. For Those Ten Tics T_Chase Simply Does not Run, so the Actor Neither
+/// Moves, Turns, nor Shoots; it Only Plays the Flinch and Then Re-Enters Chase.
+///
+/// Bosses Deliberately Carry no Pain Component, Exactly as the Original Gives Them no
+/// Pain State, so They Never Match This Filter and Keep Firing When Hit
+type InPainFilter = (
+    With<EnemyKind>,
+    Without<Dead>,
+    Or<(
+        With<crate::enemies::GuardPain>,
+        With<crate::enemies::SsPain>,
+        With<crate::enemies::DogPain>,
+        With<crate::enemies::OfficerPain>,
+        With<crate::enemies::MutantPain>,
+    )>,
+);
+
 fn burst_profile(kind: EnemyKind) -> Option<(u8, u32, f32)> {
     match kind {
         EnemyKind::Ss => Some((5, 6, 0.35)),
@@ -1304,6 +1325,9 @@ fn enemy_ai_combat(
         ),
         (With<EnemyKind>, Without<Dead>),
     >,
+    // Read-Only Entity Query: no Component Access, so it Cannot Conflict With the
+    // Mutable Query Above Even Though Both Match the Same Actors
+    q_in_pain: Query<Entity, InPainFilter>,
 ) {
     let dt = time.delta_secs();
 
@@ -1321,6 +1345,21 @@ fn enemy_ai_combat(
         q_enemies.iter_mut()
     {
         if !matches!(ai.state, EnemyAiState::Chase) {
+            continue;
+        }
+
+        // Pain Frames Replace the Think Function Outright, so a Wounded Actor Cannot
+        // Fire Until the Flinch Ends. Nothing Was Enforcing That: the Only State Gate
+        // Here is Chase, and Taking Pain Never Writes ai.state -- the Pain Components
+        // Are Pure Animation State. Guards, SS, Officers, Mutants and Dogs Could All
+        // Shoot or Bite Mid-Flinch as a Result
+        if q_in_pain.contains(e) {
+            // A Volley Does not Survive the Flinch Either. NewState Abandons the Shoot
+            // State, so an Interrupted Burst Starts Over Rather Than Resuming Where it
+            // Stopped. SS Are the Only Kind With Both a Burst Profile and a Pain State,
+            // Which is Exactly Why This Cannot Be Left to the continue Alone -- Without
+            // the Remove, the Burst Entry Would Sit Frozen and Pick Up Again After
+            bursts.remove(&e);
             continue;
         }
 
@@ -1828,6 +1867,7 @@ fn enemy_ai_movement(
         ),
         (With<EnemyKind>, Without<Dead>),
     >,
+    q_in_pain: Query<Entity, InPainFilter>,
 ) {
     let player_tile = shared.player_tile;
     
@@ -1845,6 +1885,20 @@ fn enemy_ai_movement(
 
     for (e, kind, mut ai, mut occ, tf, mut moving, mut actor_rng) in q_enemies.iter_mut() {
         if !matches!(ai.state, EnemyAiState::Chase) {
+            continue;
+        }
+
+        // Same Reasoning as the Combat Gate: T_Chase Does not Run During Pain, so a
+        // Flinching Actor Picks no New Direction. enemy_ai_move Already Refuses to
+        // Advance its Transform, but *Scheduling* Was Never Gated -- so a Wounded Actor
+        // Could Still Claim its Next Tile Through OccupiesTile and Pivot to Face it via
+        // PendingDir8. On Screen That Reads as Wincing and Carrying On Walking.
+        //
+        // The Step Already in Flight is Deliberately Left Untouched: NewState Preserves
+        // ob->dir and ob->distance, so the Original Resumes the Interrupted Move on the
+        // Same Bearing Toward the Same Tile Once the Flinch Ends. Cancelling it Here
+        // Would be Less Faithful, Not More
+        if q_in_pain.contains(e) {
             continue;
         }
 
