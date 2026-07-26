@@ -2,6 +2,7 @@
 Davenstein - by David Petnick
 */
 
+use bevy::input::touch::Touches;
 use bevy::prelude::*;
 use bevy::window::CursorGrabMode;
 
@@ -55,6 +56,29 @@ pub struct LookAngles {
 impl LookAngles {
     pub fn new(yaw: f32, pitch: f32) -> Self {
         Self { yaw, pitch }
+    }
+
+    /// Current Yaw in Radians
+    pub fn yaw(&self) -> f32 {
+        self.yaw
+    }
+
+    /// Current Pitch in Radians
+    pub fn pitch(&self) -> f32 {
+        self.pitch
+    }
+
+    /// Overwrite Both View Angles at Once
+    ///
+    /// Exists for Scripted Camera Sequences Outside davelib (the Episode-End
+    /// Victory Camera) That Have to Drive the View Themselves. Routing Them
+    /// Through LookAngles Rather Than Writing Transform.rotation Directly Keeps
+    /// ONE Source of Truth for Facing, so 'level_pitch_without_mouselook' and
+    /// Every Future Rotation Consumer AGREE With the Sequence Instead of
+    /// Overwriting It on the Next Frame
+    pub fn set_view(&mut self, yaw: f32, pitch: f32) {
+        self.yaw = yaw;
+        self.pitch = pitch;
     }
 }
 
@@ -158,20 +182,41 @@ pub fn apply_look(
     transform.rotation = Quat::from_euler(EulerRot::YXZ, look.yaw, look.pitch, 0.0);
 }
 
-/// Pin the View to the Horizon Whenever Mouselook Is Disabled
+/// Pin the View to the Horizon Whenever the Player Has No Way to Aim Vertically
 ///
 /// Deliberately Runs Without the Control-Lock Guard That Gates 'apply_look', so
 /// It Also Fires While the Player Is Still Inside the Options Menu (Where Control
-/// Is Locked) Turning Mouselook Off. Without Mouselook There Is No Way to Aim Up
-/// or Down, so a Pitched View Would Otherwise Stay Stuck; Forcing Pitch to 0 the
-/// Moment Mouselook Is Off Guarantees the Player Returns to Level, Straight-Ahead
-/// View. It Early-Outs While Mouselook Is Enabled and Only Rewrites the Rotation
-/// While Pitch Is Actually Off-Level, so It Costs Nothing in the Normal Case
+/// Is Locked) Turning Mouselook Off. Without a Vertical Aiming Axis a Pitched View
+/// Would Otherwise Stay Stuck at Whatever Angle It Was Left At; Forcing Pitch to 0
+/// Guarantees the Player Returns to a Level, Straight-Ahead View. It Early-Outs in
+/// the Normal Case and Only Rewrites the Rotation While Pitch Is Actually
+/// Off-Level, so It Costs Nothing
+///
+/// A Scripted End-of-Episode Camera Is Excluded Outright by the Query Filter. The
+/// Death Cam Deliberately Tilts Down at a Boss Corpse, and Flattening That to the
+/// Horizon Every Frame Because the Player Prefers Keyboard Turning Would Wreck the
+/// Shot. A Cutscene Owns the View Completely for as Long as It Runs
+///
+/// Two Situations Qualify
+/// - Mouselook Is Off, the Classic Keyboard-Turning Control Scheme
+/// - A Finger Is on the Screen, Because Touch Turning Is Yaw-Only by Design
+///   (See input::sources::touch). This Second Case Only Ever Matters on a Device
+///   That Has Both a Pointer and a Touchscreen, Such as the Browser Build Running
+///   on a Touchscreen Laptop: Pitch Gets Left Behind by an Earlier Mouse Session
+///   and Touch Alone Could Never Recover It, So the First Touch Levels the View.
+///   On a Phone or Tablet Pitch Is Never Non-Zero and This Costs One Empty
+///   Iterator Check per Frame
 pub fn level_pitch_without_mouselook(
     controls: Res<crate::options::ControlSettings>,
-    mut q: Query<(&mut Transform, &mut LookAngles), With<Player>>,
+    touches: Res<Touches>,
+    mut q: Query<
+        (&mut Transform, &mut LookAngles),
+        (With<Player>, Without<crate::episode_end::ScriptedCamera>),
+    >,
 ) {
-    if controls.mouselook_enabled {
+    let touch_driving = controls.touch_enabled && touches.iter().next().is_some();
+
+    if controls.mouselook_enabled && !touch_driving {
         return;
     }
 
@@ -341,6 +386,19 @@ pub fn init_player_render_interp(
             prev: transform.translation,
             curr: transform.translation,
         });
+    }
+}
+
+impl PlayerRenderInterp {
+    /// Collapse the Interpolation Window Onto a Single Position
+    ///
+    /// Call This Immediately After TELEPORTING the Player. The Interpolator Blends
+    /// prev Toward curr Every Rendered Frame, so a Teleport That Leaves prev Behind
+    /// Does Not Cut - It Smears the Camera Across the Level for One Fixed Step,
+    /// Dragging the View Through Whatever Geometry Lies Between the Two Points
+    pub fn snap_to(&mut self, position: Vec3) {
+        self.prev = position;
+        self.curr = position;
     }
 }
 

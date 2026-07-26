@@ -22,18 +22,23 @@ Merge Contract Honored by Each Source contribute Function
 - weapon_select Keeps the First Source That Sets it, so Call Order is Priority
 - move_wish Uses Keyboard Priority, so Later Sources Fill Only When Still Zero
 
-Keyboard and Mouse Runs First and Establishes the Base. Gamepad and Touch
-Merge on Top of the Base in Later Milestones
+Keyboard and Mouse Runs First and Establishes the Base. Gamepad Merges on Top of
+It, Then Touch Merges Last, so the Two Device Classes a Desktop Player Uses Keep
+Priority Over the On-Screen Controls
 */
 
 use bevy::prelude::*;
 use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::input::touch::Touches;
 use bevy::window::{CursorOptions, PrimaryWindow};
 
 use crate::input::intent::PlayerIntent;
 use crate::input::menu::MenuNav;
 use crate::input::sources::keyboard_mouse;
 use crate::input::sources::gamepad;
+use crate::input::sources::touch;
+use crate::input::sources::touch::TouchAssignments;
+use crate::input::touch_layout::TouchLayout;
 use crate::options::ControlSettings;
 
 // Read Every Input Source and Commit One Merged PlayerIntent for This Frame
@@ -45,7 +50,13 @@ pub fn gather(
     mouse_motion: Res<AccumulatedMouseMotion>,
     q_cursor: Query<&CursorOptions, With<PrimaryWindow>>,
     q_gamepads: Query<&Gamepad>,
+    touches: Res<Touches>,
     controls: Res<ControlSettings>,
+    // Screen Geometry of the On-Screen Controls, Rebuilt Before This Set Runs
+    touch_layout: Res<TouchLayout>,
+    // Which Finger Owns Which Held Touch Control. Persists Across Frames, So It
+    // Cannot Be a Local: the Overlay Reads It to Draw the Stick Under the Thumb
+    mut touch_assign: ResMut<TouchAssignments>,
     // Optional Because the Binary's main Initializes the Resource; a Bare davelib
     // App (Tests, Tools) Simply Runs Unlocked
     lock: Option<Res<crate::player::PlayerControlLock>>,
@@ -74,7 +85,22 @@ pub fn gather(
         gamepad::contribute(&mut acc, &time, &q_gamepads, &controls);
     }
 
-    // Touch Contributes Here in a Later Milestone
+    // Touch Merges Last so Keyboard and Gamepad Both Keep move_wish and
+    // weapon_select Priority. Skipped Entirely When the Touch Toggle Is Off, and the
+    // Assignments Are Dropped on the Way Out so a Finger That Was Holding Fire When
+    // Touch Was Switched Off Cannot Leave the Trigger Stuck Down. The is_idle Guard
+    // Keeps That Cleanup From Tripping Change Detection Every Frame on Desktop
+    if controls.touch_enabled {
+        touch::contribute(
+            &mut acc,
+            &touches,
+            &mut touch_assign,
+            &touch_layout,
+            &controls,
+        );
+    } else if !touch_assign.is_idle() {
+        touch_assign.clear();
+    }
 
     let locked = lock.map(|l| l.0).unwrap_or(false);
 
@@ -105,6 +131,9 @@ pub fn gather(
     keyboard_mouse::contribute_menu(&mut nav, &keys);
     if controls.gamepad_enabled {
         gamepad::contribute_menu(&mut nav, &q_gamepads);
+    }
+    if controls.touch_enabled {
+        touch::contribute_menu(&mut nav, &touches, &touch_layout);
     }
     *menu = nav;
 }

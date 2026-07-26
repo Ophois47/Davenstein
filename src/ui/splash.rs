@@ -3072,16 +3072,37 @@ fn spawn_episode_score_ui(
     episode_end: &EpisodeEndImages,
     episode_stats: &davelib::level_score::EpisodeStats,
     episode_num: u8,
-    w: f32,
-    h: f32,
+    // WINDOW Dimensions, Not the Scaled Menu Composition Size
+    //
+    // This Root Is Positioned in Window Space (left / top / right at 0 With an
+    // Absolute Bottom Inset) and Is Routed to the Full-Window MenuUiCamera, so Every
+    // Number Derived Below Has to Come From the Window. It Previously Received
+    // 'compute_scaled_size(win_w, win_h)', Which Is BASE_W / BASE_H Multiplied by
+    // min(win_w / 320, win_h / 200).floor() -- a Different, Usually Smaller Basis --
+    // and Then Positioned Window-Space Nodes With It
+    win_w: f32,
+    win_h: f32,
     _total_score: i32,
 ) {
     const BASE_VIEW_H: f32 = BASE_H - BASE_HUD_H;
     const TEXT_SCALE: f32 = 0.80;
 
-    let hud_scale = (w / BASE_W).floor().max(1.0);
+    // Reserve the Status Bar Using the HUD's OWN Scale Rule
+    //
+    // The HUD Sizes Its Status Bar as STATUS_H * (win_w / 320).floor(): Width Only,
+    // With No Height Term at All (see 'hud.rs', Where the Same Value Is Called
+    // status_h_px). The Menu Composition Scale This Function Used to Divide Instead
+    // Carries a min(.., win_h / 200) Term, and on Any Window Wider Than 16:10 That
+    // Height Term Wins and Produces a SMALLER Scale. At 1920x1080 the HUD Scale Is 6
+    // While the Composition Scale Is 5, so the Reservation Came Out 44 px Short of
+    // One Whole Band (220 Instead of 264) and the Teal Panel Lapped Over the Top of
+    // the Status Bar. Matching the HUD's Rule Exactly Is the Fix, and It Is the Same
+    // Rule the Level-End Intermission Overlay Already Uses to Sit Above the Bar
+    let hud_scale = (win_w / BASE_W).floor().max(1.0);
     let hud_h_px = (BASE_HUD_H * hud_scale).round();
-    let view_h_px = (h - hud_h_px).max(1.0);
+
+    // Height Available Above the Status Bar, in Window Space
+    let view_h_px = (win_h - hud_h_px).max(1.0);
 
     let max_scale_h = (view_h_px / BASE_VIEW_H).floor().max(1.0);
     let ui_scale = hud_scale.min(max_scale_h);
@@ -3089,7 +3110,9 @@ fn spawn_episode_score_ui(
     let canvas_w_px = (BASE_W * ui_scale).round().max(1.0);
     let canvas_h_px = (BASE_VIEW_H * ui_scale).round().max(1.0);
 
-    let canvas_left_px = ((w - canvas_w_px) * 0.5).round();
+    // Centre Against the Window for the Same Reason: the Root Spans the Full Window
+    // Width, so Halving a Narrower Composition Width Here Biased the Whole Panel Left
+    let canvas_left_px = ((win_w - canvas_w_px) * 0.5).round();
     let canvas_top_px = ((view_h_px - canvas_h_px) * 0.5).round();
 
     let teal_bg = Color::srgb(0.0, 64.0 / 255.0, 64.0 / 255.0);
@@ -3922,6 +3945,26 @@ fn compute_scaled_size(win_w: f32, win_h: f32) -> (f32, f32) {
     (BASE_W * scale, BASE_H * scale)
 }
 
+// Splash Canvas Size. Deliberately NOT compute_scaled_size
+//
+// The Menus Need an INTEGER Scale: Their Bitmap Font, Cursor Art, and Panel Edges Are
+// All Composed on the 320x200 Grid, and a Fractional Scale Makes Glyph Advances Wobble
+// and Panel Borders Land Between Pixels. A Splash Is One Full-Bleed Image With No Grid
+// to Honour, so Flooring Its Scale Buys Nothing but Black Bars: at 1920x1080 the Floor
+// Dropped 6.0 and 5.4 Down to 5x and Threw Away 160 px Either Side Plus 40 px Top and
+// Bottom, When 5.4x Fits and Fills the Height Exactly
+//
+// Fits Whichever Axis Binds While Keeping the 320:200 Aspect, so One Dimension Is
+// Filled Completely and the Artwork Is Never Distorted
+//
+// For an Edge-to-Edge Stretch With No Bars at All, Return (win_w, win_h) Here. That
+// Is Not Unfaithful -- the Original Presented 320x200 on a 4:3 Display, so It Was
+// Already Stretched, Just Not by the Same Factor a 16:9 Window Would Apply
+fn splash_canvas_size(win_w: f32, win_h: f32) -> (f32, f32) {
+    let scale = (win_w / BASE_W).min(win_h / BASE_H).max(1.0);
+    ((BASE_W * scale).round(), (BASE_H * scale).round())
+}
+
 fn spawn_episode_select_ui(
     commands: &mut Commands,
     asset_server: &Res<AssetServer>,
@@ -4566,14 +4609,21 @@ fn spawn_skill_select_ui(
 fn spawn_splash_ui(
     commands: &mut Commands,
     image: Handle<Image>,
-    w: f32,
-    h: f32,
+    // WINDOW Dimensions. The Splash Sizes Itself Rather Than Inheriting the Menu
+    // Composition Size, Because the Two Want Different Scaling Rules -- See
+    // splash_canvas_size
+    win_w: f32,
+    win_h: f32,
     version_font_img: Option<Handle<Image>>,
 ) {
     const BUILD_VERSION: &str = concat!("V", env!("CARGO_PKG_VERSION"));
     const VERSION_SCALE: f32 = 0.50;
 
-    let ui_scale = (w / BASE_W).floor().max(1.0);
+    let (w, h) = splash_canvas_size(win_w, win_h);
+
+    // Tracks the Canvas Rather Than Flooring Independently, so the Version Tag Scales
+    // With the Artwork Instead of Lagging a Whole Step Behind It
+    let ui_scale = (w / BASE_W).max(0.01);
 
     let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
         let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
@@ -5426,15 +5476,15 @@ fn splash_advance_on_any_input(
                 spawn_splash_ui(
                     &mut commands,
                     imgs.splash0.clone(),
-                    w,
-                    h,
+                    win_w,
+                    win_h,
                     Some(imgs.menu_font_white.clone()),
                 );
             }
 
             if any_key {
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
-                spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h, None);
+                spawn_splash_ui(&mut commands, imgs.splash1.clone(), win_w, win_h, None);
                 *resources.step = SplashStep::Splash1;
             }
         }
@@ -5446,7 +5496,7 @@ fn splash_advance_on_any_input(
             let Some(imgs) = resources.imgs.as_ref() else { return; };
 
             if q.q_splash_roots.iter().next().is_none() {
-                spawn_splash_ui(&mut commands, imgs.splash1.clone(), w, h, None);
+                spawn_splash_ui(&mut commands, imgs.splash1.clone(), win_w, win_h, None);
             }
 
             if any_key {
@@ -7693,8 +7743,10 @@ fn splash_advance_on_any_input(
                     episode_end,
                     &*resources.episode_stats,
                     episode_num,
-                    w,
-                    h,
+                    // Window Size, Not the Scaled (w, h) the Menu Screens Take. This
+                    // Screen Lays Itself Out in Window Space Against the Live HUD
+                    win_w,
+                    win_h,
                     resources.hud.score,
                 );
 
@@ -7728,7 +7780,39 @@ fn splash_advance_on_any_input(
                 return;
             }
 
-            if any_key {
+            // Article Keys, Taken From ShowArticle in the Original WL_TEXT.C
+            //
+            // ESC Is the Only Way OUT, From Any Page. Enter / Down / PgDn / Right Turn
+            // Forward, Up / PgUp / Left Turn Back, and Every Other Key Does Nothing at
+            // All -- the Original's Loop Simply Waits Again. That Last Part Matters:
+            // These Pages Print "hit ESC to exit" On Screen, and Advancing on Any Key
+            // Made That Instruction a Lie and Skipped the Text of Anyone Tapping to
+            // Dismiss the Tally
+            if keyboard.just_pressed(KeyCode::Escape) || nav.cancel {
+                clear_splash_ui(&mut commands, &q.q_splash_roots);
+
+                let score = resources.hud.score;
+                exit_episode_end_text(
+                    &mut commands,
+                    asset_server.as_ref(),
+                    &mut resources.step,
+                    &mut resources.name_entry,
+                    &resources.high_scores,
+                    imgs,
+                    score,
+                    episode_num,
+                    win_w,
+                    win_h,
+                );
+                return;
+            }
+
+            let page_forward = nav.confirm
+                || nav.down
+                || nav.right
+                || keyboard.just_pressed(KeyCode::PageDown);
+
+            if page_forward {
                 clear_splash_ui(&mut commands, &q.q_splash_roots);
                 *resources.step = SplashStep::EpisodeEndText1;
             }
@@ -7748,24 +7832,67 @@ fn splash_advance_on_any_input(
                 return;
             }
 
-            if any_key {
+            if keyboard.just_pressed(KeyCode::Escape) || nav.cancel {
                 clear_splash_ui(&mut commands, &q.q_splash_roots);
 
                 let score = resources.hud.score;
+                exit_episode_end_text(
+                    &mut commands,
+                    asset_server.as_ref(),
+                    &mut resources.step,
+                    &mut resources.name_entry,
+                    &resources.high_scores,
+                    imgs,
+                    score,
+                    episode_num,
+                    win_w,
+                    win_h,
+                );
+                return;
+            }
 
-                if resources.high_scores.qualifies(score) {
-                    resources.name_entry.active = true;
-                    resources.name_entry.rank = high_score_rank_for(&resources.high_scores, score);
-                    resources.name_entry.score = score;
-                    resources.name_entry.episode = episode_num;
-                    resources.name_entry.name.clear();
-                    resources.name_entry.cursor_pos = 0;
+            // Back to the First Page. The Original Allows Re-Reading, and Without It
+            // a Player Who Paged Forward Too Fast Has No Way to Return
+            let page_back = nav.up
+                || nav.left
+                || keyboard.just_pressed(KeyCode::PageUp);
 
-                    *resources.step = SplashStep::NameEntry;
-                } else {
-                    spawn_scores_ui(&mut commands, asset_server.as_ref(), win_w, win_h, imgs, &resources.high_scores);
-                    *resources.step = SplashStep::Scores;
-                }
+            if page_back {
+                clear_splash_ui(&mut commands, &q.q_splash_roots);
+                *resources.step = SplashStep::EpisodeEndText0;
+                return;
+            }
+
+            // Paging FORWARD Off the LAST Page Exits, Same Destination as ESC
+            //
+            // DEVIATION from the Original, Where pagenum < numpages Gates the Advance
+            // and Enter on the Final Page Is Simply Swallowed -- ESC Was the Only Exit.
+            // Reading Forward Off the End of an Article Is a Clear Statement That the
+            // Player Is Finished With It, and Making Them Reach for a Different Key to
+            // Say So Reads as the Screen Being Stuck. ESC Still Exits From EITHER Page,
+            // Which Is What the On-Screen Prompt Promises and What Skipping the Second
+            // Page Requires
+            let page_forward = nav.confirm
+                || nav.down
+                || nav.right
+                || keyboard.just_pressed(KeyCode::PageDown);
+
+            if page_forward {
+                clear_splash_ui(&mut commands, &q.q_splash_roots);
+
+                let score = resources.hud.score;
+                exit_episode_end_text(
+                    &mut commands,
+                    asset_server.as_ref(),
+                    &mut resources.step,
+                    &mut resources.name_entry,
+                    &resources.high_scores,
+                    imgs,
+                    score,
+                    episode_num,
+                    win_w,
+                    win_h,
+                );
             }
         }
 
@@ -7792,6 +7919,39 @@ fn splash_advance_on_any_input(
     }
 }
 
+// Leave the Episode-End Article and Move On to the High Score Flow
+//
+// Shared by Both Pages Because ESC Exits From EITHER of Them, Not Just the Last One.
+// Keeping the Destination Logic in One Place Means the Two Pages Cannot Drift Apart
+// on Which Screen Follows or on Whether the Score Qualifies
+#[allow(clippy::too_many_arguments)]
+fn exit_episode_end_text(
+    commands: &mut Commands,
+    asset_server: &AssetServer,
+    step: &mut SplashStep,
+    name_entry: &mut davelib::high_score::NameEntryState,
+    high_scores: &davelib::high_score::HighScores,
+    imgs: &SplashImages,
+    score: i32,
+    episode_num: u8,
+    win_w: f32,
+    win_h: f32,
+) {
+    if high_scores.qualifies(score) {
+        name_entry.active = true;
+        name_entry.rank = high_score_rank_for(high_scores, score);
+        name_entry.score = score;
+        name_entry.episode = episode_num;
+        name_entry.name.clear();
+        name_entry.cursor_pos = 0;
+
+        *step = SplashStep::NameEntry;
+    } else {
+        spawn_scores_ui(commands, asset_server, win_w, win_h, imgs, high_scores);
+        *step = SplashStep::Scores;
+    }
+}
+
 fn splash_resize_on_window_change(
     mut ev: MessageReader<WindowResized>,
     step: Res<SplashStep>,
@@ -7805,7 +7965,9 @@ fn splash_resize_on_window_change(
         return;
     };
 
-    let (w, h) = compute_scaled_size(last.width, last.height);
+    // Same Rule the Splash Spawned With. Using compute_scaled_size Here Would Snap the
+    // Canvas Back to the Floored Menu Size on the First Resize and Reintroduce the Bars
+    let (w, h) = splash_canvas_size(last.width, last.height);
     for mut n in q_node.iter_mut() {
         n.width = Val::Px(w);
         n.height = Val::Px(h);

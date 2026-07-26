@@ -497,6 +497,26 @@ pub struct ControlSettings {
 	/// Applied to 'GamepadSettings.default_axis_settings' on Every
 	/// Connected Gamepad Entity
 	pub gamepad_deadzone: f32,
+	/// When False, Skip All Touch Input, Including the On-Screen Overlay
+	/// Default: true
+	/// Costs Nothing on Desktop Because the Overlay Only Appears Once a Touch
+	/// Is Actually Seen, so This Exists to Suppress Stray Trackpad or Touch
+	/// Monitor Contact Rather Than to Opt In
+	pub touch_enabled: bool,
+	/// Multiplier Applied to Touch Turn-Drag Deltas
+	/// Range: 0.1 ..= 10.0
+	/// Default: 1.0
+	/// Separate From mouse_sensitivity Because a Thumb Drag Covers Far Less
+	/// Screen Distance Than a Mouse Sweep and Wants Its Own Tuning
+	/// Named Turn Rather Than Look Because Touch Drives Yaw Only, With No
+	/// Pitch Axis at All. See input::sources::touch for Why
+	pub touch_turn_sensitivity: f32,
+	/// Multiplier Applied to the Size of Every On-Screen Touch Control
+	/// Range: 0.5 ..= 2.0
+	/// Default: 1.0
+	/// Clamped by input::touch_layout, Which Also Enforces a Minimum Target
+	/// Size in Logical Pixels Regardless of This Value
+	pub touch_ui_scale: f32,
 	pub key_bindings: KeyBindings,
 }
 
@@ -509,6 +529,9 @@ impl Default for ControlSettings {
 			gamepad_enabled: true,
 			gamepad_sensitivity: 1.0,
 			gamepad_deadzone: 0.1,
+			touch_enabled: true,
+			touch_turn_sensitivity: 1.0,
+			touch_ui_scale: 1.0,
 			key_bindings: KeyBindings::default(),
 		}
 	}
@@ -1163,6 +1186,21 @@ impl ControlSettings {
 			stick_x * self.gamepad_sensitivity,
 			stick_y * self.gamepad_sensitivity,
 		)
+	}
+
+	/// Returns Sensitivity Scaled Yaw Delta From a Raw Horizontal Touch
+	/// Drag in Logical Window Pixels
+	///
+	/// Takes and Returns a Single Axis, Not a Vec2, Because Touch Turning Is
+	/// Yaw-Only: the Original Game Had No Vertical Look, and Pitch Here Sits
+	/// on the Player Transform the Gun Fires Along, so a Thumb Arc Leaking
+	/// Into Pitch Would Aim Shots at the Ceiling. A Scalar Signature Makes
+	/// That Impossible to Reintroduce by Accident
+	///
+	/// There Is Deliberately No invert_y Term. With No Pitch Axis There Is
+	/// Nothing for It to Invert
+	pub fn scaled_touch_turn(&self, raw_delta_x: f32) -> f32 {
+		raw_delta_x * self.touch_turn_sensitivity
 	}
 }
 

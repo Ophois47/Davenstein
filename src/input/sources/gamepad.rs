@@ -13,24 +13,15 @@ use crate::input::intent::PlayerIntent;
 use crate::input::menu::MenuNav;
 use crate::options::ControlSettings;
 
+// The Radial Deadzone Lives in the Parent sources Module Because the Touch Virtual
+// Stick Needs the Identical Response Curve Past the Deadzone Edge, With Only the
+// Deadzone Size Differing. Behavior on This Path Is Unchanged by the Move
+use super::apply_deadzone;
+
 // Look Rate for the Right Stick in Radians per Second
 // Applied Each Frame as a Rate so Turning Speed is Framerate Independent
 // Promote to ControlSettings if It Should Be Exposed in the Options Menu, Like KEY_TURN_SPEED
 const GAMEPAD_LOOK_RATE: f32 = 2.5;
-
-// Apply a Radial Deadzone to a Raw Stick Vector and Rescale the Remainder
-// Returns Zero Inside the Deadzone so a Resting Stick Produces No Input
-// Outside the Deadzone Magnitude Ramps From Zero to One Preserving Direction
-// Without This a Resting Residual Would Normalize to Full Speed in player_move
-fn apply_deadzone(raw: Vec2, deadzone: f32) -> Vec2 {
-    let len = raw.length();
-    if len <= deadzone {
-        return Vec2::ZERO;
-    }
-    // Rescale the Live Range so Motion Starts at Zero Just Past the Deadzone
-    let scaled = ((len - deadzone) / (1.0 - deadzone)).min(1.0);
-    raw / len * scaled
-}
 
 // Merge Every Connected Gamepad into the Shared PlayerIntent Accumulator
 // Runs After Keyboard and Mouse so Keyboard Keeps move_wish and weapon_select Priority

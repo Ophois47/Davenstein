@@ -8,7 +8,8 @@ use bevy::window::PrimaryWindow;
 use davelib::audio::{MusicMode, MusicModeKind, PlaySfx, SfxKind};
 use davelib::level::{CurrentLevel, LevelId, WolfPlane1};
 use davelib::map::MapGrid;
-use davelib::player::{Player, PlayerControlLock};
+use davelib::episode_end::ScriptedCamera;
+use davelib::player::{LookAngles, Player, PlayerControlLock, PlayerRenderInterp};
 
 use crate::ui::HudState;
 use crate::ui::SplashStep;
@@ -21,6 +22,24 @@ impl Plugin for EpisodeEndPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<EpisodeEndFlow>()
 			.add_systems(Update, start_bj_cutscene.run_if(world_ready))
+			// FixedUpdate, NOT Update, and This Is the Entire Reason the Sequence
+			// Broke After the Camera Interpolation Refactor
+			//
+			// 'apply_player_render_interp' Runs in Update and Unconditionally
+			// Overwrites the Player Translation With a Lerp Between the Two Most
+			// Recent Fixed-Tic Snapshots. A Camera Move Also Written in Update Has
+			// No Ordering Contract With It, So Whichever System Bevy Happens to Run
+			// Second Wins, and the Camera Oscillates Between the Scripted Target and
+			// the Stale Snapshot at the Beat Frequency Between 70 Hz and the Display
+			// Rate. That Oscillation Dragged the Near Plane Back and Forth Through
+			// the Door Frame, Which Is What Read On Screen as Flickering Walls
+			//
+			// Running Inside the Fixed Loop Puts the Write After 'FixedFirst'
+			// Restore and Before 'FixedLast' Capture, So the Snapshots Record the
+			// Scripted Pose and the Interpolator SMOOTHS the Victory Camera Instead
+			// of Undoing It. It Is Also What the Original Did: VictorySpin Was
+			// Called Once per 70 Hz Tic From T_Player
+			.add_systems(FixedUpdate, victory_spin)
 			.add_systems(Update, tick_bj_cutscene)
 			.add_systems(Update, tick_boss_death_replay_intro)
 			.add_systems(Update, start_death_cam)
@@ -29,12 +48,100 @@ impl Plugin for EpisodeEndPlugin {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// VICTORY SEQUENCE CONSTANTS
+//
+// Every Number Below Is Taken From the Original Sources Rather Than Tuned by Feel:
+// VictorySpin in WL_AGENT.C for the Camera, SpawnBJVictory / T_BJRun / T_BJJump and
+// the s_bj* State Table in WL_ACT2.C for BJ. Wolfenstein Measured Distance in
+// 1/65536ths of a Tile (TILEGLOBAL) and Time in 70 Hz Tics, so Each Rate Below Is
+// the Original Per-Tic Value Converted to Tiles per Second at 70 Hz. Davenstein
+// Already Runs Its Fixed Step at Exactly 70 Hz, So One Fixed Step Is One Tic and
+// the Conversions Are Exact
+//
+// Axis Mapping: Wolf's Map y Grows SOUTH and Equals Davenstein's z (the Plane 1
+// Index Is tz * width + tx), so Wolf North Is -Z and Wolf's 270 Degrees Is +Z
+// ---------------------------------------------------------------------------
+
+// How Far North the Camera Slides, in Tiles
+//
+// Original: desty = ((tiley - 5) << TILESHIFT) - 0x3000
+// (tiley << TILESHIFT) Is the Tile's NORTH EDGE, Not Its Center. A Davenstein Tile
+// tz Spans z in [tz - 0.5, tz + 0.5), so That Edge Is tz - 0.5. The 0x3000 Is
+// 0x3000 / 0x10000 = 0.1875 Tiles Further North. Total: 0.5 + 5 + 0.1875
+const VICTORY_CAM_SLIDE_TILES: f32 = 5.6875;
+
+// Camera Slide Rate. Original tics * 4096 per Tic: 4096 / 65536 * 70
+const VICTORY_CAM_SLIDE_SPEED: f32 = 4.375;
+
+// Camera Turn Rate. Original tics * 3 Degrees per Tic
+const VICTORY_CAM_SPIN_DEG_PER_SEC: f32 = 210.0;
+
+// Absolute Yaw the Camera Turns To
+//
+// The Original Turns to a FIXED Compass Heading of 270 Degrees, Which Is Due South.
+// It Is Not "Turn Around" and It Is Not "Face Wherever BJ Is". Bevy's Forward Is
+// rotation * NEG_Z = (-sin yaw, 0, -cos yaw), so Facing +Z Requires -cos yaw = 1,
+// Giving yaw = PI
+const VICTORY_CAM_YAW: f32 = std::f32::consts::PI;
+
+// BJ's Eye-Level Offset Off the Floor for His Billboard
+const BJ_GROUND_Y: f32 = 0.40;
+
+// BJ's Run Rate. Original BJRUNSPEED 2048 per Tic: 2048 / 65536 * 70
+const BJ_RUN_SPEED: f32 = 2.1875;
+
+// BJ's Rate During the Jump. Original BJJUMPSPEED 680 per Tic: 680 / 65536 * 70
+// He Keeps Closing on the Camera Through the Jump, Just Far More Slowly
+const BJ_JUMP_SPEED: f32 = 0.726_318_4;
+
+// Tiles BJ Runs Before Jumping
+//
+// The Original Sets temp1 = 6, but the Spawn Snap Consumes One Count Without Moving
+// Him (See the Comment at His Spawn Site), so Five Tiles Are Actually Travelled
+//
+// TUNED SHORTER THAN THE ORIGINAL, on Purpose. At the Faithful 5.0 He Finishes About
+// 1.25 Tiles From the Lens, Which Framed Him Too Tightly Here to Read as a Figure --
+// Wolfenstein Presented 320x200 on a 4:3 Screen With Non-Square Pixels and a Fixed
+// Field of View, So the Same World Distance Does Not Frame the Same Way in Davenstein
+//
+// This Is the Right Knob to Turn Rather Than VICTORY_CAM_SLIDE_TILES: What the Shot
+// Actually Depends On Is the GAP Between Camera and Actor, and Shortening BJ's Run
+// Cannot Push the Camera Backwards Into Whatever Geometry Sits North of the Exit
+// Alcove. Sliding the Camera Further Would Buy the Same Framing at the Cost of
+// Needing More Guaranteed Clear Corridor Than the Level Author Provided
+//
+// The Arithmetic, if This Needs Dialling Again
+//   jump starts at   tz + 1 - BJ_RUN_TILES
+//   camera rests at  tz - VICTORY_CAM_SLIDE_TILES   (tz - 5.6875)
+//   he closes a further BJ_JUMP_SPEED * 3 * BJ_JUMP_FRAME_SECS = 0.436 tiles
+//   final gap = (1 - BJ_RUN_TILES) + 5.6875 - 0.436
+// Every 0.5 Removed From BJ_RUN_TILES Buys 0.5 Tiles of Distance and Costs 0.23 s
+// Off the Length of His Run
+const BJ_RUN_TILES: f32 = 4.4;
+
+// Run Cycle Frame Durations in Seconds, Read Off the Original State Table
+// s_bjrun1 Holds SPR_BJ_W1 for 12 Tics and s_bjrun1s Holds the SAME Sprite for 3
+// More, so W1 Is On Screen for 15 Tics; W2 for 8; W3 for 12 + 3 = 15; W4 for 8.
+// One Full Cycle Is 46 Tics, About 0.657 Seconds
+const BJ_RUN_FRAME_SECS: [f32; 4] = [15.0 / 70.0, 8.0 / 70.0, 15.0 / 70.0, 8.0 / 70.0];
+
+// Jump Frames 1 Through 3 Each Hold 14 Tics (s_bjjump1 .. s_bjjump3)
+const BJ_JUMP_FRAME_SECS: f32 = 14.0 / 70.0;
+
+// s_bjjump4 Sits on the Final Pose for 300 Tics Before T_BJDone Ends the Sequence
+const BJ_DONE_HOLD_SECS: f32 = 300.0 / 70.0;
+
+// Marks the Player Entity as Owned by the Victory Camera
+//
+// Present for Exactly as Long as the Camera Is Scripted. 'victory_spin' Queries for
+// It, so the System Is a No-Op With Zero Cost Whenever the Component Is Absent and
+// Needs No Run Condition of Its Own
 #[derive(Component, Clone, Copy)]
-struct BjDolly {
-	start: Vec3,
-	end: Vec3,
-	yaw_from: f32,
-	yaw_to: f32,
+struct VictoryCam {
+	// Absolute World Z the Camera Slides North To
+	// Frozen at Trigger Time, Never Recomputed. See the Comment at the Insert Site
+	target_z: f32,
 }
 
 #[derive(Component)]
@@ -93,16 +200,23 @@ struct BjCutscene {
 	bj_material: Handle<StandardMaterial>,
 	walk_frame: usize,
 	jump_frame: usize,
-	walk_loops_left: u8,
 	frame_timer: Timer,
+	// World Z Where BJ Started Running, so Travelled Distance Can Be Measured
+	// Against BJ_RUN_TILES. The Original Counts Tile Crossings Down From temp1;
+	// Measuring Distance Is the Same Test Without Needing His Path Bookkeeping
+	run_start_z: f32,
 	played_yeah: bool,
 	result: EpisodeEndResult,
 }
 
+// The Original Has No Turn-Then-Walk Split. victoryflag Goes Up, the Camera Starts
+// Clamping Toward Its Targets, and BJ Starts Running, All on the Same Tic. The Spin
+// Takes at Most 0.86 Seconds and the Slide About 1.3, so They Simply Finish When
+// They Finish. Collapsing the Old Turning and Walking Stages Into One Removes the
+// Timed Hand-Off That Had to Guess How Long the Camera Needed
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BjCutsceneStage {
-	Turning,
-	Walking,
+	Running,
 	Jumping,
 	Done,
 }
@@ -290,7 +404,8 @@ fn start_death_cam(
 		),
 		(With<davelib::episode_end::DeathCamBoss>, Added<davelib::actors::Dead>),
 	>,
-	q_player: Query<&Transform, With<Player>>,
+	q_player: Query<(Entity, &Transform), With<Player>>,
+	mut commands: Commands,
 ) {
 	if !matches!(flow.phase, EpisodeEndPhase::Inactive) {
 		return;
@@ -318,9 +433,14 @@ fn start_death_cam(
 		return;
 	};
 
-	let Some(player_tr) = q_player.iter().next() else {
+	let Some((player_e, player_tr)) = q_player.iter().next() else {
 		return;
 	};
+
+	// The Death Cam Aims DOWN at a Corpse, so It Needs the View to Itself. Without
+	// This Marker 'level_pitch_without_mouselook' Snaps Its Tilt Back to the Horizon on
+	// Every Frame for Anyone Playing With Mouselook Off, and the Replay Stares at a Wall
+	commands.entity(player_e).insert(ScriptedCamera);
 
 	let episode = current_level.0.episode() as u8;
 	let result = EpisodeEndResult {
@@ -355,6 +475,11 @@ fn tick_death_cam(
 	mut lock: ResMut<PlayerControlLock>,
 	q_windows: Query<&Window, With<PrimaryWindow>>,
 	mut q_player: Query<&mut Transform, With<Player>>,
+	// Deliberately Separate Queries Rather Than One Wide Tuple. They Touch Different
+	// Components on the Same Entity, Which Is Conflict-Free, and Keeping Them Apart
+	// Leaves This Function's Existing Borrow Flow Exactly As It Was
+	mut q_look: Query<&mut LookAngles, With<Player>>,
+	mut q_interp: Query<&mut PlayerRenderInterp, With<Player>>,
 	q_deathcam_label: Query<Entity, With<DeathCamLabelUi>>,
 	q_hitler: Query<
 		(Option<&davelib::enemies::HitlerCorpse>, Option<&davelib::enemies::HitlerDying>, &Transform),
@@ -513,6 +638,26 @@ fn tick_death_cam(
 				player_tr.translation = replay_pos;
 				player_tr.rotation = Quat::from_euler(EulerRot::YXZ, end_yaw, end_pitch, 0.0);
 
+				// This Is a CUT, Not a Move, so the Interpolation Window Has to Come With
+				// It. 'apply_player_render_interp' Blends prev Toward curr Every Rendered
+				// Frame; Left Alone, prev Still Holds Wherever the Player Was Standing When
+				// the Boss Died and the Camera Sweeps From There to the Replay Spot Over One
+				// Fixed Step, Skidding Through Whatever Walls Lie Between
+				if let Some(mut interp) = q_interp.iter_mut().next() {
+					interp.snap_to(replay_pos);
+				}
+
+				// Keep LookAngles in Agreement With the Framing We Just Chose
+				//
+				// ScriptedCamera Already Stops Anything Rebuilding the Rotation Mid-Replay,
+				// but LookAngles Is What 'apply_look' Resumes From Once Control Returns. If
+				// It Still Held the Pre-Replay Angles, the First Mouse Movement After the
+				// Sequence Would Snap the View Back to Where the Player Was Looking When the
+				// Boss Fell Instead of Continuing From What They Are Actually Seeing
+				if let Some(mut look) = q_look.iter_mut().next() {
+					look.set_view(end_yaw, end_pitch);
+				}
+
 				cam.end_yaw = end_yaw;
 				cam.end_pitch = end_pitch;
 
@@ -612,10 +757,21 @@ fn episode_end_finish_to_ui(
     mut lock: ResMut<PlayerControlLock>,
     mut name_entry: ResMut<davelib::high_score::NameEntryState>,
     q_deathcam_label: Query<(Entity, Option<&Children>), With<DeathCamLabelUi>>,
+    q_scripted_cam: Query<Entity, With<ScriptedCamera>>,
 ) {
     let EpisodeEndPhase::Finish(result) = flow.phase else {
         return;
     };
+
+    // Hand the View Back Here Rather Than at Each Cutscene's Own Exit
+    //
+    // Both Sequences Reach Finish, and the Death Cam Reaches It From Several Places -
+    // Normal Completion, a Missing Player, a Boss Entity That Vanished. Releasing at
+    // the One Funnel They All Pass Through Means No Bail-Out Path Can Leave the Player
+    // Permanently Unable to Aim Vertically
+    for player in q_scripted_cam.iter() {
+        commands.entity(player).remove::<ScriptedCamera>();
+    }
 
     for (e, kids) in q_deathcam_label.iter() {
         if let Some(kids) = kids {
@@ -651,7 +807,10 @@ fn start_bj_cutscene(
 	images: Res<EpisodeEndImages>,
 	mut meshes: ResMut<Assets<Mesh>>,
 	mut materials: ResMut<Assets<StandardMaterial>>,
-	mut q_player: Query<(Entity, &mut Transform), With<Player>>,
+	// Read Only. This System Used to Snap the Camera to the Tile Center and Seed a
+	// Dolly; the Original Never Writes player->x at All, So There Is Nothing to Move
+	// Here Any More and the Victory Camera Owns Every Later Write
+	q_player: Query<(Entity, &Transform), With<Player>>,
 ) {
 	if !matches!(flow.phase, EpisodeEndPhase::Inactive) {
 		return;
@@ -666,7 +825,7 @@ fn start_bj_cutscene(
 		return;
 	}
 
-	let Some((player_e, mut player_tr)) = q_player.iter_mut().next() else {
+	let Some((player_e, player_tr)) = q_player.iter().next() else {
 		return;
 	};
 
@@ -685,125 +844,40 @@ fn start_bj_cutscene(
 
 	lock.0 = true;
 
-	let (yaw_from, _pitch, _roll) = player_tr.rotation.to_euler(EulerRot::YXZ);
+	// Freeze the Trigger Tile
+	// The Original Depends on player->tilex / tiley NOT Being Updated While
+	// victoryflag Is Set, Because T_Player Returns Before the Tile Update Runs. That
+	// Is What Makes desty a CONSTANT. Capturing tz Once Here Reproduces That
+	// Deliberately: Recomputing the Target From the Live Camera Position Every Frame
+	// Would Make the Target Retreat as Fast as the Camera Chasing It, and the Slide
+	// Would Never End
+	let target_z = tz as f32 - VICTORY_CAM_SLIDE_TILES;
 
-	let tx_i = tx as i32;
-	let tz_i = tz as i32;
+	// Note What Is NOT Here Any More: There Is No Door Scan, No Free-Run Measurement,
+	// and No Chosen Retreat Direction. The Original Hardcodes Due North for the Slide
+	// and an Absolute 270 Degrees for the Facing, Because the Level Author Guaranteed
+	// a Clear Northward Run From Every Exit Tile. Davenstein Ships the Original Map
+	// Data, so That Guarantee Still Holds, and Detecting the Geometry at Runtime Only
+	// Ever Added Ways to Get It Wrong
+	// ScriptedCamera Locks Out Every System That Would Second-Guess the View for the
+	// Rest of the Sequence. VictoryCam Carries the Data; the Marker Carries the Authority
+	commands
+		.entity(player_e)
+		.insert((VictoryCam { target_z }, ScriptedCamera));
 
-	let is_door = |t: davelib::map::Tile| matches!(
-		t,
-		davelib::map::Tile::DoorClosed | davelib::map::Tile::DoorOpen
-	);
-
-	let free_run = |step_x: i32, step_z: i32| -> i32 {
-		let mut cx = tx_i;
-		let mut cz = tz_i;
-		let mut run = 0;
-
-		for _ in 0..32 {
-			let nx = cx + step_x;
-			let nz = cz + step_z;
-
-			if nx < 0 || nz < 0 || nx >= grid.width as i32 || nz >= grid.height as i32 {
-				break;
-			}
-
-			if matches!(grid.tile(nx as usize, nz as usize), davelib::map::Tile::Wall) {
-				break;
-			}
-
-			run += 1;
-			cx = nx;
-			cz = nz;
-		}
-
-		run
-	};
-
-	const DOOR_SCAN_MAX: i32 = 16;
-	let scan_dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)];
-
-	let mut best_door: Option<(i32, i32, i32, i32, i32, i32)> = None;
-	// (door_x, door_z, dist_to_door, run_away, away_step_x, away_step_z)
-
-	for (sx, sz) in scan_dirs {
-		for dist in 1..=DOOR_SCAN_MAX {
-			let nx = tx_i + sx * dist;
-			let nz = tz_i + sz * dist;
-
-			if nx < 0 || nz < 0 || nx >= grid.width as i32 || nz >= grid.height as i32 {
-				break;
-			}
-
-			let t = grid.tile(nx as usize, nz as usize);
-
-			if matches!(t, davelib::map::Tile::Wall) {
-				break;
-			}
-
-			if is_door(t) {
-				let away_step_x = -sx;
-				let away_step_z = -sz;
-				let run_away = free_run(away_step_x, away_step_z);
-
-				let cand = (nx, nz, dist, run_away, away_step_x, away_step_z);
-
-				match best_door {
-					None => best_door = Some(cand),
-					Some((_, _, best_dist, best_run, _, _)) => {
-						if dist < best_dist || (dist == best_dist && run_away > best_run) {
-							best_door = Some(cand);
-						}
-					}
-				}
-
-				break;
-			}
-		}
-	}
-
-	let cam_y = player_tr.translation.y;
-
-	const DOLLY_PAD_TILES: f32 = 0.90;
-	const DOLLY_MAX: f32 = 4.85;
-
-	let (away_dir, door_center, dolly_dist) = if let Some((door_x, door_z, _dist, run_away, away_step_x, away_step_z)) = best_door {
-		let away = Vec3::new(away_step_x as f32, 0.0, away_step_z as f32).normalize_or_zero();
-		let door_center = Vec3::new(door_x as f32, cam_y, door_z as f32);
-		let dist = ((run_away as f32) - DOLLY_PAD_TILES).clamp(0.0, DOLLY_MAX);
-
-		(away, door_center, dist)
-	} else {
-	    let forward = (player_tr.rotation * Vec3::NEG_Z).normalize_or_zero();
-	    // Camera retreats in the direction the player is facing
-	    let away = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
-
-	    let away_step_x = if away.x.abs() > 0.5 { away.x.signum() as i32 } else { 0 };
-	    let away_step_z = if away.z.abs() > 0.5 { away.z.signum() as i32 } else { 0 };
-	    let run = free_run(away_step_x, away_step_z);
-
-	    let door_center = Vec3::new(tx_i as f32, cam_y, tz_i as f32) - away;
-	    let dist = ((run as f32) - DOLLY_PAD_TILES).clamp(0.0, DOLLY_MAX);
-
-	    (away, door_center, dist)
-	};
-
-	let cam_start = Vec3::new(tx_i as f32, cam_y, tz_i as f32);
-	player_tr.translation = cam_start;
-
-	let forward_to_door = -away_dir;
-	let yaw_to = forward_to_door.x.atan2(-forward_to_door.z);
-
-	player_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw_from, 0.0, 0.0);
-
-	let cam_end = cam_start + away_dir * dolly_dist;
-
-	commands.entity(player_e).insert(BjDolly {
-		start: cam_start,
-		end: cam_end,
-		yaw_from,
-		yaw_to,
-	});
+	// BJ Materializes One Tile SOUTH of the Trigger Tile and Runs North to Meet the
+	// Retreating Camera
+	//
+	// The Original Spawns Him With Tile Index (tilex, tiley + 1) but Fine Coordinates
+	// Copied Straight From the Player, an Intentional Mismatch. On His First Think the
+	// Path Bookkeeping Snaps His Fine Position to That Tile's Center, and Because the
+	// Snap Runs Through the Same Loop Body as a Real Tile Crossing It Consumes One of
+	// His Six Tile Counts Without Advancing Him. Spawning Him Directly at the Center
+	// Reaches the Same State One Frame Earlier, Which Is Exactly Why He Runs
+	// BJ_RUN_TILES (5) Below and Not 6. Change One Without the Other and He Overshoots
+	// the Camera by a Tile
+	let bj_start_z = tz as f32 + 1.0;
+	let bj_pos = Vec3::new(tx as f32, BJ_GROUND_Y, bj_start_z);
 
 	let bj_mesh = meshes.add(Rectangle::new(0.95, 1.30));
 	let bj_mat = materials.add(StandardMaterial {
@@ -813,9 +887,6 @@ fn start_bj_cutscene(
 		double_sided: true,
 		..default()
 	});
-
-	let mut bj_pos = door_center + away_dir * 1.10;
-	bj_pos.y = 0.40;
 
 	const BJ_SCALE: f32 = 0.65;
 
@@ -838,14 +909,17 @@ fn start_bj_cutscene(
 	};
 
 	flow.phase = EpisodeEndPhase::BjCutscene(BjCutscene {
-		stage: BjCutsceneStage::Turning,
-		stage_timer: Timer::from_seconds(1.70, TimerMode::Once),
+		stage: BjCutsceneStage::Running,
+		// Only Used for the Final Held Pose, and Re-Armed on Entry to Done. Seeded
+		// With the Real Duration Rather Than Zero so No Code Path Can Ever Meet a
+		// Zero-Length Timer
+		stage_timer: Timer::from_seconds(BJ_DONE_HOLD_SECS, TimerMode::Once),
 		bj_entity,
 		bj_material: bj_mat,
 		walk_frame: 0,
 		jump_frame: 0,
-		walk_loops_left: 3,
-		frame_timer: Timer::from_seconds(0.10, TimerMode::Once),
+		frame_timer: Timer::from_seconds(BJ_RUN_FRAME_SECS[0], TimerMode::Once),
+		run_start_z: bj_start_z,
 		played_yeah: false,
 		result,
 	});
@@ -858,100 +932,78 @@ fn tick_bj_cutscene(
 	mut materials: ResMut<Assets<StandardMaterial>>,
 	mut sfx: MessageWriter<PlaySfx>,
 	mut flow: ResMut<EpisodeEndFlow>,
-	mut q_player: Query<(Entity, &mut Transform, Option<&BjDolly>), With<Player>>,
+	// Read Only for the Camera. This System Reads the Camera Position to Aim BJ's
+	// Billboard and Nothing More; the Entity Is Kept Solely to Remove VictoryCam When
+	// the Sequence Ends
+	q_player: Query<(Entity, &Transform), With<Player>>,
 	mut q_bj: Query<(&mut Transform, &BjBasePose), Without<Player>>,
 ) {
-	let Some((player_e, mut player_tr, dolly)) = q_player.iter_mut().next() else {
+	let Some((player_e, player_tr)) = q_player.iter().next() else {
 		return;
 	};
 
-	let (bj_entity, stage, turning_elapsed, jump_frame, finish_result) = {
+	// Notice There Is No Camera Write Anywhere in This System. The Victory Camera Is
+	// Owned Entirely by 'victory_spin' in FixedUpdate. Two Systems Writing the Player
+	// Transform From Two Different Schedules Is the Bug That Broke This Sequence, so
+	// Anything Camera-Shaped Belongs There, Not Here
+	let (bj_entity, stage, jump_frame, run_start_z, finish_result) = {
 		let EpisodeEndPhase::BjCutscene(cut) = &mut flow.phase else {
 			return;
 		};
 
-		let mut turning_elapsed = 0.0f32;
 		let mut finish_result: Option<EpisodeEndResult> = None;
 
 		match cut.stage {
-			BjCutsceneStage::Turning => {
-				cut.stage_timer.tick(time.delta());
-
-				if let Some(dolly) = dolly {
-					let dur = cut.stage_timer.duration().as_secs_f32().max(0.0001);
-					let t = (cut.stage_timer.elapsed_secs() / dur).clamp(0.0, 1.0);
-					let t = t * t * (3.0 - 2.0 * t);
-
-					player_tr.translation = dolly.start + (dolly.end - dolly.start) * t;
-
-					let yaw = lerp_angle(dolly.yaw_from, dolly.yaw_to, t);
-					player_tr.rotation = Quat::from_euler(EulerRot::YXZ, yaw, 0.0, 0.0);
-				}
-
+			BjCutsceneStage::Running => {
+				// Per-Frame Durations, Because the Original Run Cycle Is Not Uniform:
+				// Two of the Four Sprites Are Held Roughly Twice as Long as the Others
 				cut.frame_timer.tick(time.delta());
 				if cut.frame_timer.just_finished() {
-					cut.frame_timer.reset();
-
 					cut.walk_frame = (cut.walk_frame + 1) % 4;
+					cut.frame_timer = Timer::from_seconds(
+						BJ_RUN_FRAME_SECS[cut.walk_frame],
+						TimerMode::Once,
+					);
 
 					if let Some(mut mat) = materials.get_mut(&cut.bj_material) {
 						mat.base_color_texture = Some(images.bj_victory_walk[cut.walk_frame].clone());
-					}
-				}
-
-				if cut.stage_timer.just_finished() {
-					commands.entity(player_e).remove::<BjDolly>();
-					cut.stage = BjCutsceneStage::Walking;
-				}
-
-				turning_elapsed = cut.stage_timer.elapsed_secs();
-			}
-
-			BjCutsceneStage::Walking => {
-				cut.frame_timer.tick(time.delta());
-				if cut.frame_timer.just_finished() {
-					cut.frame_timer.reset();
-
-					cut.walk_frame = (cut.walk_frame + 1) % 4;
-
-					if let Some(mut mat) = materials.get_mut(&cut.bj_material) {
-						mat.base_color_texture = Some(images.bj_victory_walk[cut.walk_frame].clone());
-					}
-
-					if cut.walk_frame == 0 && cut.walk_loops_left > 0 {
-						cut.walk_loops_left -= 1;
-						if cut.walk_loops_left == 0 {
-							cut.stage = BjCutsceneStage::Jumping;
-							cut.jump_frame = 0;
-							cut.frame_timer = Timer::from_seconds(0.12, TimerMode::Once);
-						}
 					}
 				}
 			}
 
 			BjCutsceneStage::Jumping => {
-				if !cut.played_yeah {
-					cut.played_yeah = true;
-
-					sfx.write(PlaySfx {
-						kind: SfxKind::EpisodeVictoryYea,
-						pos: Vec3::ZERO,
-					});
-				}
-
 				cut.frame_timer.tick(time.delta());
 				if cut.frame_timer.just_finished() {
-					cut.frame_timer.reset();
-
 					cut.jump_frame += 1;
 
-					if cut.jump_frame >= 4 {
-						const BJ_DONE_HOLD_SECS: f32 = 4.30;
+					if cut.jump_frame >= 3 {
+						// Frame 4 (Index 3) Is the Held Pose. s_bjjump4 Sits on It for
+						// 300 Tics With No Think, so BJ Also Stops Moving Here
+						if let Some(mut mat) = materials.get_mut(&cut.bj_material) {
+							mat.base_color_texture = Some(images.bj_victory_jump[3].clone());
+						}
 
+						cut.jump_frame = 3;
 						cut.stage = BjCutsceneStage::Done;
 						cut.stage_timer = Timer::from_seconds(BJ_DONE_HOLD_SECS, TimerMode::Once);
-					} else if let Some(mut mat) = materials.get_mut(&cut.bj_material) {
-						mat.base_color_texture = Some(images.bj_victory_jump[cut.jump_frame].clone());
+					} else {
+						cut.frame_timer = Timer::from_seconds(BJ_JUMP_FRAME_SECS, TimerMode::Once);
+
+						if let Some(mut mat) = materials.get_mut(&cut.bj_material) {
+							mat.base_color_texture = Some(images.bj_victory_jump[cut.jump_frame].clone());
+						}
+
+						// The Yell Belongs to the SECOND Jump Frame, Not the First:
+						// T_BJYell Is the Action on s_bjjump2, and an Action Fires as Its
+						// State Is Entered. Playing It on Frame 1 Lands It a Fifth of a
+						// Second Early and Reads as Out of Sync With the Leap
+						if cut.jump_frame == 1 && !cut.played_yeah {
+							cut.played_yeah = true;
+							sfx.write(PlaySfx {
+								kind: SfxKind::EpisodeVictoryYea,
+								pos: Vec3::ZERO,
+							});
+						}
 					}
 				}
 			}
@@ -967,14 +1019,17 @@ fn tick_bj_cutscene(
 		(
 			cut.bj_entity,
 			cut.stage,
-			turning_elapsed,
 			cut.jump_frame,
+			cut.run_start_z,
 			finish_result,
 		)
 	};
 
 	if let Some(result) = finish_result {
 		commands.entity(bj_entity).despawn();
+		// Hand the Camera Back. Once VictoryCam Is Gone 'victory_spin' Stops Matching
+		// and the Normal Interpolation Path Owns the Transform Again With No Gap
+		commands.entity(player_e).remove::<VictoryCam>();
 		flow.phase = EpisodeEndPhase::Finish(result);
 		return;
 	}
@@ -982,37 +1037,41 @@ fn tick_bj_cutscene(
 	let cam_pos = player_tr.translation;
 
 	if let Ok((mut bj_tr, base_pose)) = q_bj.get_mut(bj_entity) {
-		let mut dir = cam_pos - bj_tr.translation;
-		dir.y = 0.0;
+		// BJ Runs Due NORTH, Always. He Is Never Steered Toward the Camera
+		//
+		// The Original Sets dir = north Once in SpawnBJVictory and Never Re-Aims Him.
+		// Homing on the Camera Looks Equivalent and Is Not: the Camera Is Itself
+		// Retreating North, so a Homing Vector Curves His Path and Walks Him Off the
+		// One Axis the Level Geometry Guarantees Is Clear, Straight Into a Wall on Any
+		// Map Where the Exit Alcove Is Not Perfectly Centred
+		let speed = match stage {
+			BjCutsceneStage::Running => BJ_RUN_SPEED,
+			BjCutsceneStage::Jumping => BJ_JUMP_SPEED,
+			// s_bjjump4 Has No Think Function, so the Held Pose Does Not Advance
+			BjCutsceneStage::Done => 0.0,
+		};
 
-		let dist = dir.length();
-		let dir = dir.normalize_or_zero();
+		bj_tr.translation.z -= speed * time.delta_secs();
 
-		let yaw = dir.x.atan2(dir.z);
-		bj_tr.rotation = Quat::from_rotation_y(yaw);
+		// Billboard Facing
+		//
+		// The Original's BJ States All Carry rotate = false, meaning He Is a Single
+		// Non-Directional Sprite Presented Flat to the View, so Turning the Quad to
+		// Face the Camera Is the Faithful Behavior Rather Than a Shortcut
+		let mut to_cam = cam_pos - bj_tr.translation;
+		to_cam.y = 0.0;
+		let to_cam = to_cam.normalize_or_zero();
 
-		const BJ_WALK_EARLY_SECS: f32 = 0.0;
-		const BJ_TURNING_WALK_SPEED_SCALE: f32 = 1.35;
-
-		let start_walk_now =
-			matches!(stage, BjCutsceneStage::Walking)
-			|| (matches!(stage, BjCutsceneStage::Turning) && turning_elapsed >= BJ_WALK_EARLY_SECS);
-
-		if start_walk_now {
-			const BJ_WALK_SPEED: f32 = 1.10;
-			const BJ_STOP_DIST: f32 = 0.30;
-
-			let speed = if matches!(stage, BjCutsceneStage::Turning) {
-				BJ_WALK_SPEED * BJ_TURNING_WALK_SPEED_SCALE
-			} else {
-				BJ_WALK_SPEED
-			};
-
-			if dist > BJ_STOP_DIST {
-				bj_tr.translation += Vec3::new(dir.x, 0.0, dir.z) * (speed * time.delta_secs());
-			}
+		if to_cam != Vec3::ZERO {
+			// A Bevy Rectangle Mesh Faces +Z, so Recovering Yaw From a Desired Facing
+			// Is atan2(x, z) Here. That Is NOT the Camera's Inverse, Which Is
+			// atan2(-x, -z) Because a Camera Looks Down NEG_Z. Two Genuinely Different
+			// Conventions in One File: Mixing Them Is What Left the Old Victory Camera
+			// Facing 180 Degrees Away From BJ Whenever the Sequence Ran Along the X Axis
+			bj_tr.rotation = Quat::from_rotation_y(to_cam.x.atan2(to_cam.z));
 		}
 
+		// Jump Arc, Scaled With the Sprite so It Reads the Same at Any Billboard Size
 		let jf = jump_frame.min(3);
 
 		const BJ_JUMP_Y_OFFSETS: [f32; 4] = [0.00, 0.03, 0.05, 0.03];
@@ -1024,6 +1083,24 @@ fn tick_bj_cutscene(
 		};
 
 		bj_tr.translation.y = base_pose.y + raw_off * base_pose.scale;
+
+		// Distance Test Replaces the Original's Tile-Crossing Countdown
+		//
+		// Re-Borrowing the Phase Here Rather Than Inside the Match Above Is Deliberate:
+		// the Decision Depends on BJ's Position, Which Is Only Known After He Has Moved
+		if matches!(stage, BjCutsceneStage::Running)
+			&& (run_start_z - bj_tr.translation.z) >= BJ_RUN_TILES
+		{
+			if let EpisodeEndPhase::BjCutscene(cut) = &mut flow.phase {
+				cut.stage = BjCutsceneStage::Jumping;
+				cut.jump_frame = 0;
+				cut.frame_timer = Timer::from_seconds(BJ_JUMP_FRAME_SECS, TimerMode::Once);
+
+				if let Some(mut mat) = materials.get_mut(&cut.bj_material) {
+					mat.base_color_texture = Some(images.bj_victory_jump[0].clone());
+				}
+			}
+		}
 	}
 }
 
@@ -1038,13 +1115,76 @@ fn world_to_tile(pos: Vec3) -> Option<(u32, u32)> {
 	Some((tx as u32, tz as u32))
 }
 
-fn lerp_angle(a: f32, b: f32, t: f32) -> f32 {
+// Step an Angle Toward a Target by at Most max_step, Along the Shorter Arc
+//
+// This Replaces the Old Fixed-Duration Angle Lerp. The Original Does Not Interpolate
+// Over a Duration at All: It Adds or Subtracts a Constant 3 Degrees per Tic and
+// Clamps on Arrival, So the Turn Takes However Long It Takes and the Camera Slide
+// Runs Independently Alongside It. Snapping to the Target Once Inside One Step Is
+// the Same Clamp the Original Performs
+//
+// DEVIATION, Deliberate: the Original Compares Raw Angle Numbers (if angle > 270
+// Decrease, Else Increase), Which on Wolf's 0..359 Counterclockwise Scale Can Take
+// the LONG Way Round -- Approaching the Exit Facing Slightly North of East Produces
+// a 260 Degree Whirl Rather Than a 100 Degree Turn. Shorter-Arc Turning Is Used Here
+// Because It Is What Players Expect and What This Sequence Already Did Before. Swap
+// the Two Branches Below for a Literal Numeric Match if the Whirl Is Wanted Back
+fn step_angle_toward(from: f32, to: f32, max_step: f32) -> f32 {
 	let tau = std::f32::consts::TAU;
-	let mut delta = (b - a) % tau;
+	let mut delta = (to - from) % tau;
+
 	if delta > std::f32::consts::PI {
 		delta -= tau;
 	} else if delta < -std::f32::consts::PI {
 		delta += tau;
 	}
-	a + delta * t
+
+	if delta.abs() <= max_step {
+		to
+	} else {
+		from + delta.signum() * max_step
+	}
+}
+
+// Drive the Episode-End Victory Camera. This Is VictorySpin From WL_AGENT.C
+//
+// Runs in FixedUpdate so One Call Is One 70 Hz Tic, Matching the Original Exactly
+// and Keeping the Write Inside the Snapshot Window That
+// 'apply_player_render_interp' Reads. See the Registration Comment in the Plugin for
+// Why Anything Else Breaks
+//
+// Both Motions Are Independent Rate-Limited Clamps Toward Absolute Targets, Not a
+// Timed Animation. The Turn Finishes Within 0.86 Seconds Worst Case and the Slide
+// Takes About 1.3, and Neither Waits on the Other
+fn victory_spin(
+	fixed_time: Res<Time<Fixed>>,
+	mut q_player: Query<(&mut Transform, &mut LookAngles, &VictoryCam), With<Player>>,
+) {
+	let dt = fixed_time.delta_secs();
+
+	for (mut transform, mut look, cam) in &mut q_player {
+		// Facing Is Written Through LookAngles and Only THEN Composed Into the
+		// Rotation. Writing Transform.rotation Alone Leaves LookAngles Holding the
+		// Player's Pre-Cutscene Yaw, and 'level_pitch_without_mouselook' -- Which Is
+		// Deliberately Not Lock-Gated -- Rebuilds the Rotation From That Stale Value
+		// Every Frame, Silently Undoing the Turn Whenever Mouselook Is Off
+		let max_step = VICTORY_CAM_SPIN_DEG_PER_SEC.to_radians() * dt;
+		let yaw = step_angle_toward(look.yaw(), VICTORY_CAM_YAW, max_step);
+
+		// Pitch Is Forced Level. The Original Renderer Could Not Express a Pitched
+		// View at All, and Pitch Here Rides on the Player Transform, so Any Leftover
+		// Tilt Would Aim the Victory Shot at the Ceiling
+		look.set_view(yaw, 0.0);
+		transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, 0.0, 0.0);
+
+		// Slide North Only, Never South, and Never Sideways. X Is Left Untouched
+		// Exactly as the Original Leaves player->x Untouched
+		if transform.translation.z > cam.target_z {
+			transform.translation.z -= VICTORY_CAM_SLIDE_SPEED * dt;
+
+			if transform.translation.z < cam.target_z {
+				transform.translation.z = cam.target_z;
+			}
+		}
+	}
 }
