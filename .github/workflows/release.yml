@@ -2574,4 +2574,4 @@ jobs:
           files: release/*
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          body_path: docs/releases/1.0.0.md
+          body_path: ${{ format('docs/releases/{0}.md', needs.release-preflight.outputs.release_version) }}

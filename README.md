@@ -35,18 +35,18 @@ Every listed release package is built and validated in continuous integration. T
 
 The ARM64 and ARMv7 packages support compatible ARM Linux systems, but they do not imply working Raspberry Pi V3D hardware acceleration. See Compatibility below for the current Raspberry Pi status
 
-### Davenstein 1.0.0 Highlights
+### Davenstein 1.1.0 Highlights
 
-- Reconstructed enemy sight, hearing, reaction timing, pursuit, dodging, shooting, ambush, and area-connectivity behavior from the original Wolfenstein 3-D logic
-- Moved gameplay to the original 70 Hz simulation rate while interpolating camera presentation for smooth output on modern displays
-- Replaced ad hoc randomness with the original 256-byte `US_RndT` table through deterministic per-actor Rust components
-- Added internal render scaling, curated exclusive-fullscreen modes, a retro 320x240 resolution, and robust off-screen render-target management
-- Rebuilt the classic menus for widescreen displays while preserving their centered 320x200 composition
-- Added persistent video, sound, control, and gameplay settings through a debounced RON-backed Rust settings system
-- Refined weapon timing, viewmodel animation, input buffering, keyboard turning, and mouselook transitions
-- Completed validated release packaging across Windows, Linux, FreeBSD, macOS, x86_64, ARM64, and ARMv7
+- Added configurable touchscreen controls with finger-ID-pinned movement and look roles
+- Added touch enablement, look sensitivity, control size, and persistent touch settings
+- Added active input-device arbitration and single-gamepad ownership with noisy-axis filtering
+- Corrected critical Episode 1 and Episode 4 ending failures by rebuilding the victory camera in Bevy's `FixedUpdate` schedule
+- Added explicit scripted-camera ownership and corrected death-camera interpolation and look-state synchronization
+- Restored enemy pain-state lockout, original SS and human boss burst-fire chains, and the full 24-tic knife attack cycle
+- Improved episode-end page navigation, score-screen layout, splash rendering, and version-tag positioning
+- Corrected stale weapon-viewmodel recovery after locked HUD state transitions
 
-Read the [complete Davenstein 1.0.0 technical release notes](docs/releases/1.0.0.md)
+Read the [complete Davenstein 1.1.0 technical release notes](docs/releases/1.1.0.md)
 
 ### Bug Reports
 
