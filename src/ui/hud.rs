@@ -579,6 +579,20 @@ pub(crate) fn weapon_fire_and_viewmodel(
         locals.armed = true;
         locals.fire_anim_accum = 0.0;
         locals.last_weapon = Some(hud.selected);
+
+        // Repaint Before Returning. Syncing last_weapon Here Silences the "Weapon
+        // Changed Externally" Check Further Down, so if hud.selected Moved While the
+        // Lock Was Held, Nothing Downstream Will Ever Notice the Mismatch. A Death
+        // Restart Does Exactly That: restart_finish Assigns HudState::default()
+        // (Pistol) While the Death Screen Still Holds the Lock, the Lock Clears, and
+        // This Branch Then Runs With the ImageNode Still Holding the Machine Gun From
+        // Before the Death. Since the Fire Path is the Only Other Writer of img.image,
+        // the Stale Sprite Survived Until the Next Shot. Swallowing the *Shot* on the
+        // Resume Frame is This Guard's Purpose; Swallowing the *Repaint* Never Was
+        if let Ok(mut img) = vm_q.single_mut() {
+            img.image = sprites.idle(hud.selected);
+        }
+
         return;
     }
 
