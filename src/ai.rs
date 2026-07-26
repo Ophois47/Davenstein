@@ -221,7 +221,6 @@ struct AiSharedData {
     made_noise: bool,
 }
 
-#[allow(dead_code)]
 /// Query Filter Matching Any Actor Currently Playing a Pain Frame.
 ///
 /// In the Original, DamageActor Ends With NewState(ob, painstate), and Every Pain State
@@ -1737,8 +1736,44 @@ fn enemy_ai_combat(
                         continue;
                     }
 
-                    // Regular Hitscan Shooting
-                    shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
+                    // Regular Hitscan Shooting.
+                    //
+                    // Kinds With a Burst Profile Fire a Volley Rather Than a Single
+                    // Round. The Original Gives SS and the Human Bosses Multi-Frame
+                    // Shoot Chains With T_Shoot on Several of Those Frames --
+                    // s_ssshoot1..9 and the s_bossshoot Chains -- Where a Plain Guard
+                    // Gets Exactly One Shot per Cycle. burst_profile Has Held Those
+                    // Numbers Since it Was Written but Was Never Called, so SS, Hans,
+                    // Gretel, Hitler and MechaHitler Have All Been Firing Single Rounds
+                    // on the Generic Guard Cadence.
+                    //
+                    // The First Round is Fired by the Shared wolf_t_shoot Call Just
+                    // Below; the Queue Covers the Remainder, and the Continuation Block
+                    // at the Top of This System Delivers Them on the every_tics Cadence.
+                    // Because shared.shooting is Built From bursts.keys(), a Volleying
+                    // Actor Stands Still for the Whole Burst, Matching the Original's
+                    // Non-Moving Shoot States
+                    if let Some((shots, every_tics, post_cd_secs)) = burst_profile(*kind) {
+                        if shots > 1 {
+                            bursts.insert(
+                                e,
+                                BurstFire {
+                                    shots_left: shots - 1,
+                                    every_tics,
+                                    next_tics: every_tics,
+                                },
+                            );
+                        }
+
+                        // Hold the Cooldown Across the Whole Volley Plus its Tail, so a
+                        // Second Volley Cannot Begin Part-Way Through the First. Same
+                        // Formula the Ghost Hitler and General Volleys Already Use
+                        let burst_secs =
+                            ((shots.saturating_sub(1)) as f32) * (every_tics as f32) * AI_TIC_SECS;
+                        shoot_cd.insert(e, burst_secs + post_cd_secs);
+                    } else {
+                        shoot_cd.insert(e, GUARD_SHOOT_TOTAL_SECS);
+                    }
 
                     if let Some(damage) = wolf_t_shoot(
                         shoot_dist,
