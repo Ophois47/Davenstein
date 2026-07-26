@@ -34,6 +34,7 @@ use bevy::window::{CursorOptions, PrimaryWindow};
 
 use crate::input::intent::PlayerIntent;
 use crate::input::menu::MenuNav;
+use crate::input::devices::{ActiveGamepad, ActiveInputDevice};
 use crate::input::sources::keyboard_mouse;
 use crate::input::sources::gamepad;
 use crate::input::sources::touch;
@@ -57,6 +58,10 @@ pub fn gather(
     // Which Finger Owns Which Held Touch Control. Persists Across Frames, So It
     // Cannot Be a Local: the Overlay Reads It to Draw the Stick Under the Thumb
     mut touch_assign: ResMut<TouchAssignments>,
+    // The One Gamepad Whose Input Is Read, Maintained by devices::bind_active_gamepad
+    active_gamepad: Res<ActiveGamepad>,
+    // Which Device Class Is Actually Driving. Written at the End of This System
+    mut active_device: ResMut<ActiveInputDevice>,
     // Optional Because the Binary's main Initializes the Resource; a Bare davelib
     // App (Tests, Tools) Simply Runs Unlocked
     lock: Option<Res<crate::player::PlayerControlLock>>,
@@ -69,7 +74,7 @@ pub fn gather(
     let mut acc = PlayerIntent::default();
 
     // Keyboard and Mouse Establishes the Base Intent for This Frame
-    keyboard_mouse::contribute(
+    let km_driven = keyboard_mouse::contribute(
         &mut acc,
         &time,
         &keys,
@@ -81,25 +86,61 @@ pub fn gather(
 
     // Gamepad Merges on Top of the Base so Keyboard Keeps Priority
     // Skipped Entirely When the Gamepad Toggle is Off
-    if controls.gamepad_enabled {
-        gamepad::contribute(&mut acc, &time, &q_gamepads, &controls);
-    }
+    let gp_driven = if controls.gamepad_enabled {
+        gamepad::contribute(&mut acc, &time, &q_gamepads, &active_gamepad, &controls)
+    } else {
+        false
+    };
 
     // Touch Merges Last so Keyboard and Gamepad Both Keep move_wish and
     // weapon_select Priority. Skipped Entirely When the Touch Toggle Is Off, and the
     // Assignments Are Dropped on the Way Out so a Finger That Was Holding Fire When
     // Touch Was Switched Off Cannot Leave the Trigger Stuck Down. The is_idle Guard
     // Keeps That Cleanup From Tripping Change Detection Every Frame on Desktop
-    if controls.touch_enabled {
+    let touch_driven = if controls.touch_enabled {
         touch::contribute(
             &mut acc,
             &touches,
             &mut touch_assign,
             &touch_layout,
             &controls,
-        );
-    } else if !touch_assign.is_idle() {
-        touch_assign.clear();
+        )
+    } else {
+        if !touch_assign.is_idle() {
+            touch_assign.clear();
+        }
+        false
+    };
+
+    // ARBITRATION - Which Device Class Is Actually Driving
+    //
+    // Priority Within a Single Frame Is Keyboard/Mouse, Then Gamepad, Then Touch. That
+    // Order Is Not Arbitrary: Somebody at a Desk Must Be Able to Reclaim the View
+    // Instantly, Even While a Palm Is Resting on a Touchscreen or a Bound Pad Sits With
+    // a Thumb On It. Losing Ownership to a Device You Are Not Looking At Is Far More
+    // Annoying Than Keeping It a Frame Too Long
+    //
+    // Nothing Is Written When No Source Is Being Driven, so the Last Real Driver Stays
+    // the Owner Through Idle Frames. That Persistence Is What Makes This Usable as a
+    // Steady Signal Rather Than One That Flickers Between Frames - a Player Who Lifts
+    // Their Thumb to Read the HUD Has Not Stopped Playing by Touch
+    //
+    // Written Through a Change-Detected Guard Because Consumers Are Expected to React
+    // to Transitions, Not to Poll
+    let driving = if km_driven {
+        Some(ActiveInputDevice::KeyboardMouse)
+    } else if gp_driven {
+        Some(ActiveInputDevice::Gamepad)
+    } else if touch_driven {
+        Some(ActiveInputDevice::Touch)
+    } else {
+        None
+    };
+
+    if let Some(driving) = driving {
+        if *active_device != driving {
+            *active_device = driving;
+        }
     }
 
     let locked = lock.map(|l| l.0).unwrap_or(false);
@@ -130,7 +171,7 @@ pub fn gather(
     let mut nav = MenuNav::default();
     keyboard_mouse::contribute_menu(&mut nav, &keys);
     if controls.gamepad_enabled {
-        gamepad::contribute_menu(&mut nav, &q_gamepads);
+        gamepad::contribute_menu(&mut nav, &q_gamepads, &active_gamepad);
     }
     if controls.touch_enabled {
         touch::contribute_menu(&mut nav, &touches, &touch_layout);

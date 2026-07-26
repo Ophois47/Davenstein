@@ -30,6 +30,11 @@ const KEY_TURN_SPEED_RUN: f32 = 3.0; // ~172 deg/s, Fast Spin While Running
 // Merge Keyboard and Mouse Input into the Shared PlayerIntent Accumulator
 // Called by the Neutral gather System as the Base Source Each Frame
 // Freshness is Owned by gather Which Resets the Accumulator to Default
+//
+// Returns Whether Anything Was Actually Pressed or Moved This Frame, Which gather Uses
+// to Maintain ActiveInputDevice. Keyboard and Mouse Win That Arbitration Over the Other
+// Classes, so This Return Value Is What Lets Somebody at a Desk Reclaim the View
+// Instantly From a Palm Resting on a Touchscreen
 pub fn contribute(
     acc: &mut PlayerIntent,
     time: &Time,
@@ -38,7 +43,7 @@ pub fn contribute(
     mouse_motion: &AccumulatedMouseMotion,
     q_cursor: &Query<&CursorOptions, With<PrimaryWindow>>,
     controls: &ControlSettings,
-) {
+) -> bool {
     let kb = &controls.key_bindings;
 
     // Movement in the Local Player Frame: X = Strafe, Y = Forward
@@ -120,6 +125,20 @@ pub fn contribute(
     acc.fire_pressed |= fire_pressed;
     acc.use_pressed |= use_pressed;
     acc.weapon_select = acc.weapon_select.or(weapon_select);
+
+    // Deliberate Activity for ActiveInputDevice Arbitration
+    //
+    // Deliberately Broad: ANY Key or Mouse Button Down, or Any Pointer Motion at All,
+    // Counts as the Player Being at the Desk. It Does Not Matter Whether the Key Is
+    // Bound to Anything - Somebody Typing a Save Name or Hammering an Unmapped Key Is
+    // Plainly Not Playing on a Phone
+    //
+    // Mouse Motion Is Checked Unconditionally Rather Than Through the Cursor-Capture
+    // Gate Used for Look, Because Moving the Mouse in a Menu Should Reclaim Ownership
+    // Just as Firmly as Moving It in Game
+    keys.get_pressed().next().is_some()
+        || mouse_buttons.get_pressed().next().is_some()
+        || mouse_motion.delta != Vec2::ZERO
 }
 
 // Merge Keyboard Menu Navigation Into the Shared MenuNav Accumulator

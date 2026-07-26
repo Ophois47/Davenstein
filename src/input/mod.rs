@@ -15,6 +15,7 @@ davelib cannot access
 
 pub mod intent;
 pub mod cursor;
+pub mod devices;
 pub mod sources;
 pub mod gather;
 pub mod menu;
@@ -22,6 +23,7 @@ pub mod touch_layout;
 
 use bevy::prelude::*;
 
+pub use devices::{ActiveGamepad, ActiveInputDevice};
 pub use intent::PlayerIntent;
 pub use menu::MenuNav;
 pub use sources::touch::TouchAssignments;
@@ -42,6 +44,8 @@ impl Plugin for InputPlugin {
             .init_resource::<MenuNav>()
             .init_resource::<TouchAssignments>()
             .init_resource::<TouchLayout>()
+            .init_resource::<ActiveGamepad>()
+            .init_resource::<ActiveInputDevice>()
             .add_systems(
                 Update,
                 // Geometry Must Be Current Before Anything Hit-Tests Against It, so
@@ -49,6 +53,13 @@ impl Plugin for InputPlugin {
                 // A Frame of Stale Layout After a Rotation or Resize Would Put Every
                 // Button Somewhere the Player Is No Longer Touching
                 touch_layout::update_touch_layout.before(InputGather),
+            )
+            .add_systems(
+                Update,
+                // Before the Gather Set for the Same Reason the Touch Layout Is: the
+                // Gamepad Source Reads the Binding This Maintains, and a Frame of Stale
+                // Binding After a Disconnect Would Read a Device That No Longer Exists
+                devices::bind_active_gamepad.before(InputGather),
             )
             .add_systems(
                 Update,

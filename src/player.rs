@@ -2,7 +2,6 @@
 Davenstein - by David Petnick
 */
 
-use bevy::input::touch::Touches;
 use bevy::prelude::*;
 use bevy::window::CursorGrabMode;
 
@@ -199,22 +198,28 @@ pub fn apply_look(
 ///
 /// Two Situations Qualify
 /// - Mouselook Is Off, the Classic Keyboard-Turning Control Scheme
-/// - A Finger Is on the Screen, Because Touch Turning Is Yaw-Only by Design
-///   (See input::sources::touch). This Second Case Only Ever Matters on a Device
-///   That Has Both a Pointer and a Touchscreen, Such as the Browser Build Running
-///   on a Touchscreen Laptop: Pitch Gets Left Behind by an Earlier Mouse Session
-///   and Touch Alone Could Never Recover It, So the First Touch Levels the View.
-///   On a Phone or Tablet Pitch Is Never Non-Zero and This Costs One Empty
-///   Iterator Check per Frame
+/// - Touch Is the Device Currently DRIVING, Because Touch Turning Is Yaw-Only by
+///   Design (See input::sources::touch). This Second Case Only Ever Matters on a
+///   Device With Both a Pointer and a Touchscreen, Such as the Browser Build on a
+///   Touchscreen Laptop: Pitch Gets Left Behind by an Earlier Mouse Session and
+///   Touch Alone Could Never Recover It, So Touch Taking Over Levels the View
+///
+///   This Deliberately Asks Which Device Is DRIVING Rather Than Whether a Touch
+///   Exists. Keying on Existence Meant a Palm Resting on the Glass Flattened the
+///   Pitch of Somebody Playing With a Mouse, Destroying Their Aim for a Contact
+///   They Never Intended. input::devices Only Reports Touch as the Driver Once a
+///   Finger Actually Moves, Presses a Button, or Holds Fire, and Any Keyboard or
+///   Mouse Activity Reclaims Ownership on the Very Next Frame
 pub fn level_pitch_without_mouselook(
     controls: Res<crate::options::ControlSettings>,
-    touches: Res<Touches>,
+    active_device: Res<crate::input::ActiveInputDevice>,
     mut q: Query<
         (&mut Transform, &mut LookAngles),
         (With<Player>, Without<crate::episode_end::ScriptedCamera>),
     >,
 ) {
-    let touch_driving = controls.touch_enabled && touches.iter().next().is_some();
+    let touch_driving =
+        controls.touch_enabled && *active_device == crate::input::ActiveInputDevice::Touch;
 
     if controls.mouselook_enabled && !touch_driving {
         return;

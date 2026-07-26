@@ -118,17 +118,24 @@ impl TouchAssignments {
 // Merge Every Active Touch into the Shared PlayerIntent Accumulator
 // Runs After Keyboard and Gamepad, so move_wish Is Filled Only When Still Zero and
 // weapon_select Only When No Earlier Source Claimed It, Per the gather Merge Contract
+//
+// Returns Whether Touch Supplied Any DELIBERATE Input This Frame, for the
+// ActiveInputDevice Arbitration in gather. A Finger Merely RESTING on the Glass Returns
+// False, Which Is the Whole Point: a Palm on a Touchscreen Laptop Must Not Be Mistaken
+// for Somebody Choosing to Play by Touch. Motion, a Held Button, or an Edge Is Required
 pub fn contribute(
     acc: &mut PlayerIntent,
     touches: &Touches,
     assign: &mut TouchAssignments,
     layout: &TouchLayout,
     controls: &ControlSettings,
-) {
+) -> bool {
     // No Measured Window Yet Means No Meaningful Geometry to Test Against
     if !layout.is_ready() {
-        return;
+        return false;
     }
+
+    let mut driven = false;
 
     // PASS 1 - RELEASE
     // A Touch Is Gone When It Is No Longer Pressed. Bevy Removes Both Ended and
@@ -176,18 +183,21 @@ pub fn contribute(
         if layout.fire.contains(point) {
             assign.fire = Some(id);
             acc.fire_pressed = true;
+            driven = true;
             continue;
         }
 
         // Use / Open Door Is a Pure Edge, One Door per Tap
         if layout.use_door.contains(point) {
             acc.use_pressed = true;
+            driven = true;
             continue;
         }
 
         // Weapon Select Keeps the First Source That Set It, Matching Keyboard Priority
         if let Some(slot) = layout.weapon_slot_at(point) {
             acc.weapon_select = acc.weapon_select.or(Some(slot));
+            driven = true;
             continue;
         }
 
@@ -236,6 +246,11 @@ pub fn contribute(
             // on the Drag Where It Gets 1:1 Positional Control Instead of a Rate
             let wish = Vec2::new(stick.x, -stick.y);
 
+            // Past the Deadzone the Thumb Has Genuinely Moved the Stick
+            if wish != Vec2::ZERO {
+                driven = true;
+            }
+
             // Keyboard and Gamepad Priority: Fill move_wish Only if Still Untouched
             if acc.move_wish == Vec2::ZERO && wish != Vec2::ZERO {
                 acc.move_wish = wish;
@@ -265,6 +280,8 @@ pub fn contribute(
             assign.turn = Some((id, x));
 
             if delta_x != 0.0 {
+                driven = true;
+
                 // Sign Matches the Mouse, Gamepad, and Keyboard Turn Paths: Dragging
                 // Right Turns Right. invert_y Is Not Consulted Because There Is No
                 // Vertical Axis to Invert
@@ -276,6 +293,10 @@ pub fn contribute(
     // Held Fire. The Press Edge Was Emitted in the Claim Pass; This Is the Hold, and
     // It Survives the Finger Sliding Off the Button Because the Role Is Pinned by ID
     acc.fire |= assign.fire.is_some();
+
+    // A Held Fire Button Counts as Driving Even on Frames With No Movement, Because
+    // Standing Still Leaning on the Trigger Is a Deliberate Act
+    driven || assign.fire.is_some()
 }
 
 // Merge Touch Menu Navigation Into the Shared MenuNav Accumulator
