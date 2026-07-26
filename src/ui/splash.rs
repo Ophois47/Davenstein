@@ -4704,7 +4704,21 @@ fn spawn_splash_ui(
 
     // Anchor Small Container to Bottom Right of Splash Canvas
     // This Avoids Any Mismatch Between Placement Math and spawn_menu_bitmap_text Scaling
-    let margin = (2.0 * ui_scale).round().max(2.0);
+    //
+    // Insets Are in 320x200 SOURCE Pixels and Multiplied by ui_scale, so the Tag Holds
+    // the Same Position Relative to the Artwork at Every Window Size Instead of Drifting
+    // Toward the Edge as the Splash Grows. To Nudge It Further In, Raise
+    // VERSION_INSET_X_PX: One Unit Is Worth ui_scale Screen Pixels, Roughly 5 at 1080p
+    //
+    // X and Y Are Separate Because the Signon Artwork's Own Border Is Not Square -
+    // There Is More Dead Space Down the Right Edge Than Along the Bottom
+    const VERSION_INSET_X_PX: f32 = 8.0;
+    const VERSION_INSET_Y_PX: f32 = 3.0;
+
+    // The Floor Keeps the Tag Off the Very Edge on a Tiny Window, Where the Scaled
+    // Inset Would Round Down to Nothing
+    let margin_x = (VERSION_INSET_X_PX * ui_scale).round().max(2.0);
+    let margin_y = (VERSION_INSET_Y_PX * ui_scale).round().max(2.0);
 
     let ver_root = commands
         .spawn((
@@ -4712,8 +4726,8 @@ fn spawn_splash_ui(
                 width: Val::Px(ver_w),
                 height: Val::Px(ver_h),
                 position_type: PositionType::Absolute,
-                right: Val::Px(margin),
-                bottom: Val::Px(margin),
+                right: Val::Px(margin_x),
+                bottom: Val::Px(margin_y),
                 ..default()
             },
             ChildOf(canvas),
