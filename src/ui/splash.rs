@@ -4707,12 +4707,16 @@ fn spawn_splash_ui(
     //
     // Insets Are in 320x200 SOURCE Pixels and Multiplied by ui_scale, so the Tag Holds
     // the Same Position Relative to the Artwork at Every Window Size Instead of Drifting
-    // Toward the Edge as the Splash Grows. To Nudge It Further In, Raise
-    // VERSION_INSET_X_PX: One Unit Is Worth ui_scale Screen Pixels, Roughly 5 at 1080p
+    // Toward the Edge as the Splash Grows
+    //
+    // Both Are Distances FROM the Canvas Edge, Because the Container Is Anchored With
+    // 'right' and 'bottom' Rather Than 'left' and 'top'. Raising X Moves the Tag LEFT,
+    // Raising Y Moves It UP. One Unit Is Worth ui_scale Screen Pixels: About 5 at 1080p,
+    // 7 at 1440p, 11 at 4K
     //
     // X and Y Are Separate Because the Signon Artwork's Own Border Is Not Square -
     // There Is More Dead Space Down the Right Edge Than Along the Bottom
-    const VERSION_INSET_X_PX: f32 = 8.0;
+    const VERSION_INSET_X_PX: f32 = 16.0;
     const VERSION_INSET_Y_PX: f32 = 3.0;
 
     // The Floor Keeps the Tag Off the Very Edge on a Tiny Window, Where the Scaled
