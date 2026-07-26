@@ -1230,6 +1230,9 @@ enum ControlOptionKind {
     GamepadEnabled,
     GamepadSensitivity,
     GamepadDeadzone,
+    TouchEnabled,
+    TouchSensitivity,
+    TouchUiScale,
     KeyBindings,
     Back,
 }
@@ -1272,6 +1275,39 @@ fn build_control_options_items(control: &ControlSettings) -> Vec<(ControlOptionK
     items.push((
         ControlOptionKind::GamepadDeadzone,
         format!("Deadzone: {}%", deadzone_pct),
+    ));
+
+    // Touch Toggle (Enables or Disables All Touchscreen Input)
+    //
+    // Shown Unconditionally for Now. These Three Rows Are Dead Weight on a Machine With
+    // No Touchscreen, and the Intent Is to Hide Them Until a Touch Has Actually Been
+    // Seen - but That Signal Does Not Exist Until the On-Screen Overlay Lands and
+    // Introduces Its Last-Input-Wins Tracking. Gating Them Early Would Mean Inventing
+    // the Same Signal Twice
+    //
+    // Worth Keeping Reachable Even on Desktop: on a Touchscreen Laptop This Is the Off
+    // Switch for a Palm Resting on the Glass Injecting Turn Into the Camera
+    let touch_label = if control.touch_enabled { "Touch: ON" } else { "Touch: OFF" };
+    items.push((ControlOptionKind::TouchEnabled, touch_label.to_string()));
+
+    // Touch Turn Sensitivity (0.1-10.0, display as 1-100)
+    //
+    // The Single Most Important Touch Setting to Expose. A Phone Player Has No Reachable
+    // settings.ron, so Without This Row Every Complaint About Turn Speed Needs a New Build
+    let touch_sens_display = (control.touch_turn_sensitivity * 10.0).round() as i32;
+    items.push((
+        ControlOptionKind::TouchSensitivity,
+        format!("Touch Sens: {}", touch_sens_display),
+    ));
+
+    // Touch Control Size (0.5-2.0, display as 50-200%)
+    //
+    // An Accessibility Control More Than a Preference: Thumb Reach Varies Enormously and
+    // input::touch_layout Scales Every Rectangle From This
+    let touch_scale_pct = (control.touch_ui_scale * 100.0).round() as i32;
+    items.push((
+        ControlOptionKind::TouchUiScale,
+        format!("Touch Size: {}%", touch_scale_pct),
     ));
 
     // Key Bindings (Opens a Dedicated Rebinding Screen)
@@ -2142,7 +2178,25 @@ fn spawn_control_options_ui(
 
     let cursor_w = (19.0 * ui_scale).round();
     let cursor_h = (10.0 * ui_scale).round();
-    let row_h = (16.0 * ui_scale).round().max(1.0);
+    // Rows Compress to Fit Rather Than Spilling Out of the Panel
+    //
+    // The Panel Runs From EP_LIST_TOP - 4 Down to Just Above the Bottom Hint, About 152
+    // Source Pixels, Which at the 16 px Style Row Holds Exactly NINE Rows. This Screen Now
+    // Carries Eleven With Touch Added, and It Will Grow Again When Per-Device Gamepad
+    // Selection Lands - so a Fixed Row Height Would Push "Key Bindings" and "Back" Out
+    // Through the Bottom Border Where They Cannot Be Seen or Aimed At
+    //
+    // Taking the SMALLER of the Style Height and an Even Division of the Panel Keeps the
+    // Familiar Spacing on Any Screen That Still Fits and Degrades by Tightening Rather
+    // Than by Losing Rows. Glyphs Are MENU_FONT_HEIGHT * MENU_FONT_DRAW_SCALE = 10 Source
+    // Pixels Tall, so There Is Real Headroom Before This Starts to Crowd
+    //
+    // Deliberately Local to This Screen. The Other Option Lists Have Their Own Identical
+    // row_h Line and Are Nowhere Near Their Capacity; Hoisting This Into a Shared Helper
+    // Is Worth Doing When a Second Screen Actually Needs It
+    let row_h_style = 16.0 * ui_scale;
+    let row_h_fit = (panel_h - 2.0 * border_w) / (item_count.max(1) as f32);
+    let row_h = row_h_style.min(row_h_fit).round().max(1.0);
 
     let mut max_item_w = 0.0f32;
     for t in &item_labels {
@@ -6835,6 +6889,29 @@ fn splash_advance_on_any_input(
                         // Explicitly Mark as Changed
                         resources.control_settings.set_changed();
                     }
+
+                    Some(ControlOptionKind::TouchSensitivity) => {
+                        // Same Step and Range as the Mouse and Gamepad Sensitivity Rows,
+                        // so All Three Read as One Family of Settings
+                        let delta = if options.control.hold_dir > 0 { 0.1 } else { -0.1 };
+                        for _ in 0..nudge_ticks {
+                            resources.control_settings.touch_turn_sensitivity = (resources.control_settings.touch_turn_sensitivity + delta).clamp(0.1, 10.0);
+                        }
+                        // Explicitly Mark as Changed
+                        resources.control_settings.set_changed();
+                    }
+
+                    Some(ControlOptionKind::TouchUiScale) => {
+                        // Bounds Match the Clamp in input::touch_layout, Which Enforces
+                        // Them Again Independently Because a Hand-Edited settings.ron Never
+                        // Passes Through This Screen
+                        let delta = if options.control.hold_dir > 0 { 0.05 } else { -0.05 };
+                        for _ in 0..nudge_ticks {
+                            resources.control_settings.touch_ui_scale = (resources.control_settings.touch_ui_scale + delta).clamp(0.5, 2.0);
+                        }
+                        // Explicitly Mark as Changed
+                        resources.control_settings.set_changed();
+                    }
                     _ => {}
                 }
 
@@ -6885,7 +6962,19 @@ fn splash_advance_on_any_input(
             let panel_h = (panel_bottom - panel_top).max(1.0);
             let cursor_w = (19.0 * ui_scale).round();
             let cursor_h = (10.0 * ui_scale).round();
-            let row_h = (16.0 * ui_scale).round().max(1.0);
+            // MUST Match the Row Height in spawn_control_options_ui Exactly
+            //
+            // The Cursor Is Positioned by This Copy of the Layout Math While the Rows
+            // Themselves Are Positioned by the Spawn Function's Copy. Leaving This One at
+            // the Fixed 16 px While the Spawn Side Compresses to Fit Eleven Rows Would
+            // Slide the Highlight Progressively Further Below Its Label Down the List
+            //
+            // The Duplication Is Pre-Existing: Every Option Screen Recomputes Its Geometry
+            // Here for Cursor Placement. Worth Extracting Into One Shared Layout Helper,
+            // Which Would Make Exactly This Class of Drift Impossible
+            let row_h_style = 16.0 * ui_scale;
+            let row_h_fit = (panel_h - 2.0 * (2.0 * ui_scale).round()) / (item_count.max(1) as f32);
+            let row_h = row_h_style.min(row_h_fit).round().max(1.0);
             let list_h = (item_count as f32 * row_h).round();
             let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
 
@@ -6950,6 +7039,19 @@ fn splash_advance_on_any_input(
 
                     Some(ControlOptionKind::GamepadEnabled) => {
                         resources.control_settings.gamepad_enabled = !resources.control_settings.gamepad_enabled;
+                        resources.control_settings.set_changed(); // Explicitly Mark as Changed
+
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+                        spawn_control_options_ui(
+                            &mut commands, &asset_server,
+                            w, h, scale, imgs,
+                            options.control.selection,
+                            &resources.control_settings,
+                        );
+                    }
+
+                    Some(ControlOptionKind::TouchEnabled) => {
+                        resources.control_settings.touch_enabled = !resources.control_settings.touch_enabled;
                         resources.control_settings.set_changed(); // Explicitly Mark as Changed
 
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
