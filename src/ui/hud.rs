@@ -638,8 +638,14 @@ pub(crate) fn weapon_fire_and_viewmodel(
     const TIC: f32 = 1.0 / 70.0;
     const BULLET_MAX_DIST: f32 = 10_000.0;
 
+    // Cooldowns Are the attackinfo Cycle Lengths From WOLFSRC/WL_AGENT.C, Where Every
+    // Stage Runs 6 Tics. Knife and Pistol Both Walk Four Stages -- {6,0,1} {6,2,2}
+    // {6,0,3} {6,-1,4} -- for a 24 Tic Cycle. The Machine Gun's Third Stage is attack 3,
+    // Which Rewinds attackframe by 2 While the Button is Held, Folding the Cycle to 12;
+    // the Chaingun's attack 4 Stage Rewinds Again for 6. The Knife Sat at 10 Tics, so it
+    // Swung About 2.4x Faster Than 1992
     let (cooldown_secs, flash_secs, ammo_cost, max_dist) = match hud.selected {
-        WeaponSlot::Knife => (10.0 * TIC, 12.0 * TIC, 0, 1.5),
+        WeaponSlot::Knife => (24.0 * TIC, 12.0 * TIC, 0, 1.5),
         WeaponSlot::Pistol => (24.0 * TIC, 24.0 * TIC, 1, BULLET_MAX_DIST),
         WeaponSlot::MachineGun => (12.0 * TIC, 6.0 * TIC, 1, BULLET_MAX_DIST),
         WeaponSlot::Chaingun => (6.0 * TIC, 8.0 * TIC, 1, BULLET_MAX_DIST),
