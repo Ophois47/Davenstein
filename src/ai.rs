@@ -242,10 +242,31 @@ type InPainFilter = (
     )>,
 );
 
+/// (shots, tics_between_shots, post_volley_cooldown_secs) per Kind.
+///
+/// Derived From the Shoot-State Chains in WOLFSRC/WL_ACT2.C. statetype is
+/// {rotate, shapenum, tictime, think, action, next} and T_Shoot Sits in the *action*
+/// Slot, Which Fires Once as the State Ends -- so Counting T_Shoot Entries Counts
+/// Rounds, and the tictimes Give the Spacing.
+///
+/// SS (s_ssshoot1..9): tictimes 20, 20, 10, 10, 10, 10, 10, 10, 10 With T_Shoot on
+/// States 2, 4, 6 and 8. That is 4 Rounds, 20 Tics Apart, After a 40 Tic Wind-Up, and
+/// a 10 Tic Tail Before s_sschase1 -- 110 Tics for the Whole Chain.
+///
+/// Hans / Gretel / Hitler / MechaHitler (s_bossshoot1..8): 30 Tic Wind-Up Then Six
+/// T_Shoot States 10 Tics Apart, Plus a 10 Tic Tail -- 100 Tics.
+///
+/// This Port Fires the First Round Immediately When the T_Chase Roll Succeeds Rather
+/// Than Modelling the Wind-Up, so the Wind-Up Tics Are Folded Into the Post-Volley
+/// Cooldown Instead. That Keeps the Overall Cadence Right (SS ~2.5 Rounds/sec, Bosses
+/// ~4.2) Even Though the Volley Itself Starts Sooner. The Previous Values -- (5, 6,
+/// 0.35) and (8, 4, 0.45) -- Were Approximations Written Before the Profile Was Ever
+/// Called, and Once 0030 Wired it In They Worked Out at 7.2 and 9.4 Rounds/sec,
+/// Roughly Triple and Double the Original
 fn burst_profile(kind: EnemyKind) -> Option<(u8, u32, f32)> {
     match kind {
-        EnemyKind::Ss => Some((5, 6, 0.35)),
-        EnemyKind::Hans | EnemyKind::Gretel | EnemyKind::Hitler | EnemyKind::MechaHitler => Some((8, 4, 0.45)),
+        EnemyKind::Ss => Some((4, 20, 0.71)),
+        EnemyKind::Hans | EnemyKind::Gretel | EnemyKind::Hitler | EnemyKind::MechaHitler => Some((6, 10, 0.71)),
         _ => None,
     }
 }

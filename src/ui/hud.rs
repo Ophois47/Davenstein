@@ -923,8 +923,11 @@ pub(crate) fn weapon_fire_and_viewmodel(
                 max_dist,
             });
 
-            // Gun Fire Makes Noise That Wakes Non-Ambush Guards (Original
-            // madenoise). The Knife is Silent Unless it Actually Connects
+            // Gun Fire Makes Noise That Wakes Non-Ambush Guards, Hit or Miss --
+            // GunAttack Sets madenoise Before it Traces Anything. A Knife Swing is
+            // Silent Here on Purpose: KnifeAttack Sets no Flag Itself, and the Noise
+            // Comes From DamageActor Instead, so it Only Sounds if the Swing Connects.
+            // process_fire_shots Raises the Flag on That Path
             if hud.selected != WeaponSlot::Knife {
                 player_noise.0 = true;
             }

@@ -143,6 +143,7 @@ fn process_fire_shots(
     mut q_hp: Query<&mut Health, (With<EnemyKind>, Without<Dead>)>,
     mut q_ai: Query<&mut EnemyAi, (With<EnemyKind>, Without<Dead>)>,
     mut level_score: ResMut<davelib::level_score::LevelScore>,
+    mut player_noise: ResMut<davelib::ai::PlayerNoise>,
     mut rng: Local<davelib::ai::TableRng>,
 ) {
     let (Some(grid), Some(solid)) = (grid, solid) else {
@@ -364,11 +365,22 @@ fn process_fire_shots(
 
             // A Missed Roll Never Reaches DamageActor at All: GunAttack Returns Before
             // the Call, so a Miss Neither Wakes nor Barks the Target it Whistled Past.
-            // (The Shot Still Set madenoise, so Same-Area Actors Can Hear it -- That
-            // Path is the PlayerNoise Flag, Unaffected Here)
+            // A Gun Shot Has Already Set the Noise Flag at Fire Time Either Way, so a
+            // Miss Still Carries; a Missed Knife Swing Stays Silent, Because
+            // KnifeAttack Sets Nothing and Only Reaches DamageActor on a Hit
             let Some(dmg) = dmg_opt else {
                 continue;
             };
+
+            // madenoise = true is DamageActor's *First* Statement, Ahead of the
+            // Hitpoint Subtraction and the Kill Branch, so in the Original ANY Landed
+            // Blow is Audible to Non-Ambush Actors in a Connected Area -- Including a
+            // Killing One, and Including a Knife. Guns Already Raise This at Fire Time
+            // in weapon_fire_and_viewmodel, Which Makes This a No-Op for Them and Means
+            // no Weapon Test is Needed Here; What it Actually Changes is the Knife,
+            // Which Was Silent Even on a Connect and so Could Clear a Room Without
+            // Anyone Else Reacting
+            player_noise.0 = true;
 
             if let Ok(mut hp) = q_hp.get_mut(e) {
                 hp.cur -= dmg;
