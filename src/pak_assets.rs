@@ -138,10 +138,19 @@ fn should_use_pak() -> bool {
 	}
 }
 
-// Default Package Path is assets.pak Beside Running Executable
+// Default Package Path is macOS Bundle Resources or Beside Running Executable
 fn default_pak_path() -> Option<PathBuf> {
 	let exe = std::env::current_exe().ok()?;
 	let dir = exe.parent()?;
+
+	#[cfg(target_os = "macos")]
+	{
+		let bundle_resources = dir.parent()?.join("Resources").join("assets.pak");
+
+		if bundle_resources.is_file() {
+			return Some(bundle_resources);
+		}
+	}
 
 	Some(dir.join("assets.pak"))
 }

@@ -12,7 +12,7 @@ set -eu
 #     - Validate Cargo and Bundle Version Values
 #     - Validate Required Bundle Inputs and Native macOS Tools
 #     - Construct a Clean Davenstein.app Bundle
-#     - Install Davenstein and assets.pak Under Contents/MacOS
+#     - Install Davenstein Under Contents/MacOS and assets.pak Under Contents/Resources
 #     - Generate a Complete macOS Icon Set From the Source PNG
 #     - Convert the Icon Set Into Davenstein.icns
 #     - Generate Info.plist From the Versioned Template
@@ -22,11 +22,11 @@ set -eu
 # Application Bundle Layout:
 #     Davenstein.app/Contents/Info.plist
 #     Davenstein.app/Contents/MacOS/Davenstein
-#     Davenstein.app/Contents/MacOS/assets.pak
+#     Davenstein.app/Contents/Resources/assets.pak
 #     Davenstein.app/Contents/Resources/Davenstein.icns
 #
-# assets.pak Remains Beside the Executable Because the Davenstein Runtime
-# Resolves the DVPK Asset Package Relative to the Executable Location
+# assets.pak Lives Under Contents/Resources for Standard macOS Bundle Signing
+# The Runtime Falls Back to Beside the Executable for Unbundled Local Builds
 #
 # Release Automation May Override:
 #     VERSION                  Complete Release Version or Git Tag
@@ -154,10 +154,10 @@ install -m 755 \
     "$BINARY_PATH" \
     "$MACOS_DIR/Davenstein"
 
-# Keep assets.pak Beside Executable for Runtime Package Resolution
+# Install assets.pak Under Standard macOS Bundle Resources
 install -m 644 \
     "$ASSETS_PATH" \
-    "$MACOS_DIR/assets.pak"
+    "$RESOURCES_DIR/assets.pak"
 
 # Include Software Licenses, Copyright, and Third-Party Asset Information
 for legal_file in \
