@@ -603,29 +603,6 @@ struct SplashAdvanceQueries<'w, 's> {
     q_win: Query<'w, 's, &'static mut Window, With<PrimaryWindow>>,
     q_splash_roots: Query<'w, 's, Entity, (With<SplashUi>, Without<ChildOf>)>,
     q_node: Query<'w, 's, &'static mut Node, (With<MenuCursor>, Without<EpisodeHighlight>)>,
-    // DIAGNOSTIC Support (DSTEIN_DUMP_MENU=1): Read-Only Views Used Solely by the
-    // Menu Dump Below. 'q_root_debug' Reports Each Top-Level Splash Root's
-    // Explicit Camera Target and the Target the UI System Actually Computed for
-    // It, so a Root Rendering Through the Wrong Camera Is Visible Directly.
-    // 'q_cursor_target_debug' Does the Same Per Cursor Node. 'menu_cam_ref' Is
-    // the Persistent Menu Camera Entity for Comparison Against Both
-    q_root_debug: Query<
-        'w,
-        's,
-        (
-            Entity,
-            Option<&'static bevy::ui::UiTargetCamera>,
-            Option<&'static bevy::ui::ComputedUiTargetCamera>,
-        ),
-        (With<SplashUi>, Without<ChildOf>),
-    >,
-    q_cursor_target_debug: Query<
-        'w,
-        's,
-        (Entity, Option<&'static bevy::ui::ComputedUiTargetCamera>),
-        With<MenuCursor>,
-    >,
-    menu_cam_ref: Option<Res<'w, davelib::options::MenuUiCameraRef>>,
     q_cursor_light: Query<'w, 's, &'static mut Visibility, (With<MenuCursorLight>, Without<MenuCursorDark>)>,
     q_cursor_dark: Query<'w, 's, &'static mut Visibility, (With<MenuCursorDark>, Without<MenuCursorLight>)>,
     q_episode_items: Query<
@@ -5513,28 +5490,6 @@ fn spawn_menu_hint(
         },
         ChildOf(canvas),
     ));
-
-    // DIAGNOSTIC (DSTEIN_DUMP_MENU=1): Record the Layout Basis the Item Labels
-    // Were Baked With at This Spawn. The Labels Are Positioned Once, Here, While
-    // the Cursor Is Re-Driven Every Frame From Live Window Values - so if This
-    // Line Ever Disagrees With the Live MENU_DUMP Values (Different win, scale,
-    // or safe), the Items and the Cursor Sit in Different Coordinate Bases: the
-    // Cursor Appears Displaced From the Label Column and Its Row Steps Outrun or
-    // Undershoot the Label Rows
-    if std::env::var("DSTEIN_DUMP_MENU").map(|v| v == "1").unwrap_or(false) {
-        info!(
-            "MENU_DUMP_SPAWN pause={} win={}x{} scale={} safe=({},{}) cursor_x={} text_x={} row_h={}",
-            from_pause,
-            layout.window_w,
-            layout.window_h,
-            layout.scale,
-            layout.safe_left,
-            layout.safe_top,
-            cursor_x,
-            text_x,
-            row_h,
-        );
-    }
 }
 
 fn splash_advance_on_any_input(
@@ -5554,10 +5509,6 @@ fn splash_advance_on_any_input(
     mut app_exit: MessageWriter<bevy::app::AppExit>,
     mut q: SplashAdvanceQueries,
     mut options: Local<OptionsMenusLocalState>,
-    // DIAGNOSTIC Support (DSTEIN_DUMP_MENU=1): Throttles the Step Log Below to
-    // Every Eighth Frame. The Step and Flags Themselves Come From Resources This
-    // System Already Holds
-    mut dbg_frame: Local<u32>,
 ) {
     let keyboard = &*input.keyboard;
     let mouse = &*input.mouse;
@@ -5568,27 +5519,6 @@ fn splash_advance_on_any_input(
     let win_h = win.height().round().max(1.0);
     let (w, h) = compute_scaled_size(win_w, win_h);
     let scale = w / BASE_W;
-
-    // DIAGNOSTIC (DSTEIN_DUMP_MENU=1): The Existing MENU_DUMP Only Prints Inside
-    // the Menu Branch, so During the Broken Game-Over Window - When the Game Is
-    // in Some Other Step - It Prints Nothing. This Line Runs Before the Match, so
-    // It Reveals the Step the Game Is Actually Stuck In After Game Over, Plus the
-    // Flags That Steer That Transition. 'roots' Is the Live Splash Root Count
-    if std::env::var("DSTEIN_DUMP_MENU").map(|v| v == "1").unwrap_or(false) {
-        *dbg_frame = dbg_frame.wrapping_add(1);
-        if *dbg_frame % 8 == 0 {
-            let roots = q.q_splash_roots.iter().count();
-            info!(
-                "MENU_DUMP_STEP step={:?} game_over={} new_game={} lock={} name_entry_active={} roots={}",
-                *resources.step,
-                resources.game_over.0,
-                new_game.0,
-                resources.lock.0,
-                resources.name_entry.active,
-                roots,
-            );
-        }
-    }
 
     // Respawn Menu UI After Any Window Resize. Tracking the Full Window Size
     // Also Catches Widescreen Width Changes That Keep the Same Integer Scale
@@ -5678,50 +5608,18 @@ fn splash_advance_on_any_input(
                 return;
             }
 
-            // Detect a Menu Left Over From the Other Variant. Arriving Here From
-            // Game Over Sets 'SplashStep::Menu' Directly in 'sync::game_over_input'
-            // Without Clearing the Existing Splash Roots, and the "Ensure Menu UI
-            // Exists" Check Below Only Spawns When No Root Is Present, so a Menu
-            // Built for the Other Variant Survives the Step Change. The Nine-Row
-            // Pause Layout Then Stays On Screen While the Seven-Entry Main Action
-            // List Is Active: 'item_count' Clamps the Cursor to Row Six, so the
-            // Final Row (Quit) Can Never Be Reached, and Each Row Dispatches the
-            // Action That Belongs to a Different Label. It Only Looked Self-Healing
-            // Because Escape / Back Despawns the Roots and Forces a Rebuild
-            //
-            // The Rendered Row Count Is Read Back From the Spawned Items Rather
-            // Than Tracked Separately: Every Selectable Row Owns an 'EpisodeItem'
-            // Carrying Its Row Index, so the Highest Index Plus One Is the Number
-            // of Rows Actually On Screen. The Comparison Is Restricted to the Two
-            // Known Menu Row Counts so Other Screens That Also Use 'EpisodeItem'
-            // (Episode and Skill Select) Can Never Trigger a Rebuild Loop
-            let rendered_rows = q
-                .q_episode_items
-                .iter()
-                .map(|(item, _, _)| item.idx)
-                .max()
-                .map(|max_idx| max_idx + 1);
-
-            if let Some(rows) = rendered_rows {
-                let is_menu_row_count =
-                    rows == MENU_ACTIONS_MAIN.len() || rows == MENU_ACTIONS_PAUSE.len();
-
-                if is_menu_row_count && rows != item_count {
-                    // Despawn Is Deferred, so the "Ensure" Check Below Still Sees
-                    // the Old Roots This Frame and Will Not Spawn a Second Menu
-                    clear_splash_ui(&mut commands, &q.q_splash_roots);
-                    spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, is_pause);
-                    menu.reset();
-                }
-            }
-
             menu.selection = menu.selection.min(item_count - 1);
 
-            // Ensure Menu UI Exists
+            // Ensure Menu UI Exists. 'just_spawned' Records That the Menu First
+            // Appeared This Very Frame, Which Happens When the Game-Over Path Sets
+            // 'SplashStep::Menu' From 'sync::game_over_input' (a Separate System
+            // That Runs Earlier in the Same Frame) While No Splash Root Exists Yet
+            let mut just_spawned = false;
             if q.q_splash_roots.iter().next().is_none() {
                 spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, is_pause);
                 menu.reset();
                 menu.selection = menu.selection.min(item_count - 1);
+                just_spawned = true;
             }
 
             // Navigation
@@ -5753,8 +5651,7 @@ fn splash_advance_on_any_input(
             }
 
             // Cursor Blink
-            let blink_ticked = menu.blink.tick(time.delta()).just_finished();
-            if blink_ticked {
+            if menu.blink.tick(time.delta()).just_finished() {
                 menu.blink_light = !menu.blink_light;
             }
 
@@ -5772,82 +5669,6 @@ fn splash_advance_on_any_input(
                 node.width = Val::Px(cursor_w);
             }
 
-            // DIAGNOSTIC Toggle (DSTEIN_DUMP_MENU=1): Reports the Live Numbers
-            // Behind the Menu Cursor Placement, Throttled to the Blink Tick so It
-            // Emits Roughly Eight Lines a Second Instead of One Per Frame
-            //
-            // 'cursors' Is the Number of Entities the Cursor Write Above Touched.
-            // The Menu Spawns Exactly One Light and One Dark Node, so Any Value
-            // Other Than 2 Means Another Screen's Cursor Pair Is Still Alive and
-            // Being Driven by Main-Menu Coordinates While Parented Under a
-            // Differently Positioned Container, Which Would Strand One of the Two
-            // Visible Cursors Away From the Item Column
-            //
-            // 'roots' Counts Live Top-Level SplashUi Roots; More Than One Means a
-            // Previous Screen Was Never Cleared. 'safe_left'/'safe_top' Are the
-            // Letterbox Origin the Cursor Is Offset By and 'scale' Is the Integer
-            // Step the Items and the Cursor Are Meant to Share. Comparing
-            // 'cursor_x' Against 'item_text_x' Shows Whether the Gap Between the
-            // Cursor and the Label Column Is the Intended One
-            if blink_ticked
-                && std::env::var("DSTEIN_DUMP_MENU").map(|v| v == "1").unwrap_or(false)
-            {
-                let cursors = q.q_node.iter().count();
-                let roots = q.q_splash_roots.iter().count();
-                let rows = q
-                    .q_episode_items
-                    .iter()
-                    .map(|(item, _, _)| item.idx)
-                    .max()
-                    .map(|m| m + 1)
-                    .unwrap_or(0);
-                let item_text_x = cursor_x + cursor_w + menu_layout.px(6.0);
-
-                info!(
-                    "MENU_DUMP pause={} win={}x{} scale={} safe=({},{}) sel={}/{} \
-                     rows={} cursors={} roots={} cursor=({},{}) cursor_w={} item_text_x={}",
-                    is_pause,
-                    win_w,
-                    win_h,
-                    menu_layout.scale,
-                    menu_layout.safe_left,
-                    menu_layout.safe_top,
-                    menu.selection,
-                    item_count,
-                    rows,
-                    cursors,
-                    roots,
-                    cursor_x,
-                    cursor_y,
-                    cursor_w,
-                    item_text_x,
-                );
-
-                // Which Camera Each Tree Actually Resolves To. If the Broken
-                // State Shows a Root Whose 'computed_target' Differs From
-                // 'menu_camera' (or From the Working State), the Menu Is Being
-                // Laid Out and Rendered Through the Wrong Camera and the Written
-                // Coordinates Land in the Wrong Space Despite Being Correct
-                if let Some(cam_ref) = q.menu_cam_ref.as_deref() {
-                    info!("MENU_DUMP_CAM menu_camera={:?}", cam_ref.0);
-                }
-                for (e, target, computed) in q.q_root_debug.iter() {
-                    info!(
-                        "MENU_DUMP_ROOT entity={:?} ui_target_camera={:?} computed_camera={:?}",
-                        e,
-                        target.map(|t| t.0),
-                        computed.and_then(|c| c.get()),
-                    );
-                }
-                for (e, computed) in q.q_cursor_target_debug.iter() {
-                    info!(
-                        "MENU_DUMP_CURSOR entity={:?} computed_camera={:?}",
-                        e,
-                        computed.and_then(|c| c.get()),
-                    );
-                }
-            }
-
             for mut v in q.q_cursor_light.iter_mut() {
                 *v = if menu.blink_light { Visibility::Visible } else { Visibility::Hidden };
             }
@@ -5855,11 +5676,17 @@ fn splash_advance_on_any_input(
                 *v = if menu.blink_light { Visibility::Hidden } else { Visibility::Visible };
             }
 
-            // Activate Selection
-            if keyboard.just_pressed(KeyCode::Enter)
+            // Activate Selection. Skipped on the Frame the Menu Was Just Spawned:
+            // the Enter That Dismissed the Game-Over Screen Is Still 'just_pressed'
+            // This Same Frame, and Without This Guard the Freshly Shown Menu
+            // Immediately Confirms Its Default Row (New Game), Auto-Advancing to
+            // Episode Select With a Mismatched Cursor. Ignoring Confirm for the
+            // First Frame Lets the Menu Simply Appear and Wait for a Fresh Press
+            if !just_spawned
+                && (keyboard.just_pressed(KeyCode::Enter)
                 || keyboard.just_pressed(KeyCode::NumpadEnter)
                 || keyboard.just_pressed(KeyCode::Space)
-                || nav.confirm
+                || nav.confirm)
             {
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
