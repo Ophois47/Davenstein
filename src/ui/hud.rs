@@ -2811,6 +2811,20 @@ pub(super) fn route_window_ui_to_menu_camera(
             Without<UiTargetCamera>,
         ),
     >,
+    // The Game Over Overlay Is the Same Special Case as the Intermission Tally:
+    // 'spawn_game_over_overlay' Parents It to 'HudRoot' for Per-Level Lifecycle,
+    // so It Inherited the HUD's Low-Res Canvas Camera While Being Laid Out in
+    // Logical Window Units (Percent(100) Centering With a Fixed 64px Font). On
+    // the Canvas That Renders as Tiny Text Centered in the Middle of the Screen
+    // Instead of a Full-Window Overlay. It Needs Its Own Explicit Target to Pull
+    // It Back Onto the Menu Camera at Full Window Size
+    q_game_over_overlay: Query<
+        Entity,
+        (
+            With<GameOverOverlay>,
+            Without<UiTargetCamera>,
+        ),
+    >,
 ) {
     // The Camera Is Spawned at Startup; Bail Quietly if It Is Not Ready Yet
     let Some(menu_cam) = menu_cam else {
@@ -2824,6 +2838,11 @@ pub(super) fn route_window_ui_to_menu_camera(
 
     // The Intermission Tally, Which Lives Under HudRoot but Renders in Window Space
     for overlay in &q_mission_overlay {
+        commands.entity(overlay).insert(UiTargetCamera(menu_cam.0));
+    }
+
+    // The Game Over Overlay, Same Reasoning as the Intermission Tally Above
+    for overlay in &q_game_over_overlay {
         commands.entity(overlay).insert(UiTargetCamera(menu_cam.0));
     }
 }
