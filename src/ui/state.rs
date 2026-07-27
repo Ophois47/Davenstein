@@ -157,7 +157,11 @@ pub struct DeathOverlay {
 
 impl Default for DeathOverlay {
     fn default() -> Self {
-        let mut t = Timer::from_seconds(0.28, TimerMode::Once);
+        // Wolf3D's Death Fizzle Ran 70 Frames at the Game's 70Hz Tic Rate, so
+        // Roughly One Second. The Old 0.28s Was Tuned for an Alpha Ramp; the
+        // Pixel Dissolve Needs the Full Second to Read as Scattering Pixels
+        // Rather Than a Flash. Still Inside 'DeathDelay' (1.25s) Before Restart
+        let mut t = Timer::from_seconds(1.0, TimerMode::Once);
         t.set_elapsed(t.duration());
         Self { active: false, timer: t }
     }
@@ -165,6 +169,12 @@ impl Default for DeathOverlay {
 
 impl DeathOverlay {
     const MAX_ALPHA: f32 = 0.80;
+
+    /// Dissolve Resolution, in Pixels. The Original Fizzle Fade Ran Over the
+    /// 320x200 VGA View, so Matching That Cell Count Reproduces the Chunky Red
+    /// Pixels When the Canvas Is Upscaled to the Window
+    pub const FIZZLE_W: u32 = 320;
+    pub const FIZZLE_H: u32 = 200;
 
     pub fn alpha(&self) -> f32 {
         if !self.active {
@@ -176,6 +186,24 @@ impl DeathOverlay {
         let dur = self.timer.duration().as_secs_f32().max(0.0001);
         let t = (self.timer.elapsed_secs() / dur).clamp(0.0, 1.0);
         (t.powf(2.2) * Self::MAX_ALPHA).clamp(0.0, Self::MAX_ALPHA)
+    }
+
+    /// Fraction of the Death Screen That Should Be Filled With Solid Red, 0..=1.
+    ///
+    /// Wolf3D's 'Died' Fills the View With Palette Colour 4 and Then Reveals It
+    /// One Pixel at a Time in Pseudorandom Order via 'FizzleFade', so Every Pixel
+    /// Is Either Untouched or Fully Opaque - the Screen Is Never a Translucent
+    /// Wash. This Drives That Reveal Instead of an Alpha Ramp. The Ramp Is Linear
+    /// Because the Original Plotted a Fixed 64000/frames Pixels per Frame
+    pub fn fizzle_progress(&self) -> f32 {
+        if !self.active {
+            return 0.0;
+        }
+        if self.timer.is_finished() {
+            return 1.0;
+        }
+        let dur = self.timer.duration().as_secs_f32().max(0.0001);
+        (self.timer.elapsed_secs() / dur).clamp(0.0, 1.0)
     }
 }
 

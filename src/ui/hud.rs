@@ -4,6 +4,9 @@ Davenstein - by David Petnick
 
 use bevy::ecs::system::ParamSet;
 use bevy::prelude::*;
+use bevy::asset::RenderAssetUsages;
+use bevy::image::ImageSampler;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::ui::UiTargetCamera;
 use bevy::ui::widget::NodeImageMode;
 use bevy::window::PrimaryWindow;
@@ -1246,18 +1249,81 @@ pub(crate) fn tick_damage_flash(
     }
 }
 
+/// Deterministic Per-Pixel Reveal Order for the Death Dissolve.
+///
+/// The Original Used a 17-Bit LFSR to Walk a Pseudorandom Permutation of the
+/// 64000 View Pixels, Plotting a Fixed Slice of Them Each Frame. That Sequence Is
+/// Hard-Wired to 320x200; an Integer Hash per Coordinate Gives the Same Scattered
+/// Look for Any Cell Count, Is Stable Frame to Frame (so Revealed Pixels Never
+/// Flicker Back), and Needs No Running State. A Pixel Turns Red Once Its Hash
+/// Falls Below the Progress Threshold
+fn fizzle_hash(x: u32, y: u32) -> u32 {
+    let mut h = x.wrapping_mul(0x1f1f_1f1f) ^ y.wrapping_mul(0x9e37_79b9);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x85eb_ca6b);
+    h ^= h >> 13;
+    h = h.wrapping_mul(0xc2b2_ae35);
+    h ^= h >> 16;
+    h
+}
+
 pub(crate) fn tick_death_overlay(
     time: Res<Time>,
     mut death: ResMut<DeathOverlay>,
-    mut q: Query<&mut BackgroundColor, With<DeathOverlayOverlay>>,
+    mut images: ResMut<Assets<Image>>,
+    q: Query<&ImageNode, With<DeathOverlayOverlay>>,
+    mut last_progress: Local<Option<f32>>,
 ) {
     if death.active && !death.timer.is_finished() {
         death.timer.tick(time.delta());
     }
 
-    let a = death.alpha();
-    for mut bg in q.iter_mut() {
-        *bg = BackgroundColor(Srgba::new(1.0, 0.0, 0.0, a).into());
+    let progress = death.fizzle_progress();
+
+    // Rewriting 64000 Pixels Is Cheap but Pointless When Nothing Moved. Skip When
+    // the Progress Is Unchanged, Which Is Every Frame Outside a Death
+    if *last_progress == Some(progress) {
+        return;
+    }
+    *last_progress = Some(progress);
+
+    // Integer Threshold Avoids a Float Compare per Pixel. Progress 1.0 Must Reveal
+    // Everything, so Saturate Rather Than Rounding Down and Leaving Stray Gaps
+    let threshold = if progress >= 1.0 {
+        u32::MAX
+    } else {
+        (progress * u32::MAX as f32) as u32
+    };
+
+    let Some(node) = q.iter().next() else { return; };
+    let Some(image) = images.get_mut(&node.image) else { return; };
+    let Some(data) = image.data.as_mut() else { return; };
+
+    let w = DeathOverlay::FIZZLE_W;
+    let h = DeathOverlay::FIZZLE_H;
+
+    for y in 0..h {
+        for x in 0..w {
+            let idx = ((y * w + x) * 4) as usize;
+            if idx + 3 >= data.len() {
+                continue;
+            }
+
+            // Solid Red (Wolf3D Filled the View With Palette Colour 4) or Fully
+            // Clear. Never a Partial Alpha, so the World Cannot Be Seen Through
+            // Any Pixel That Has Been Revealed
+            if progress > 0.0 && fizzle_hash(x, y) <= threshold {
+                data[idx] = 255;
+                data[idx + 1] = 0;
+                data[idx + 2] = 0;
+                data[idx + 3] = 255;
+            } else {
+                data[idx] = 0;
+                data[idx + 1] = 0;
+                data[idx + 2] = 0;
+                data[idx + 3] = 0;
+            }
+        }
     }
 }
 
@@ -1564,6 +1630,8 @@ fn spawn_view_area(
     parent: Entity,
     weapon_idle: Handle<Image>,
     gun_px: f32,
+    // Backing Texture for the Death Dissolve, Created in 'setup_hud'
+    fizzle: Handle<Image>,
 ) {
     commands.entity(parent).with_children(|ui| {
         // View Area: fill remaining space above the status bar
@@ -1621,7 +1689,16 @@ fn spawn_view_area(
                 height: Val::Percent(100.0),
                 ..default()
             },
-            BackgroundColor(Color::NONE),
+            // The Death Screen Is a Pixel Dissolve, Not an Alpha Wash, so It Is
+            // Driven by a Small Nearest-Sampled Texture Rewritten Each Frame by
+            // 'tick_death_overlay' Rather Than a 'BackgroundColor'. 'Stretch' Is
+            // Required Because 'NodeImageMode' Defaults to 'Auto', Which Would
+            // Draw the Texture at Its Native 320x200 Instead of Filling the Node
+            ImageNode {
+                image: fizzle,
+                image_mode: NodeImageMode::Stretch,
+                ..default()
+            },
         ));
     });
 }
@@ -2841,10 +2918,32 @@ pub(crate) fn setup_hud(
     q_windows: Query<&Window, With<PrimaryWindow>>,
     canvas: Option<Res<WorldCanvas>>,
     current_level: Res<CurrentLevel>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     let assets = load_hud_setup_assets(&mut commands, &asset_server, &hud);
     let (ui_w, _ui_h) = ui_ref_dims(canvas.as_deref(), &q_windows);
     let layout = compute_hud_layout(ui_w);
+
+    // Backing Texture for the Death Dissolve. Starts Fully Transparent and Is
+    // Rewritten by 'tick_death_overlay'. Nearest Sampling and a Deliberately Small
+    // Cell Count Are What Give the Chunky Red Pixels of the Original Fizzle Fade
+    // Once the Canvas Is Upscaled. 'RenderAssetUsages::default()' Keeps MAIN_WORLD
+    // so the CPU-Side 'data' Survives for Per-Frame Writes
+    let fizzle_handle = {
+        let mut image = Image::new_fill(
+            Extent3d {
+                width: DeathOverlay::FIZZLE_W,
+                height: DeathOverlay::FIZZLE_H,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            &[0, 0, 0, 0],
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::default(),
+        );
+        image.sampler = ImageSampler::nearest();
+        images.add(image)
+    };
 
     // Root HUD Node (Full Screen), COLUMN so status bar lands at the bottom
     let root = commands
@@ -2868,7 +2967,7 @@ pub(crate) fn setup_hud(
 
     // View Area (fills remaining space above the status bar)
     let weapon_idle = assets.weapon_idle.clone();
-    spawn_view_area(&mut commands, root, weapon_idle, layout.gun_px);
+    spawn_view_area(&mut commands, root, weapon_idle, layout.gun_px, fizzle_handle);
 
     // Status Bar
     spawn_status_bar(
