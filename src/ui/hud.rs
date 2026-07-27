@@ -2432,9 +2432,16 @@ fn spawn_mission_success_overlay(
         });
 }
 
-fn spawn_game_over_overlay(commands: &mut Commands, parent: Entity, ui_font: Handle<Font>) {
-    commands.entity(parent).with_children(|ui| {
-        ui.spawn((
+/// Spawn the Game Over Overlay as a TOP-LEVEL Root (Not Under HudRoot), for the
+/// Same Reason as the Intermission Tally Above. Top-Level Roots Are Routed to the
+/// Full-Window MenuUiCamera and Lay Out Against the Window; as a Child of HudRoot
+/// This Overlay Inherited the Canvas Camera and Rendered as Small Text Centered in
+/// the Middle of the Screen. 'UiTargetCamera' Cannot Fix That From Here Because It
+/// Only Takes Effect on a Root Node - a Child Always Inherits Its Tree Root's
+/// Target. The Visibility Toggle ('sync_game_over_overlay_visibility') Queries by
+/// Marker Component, so Re-Parenting Does Not Affect It
+fn spawn_game_over_overlay(commands: &mut Commands, ui_font: Handle<Font>) {
+        commands.spawn((
             GameOverOverlay,
             ZIndex(100),
             Visibility::Hidden,
@@ -2475,7 +2482,6 @@ fn spawn_game_over_overlay(commands: &mut Commands, parent: Entity, ui_font: Han
                 TextLayout::justify(Justify::Center),
             ));
         });
-    });
 }
 
 /// Sync the classic Wolf3D view-size border.
@@ -2811,20 +2817,6 @@ pub(super) fn route_window_ui_to_menu_camera(
             Without<UiTargetCamera>,
         ),
     >,
-    // The Game Over Overlay Is the Same Special Case as the Intermission Tally:
-    // 'spawn_game_over_overlay' Parents It to 'HudRoot' for Per-Level Lifecycle,
-    // so It Inherited the HUD's Low-Res Canvas Camera While Being Laid Out in
-    // Logical Window Units (Percent(100) Centering With a Fixed 64px Font). On
-    // the Canvas That Renders as Tiny Text Centered in the Middle of the Screen
-    // Instead of a Full-Window Overlay. It Needs Its Own Explicit Target to Pull
-    // It Back Onto the Menu Camera at Full Window Size
-    q_game_over_overlay: Query<
-        Entity,
-        (
-            With<GameOverOverlay>,
-            Without<UiTargetCamera>,
-        ),
-    >,
 ) {
     // The Camera Is Spawned at Startup; Bail Quietly if It Is Not Ready Yet
     let Some(menu_cam) = menu_cam else {
@@ -2838,11 +2830,6 @@ pub(super) fn route_window_ui_to_menu_camera(
 
     // The Intermission Tally, Which Lives Under HudRoot but Renders in Window Space
     for overlay in &q_mission_overlay {
-        commands.entity(overlay).insert(UiTargetCamera(menu_cam.0));
-    }
-
-    // The Game Over Overlay, Same Reasoning as the Intermission Tally Above
-    for overlay in &q_game_over_overlay {
         commands.entity(overlay).insert(UiTargetCamera(menu_cam.0));
     }
 }
@@ -2896,7 +2883,7 @@ pub(crate) fn setup_hud(
         &current_level,
     );
 
-    spawn_game_over_overlay(&mut commands, root, assets.ui_font.clone());
+    spawn_game_over_overlay(&mut commands, assets.ui_font.clone());
 
     // Mission Success Overlay
     let start_floor_num: i32 = current_level.0.floor_number();
