@@ -5608,6 +5608,43 @@ fn splash_advance_on_any_input(
                 return;
             }
 
+            // Detect a Menu Left Over From the Other Variant. Arriving Here From
+            // Game Over Sets 'SplashStep::Menu' Directly in 'sync::game_over_input'
+            // Without Clearing the Existing Splash Roots, and the "Ensure Menu UI
+            // Exists" Check Below Only Spawns When No Root Is Present, so a Menu
+            // Built for the Other Variant Survives the Step Change. The Nine-Row
+            // Pause Layout Then Stays On Screen While the Seven-Entry Main Action
+            // List Is Active: 'item_count' Clamps the Cursor to Row Six, so the
+            // Final Row (Quit) Can Never Be Reached, and Each Row Dispatches the
+            // Action That Belongs to a Different Label. It Only Looked Self-Healing
+            // Because Escape / Back Despawns the Roots and Forces a Rebuild
+            //
+            // The Rendered Row Count Is Read Back From the Spawned Items Rather
+            // Than Tracked Separately: Every Selectable Row Owns an 'EpisodeItem'
+            // Carrying Its Row Index, so the Highest Index Plus One Is the Number
+            // of Rows Actually On Screen. The Comparison Is Restricted to the Two
+            // Known Menu Row Counts so Other Screens That Also Use 'EpisodeItem'
+            // (Episode and Skill Select) Can Never Trigger a Rebuild Loop
+            let rendered_rows = q
+                .q_episode_items
+                .iter()
+                .map(|(item, _, _)| item.idx)
+                .max()
+                .map(|max_idx| max_idx + 1);
+
+            if let Some(rows) = rendered_rows {
+                let is_menu_row_count =
+                    rows == MENU_ACTIONS_MAIN.len() || rows == MENU_ACTIONS_PAUSE.len();
+
+                if is_menu_row_count && rows != item_count {
+                    // Despawn Is Deferred, so the "Ensure" Check Below Still Sees
+                    // the Old Roots This Frame and Will Not Spawn a Second Menu
+                    clear_splash_ui(&mut commands, &q.q_splash_roots);
+                    spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, is_pause);
+                    menu.reset();
+                }
+            }
+
             menu.selection = menu.selection.min(item_count - 1);
 
             // Ensure Menu UI Exists
@@ -5646,7 +5683,8 @@ fn splash_advance_on_any_input(
             }
 
             // Cursor Blink
-            if menu.blink.tick(time.delta()).just_finished() {
+            let blink_ticked = menu.blink.tick(time.delta()).just_finished();
+            if blink_ticked {
                 menu.blink_light = !menu.blink_light;
             }
 
@@ -5662,6 +5700,58 @@ fn splash_advance_on_any_input(
                 node.left = Val::Px(cursor_x);
                 node.top = Val::Px(cursor_y);
                 node.width = Val::Px(cursor_w);
+            }
+
+            // DIAGNOSTIC Toggle (DSTEIN_DUMP_MENU=1): Reports the Live Numbers
+            // Behind the Menu Cursor Placement, Throttled to the Blink Tick so It
+            // Emits Roughly Eight Lines a Second Instead of One Per Frame
+            //
+            // 'cursors' Is the Number of Entities the Cursor Write Above Touched.
+            // The Menu Spawns Exactly One Light and One Dark Node, so Any Value
+            // Other Than 2 Means Another Screen's Cursor Pair Is Still Alive and
+            // Being Driven by Main-Menu Coordinates While Parented Under a
+            // Differently Positioned Container, Which Would Strand One of the Two
+            // Visible Cursors Away From the Item Column
+            //
+            // 'roots' Counts Live Top-Level SplashUi Roots; More Than One Means a
+            // Previous Screen Was Never Cleared. 'safe_left'/'safe_top' Are the
+            // Letterbox Origin the Cursor Is Offset By and 'scale' Is the Integer
+            // Step the Items and the Cursor Are Meant to Share. Comparing
+            // 'cursor_x' Against 'item_text_x' Shows Whether the Gap Between the
+            // Cursor and the Label Column Is the Intended One
+            if blink_ticked
+                && std::env::var("DSTEIN_DUMP_MENU").map(|v| v == "1").unwrap_or(false)
+            {
+                let cursors = q.q_node.iter().count();
+                let roots = q.q_splash_roots.iter().count();
+                let rows = q
+                    .q_episode_items
+                    .iter()
+                    .map(|(item, _, _)| item.idx)
+                    .max()
+                    .map(|m| m + 1)
+                    .unwrap_or(0);
+                let item_text_x = cursor_x + cursor_w + menu_layout.px(6.0);
+
+                info!(
+                    "MENU_DUMP pause={} win={}x{} scale={} safe=({},{}) sel={}/{} \
+                     rows={} cursors={} roots={} cursor=({},{}) cursor_w={} item_text_x={}",
+                    is_pause,
+                    win_w,
+                    win_h,
+                    menu_layout.scale,
+                    menu_layout.safe_left,
+                    menu_layout.safe_top,
+                    menu.selection,
+                    item_count,
+                    rows,
+                    cursors,
+                    roots,
+                    cursor_x,
+                    cursor_y,
+                    cursor_w,
+                    item_text_x,
+                );
             }
 
             for mut v in q.q_cursor_light.iter_mut() {
