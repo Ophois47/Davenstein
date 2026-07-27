@@ -5554,6 +5554,10 @@ fn splash_advance_on_any_input(
     mut app_exit: MessageWriter<bevy::app::AppExit>,
     mut q: SplashAdvanceQueries,
     mut options: Local<OptionsMenusLocalState>,
+    // DIAGNOSTIC Support (DSTEIN_DUMP_MENU=1): Throttles the Step Log Below to
+    // Every Eighth Frame. The Step and Flags Themselves Come From Resources This
+    // System Already Holds
+    mut dbg_frame: Local<u32>,
 ) {
     let keyboard = &*input.keyboard;
     let mouse = &*input.mouse;
@@ -5564,6 +5568,27 @@ fn splash_advance_on_any_input(
     let win_h = win.height().round().max(1.0);
     let (w, h) = compute_scaled_size(win_w, win_h);
     let scale = w / BASE_W;
+
+    // DIAGNOSTIC (DSTEIN_DUMP_MENU=1): The Existing MENU_DUMP Only Prints Inside
+    // the Menu Branch, so During the Broken Game-Over Window - When the Game Is
+    // in Some Other Step - It Prints Nothing. This Line Runs Before the Match, so
+    // It Reveals the Step the Game Is Actually Stuck In After Game Over, Plus the
+    // Flags That Steer That Transition. 'roots' Is the Live Splash Root Count
+    if std::env::var("DSTEIN_DUMP_MENU").map(|v| v == "1").unwrap_or(false) {
+        *dbg_frame = dbg_frame.wrapping_add(1);
+        if *dbg_frame % 8 == 0 {
+            let roots = q.q_splash_roots.iter().count();
+            info!(
+                "MENU_DUMP_STEP step={:?} game_over={} new_game={} lock={} name_entry_active={} roots={}",
+                *resources.step,
+                resources.game_over.0,
+                new_game.0,
+                resources.lock.0,
+                resources.name_entry.active,
+                roots,
+            );
+        }
+    }
 
     // Respawn Menu UI After Any Window Resize. Tracking the Full Window Size
     // Also Catches Widescreen Width Changes That Keep the Same Integer Scale
