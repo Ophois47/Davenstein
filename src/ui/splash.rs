@@ -603,6 +603,29 @@ struct SplashAdvanceQueries<'w, 's> {
     q_win: Query<'w, 's, &'static mut Window, With<PrimaryWindow>>,
     q_splash_roots: Query<'w, 's, Entity, (With<SplashUi>, Without<ChildOf>)>,
     q_node: Query<'w, 's, &'static mut Node, (With<MenuCursor>, Without<EpisodeHighlight>)>,
+    // DIAGNOSTIC Support (DSTEIN_DUMP_MENU=1): Read-Only Views Used Solely by the
+    // Menu Dump Below. 'q_root_debug' Reports Each Top-Level Splash Root's
+    // Explicit Camera Target and the Target the UI System Actually Computed for
+    // It, so a Root Rendering Through the Wrong Camera Is Visible Directly.
+    // 'q_cursor_target_debug' Does the Same Per Cursor Node. 'menu_cam_ref' Is
+    // the Persistent Menu Camera Entity for Comparison Against Both
+    q_root_debug: Query<
+        'w,
+        's,
+        (
+            Entity,
+            Option<&'static bevy::ui::UiTargetCamera>,
+            Option<&'static bevy::ui::ComputedNodeTarget>,
+        ),
+        (With<SplashUi>, Without<ChildOf>),
+    >,
+    q_cursor_target_debug: Query<
+        'w,
+        's,
+        (Entity, Option<&'static bevy::ui::ComputedNodeTarget>),
+        With<MenuCursor>,
+    >,
+    menu_cam_ref: Option<Res<'w, davelib::options::MenuUiCameraRef>>,
     q_cursor_light: Query<'w, 's, &'static mut Visibility, (With<MenuCursorLight>, Without<MenuCursorDark>)>,
     q_cursor_dark: Query<'w, 's, &'static mut Visibility, (With<MenuCursorDark>, Without<MenuCursorLight>)>,
     q_episode_items: Query<
@@ -5490,6 +5513,28 @@ fn spawn_menu_hint(
         },
         ChildOf(canvas),
     ));
+
+    // DIAGNOSTIC (DSTEIN_DUMP_MENU=1): Record the Layout Basis the Item Labels
+    // Were Baked With at This Spawn. The Labels Are Positioned Once, Here, While
+    // the Cursor Is Re-Driven Every Frame From Live Window Values - so if This
+    // Line Ever Disagrees With the Live MENU_DUMP Values (Different win, scale,
+    // or safe), the Items and the Cursor Sit in Different Coordinate Bases: the
+    // Cursor Appears Displaced From the Label Column and Its Row Steps Outrun or
+    // Undershoot the Label Rows
+    if std::env::var("DSTEIN_DUMP_MENU").map(|v| v == "1").unwrap_or(false) {
+        info!(
+            "MENU_DUMP_SPAWN pause={} win={}x{} scale={} safe=({},{}) cursor_x={} text_x={} row_h={}",
+            from_pause,
+            layout.window_w,
+            layout.window_h,
+            layout.scale,
+            layout.safe_left,
+            layout.safe_top,
+            cursor_x,
+            text_x,
+            row_h,
+        );
+    }
 }
 
 fn splash_advance_on_any_input(
@@ -5752,6 +5797,27 @@ fn splash_advance_on_any_input(
                     cursor_w,
                     item_text_x,
                 );
+
+                // Which Camera Each Tree Actually Resolves To. If the Broken
+                // State Shows a Root Whose 'computed_target' Differs From
+                // 'menu_camera' (or From the Working State), the Menu Is Being
+                // Laid Out and Rendered Through the Wrong Camera and the Written
+                // Coordinates Land in the Wrong Space Despite Being Correct
+                if let Some(cam_ref) = q.menu_cam_ref.as_deref() {
+                    info!("MENU_DUMP_CAM menu_camera={:?}", cam_ref.0);
+                }
+                for (e, target, computed) in q.q_root_debug.iter() {
+                    info!(
+                        "MENU_DUMP_ROOT entity={:?} ui_target_camera={:?} computed_target={:?}",
+                        e, target, computed,
+                    );
+                }
+                for (e, computed) in q.q_cursor_target_debug.iter() {
+                    info!(
+                        "MENU_DUMP_CURSOR entity={:?} computed_target={:?}",
+                        e, computed,
+                    );
+                }
             }
 
             for mut v in q.q_cursor_light.iter_mut() {
