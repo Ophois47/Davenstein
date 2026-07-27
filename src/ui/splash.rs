@@ -5608,6 +5608,43 @@ fn splash_advance_on_any_input(
                 return;
             }
 
+            // Detect a Menu Left Over From the Other Variant. Arriving Here From
+            // Game Over Sets 'SplashStep::Menu' Directly in 'sync::game_over_input'
+            // Without Clearing the Existing Splash Roots, and the "Ensure Menu UI
+            // Exists" Check Below Only Spawns When No Root Is Present, so a Menu
+            // Built for the Other Variant Survives the Step Change. The Nine-Row
+            // Pause Layout Then Stays On Screen While the Seven-Entry Main Action
+            // List Is Active: 'item_count' Clamps the Cursor to Row Six, so the
+            // Final Row (Quit) Can Never Be Reached, and Each Row Dispatches the
+            // Action That Belongs to a Different Label. It Only Looked Self-Healing
+            // Because Escape / Back Despawns the Roots and Forces a Rebuild
+            //
+            // The Rendered Row Count Is Read Back From the Spawned Items Rather
+            // Than Tracked Separately: Every Selectable Row Owns an 'EpisodeItem'
+            // Carrying Its Row Index, so the Highest Index Plus One Is the Number
+            // of Rows Actually On Screen. The Comparison Is Restricted to the Two
+            // Known Menu Row Counts so Other Screens That Also Use 'EpisodeItem'
+            // (Episode and Skill Select) Can Never Trigger a Rebuild Loop
+            let rendered_rows = q
+                .q_episode_items
+                .iter()
+                .map(|(item, _, _)| item.idx)
+                .max()
+                .map(|max_idx| max_idx + 1);
+
+            if let Some(rows) = rendered_rows {
+                let is_menu_row_count =
+                    rows == MENU_ACTIONS_MAIN.len() || rows == MENU_ACTIONS_PAUSE.len();
+
+                if is_menu_row_count && rows != item_count {
+                    // Despawn Is Deferred, so the "Ensure" Check Below Still Sees
+                    // the Old Roots This Frame and Will Not Spawn a Second Menu
+                    clear_splash_ui(&mut commands, &q.q_splash_roots);
+                    spawn_menu_hint(&mut commands, &asset_server, win_w, win_h, imgs, is_pause);
+                    menu.reset();
+                }
+            }
+
             menu.selection = menu.selection.min(item_count - 1);
 
             // Ensure Menu UI Exists
