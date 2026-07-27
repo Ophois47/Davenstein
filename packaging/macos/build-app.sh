@@ -16,8 +16,9 @@ set -eu
 #     - Generate a Complete macOS Icon Set From the Source PNG
 #     - Convert the Icon Set Into Davenstein.icns
 #     - Generate Info.plist From the Versioned Template
-#     - Archive the Application Bundle With ditto
-#     - Generate a Matching SHA-256 Checksum
+#
+# Signing, Notarization, Stapling, and Release Archiving are Performed by
+# Separate Release Steps After Bundle Construction and Validation
 #
 # Application Bundle Layout:
 #     Davenstein.app/Contents/Info.plist
@@ -32,13 +33,11 @@ set -eu
 #     VERSION                  Complete Release Version or Git Tag
 #     BUNDLE_SHORT_VERSION     CFBundleShortVersionString Value
 #     BUNDLE_VERSION           CFBundleVersion Value
-#     ARCH                     Public Release Architecture Name
 #     BINARY_PATH              Existing macOS Davenstein Executable
 #     ASSETS_PATH              Existing DVPK Asset Package
 #
-# macOS Release Output:
-#     Davenstein-<version>-macos-<architecture>.zip
-#     Davenstein-<version>-macos-<architecture>.zip.sha256
+# macOS Bundle Output:
+#     target/macos/Davenstein.app
 #
 
 # Resolve Repository Paths Relative to this Script
@@ -67,14 +66,9 @@ RELEASE_VERSION=${VERSION:-"$CARGO_VERSION"}
 BUNDLE_SHORT_VERSION=${BUNDLE_SHORT_VERSION:-"${RELEASE_VERSION%%-*}"}
 BUNDLE_VERSION=${BUNDLE_VERSION:-"1"}
 
-# Public Release Architecture and Existing Bundle Inputs
-ARCH=${ARCH:-aarch64}
+# Existing Bundle Inputs
 BINARY_PATH=${BINARY_PATH:-"$ROOT_DIR/target/release/Davenstein"}
 ASSETS_PATH=${ASSETS_PATH:-"$ROOT_DIR/target/release/assets.pak"}
-
-# Versioned Architecture-Specific macOS Archive Paths
-OUTPUT_BASENAME="Davenstein-${RELEASE_VERSION}-macos-${ARCH}"
-ZIP_PATH="$BUILD_DIR/$OUTPUT_BASENAME.zip"
 
 # Validate Every Required Version Value Before Modifying Build Output
 for value_name in \
@@ -129,7 +123,7 @@ do
 done
 
 # Validate Native macOS Bundle and Icon Utilities
-for required_command in ditto sips iconutil
+for required_command in sips iconutil
 do
     command -v "$required_command" >/dev/null 2>&1 || {
         printf '%s is required to build the macOS application\n' \
@@ -138,9 +132,8 @@ do
     }
 done
 
-# Remove Previous Application Bundle, Temporary Icon Set, Archive, and Checksum
+# Remove Previous Application Bundle and Temporary Icon Set
 rm -rf "$APP_BUNDLE" "$ICONSET_DIR"
-rm -f "$ZIP_PATH" "$ZIP_PATH.sha256"
 
 # Construct Clean macOS Application Bundle Directory Layout
 install -d "$BUILD_DIR"
@@ -212,21 +205,4 @@ sed \
     "$PLIST_TEMPLATE" \
     > "$CONTENTS_DIR/Info.plist"
 
-# Create Versioned ZIP Archive While Preserving macOS Resource Metadata
-cd "$BUILD_DIR"
-
-ditto \
-    -c \
-    -k \
-    --sequesterRsrc \
-    --keepParent \
-    "Davenstein.app" \
-    "$OUTPUT_BASENAME.zip"
-
-# Generate Matching SHA-256 Checksum for Release Verification
-shasum -a 256 "$OUTPUT_BASENAME.zip" \
-    > "$OUTPUT_BASENAME.zip.sha256"
-
 printf 'Created %s\n' "$APP_BUNDLE"
-printf 'Created %s\n' "$ZIP_PATH"
-printf 'Created %s\n' "$ZIP_PATH.sha256"

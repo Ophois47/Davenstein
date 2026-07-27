@@ -2290,7 +2290,6 @@ jobs:
         env:
           VERSION: ${{ env.RELEASE_VERSION }}
           BUNDLE_VERSION: ${{ github.run_number }}
-          ARCH: aarch64
           BINARY_PATH: ${{ github.workspace }}/target/release/Davenstein
           ASSETS_PATH: ${{ github.workspace }}/target/release/assets.pak
         run: packaging/macos/build-app.sh
@@ -2330,6 +2329,16 @@ jobs:
               "target/macos/Davenstein.app/Contents/Resources/Documentation/$legal_file"
           done
 
+      - name: Archive macOS Application Bundle
+        env:
+          VERSION: ${{ env.RELEASE_VERSION }}
+          ARCH: aarch64
+          APP_BUNDLE: ${{ github.workspace }}/target/macos/Davenstein.app
+          OUTPUT_DIR: ${{ github.workspace }}/target/macos
+        run: packaging/macos/archive-app.sh
+
+      - name: Validate macOS Release Archive
+        run: |
           (
             cd target/macos
             shasum -a 256 -c Davenstein-*-macos-aarch64.zip.sha256
@@ -2469,9 +2478,8 @@ jobs:
         env:
           VERSION: ${{ env.RELEASE_VERSION }}
           BUNDLE_VERSION: ${{ github.run_number }}
-          ARCH: universal
           BINARY_PATH: ${{ github.workspace }}/target/macos-universal/Davenstein
-          ASSETS_PATH: ${{ github.workspace }}/target/macos-universal-input/Davenstein.app/Contents/MacOS/assets.pak
+          ASSETS_PATH: ${{ github.workspace }}/target/macos-universal-input/Davenstein.app/Contents/Resources/assets.pak
         run: packaging/macos/build-app.sh
 
       - name: Validate Universal macOS Application Bundle
@@ -2509,6 +2517,16 @@ jobs:
               "target/macos/Davenstein.app/Contents/Resources/Documentation/$legal_file"
           done
 
+      - name: Archive Universal macOS Application Bundle
+        env:
+          VERSION: ${{ env.RELEASE_VERSION }}
+          ARCH: universal
+          APP_BUNDLE: ${{ github.workspace }}/target/macos/Davenstein.app
+          OUTPUT_DIR: ${{ github.workspace }}/target/macos
+        run: packaging/macos/archive-app.sh
+
+      - name: Validate Universal macOS Release Archive
+        run: |
           (
             cd target/macos
             shasum -a 256 -c Davenstein-*-macos-universal.zip.sha256
