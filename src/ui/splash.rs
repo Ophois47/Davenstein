@@ -615,14 +615,14 @@ struct SplashAdvanceQueries<'w, 's> {
         (
             Entity,
             Option<&'static bevy::ui::UiTargetCamera>,
-            Option<&'static bevy::ui::ComputedNodeTarget>,
+            Option<&'static bevy::ui::ComputedUiTargetCamera>,
         ),
         (With<SplashUi>, Without<ChildOf>),
     >,
     q_cursor_target_debug: Query<
         'w,
         's,
-        (Entity, Option<&'static bevy::ui::ComputedNodeTarget>),
+        (Entity, Option<&'static bevy::ui::ComputedUiTargetCamera>),
         With<MenuCursor>,
     >,
     menu_cam_ref: Option<Res<'w, davelib::options::MenuUiCameraRef>>,
@@ -5808,14 +5808,17 @@ fn splash_advance_on_any_input(
                 }
                 for (e, target, computed) in q.q_root_debug.iter() {
                     info!(
-                        "MENU_DUMP_ROOT entity={:?} ui_target_camera={:?} computed_target={:?}",
-                        e, target, computed,
+                        "MENU_DUMP_ROOT entity={:?} ui_target_camera={:?} computed_camera={:?}",
+                        e,
+                        target.map(|t| t.0),
+                        computed.and_then(|c| c.get()),
                     );
                 }
                 for (e, computed) in q.q_cursor_target_debug.iter() {
                     info!(
-                        "MENU_DUMP_CURSOR entity={:?} computed_target={:?}",
-                        e, computed,
+                        "MENU_DUMP_CURSOR entity={:?} computed_camera={:?}",
+                        e,
+                        computed.and_then(|c| c.get()),
                     );
                 }
             }
