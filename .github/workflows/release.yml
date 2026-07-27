@@ -2271,7 +2271,7 @@ jobs:
           cargo --version
 
       - name: Build Davenstein for Apple Silicon
-        run: cargo build --release --locked --bin Davenstein
+        run: cargo build --release --bin Davenstein
 
       - name: Build Asset Packer
         run: |
@@ -2379,7 +2379,7 @@ jobs:
           cargo --version
 
       - name: Build Davenstein for Intel macOS
-        run: cargo build --release --locked --bin Davenstein
+        run: cargo build --release --bin Davenstein
 
       - name: Validate Intel macOS Executable
         run: |
