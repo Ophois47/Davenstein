@@ -8,9 +8,9 @@ Devices -> Source Systems -> PlayerIntent -> Gameplay -> World
 
 InputPlugin owns everything that produces intent, including device reads, cursor
 capture, and touch control geometry
-Gameplay systems that consume intent remain registered in main.rs because their
-run conditions reference binary crate resources such as LevelComplete that
-davelib cannot access
+Gameplay systems that consume intent remain registered in the shared application host
+because their run conditions depend on application-owned resources such as
+LevelComplete
 */
 
 pub mod intent;
@@ -31,7 +31,7 @@ pub use touch_layout::TouchLayout;
 
 // System Set Containing Per-Frame Intent Gathering
 // Order Consumers After This Set When They Must Read Fresh Intent in the Same Schedule
-// Example in main.rs: apply_look.after(davelib::input::InputGather)
+// Example in app.rs: apply_look.after(davelib::input::InputGather)
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InputGather;
 

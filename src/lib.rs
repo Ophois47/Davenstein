@@ -23,3 +23,26 @@ pub mod player;
 pub mod pushwalls;
 pub mod skill;
 pub mod world;
+
+// Application Modules Originally Compiled in the Desktop Binary Refer to the
+// Shared Library as 'davelib'. Alias This Crate to Itself so Those Paths Stay
+// Unchanged While Desktop and Mobile Entrypoints Share One Application Host
+extern crate self as davelib;
+
+// Keep Application-Owned Modules at the Crate Root so Existing 'crate::' Paths,
+// System Wiring, and the Shared Episode-End Marker Boundary Remain Unchanged
+mod combat;
+#[path = "episode_end.rs"]
+mod episode_end_app;
+mod level_complete;
+mod pak_assets;
+mod pickups;
+mod restart;
+mod save;
+mod settings;
+mod ui;
+
+mod app;
+
+pub(crate) use app::world_ready;
+pub use app::run;
