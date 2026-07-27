@@ -1296,7 +1296,13 @@ pub(crate) fn tick_death_overlay(
     };
 
     let Some(node) = q.iter().next() else { return; };
-    let Some(image) = images.get_mut(&node.image) else { return; };
+    // 'Assets::get_mut' Yields an 'AssetMut' Change-Detection Guard by Value, Not a
+    // Plain '&mut Image', so the Binding Must Be Mutable to Reach 'data' Through
+    // DerefMut. Going Through the Tracked Guard Is Deliberate: the DerefMut Marks the
+    // Asset Changed, Which Is What Re-Uploads the Rewritten Pixels to the GPU Each
+    // Frame. 'get_mut_untracked' Would Skip That Notification and the Dissolve Would
+    // Never Appear On Screen
+    let Some(mut image) = images.get_mut(&node.image) else { return; };
     let Some(data) = image.data.as_mut() else { return; };
 
     let w = DeathOverlay::FIZZLE_W;
