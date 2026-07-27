@@ -186,6 +186,18 @@ fn ammo_texture() -> &'static str {
     "textures/pickups/ammo.png"
 }
 
+/// Weapon Tier Used to Decide Auto-Equip on Pickup. Matches the Original Wolf3D
+/// Order (Knife < Pistol < Machine Gun < Chaingun), the Same Order the Number
+/// Keys Select. Only Used for the "Switch Up Only" Comparison Below
+fn weapon_rank(w: WeaponSlot) -> u8 {
+    match w {
+        WeaponSlot::Knife => 1,
+        WeaponSlot::Pistol => 2,
+        WeaponSlot::MachineGun => 3,
+        WeaponSlot::Chaingun => 4,
+    }
+}
+
 fn health_texture(h: HealthKind) -> &'static str {
     match h {
         HealthKind::FirstAid => "textures/pickups/health_first_aid.png",
@@ -938,8 +950,27 @@ pub fn collect_pickups(
                         emit_pickup_sfx(kind);
                     }
 
+                    // Wolf3D Switches Weapons Up Only, Never Down: on Pickup It
+                    // Auto-Equips the New Gun Only if It Outranks the Best Weapon
+                    // Already Owned (the Original's 'bestweapon < weapon' Test).
+                    // Picking Up the Machine Gun While the Chaingun Is Already Held
+                    // Therefore Grants Ammo but Leaves the Chaingun Equipped, Rather
+                    // Than Downgrading. Computed Before 'grant' so the New Weapon Is
+                    // Not Yet in the Owned Set
+                    let best_owned_rank = if hud.owns(WeaponSlot::Chaingun) {
+                        weapon_rank(WeaponSlot::Chaingun)
+                    } else if hud.owns(WeaponSlot::MachineGun) {
+                        weapon_rank(WeaponSlot::MachineGun)
+                    } else if hud.owns(WeaponSlot::Pistol) {
+                        weapon_rank(WeaponSlot::Pistol)
+                    } else {
+                        weapon_rank(WeaponSlot::Knife)
+                    };
+
                     hud.grant(w);
-                    hud.selected = w;
+                    if weapon_rank(w) > best_owned_rank {
+                        hud.selected = w;
+                    }
 
                     if hud.ammo < AMMO_MAX {
                         let gain = WEAPON_PICKUP_BULLETS.min(AMMO_MAX - hud.ammo);
