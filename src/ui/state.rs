@@ -153,6 +153,11 @@ impl PickupFlash {
 pub struct DeathOverlay {
     pub active: bool,
     pub timer: Timer,
+    /// Drives the Red-to-Black Fade Used on Game Over. Wolf3D's 'ex_died' Case
+    /// Calls 'VW_FadeOut' Once the Last Life Is Gone, Taking the Solid Red Fizzle
+    /// Screen Down to Black Before the High Scores and Main Menu. Held Separate
+    /// From 'timer' so the Fade Cannot Rewind the Completed Dissolve
+    pub black_fade: Timer,
 }
 
 impl Default for DeathOverlay {
@@ -163,7 +168,11 @@ impl Default for DeathOverlay {
         // Rather Than a Flash. Still Inside 'DeathDelay' (1.25s) Before Restart
         let mut t = Timer::from_seconds(1.0, TimerMode::Once);
         t.set_elapsed(t.duration());
-        Self { active: false, timer: t }
+
+        // Starts at Zero Elapsed (Not Faded). Only Ticks While Game Over Is Set
+        let black_fade = Timer::from_seconds(0.35, TimerMode::Once);
+
+        Self { active: false, timer: t, black_fade }
     }
 }
 
@@ -204,6 +213,13 @@ impl DeathOverlay {
         }
         let dur = self.timer.duration().as_secs_f32().max(0.0001);
         (self.timer.elapsed_secs() / dur).clamp(0.0, 1.0)
+    }
+
+    /// Fraction of the Way From Red to Black, 0..=1. Only Advances While Game Over
+    /// Is Set; 0 Means the Plain Red Death Screen
+    pub fn black_progress(&self) -> f32 {
+        let dur = self.black_fade.duration().as_secs_f32().max(0.0001);
+        (self.black_fade.elapsed_secs() / dur).clamp(0.0, 1.0)
     }
 }
 

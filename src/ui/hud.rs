@@ -1270,30 +1270,51 @@ fn fizzle_hash(x: u32, y: u32) -> u32 {
 pub(crate) fn tick_death_overlay(
     time: Res<Time>,
     mut death: ResMut<DeathOverlay>,
+    game_over: Res<GameOver>,
     mut images: ResMut<Assets<Image>>,
     q: Query<&ImageNode, With<DeathOverlayOverlay>>,
-    mut last_progress: Local<Option<f32>>,
+    mut last_state: Local<Option<(f32, f32)>>,
 ) {
     if death.active && !death.timer.is_finished() {
         death.timer.tick(time.delta());
     }
 
+    // Once the Last Life Is Gone, Wolf3D Calls 'VW_FadeOut' to Take the Solid Red
+    // Fizzle Screen Down to Black Before the High Scores and Menu. Advance That
+    // Fade Only While Game Over Is Set, and Rewind It Otherwise so an Ordinary
+    // Respawn Never Inherits a Blackened Screen From a Previous Game Over
+    if game_over.0 {
+        death.black_fade.tick(time.delta());
+    } else {
+        death.black_fade.reset();
+    }
+
     let progress = death.fizzle_progress();
+    let black = death.black_progress();
 
     // Rewriting 64000 Pixels Is Cheap but Pointless When Nothing Moved. Skip When
-    // the Progress Is Unchanged, Which Is Every Frame Outside a Death
-    if *last_progress == Some(progress) {
+    // Neither the Dissolve Nor the Black Fade Advanced, Which Is Every Frame
+    // Outside a Death
+    if *last_state == Some((progress, black)) {
         return;
     }
-    *last_progress = Some(progress);
+    *last_state = Some((progress, black));
+
+    // Game Over Covers the Whole Screen Regardless of How Far the Dissolve Got, so
+    // the Black Backdrop Behind the Game Over Text Is Never Patchy
+    let force_full = game_over.0;
 
     // Integer Threshold Avoids a Float Compare per Pixel. Progress 1.0 Must Reveal
     // Everything, so Saturate Rather Than Rounding Down and Leaving Stray Gaps
-    let threshold = if progress >= 1.0 {
+    let threshold = if progress >= 1.0 || force_full {
         u32::MAX
     } else {
         (progress * u32::MAX as f32) as u32
     };
+
+    // Red Channel Falls From Full to Zero Across the Fade; Green and Blue Stay at
+    // Zero, so Red Walks Straight Down to Black
+    let red = (255.0 * (1.0 - black)).clamp(0.0, 255.0) as u8;
 
     let Some(node) = q.iter().next() else { return; };
     // 'Assets::get_mut' Yields an 'AssetMut' Change-Detection Guard by Value, Not a
@@ -1318,8 +1339,8 @@ pub(crate) fn tick_death_overlay(
             // Solid Red (Wolf3D Filled the View With Palette Colour 4) or Fully
             // Clear. Never a Partial Alpha, so the World Cannot Be Seen Through
             // Any Pixel That Has Been Revealed
-            if progress > 0.0 && fizzle_hash(x, y) <= threshold {
-                data[idx] = 255;
+            if (progress > 0.0 || force_full) && fizzle_hash(x, y) <= threshold {
+                data[idx] = red;
                 data[idx + 1] = 0;
                 data[idx + 2] = 0;
                 data[idx + 3] = 255;
