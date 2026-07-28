@@ -31,6 +31,7 @@ set -eu
 #     EXPECTED_TEAM_ID        Apple Developer Team Identifier
 #     EXPECTED_BUNDLE_ID      Expected macOS Application Bundle Identifier
 #     NOTARYTOOL_PROFILE      Stored notarytool Keychain Profile
+#     NOTARYTOOL_KEYCHAIN     Optional Keychain Containing the Profile
 #
 
 # Resolve Repository Paths Relative to this Script
@@ -44,6 +45,7 @@ SIGNING_IDENTITY=${SIGNING_IDENTITY:-"Developer ID Application: CyberSoft Operat
 EXPECTED_TEAM_ID=${EXPECTED_TEAM_ID:-"923379G559"}
 EXPECTED_BUNDLE_ID=${EXPECTED_BUNDLE_ID:-"com.davidpetnick.davenstein"}
 NOTARYTOOL_PROFILE=${NOTARYTOOL_PROFILE:-"DavensteinNotary"}
+NOTARYTOOL_KEYCHAIN=${NOTARYTOOL_KEYCHAIN:-}
 
 # Required Application Bundle Paths
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
@@ -80,6 +82,24 @@ test -n "$EXPECTED_BUNDLE_ID" ||
 
 test -n "$NOTARYTOOL_PROFILE" ||
     fail "NOTARYTOOL_PROFILE must not be empty"
+
+# Run notarytool Against the Explicit CI Keychain When One Is Provided
+# Local Releases Continue Using the Normal Keychain Search Behavior
+run_notarytool() {
+    notarytool_command=$1
+    shift
+
+    if [ -n "$NOTARYTOOL_KEYCHAIN" ]; then
+        xcrun notarytool \
+            "$notarytool_command" \
+            --keychain "$NOTARYTOOL_KEYCHAIN" \
+            "$@"
+    else
+        xcrun notarytool \
+            "$notarytool_command" \
+            "$@"
+    fi
+}
 
 # Validate Required Application Bundle Contents
 test -d "$APP_BUNDLE" || {
@@ -226,7 +246,7 @@ then
 fi
 
 # Confirm the Stored notarytool Profile Can Authenticate Before Submission
-xcrun notarytool history \
+run_notarytool history \
     --keychain-profile "$NOTARYTOOL_PROFILE" \
     --output-format json \
     >"$PROFILE_HISTORY" ||
@@ -248,7 +268,7 @@ test -s "$SUBMISSION_ZIP" ||
 printf 'Submitting %s for Apple notarization\n' "$APP_BUNDLE"
 
 # Submit Privately to Apple and Wait for a Terminal Result
-xcrun notarytool submit \
+run_notarytool submit \
     "$SUBMISSION_ZIP" \
     --keychain-profile "$NOTARYTOOL_PROFILE" \
     --wait \
@@ -287,13 +307,13 @@ printf 'Notarization status: %s\n' "$submission_status"
 
 # Retrieve the Apple Log for Accepted and Rejected Submissions
 if [ "$submission_status" = "Accepted" ]; then
-    xcrun notarytool log \
+    run_notarytool log \
         "$submission_id" \
         --keychain-profile "$NOTARYTOOL_PROFILE" \
         "$NOTARIZATION_LOG" ||
         fail "Could not retrieve the accepted Apple notarization log"
 else
-    xcrun notarytool log \
+    run_notarytool log \
         "$submission_id" \
         --keychain-profile "$NOTARYTOOL_PROFILE" \
         "$NOTARIZATION_LOG" ||
