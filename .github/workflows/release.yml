@@ -2329,6 +2329,33 @@ jobs:
               "target/macos/Davenstein.app/Contents/Resources/Documentation/$legal_file"
           done
 
+      - name: Configure Temporary macOS Signing Keychain
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARIZATION_ID: ${{ secrets.APPLE_NOTARIZATION_ID }}
+          APPLE_NOTARIZATION_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SIGNING_IDENTITY: "Developer ID Application: CyberSoft Operating Corporation (923379G559)"
+        run: packaging/macos/configure-ci-keychain.sh
+
+      - name: Sign macOS Application Bundle
+        env:
+          APP_BUNDLE: ${{ github.workspace }}/target/macos/Davenstein.app
+          SIGNING_IDENTITY: "Developer ID Application: CyberSoft Operating Corporation (923379G559)"
+          EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPECTED_BUNDLE_ID: com.davidpetnick.davenstein
+        run: packaging/macos/sign-app.sh
+
+      - name: Notarize macOS Application Bundle
+        env:
+          APP_BUNDLE: ${{ github.workspace }}/target/macos/Davenstein.app
+          SIGNING_IDENTITY: "Developer ID Application: CyberSoft Operating Corporation (923379G559)"
+          EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPECTED_BUNDLE_ID: com.davidpetnick.davenstein
+        run: packaging/macos/notarize-app.sh
+
       - name: Archive macOS Application Bundle
         env:
           VERSION: ${{ env.RELEASE_VERSION }}
@@ -2344,6 +2371,17 @@ jobs:
             shasum -a 256 -c Davenstein-*-macos-aarch64.zip.sha256
           )
 
+      - name: Verify macOS Release Archive
+        env:
+          VERSION: ${{ env.RELEASE_VERSION }}
+          ARCH: aarch64
+          ZIP_PATH: ${{ github.workspace }}/target/macos/Davenstein-${{ env.RELEASE_VERSION }}-macos-aarch64.zip
+          CHECKSUM_PATH: ${{ github.workspace }}/target/macos/Davenstein-${{ env.RELEASE_VERSION }}-macos-aarch64.zip.sha256
+          SIGNING_IDENTITY: "Developer ID Application: CyberSoft Operating Corporation (923379G559)"
+          EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPECTED_BUNDLE_ID: com.davidpetnick.davenstein
+        run: packaging/macos/verify-archive.sh
+
       - name: Stage macOS Release Packages
         run: |
           rm -rf target/release-artifacts/macos
@@ -2358,6 +2396,9 @@ jobs:
           path: target/release-artifacts/macos/*
           if-no-files-found: error
 
+      - name: Remove Temporary macOS Signing Credentials
+        if: always()
+        run: packaging/macos/cleanup-ci-keychain.sh
 
   build-macos-intel:
     name: Build Intel macOS Component
@@ -2423,6 +2464,13 @@ jobs:
         with:
           name: Davenstein-macOS-Apple-Silicon-Packages
           path: target/macos-arm64-package
+
+      - name: Validate Downloaded Apple Silicon macOS Package
+        run: |
+          (
+            cd target/macos-arm64-package
+            shasum -a 256 -c Davenstein-*-macos-aarch64.zip.sha256
+          )
 
       - name: Download Intel macOS Component
         uses: actions/download-artifact@v8
@@ -2517,6 +2565,33 @@ jobs:
               "target/macos/Davenstein.app/Contents/Resources/Documentation/$legal_file"
           done
 
+      - name: Configure Temporary macOS Signing Keychain
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARIZATION_ID: ${{ secrets.APPLE_NOTARIZATION_ID }}
+          APPLE_NOTARIZATION_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SIGNING_IDENTITY: "Developer ID Application: CyberSoft Operating Corporation (923379G559)"
+        run: packaging/macos/configure-ci-keychain.sh
+
+      - name: Sign macOS Application Bundle
+        env:
+          APP_BUNDLE: ${{ github.workspace }}/target/macos/Davenstein.app
+          SIGNING_IDENTITY: "Developer ID Application: CyberSoft Operating Corporation (923379G559)"
+          EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPECTED_BUNDLE_ID: com.davidpetnick.davenstein
+        run: packaging/macos/sign-app.sh
+
+      - name: Notarize macOS Application Bundle
+        env:
+          APP_BUNDLE: ${{ github.workspace }}/target/macos/Davenstein.app
+          SIGNING_IDENTITY: "Developer ID Application: CyberSoft Operating Corporation (923379G559)"
+          EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPECTED_BUNDLE_ID: com.davidpetnick.davenstein
+        run: packaging/macos/notarize-app.sh
+
       - name: Archive Universal macOS Application Bundle
         env:
           VERSION: ${{ env.RELEASE_VERSION }}
@@ -2531,6 +2606,17 @@ jobs:
             cd target/macos
             shasum -a 256 -c Davenstein-*-macos-universal.zip.sha256
           )
+
+      - name: Verify Universal macOS Release Archive
+        env:
+          VERSION: ${{ env.RELEASE_VERSION }}
+          ARCH: universal
+          ZIP_PATH: ${{ github.workspace }}/target/macos/Davenstein-${{ env.RELEASE_VERSION }}-macos-universal.zip
+          CHECKSUM_PATH: ${{ github.workspace }}/target/macos/Davenstein-${{ env.RELEASE_VERSION }}-macos-universal.zip.sha256
+          SIGNING_IDENTITY: "Developer ID Application: CyberSoft Operating Corporation (923379G559)"
+          EXPECTED_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          EXPECTED_BUNDLE_ID: com.davidpetnick.davenstein
+        run: packaging/macos/verify-archive.sh
 
       - name: Stage Universal macOS Release Packages
         run: |
@@ -2549,6 +2635,10 @@ jobs:
           name: Davenstein-macOS-Universal-Packages
           path: target/release-artifacts/macos-universal/*
           if-no-files-found: error
+
+      - name: Remove Temporary macOS Signing Credentials
+        if: always()
+        run: packaging/macos/cleanup-ci-keychain.sh
 
   release:
     name: Publish GitHub Release
