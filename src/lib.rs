@@ -46,3 +46,18 @@ mod app;
 
 pub(crate) use app::world_ready;
 pub use app::run;
+
+#[cfg(target_os = "android")]
+use bevy::prelude::bevy_main;
+
+// Android NativeActivity Enters Through the Bevy-Generated Platform Symbol
+// Installs the Versioned DVPK Into Private Storage Before the Shared Application
+// Host Starts So the Existing Memory-Mapped Asset Reader Uses an Ordinary File
+#[cfg(target_os = "android")]
+#[bevy_main]
+pub fn main() {
+    pak_assets::install_android_pak()
+        .expect("Could Not Install Android assets.pak");
+
+    run();
+}

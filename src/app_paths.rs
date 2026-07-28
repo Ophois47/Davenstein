@@ -37,11 +37,52 @@ pub fn storage_mode() -> io::Result<StorageMode> {
     Ok(storage_mode_for(&executable_dir()?))
 }
 
+// NativeActivity Can Be Recreated While the Rust Process Remains Alive
+// Cache the First Valid Private Files Path for Later Android Lifecycle Entries
+#[cfg(target_os = "android")]
+static ANDROID_INTERNAL_DATA_PATH: std::sync::OnceLock<PathBuf> =
+    std::sync::OnceLock::new();
+
+#[cfg(target_os = "android")]
+pub(crate) fn android_internal_data_path() -> io::Result<PathBuf> {
+    if let Some(path) = ANDROID_INTERNAL_DATA_PATH.get() {
+        return Ok(path.clone());
+    }
+
+    let android_app = bevy::android::ANDROID_APP.get().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "Bevy Android application state is unavailable",
+        )
+    })?;
+
+    let path = android_app.internal_data_path().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "Android internal data directory is unavailable",
+        )
+    })?;
+
+    let _ = ANDROID_INTERNAL_DATA_PATH.set(path.clone());
+    Ok(path)
+}
+
 pub fn data_root() -> io::Result<PathBuf> {
-    let executable_dir = executable_dir()?;
-    let platform_data_dir = dirs::data_local_dir();
-    let mode = storage_mode_for(&executable_dir);
-    data_root_for(&executable_dir, platform_data_dir.as_deref(), mode)
+    // Android Uses the Cached Private Files Path Because NativeActivity
+    // Instances May Be Replaced Without Restarting the Rust Process
+    #[cfg(target_os = "android")]
+    {
+        return Ok(android_internal_data_path()?.join(APP_DIRECTORY_NAME));
+    }
+
+    // Desktop Builds Preserve the Existing Installed and Portable Storage Policy
+    #[cfg(not(target_os = "android"))]
+    {
+        let executable_dir = executable_dir()?;
+        let platform_data_dir = dirs::data_local_dir();
+        let mode = storage_mode_for(&executable_dir);
+        data_root_for(&executable_dir, platform_data_dir.as_deref(), mode)
+    }
 }
 
 pub fn save_dir() -> io::Result<PathBuf> {
@@ -64,6 +105,7 @@ fn storage_mode_for(executable_dir: &Path) -> StorageMode {
     }
 }
 
+#[cfg(any(not(target_os = "android"), test))]
 fn data_root_for(
     executable_dir: &Path,
     platform_data_dir: Option<&Path>,

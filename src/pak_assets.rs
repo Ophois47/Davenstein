@@ -66,9 +66,28 @@ use std::{
 	sync::Arc,
 };
 
+#[cfg(target_os = "android")]
+use std::{
+	ffi::CString,
+	fs,
+	io::Read,
+};
+
 // DVPK Package Identification and Supported Format Version
 const MAGIC: [u8; 4] = *b"DVPK";
 const VERSION: u32 = 1;
+
+#[cfg(target_os = "android")]
+const ANDROID_PAK_ASSET_NAME: &str = "assets.pak";
+
+#[cfg(target_os = "android")]
+const ANDROID_PAK_CHECKSUM_NAME: &str = "assets.pak.sha256";
+
+// NativeActivity May Enter Again While the Rust Process And Installed DVPK Remain
+// Cache the Validated Private File Path Before Any Later Lifecycle Reentry
+#[cfg(target_os = "android")]
+static ANDROID_PAK_PATH: std::sync::OnceLock<PathBuf> =
+    std::sync::OnceLock::new();
 
 // Bevy Plugin Responsible for Replacing Default Asset Source With DVPK Reader
 pub struct PakAssetsPlugin;
@@ -114,7 +133,108 @@ impl Plugin for PakAssetsPlugin {
 	}
 }
 
-// Resolves Explicit Package Path Before Falling Back to Executable Directory
+// Android APK Assets Are Not Ordinary Files and Cannot Be Memory Mapped Directly
+// Copy the Versioned DVPK Into Private App Storage Before Starting the Bevy App
+#[cfg(target_os = "android")]
+pub(crate) fn install_android_pak() -> io::Result<PathBuf> {
+	if let Some(pak_path) = ANDROID_PAK_PATH.get() {
+		if pak_path.is_file() {
+			return Ok(pak_path.clone());
+		}
+	}
+
+	let android_app = bevy::android::ANDROID_APP.get().ok_or_else(|| {
+		io::Error::new(
+			io::ErrorKind::NotFound,
+			"Bevy Android application state is unavailable",
+		)
+	})?;
+
+	let data_dir = crate::app_paths::android_internal_data_path()?;
+
+	fs::create_dir_all(&data_dir)?;
+
+	let pak_path = data_dir.join(ANDROID_PAK_ASSET_NAME);
+	let checksum_path = data_dir.join(ANDROID_PAK_CHECKSUM_NAME);
+	let asset_manager = android_app.asset_manager();
+
+	let checksum_name = CString::new(ANDROID_PAK_CHECKSUM_NAME)
+		.expect("Android checksum asset name contains no NUL byte");
+
+	let mut checksum_asset = asset_manager
+		.open(&checksum_name)
+		.ok_or_else(|| {
+			io::Error::new(
+				io::ErrorKind::NotFound,
+				"Android assets.pak checksum is missing from the APK",
+			)
+		})?;
+
+	let mut expected_checksum = String::new();
+	checksum_asset.read_to_string(&mut expected_checksum)?;
+	let expected_checksum = expected_checksum.trim();
+
+	if expected_checksum.len() != 64
+		|| !expected_checksum
+			.bytes()
+			.all(|byte| byte.is_ascii_hexdigit())
+	{
+		return Err(io::Error::new(
+			io::ErrorKind::InvalidData,
+			"Android assets.pak checksum is invalid",
+		));
+	}
+
+	let installed_checksum = fs::read_to_string(&checksum_path).ok();
+	let package_is_current = installed_checksum
+		.as_deref()
+		.map(str::trim)
+		.map(|value| value.eq_ignore_ascii_case(expected_checksum))
+		.unwrap_or(false);
+
+	if pak_path.is_file() && package_is_current {
+		let _ = ANDROID_PAK_PATH.set(pak_path.clone());
+		return Ok(pak_path);
+	}
+
+	let pak_name = CString::new(ANDROID_PAK_ASSET_NAME)
+		.expect("Android package asset name contains no NUL byte");
+
+	let mut pak_asset = asset_manager.open(&pak_name).ok_or_else(|| {
+		io::Error::new(
+			io::ErrorKind::NotFound,
+			"Android assets.pak is missing from the APK",
+		)
+	})?;
+
+	let expected_length = pak_asset.length() as u64;
+	let temporary_path = data_dir.join("assets.pak.tmp");
+	let mut temporary_file = File::create(&temporary_path)?;
+	let copied_length = io::copy(&mut pak_asset, &mut temporary_file)?;
+
+	if copied_length != expected_length {
+		drop(temporary_file);
+		let _ = fs::remove_file(&temporary_path);
+
+		return Err(io::Error::new(
+			io::ErrorKind::UnexpectedEof,
+			format!(
+				"Copied {copied_length} of {expected_length} Android package bytes"
+			),
+		));
+	}
+
+	temporary_file.sync_all()?;
+	drop(temporary_file);
+
+	fs::rename(&temporary_path, &pak_path)?;
+	fs::write(&checksum_path, format!("{expected_checksum}\n"))?;
+
+	let _ = ANDROID_PAK_PATH.set(pak_path.clone());
+	Ok(pak_path)
+}
+
+// Resolves an Explicit Package Override Before Applying the Platform Package Policy
 fn resolve_pak_path() -> Option<PathBuf> {
 	if let Some(p) = std::env::var_os("DAVENSTEIN_PAK_PATH") {
 		return Some(PathBuf::from(p));
@@ -138,7 +258,18 @@ fn should_use_pak() -> bool {
 	}
 }
 
-// Default Package Path is macOS Bundle Resources or Beside Running Executable
+// Android Uses the Private DVPK Copy Installed From APK Assets Before Bevy Starts
+#[cfg(target_os = "android")]
+fn default_pak_path() -> Option<PathBuf> {
+	ANDROID_PAK_PATH.get().cloned().or_else(|| {
+		crate::app_paths::android_internal_data_path()
+			.ok()
+			.map(|path| path.join(ANDROID_PAK_ASSET_NAME))
+	})
+}
+
+// Desktop Platforms Preserve the Existing macOS Bundle and Executable-Relative Paths
+#[cfg(not(target_os = "android"))]
 fn default_pak_path() -> Option<PathBuf> {
 	let exe = std::env::current_exe().ok()?;
 	let dir = exe.parent()?;

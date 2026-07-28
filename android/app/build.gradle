@@ -1,0 +1,122 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+def cargoManifest = file("../../Cargo.toml")
+def cargoText = cargoManifest.getText("UTF-8")
+def versionMatch = cargoText =~ /(?m)^version = "([^"]+)"$/
+
+if (!versionMatch.find()) {
+    throw new GradleException(
+        "Could Not Read The Davenstein Version From Cargo.toml"
+    )
+}
+
+def davensteinVersion = versionMatch.group(1)
+def numericVersion = davensteinVersion.split("-", 2)[0].split("\\.")
+
+if (numericVersion.length != 3) {
+    throw new GradleException(
+        "Davenstein Requires A Three-Part Semantic Version"
+    )
+}
+
+def computedVersionCode =
+    numericVersion[0].toInteger() * 1000000 +
+    numericVersion[1].toInteger() * 1000 +
+    numericVersion[2].toInteger()
+
+def requestedVersionCode = providers
+    .gradleProperty("davensteinVersionCode")
+    .orElse(
+        providers.environmentVariable(
+            "DAVENSTEIN_ANDROID_VERSION_CODE"
+        )
+    )
+
+def requestedAbis = providers
+    .gradleProperty("davenstein.abis")
+    .get()
+    .split(",")
+    .collect { it.trim() }
+    .findAll { !it.isEmpty() }
+
+android {
+    namespace = "com.davidpetnick.davenstein"
+    compileSdk {
+        version = release(
+            providers
+                .gradleProperty("davenstein.compileSdkMajor")
+                .get()
+                .toInteger()
+        ) {
+            it.minorApiLevel = providers
+                .gradleProperty("davenstein.compileSdkMinor")
+                .get()
+                .toInteger()
+        }
+    }
+
+    buildToolsVersion = providers
+        .gradleProperty("davenstein.buildToolsVersion")
+        .get()
+
+    ndkVersion = providers
+        .gradleProperty("davenstein.ndkVersion")
+        .get()
+
+    defaultConfig {
+        applicationId = "com.davidpetnick.davenstein"
+
+        minSdk = providers
+            .gradleProperty("davenstein.minSdk")
+            .get()
+            .toInteger()
+
+        targetSdk = providers
+            .gradleProperty("davenstein.targetSdk")
+            .get()
+            .toInteger()
+
+        versionName = davensteinVersion
+        versionCode = requestedVersionCode.isPresent()
+            ? requestedVersionCode.get().toInteger()
+            : computedVersionCode
+
+        ndk {
+            abiFilters.addAll(requestedAbis)
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable = true
+        }
+
+        release {
+            debuggable = false
+            minifyEnabled = false
+        }
+    }
+
+    sourceSets {
+        main {
+            // cargo-ndk Writes ABI Directories In Android jniLibs Layout
+            jniLibs.srcDirs = [
+                file("../../target/android-jniLibs")
+            ]
+
+            // Android Assets Will Be Generated Here By The Packaging Script
+            assets.srcDirs = [
+                file("../../target/android-assets")
+            ]
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Modern Packaging Preserves Directly Loadable Native Libraries
+            useLegacyPackaging = false
+        }
+    }
+}
