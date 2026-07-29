@@ -1,0 +1,776 @@
+name: Build Davenstein Android
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Build Davenstein Releases
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+  # Keep Android CI Tooling Centralized And Straightforward To Update
+  ANDROID_JAVA_VERSION: "21"
+  ANDROID_RUST_TARGET: aarch64-linux-android
+  ANDROID_RELEASE_ABI: arm64-v8a
+  ANDROID_COMMAND_LINE_TOOLS_VERSION: "14742923"
+  CARGO_NDK_VERSION: 4.1.2
+
+jobs:
+  build-android-arm64:
+    name: Build Android ARM64 APK
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+
+    steps:
+      # Build The Requested Manual Ref Or The Exact Commit Proven By The Main
+      # Release Workflow Before Publishing Android Assets For The Same Version
+      - name: Check Out Source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
+          fetch-depth: 0
+
+      - name: Set Up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.ANDROID_JAVA_VERSION }}
+          cache: gradle
+          cache-dependency-path: |
+            android/**/*.gradle
+            android/gradle/libs.versions.toml
+            android/gradle/wrapper/gradle-wrapper.properties
+
+      # Read Android Platform Versions From The Committed Gradle Properties
+      # Instead Of Maintaining A Second Independent Version List In CI
+      - name: Resolve Android Toolchain Versions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          read_property() {
+            local key="$1"
+            local count
+            local value
+
+            count=$(
+              awk \
+                -F= \
+                -v key="$key" \
+                '$1 == key { count++ } END { print count + 0 }' \
+                android/gradle.properties
+            )
+
+            if [[ "$count" -ne 1 ]]; then
+              printf \
+                'Expected exactly one %s property, found %s\n' \
+                "$key" \
+                "$count" >&2
+              exit 1
+            fi
+
+            value=$(
+              awk \
+                -F= \
+                -v key="$key" \
+                '$1 == key {
+                  sub(/^[^=]*=/, "")
+                  print
+                }' \
+                android/gradle.properties
+            )
+
+            if [[ -z "$value" ]]; then
+              printf 'Android property %s is empty\n' "$key" >&2
+              exit 1
+            fi
+
+            printf '%s' "$value"
+          }
+
+          compile_sdk_major=$(
+            read_property davenstein.compileSdkMajor
+          )
+          compile_sdk_minor=$(
+            read_property davenstein.compileSdkMinor
+          )
+          build_tools_version=$(
+            read_property davenstein.buildToolsVersion
+          )
+          ndk_version=$(
+            read_property davenstein.ndkVersion
+          )
+          minimum_sdk=$(
+            read_property davenstein.minSdk
+          )
+
+          if [[ "$compile_sdk_minor" == "0" ]]; then
+            platform_version="$compile_sdk_major"
+          else
+            platform_version="${compile_sdk_major}.${compile_sdk_minor}"
+          fi
+
+          {
+            printf \
+              'ANDROID_PLATFORM_PACKAGE=platforms;android-%s\n' \
+              "$platform_version"
+            printf \
+              'ANDROID_BUILD_TOOLS_PACKAGE=build-tools;%s\n' \
+              "$build_tools_version"
+            printf \
+              'ANDROID_NDK_PACKAGE=ndk;%s\n' \
+              "$ndk_version"
+            printf \
+              'ANDROID_BUILD_TOOLS_VERSION=%s\n' \
+              "$build_tools_version"
+            printf \
+              'ANDROID_NDK_VERSION=%s\n' \
+              "$ndk_version"
+            printf \
+              'ANDROID_MIN_SDK=%s\n' \
+              "$minimum_sdk"
+          } >> "$GITHUB_ENV"
+
+          printf 'Android Platform: %s\n' "$platform_version"
+          printf 'Android Build Tools: %s\n' "$build_tools_version"
+          printf 'Android NDK: %s\n' "$ndk_version"
+          printf 'Android Minimum API: %s\n' "$minimum_sdk"
+
+      - name: Set Up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          cmdline-tools-version: ${{ env.ANDROID_COMMAND_LINE_TOOLS_VERSION }}
+          packages: ""
+          accept-android-sdk-licenses: "yes"
+          log-accepted-android-sdk-licenses: "false"
+
+      - name: Install Pinned Android SDK Packages
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sdkmanager \
+            platform-tools \
+            "$ANDROID_PLATFORM_PACKAGE" \
+            "$ANDROID_BUILD_TOOLS_PACKAGE" \
+            "$ANDROID_NDK_PACKAGE"
+
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+
+          if [[ -z "$sdk_root" ]]; then
+            echo "Android SDK root is unavailable" >&2
+            exit 1
+          fi
+
+          ndk_root="$sdk_root/ndk/$ANDROID_NDK_VERSION"
+          build_tools_dir="$sdk_root/build-tools/$ANDROID_BUILD_TOOLS_VERSION"
+
+          test -d "$ndk_root"
+          test -x "$build_tools_dir/aapt"
+          test -x "$build_tools_dir/apksigner"
+          test -x "$build_tools_dir/zipalign"
+
+          {
+            printf 'ANDROID_NDK_HOME=%s\n' "$ndk_root"
+            printf 'ANDROID_NDK_ROOT=%s\n' "$ndk_root"
+            printf 'ANDROID_BUILD_TOOLS_DIR=%s\n' "$build_tools_dir"
+          } >> "$GITHUB_ENV"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.ANDROID_RUST_TARGET }}
+
+      - name: Install cargo-ndk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cargo install \
+            cargo-ndk \
+            --version "$CARGO_NDK_VERSION"
+
+          cargo ndk --version
+
+      - name: Install Android Validation Tools
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils \
+            file \
+            unzip
+
+      # Build The Same DVPK Asset Package Used By Desktop Releases, Then Stage
+      # It In The Android Asset Directory Expected By The Gradle Source Set
+      - name: Build And Stage Android Assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf target/android-assets
+          mkdir -p target/release target/android-assets
+
+          rustc \
+            --edition=2024 \
+            -O \
+            src/pak_builder.rs \
+            -o target/release/pak_builder
+
+          target/release/pak_builder \
+            --root assets \
+            --out target/android-assets/assets.pak
+
+          pak_hash=$(
+            sha256sum target/android-assets/assets.pak |
+              awk '{ print tolower($1) }'
+          )
+
+          printf '%s\n' "$pak_hash" \
+            > target/android-assets/assets.pak.sha256
+
+          test -s target/android-assets/assets.pak
+          grep -Eq \
+            '^[0-9a-f]{64}$' \
+            target/android-assets/assets.pak.sha256
+
+          printf 'Android assets.pak SHA-256: %s\n' "$pak_hash"
+
+      # Compile Only The Public ARM64 Android ABI While Leaving The Emulator
+      # Default In gradle.properties Unchanged For Developer Builds
+      - name: Build Davenstein Android ARM64 Library
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf "target/android-jniLibs/$ANDROID_RELEASE_ABI"
+
+          cargo ndk \
+            -t "$ANDROID_RELEASE_ABI" \
+            -P "$ANDROID_MIN_SDK" \
+            -o target/android-jniLibs \
+            build \
+            --release \
+            --lib
+
+      - name: Validate Android ARM64 Library
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          native_library="target/android-jniLibs/$ANDROID_RELEASE_ABI/libdavelib.so"
+          elf_header="$RUNNER_TEMP/davenstein-android-elf-header.txt"
+
+          test -s "$native_library"
+
+          file "$native_library"
+          readelf -h "$native_library" |
+            tee "$elf_header"
+
+          grep -Eq \
+            'Class:[[:space:]]+ELF64' \
+            "$elf_header"
+
+          grep -Eq \
+            'Machine:[[:space:]]+AArch64' \
+            "$elf_header"
+
+      # Use Cargo.toml As The Release Version Authority And Require Automatic
+      # Runs To Match The Exact Tag Commit Built By The Main Release Workflow
+      - name: Resolve Android Release Version
+        shell: bash
+        env:
+          WORKFLOW_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          release_version=$(
+            python3 - <<'PY'
+          import pathlib
+          import tomllib
+
+          manifest_path = pathlib.Path("Cargo.toml")
+
+          with manifest_path.open("rb") as manifest_file:
+              manifest = tomllib.load(manifest_file)
+
+          package = manifest.get("package")
+          if not isinstance(package, dict):
+              raise SystemExit("Cargo.toml does not contain a [package] table")
+
+          version = package.get("version")
+          if not isinstance(version, str) or not version.strip():
+              raise SystemExit("Cargo.toml does not contain a package version")
+
+          print(version)
+          PY
+          )
+
+          release_tag="v${release_version}"
+
+          {
+            printf 'RELEASE_VERSION=%s\n' "$release_version"
+            printf 'RELEASE_TAG=%s\n' "$release_tag"
+          } >> "$GITHUB_ENV"
+
+          if [[ "$WORKFLOW_EVENT_NAME" == "workflow_run" ]]; then
+            git fetch --force --tags origin
+
+            if ! tag_commit=$(
+              git rev-list \
+                -n 1 \
+                "$release_tag" \
+                2>/dev/null
+            ); then
+              printf \
+                'Could not resolve Android release tag %s\n' \
+                "$release_tag" >&2
+              exit 1
+            fi
+
+            head_commit=$(
+              git rev-parse HEAD
+            )
+
+            if [[ "$tag_commit" != "$head_commit" ]]; then
+              printf \
+                'Android release tag %s resolves to %s instead of %s\n' \
+                "$release_tag" \
+                "$tag_commit" \
+                "$head_commit" >&2
+              exit 1
+            fi
+          fi
+
+          printf 'Android Release Version: %s\n' "$release_version"
+          printf 'Android Release Tag: %s\n' "$release_tag"
+
+      # Require Every Loadable ELF Segment To Support 16 KiB Page Boundaries
+      # Before The Native Library Is Accepted For Public Android Packaging
+      - name: Validate Android ARM64 Page Alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          native_library="target/android-jniLibs/$ANDROID_RELEASE_ABI/libdavelib.so"
+
+          mapfile -t load_alignments < <(
+            readelf -lW "$native_library" |
+              awk '$1 == "LOAD" { print $NF }'
+          )
+
+          if [[ "${#load_alignments[@]}" -eq 0 ]]; then
+            echo "No ELF LOAD segments were found" >&2
+            exit 1
+          fi
+
+          for alignment in "${load_alignments[@]}"; do
+            alignment_value=$((alignment))
+
+            if (
+              ((
+                alignment_value < 0x4000 ||
+                alignment_value % 0x4000 != 0
+              ))
+            ); then
+              printf \
+                'ELF LOAD alignment %s does not support 16 KiB pages\n' \
+                "$alignment" >&2
+              exit 1
+            fi
+          done
+
+          printf 'Validated ELF LOAD Alignments: %s\n' \
+            "${load_alignments[*]}"
+
+      - name: Build Unsigned Android Release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf android/app/build/outputs/apk/release
+
+          chmod +x android/gradlew
+
+          (
+            cd android
+
+            ./gradlew \
+              --no-daemon \
+              --stacktrace \
+              "-Pdavenstein.abis=$ANDROID_RELEASE_ABI" \
+              app:assembleRelease
+          )
+
+          mapfile -t unsigned_apks < <(
+            find android/app/build/outputs/apk/release \
+              -maxdepth 1 \
+              -type f \
+              -name '*-unsigned.apk' \
+              -print
+          )
+
+          if [[ "${#unsigned_apks[@]}" -ne 1 ]]; then
+            printf \
+              'Expected one unsigned Android APK, found %s\n' \
+              "${#unsigned_apks[@]}" >&2
+            exit 1
+          fi
+
+          test -s "${unsigned_apks[0]}"
+
+          printf 'ANDROID_UNSIGNED_APK_PATH=%s\n' \
+            "${unsigned_apks[0]}" \
+            >> "$GITHUB_ENV"
+
+      # Reconstruct Only A Temporary Runner Copy Of The Permanent Signing
+      # Identity And Verify It Before Any APK Signing Operation Is Allowed
+      - name: Configure Temporary Android Signing Keystore
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          EXPECTED_KEYSTORE_SHA256: ${{ vars.ANDROID_KEYSTORE_SHA256 }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$KEYSTORE_BASE64" ]]; then
+            echo "ANDROID_KEYSTORE_BASE64 is unavailable" >&2
+            exit 1
+          fi
+
+          if [[ -z "$EXPECTED_KEYSTORE_SHA256" ]]; then
+            echo "ANDROID_KEYSTORE_SHA256 is unavailable" >&2
+            exit 1
+          fi
+
+          keystore="$RUNNER_TEMP/Davenstein-Android-Release.p12"
+
+          printf '%s' "$KEYSTORE_BASE64" |
+            base64 --decode \
+              > "$keystore"
+
+          chmod 600 "$keystore"
+
+          actual_hash=$(
+            sha256sum "$keystore" |
+              awk '{ print tolower($1) }'
+          )
+
+          expected_hash=$(
+            printf '%s' "$EXPECTED_KEYSTORE_SHA256" |
+              tr '[:upper:]' '[:lower:]'
+          )
+
+          if [[ "$actual_hash" != "$expected_hash" ]]; then
+            echo "Temporary Android keystore checksum mismatch" >&2
+            exit 1
+          fi
+
+          printf 'ANDROID_KEYSTORE_PATH=%s\n' "$keystore" \
+            >> "$GITHUB_ENV"
+
+          printf 'Verified Android Keystore SHA-256: %s\n' \
+            "$actual_hash"
+
+      # Align The Native Library For 16 KiB Devices Before Signing Because Any
+      # Post-Signature APK Modification Would Invalidate The Android Signature
+      - name: Align And Sign Android Release APK
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ vars.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$ANDROID_KEYSTORE_PASSWORD" ]]; then
+            echo "ANDROID_KEYSTORE_PASSWORD is unavailable" >&2
+            exit 1
+          fi
+
+          if [[ -z "$ANDROID_KEY_ALIAS" ]]; then
+            echo "ANDROID_KEY_ALIAS is unavailable" >&2
+            exit 1
+          fi
+
+          output_directory="target/release-artifacts/android"
+          aligned_apk="$RUNNER_TEMP/Davenstein-Android-aligned.apk"
+          signed_apk="$output_directory/Davenstein-${RELEASE_VERSION}-Android-${ANDROID_RELEASE_ABI}.apk"
+          checksum_path="${signed_apk}.sha256"
+
+          rm -rf "$output_directory"
+          mkdir -p "$output_directory"
+
+          "$ANDROID_BUILD_TOOLS_DIR/zipalign" \
+            -P 16 \
+            -f \
+            -v \
+            4 \
+            "$ANDROID_UNSIGNED_APK_PATH" \
+            "$aligned_apk"
+
+          "$ANDROID_BUILD_TOOLS_DIR/apksigner" sign \
+            --ks "$ANDROID_KEYSTORE_PATH" \
+            --ks-type PKCS12 \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --v4-signing-enabled false \
+            --out "$signed_apk" \
+            "$aligned_apk"
+
+          test -s "$signed_apk"
+
+          {
+            printf 'ANDROID_APK_PATH=%s\n' "$signed_apk"
+            printf 'ANDROID_APK_CHECKSUM_PATH=%s\n' "$checksum_path"
+          } >> "$GITHUB_ENV"
+
+      # Confirm The APK Uses The Permanent Davenstein Certificate Rather Than
+      # Merely Accepting Any Cryptographically Valid Android Signature
+      - name: Verify Signed Android Release APK
+        shell: bash
+        env:
+          EXPECTED_CERTIFICATE_SHA256: ${{ vars.ANDROID_CERTIFICATE_SHA256 }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$EXPECTED_CERTIFICATE_SHA256" ]]; then
+            echo "ANDROID_CERTIFICATE_SHA256 is unavailable" >&2
+            exit 1
+          fi
+
+          signature_report="$RUNNER_TEMP/davenstein-android-signature.txt"
+          badging_report="$RUNNER_TEMP/davenstein-android-badging.txt"
+
+          "$ANDROID_BUILD_TOOLS_DIR/zipalign" \
+            -c \
+            -P 16 \
+            -v \
+            4 \
+            "$ANDROID_APK_PATH"
+
+          "$ANDROID_BUILD_TOOLS_DIR/apksigner" verify \
+            --verbose \
+            --print-certs \
+            --min-sdk-version "$ANDROID_MIN_SDK" \
+            "$ANDROID_APK_PATH" |
+            tee "$signature_report"
+
+          actual_certificate=$(
+            awk \
+              -F': ' \
+              '/Signer #1 certificate SHA-256 digest:/ {
+                print $2
+                exit
+              }' \
+              "$signature_report" |
+              sed 's/://g' |
+              tr -d '[:space:]' |
+              tr '[:lower:]' '[:upper:]'
+          )
+
+          expected_certificate=$(
+            printf '%s' "$EXPECTED_CERTIFICATE_SHA256" |
+              sed 's/://g' |
+              tr -d '[:space:]' |
+              tr '[:lower:]' '[:upper:]'
+          )
+
+          if [[ -z "$actual_certificate" ]]; then
+            echo "Could not read the APK signing certificate" >&2
+            exit 1
+          fi
+
+          if [[ "$actual_certificate" != "$expected_certificate" ]]; then
+            echo "Android signing certificate fingerprint mismatch" >&2
+            printf 'Expected: %s\n' "$expected_certificate" >&2
+            printf 'Actual:   %s\n' "$actual_certificate" >&2
+            exit 1
+          fi
+
+          "$ANDROID_BUILD_TOOLS_DIR/aapt" dump badging \
+            "$ANDROID_APK_PATH" |
+            tee "$badging_report"
+
+          grep -Fq \
+            "package: name='com.davidpetnick.davenstein'" \
+            "$badging_report"
+
+          grep -Fq \
+            "versionName='${RELEASE_VERSION}'" \
+            "$badging_report"
+
+          printf 'Verified Android Certificate SHA-256: %s\n' \
+            "$actual_certificate"
+
+      - name: Validate Android Release APK Contents
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          apk_entries="$RUNNER_TEMP/davenstein-android-apk-entries.txt"
+          extracted_directory="$RUNNER_TEMP/davenstein-android-apk"
+
+          unzip -Z1 "$ANDROID_APK_PATH" |
+            tee "$apk_entries"
+
+          grep -Fxq \
+            "lib/$ANDROID_RELEASE_ABI/libdavelib.so" \
+            "$apk_entries"
+
+          native_entry_count=$(
+            grep -Ec '^lib/' "$apk_entries" || true
+          )
+
+          if [[ "$native_entry_count" -ne 1 ]]; then
+            printf \
+              'Expected one packaged native library, found %s\n' \
+              "$native_entry_count" >&2
+            exit 1
+          fi
+
+          grep -Fxq \
+            "assets/assets.pak" \
+            "$apk_entries"
+
+          grep -Fxq \
+            "assets/assets.pak.sha256" \
+            "$apk_entries"
+
+          rm -rf "$extracted_directory"
+          mkdir -p "$extracted_directory"
+
+          unzip -p \
+            "$ANDROID_APK_PATH" \
+            "assets/assets.pak" \
+            > "$extracted_directory/assets.pak"
+
+          unzip -p \
+            "$ANDROID_APK_PATH" \
+            "assets/assets.pak.sha256" \
+            > "$extracted_directory/assets.pak.sha256"
+
+          unzip -p \
+            "$ANDROID_APK_PATH" \
+            "lib/$ANDROID_RELEASE_ABI/libdavelib.so" \
+            > "$extracted_directory/libdavelib.so"
+
+          expected_pak_hash=$(
+            tr -d '\r\n' \
+              < "$extracted_directory/assets.pak.sha256"
+          )
+
+          actual_pak_hash=$(
+            sha256sum "$extracted_directory/assets.pak" |
+              awk '{ print tolower($1) }'
+          )
+
+          if [[ ! "$expected_pak_hash" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            echo "Packaged Android PAK checksum is invalid" >&2
+            exit 1
+          fi
+
+          if [[ "${expected_pak_hash,,}" != "$actual_pak_hash" ]]; then
+            echo "Packaged Android assets.pak checksum mismatch" >&2
+            exit 1
+          fi
+
+          source_library="target/android-jniLibs/$ANDROID_RELEASE_ABI/libdavelib.so"
+
+          source_library_hash=$(
+            sha256sum "$source_library" |
+              awk '{ print tolower($1) }'
+          )
+
+          packaged_library_hash=$(
+            sha256sum "$extracted_directory/libdavelib.so" |
+              awk '{ print tolower($1) }'
+          )
+
+          if [[ "$source_library_hash" != "$packaged_library_hash" ]]; then
+            echo "Packaged Android native library checksum mismatch" >&2
+            exit 1
+          fi
+
+          file "$extracted_directory/libdavelib.so"
+
+          readelf -h "$extracted_directory/libdavelib.so" |
+            tee "$RUNNER_TEMP/davenstein-packaged-android-elf-header.txt"
+
+          grep -Eq \
+            'Class:[[:space:]]+ELF64' \
+            "$RUNNER_TEMP/davenstein-packaged-android-elf-header.txt"
+
+          grep -Eq \
+            'Machine:[[:space:]]+AArch64' \
+            "$RUNNER_TEMP/davenstein-packaged-android-elf-header.txt"
+
+      - name: Create Android Release Checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          artifact_directory=$(
+            dirname "$ANDROID_APK_PATH"
+          )
+
+          apk_name=$(
+            basename "$ANDROID_APK_PATH"
+          )
+
+          checksum_name=$(
+            basename "$ANDROID_APK_CHECKSUM_PATH"
+          )
+
+          (
+            cd "$artifact_directory"
+
+            sha256sum "$apk_name" \
+              > "$checksum_name"
+
+            sha256sum --check "$checksum_name"
+          )
+
+      - name: Upload Android ARM64 Package
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-Android-ARM64-Packages
+          path: target/release-artifacts/android/*
+          if-no-files-found: error
+
+      # Automatic Runs Follow The Successful Main Release Workflow, So The
+      # Matching GitHub Release Already Exists Before Android Assets Are Added
+      - name: Attach Android Package To GitHub Release
+        if: github.event_name == 'workflow_run'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          gh release view \
+            "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            >/dev/null
+
+          gh release upload \
+            "$RELEASE_TAG" \
+            "$ANDROID_APK_PATH" \
+            "$ANDROID_APK_CHECKSUM_PATH" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+      - name: Remove Temporary Android Signing Keystore
+        if: always()
+        shell: bash
+        run: |
+          rm -f \
+            "$RUNNER_TEMP/Davenstein-Android-Release.p12"
