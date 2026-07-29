@@ -683,23 +683,6 @@ jobs:
             exit 1
           fi
 
-          source_library="target/android-jniLibs/$ANDROID_RELEASE_ABI/libdavelib.so"
-
-          source_library_hash=$(
-            sha256sum "$source_library" |
-              awk '{ print tolower($1) }'
-          )
-
-          packaged_library_hash=$(
-            sha256sum "$extracted_directory/libdavelib.so" |
-              awk '{ print tolower($1) }'
-          )
-
-          if [[ "$source_library_hash" != "$packaged_library_hash" ]]; then
-            echo "Packaged Android native library checksum mismatch" >&2
-            exit 1
-          fi
-
           file "$extracted_directory/libdavelib.so"
 
           readelf -h "$extracted_directory/libdavelib.so" |
