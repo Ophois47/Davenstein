@@ -24,6 +24,7 @@ Prebuilt packages are published on [GitHub Releases](https://github.com/Ophois47
 | Linux | ARM64 / AArch64 | Flatpak | Sandboxed ARM64 Linux desktop installation |
 | Linux | ARM64 / AArch64 | Portable TAR.GZ | Extracted ARM64 portable installation |
 | Linux | ARMv7 / ARMHF | Portable TAR.GZ | Extracted ARMv7 hard-float portable installation |
+| Linux | RISC-V 64 / RV64GC | Portable TAR.GZ | Extracted RISC-V 64 LP64D portable installation |
 | FreeBSD | x86_64 / AMD64 | Native PKG | Normal FreeBSD 14 installation |
 | FreeBSD | x86_64 / AMD64 | Portable TAR.GZ | Extracted portable installation |
 | macOS | Universal 2 (Apple Silicon + Intel) | Application ZIP | Recommended for most Macs running macOS 11 or newer |
@@ -33,7 +34,7 @@ Every release package is accompanied by a `.sha256` checksum file
 
 Every listed release package is built and validated in continuous integration. The Flatpak, native DEB, RPM, and FreeBSD packages are additionally installed, integrity-checked, inspected, and removed during CI. The FreeBSD package is tested inside a FreeBSD 14.4 virtual machine. Release candidate packages have also undergone interactive runtime testing on available hardware, while broader platform-specific feedback remains welcome
 
-The ARM64 and ARMv7 packages support compatible ARM Linux systems, but they do not imply working Raspberry Pi V3D hardware acceleration. See Compatibility below for the current Raspberry Pi status
+The ARM64, ARMv7, and RISC-V 64 packages support compatible Linux systems for their respective architectures. The RISC-V 64 package targets RV64GC systems using the LP64D double-float ABI. The ARM packages do not imply working Raspberry Pi V3D hardware acceleration. See Compatibility below for the current Raspberry Pi status
 
 ### Davenstein 1.1.0 Highlights
 
@@ -117,6 +118,20 @@ flatpak uninstall --user io.github.ophois47.davenstein
 ```
 
 The Flatpak packages use installed storage mode and keep saves, high scores, and settings inside the Flatpak application data sandbox for the current user.
+
+### Linux RISC-V 64 Installation
+
+The portable RISC-V package targets RV64GC Linux systems using the LP64D double-float ABI
+
+Extract the downloaded archive and run its launcher:
+
+```bash
+tar -xzf Davenstein-*-linux-riscv64.tar.gz
+cd Davenstein-*-linux-riscv64
+./run-davenstein.sh
+```
+
+The package stores saves, high scores, and settings under its own `data/` directory
 
 ### FreeBSD Installation
 
@@ -226,8 +241,8 @@ Build the release executable and rebuild `assets.pak` into `target/release`
 Or build manually with:
 
 ```bash
-cargo build --release --locked
-cargo run --bin pak_builder --release --locked -- --root assets --out target/release/assets.pak
+cargo build --release
+cargo run --bin pak_builder --release -- --root assets --out target/release/assets.pak
 ```
 
 ### Windows PowerShell
@@ -261,19 +276,31 @@ export CROSS_CONTAINER_ENGINE=podman
 ### Windows GNU
 
 ```bash
-cross build --release --locked --target x86_64-pc-windows-gnu --target-dir target/win
+cross build --release --target x86_64-pc-windows-gnu --target-dir target/win
 ```
 
 ### Linux ARM64 GNU
 
 ```bash
-cross build --release --locked --target aarch64-unknown-linux-gnu --bin Davenstein
+cross build --release --target aarch64-unknown-linux-gnu --bin Davenstein
 ```
 
 ### Linux ARMv7 GNU
 
 ```bash
-cross build --release --locked --target armv7-unknown-linux-gnueabihf --target-dir target/arm
+cross build --release --target armv7-unknown-linux-gnueabihf --target-dir target/arm
+```
+
+### Linux RISC-V 64 GNU
+
+The RISC-V release uses the target configuration in `Cross.toml` to install the required target-architecture Linux libraries
+
+```bash
+cross build \
+    --release \
+    --target riscv64gc-unknown-linux-gnu \
+    --features software_render \
+    --bin Davenstein
 ```
 
 ### FreeBSD x86_64
@@ -285,7 +312,6 @@ Build the FreeBSD release executable:
 ```bash
 cross build \
     --release \
-    --locked \
     --target x86_64-unknown-freebsd \
     --bin Davenstein
 ```
@@ -309,13 +335,13 @@ The release workflow builds and validates both formats, including native install
 ### Build or Rebuild `assets.pak`
 
 ```bash
-cargo run --bin pak_builder --release --locked -- --root assets --out dist/assets.pak
+cargo run --bin pak_builder --release -- --root assets --out dist/assets.pak
 ```
 
 ### Build or Rebuild `assets.pak` in the Release Directory
 
 ```bash
-cargo run --bin pak_builder --release --locked -- --root assets --out target/release/assets.pak
+cargo run --bin pak_builder --release -- --root assets --out target/release/assets.pak
 ```
 
 ## Compatibility
