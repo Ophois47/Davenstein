@@ -25,6 +25,30 @@ RequestExecutionLevel admin
 ShowInstDetails show
 ShowUnInstDetails show
 
+; Preserve the native classic NSIS interface instead of requesting themed controls
+Caption "${APP_NAME} Setup"
+UninstallCaption "${APP_NAME} Uninstall"
+BrandingText /TRIMRIGHT "${APP_NAME} Setup"
+XPStyle off
+SetFont "MS Sans Serif" 8
+
+; Recreate the full-screen blue background used by many mid-1990s setup programs
+BGGradient 000080 000080 FFFFFF
+BGFont "MS Sans Serif" 18 700
+
+; Use system colors and the segmented progress bar from classic Windows
+InstallColors /windows
+InstProgressFlags
+
+; Use concise setup language matching period Windows installers
+CompletedText "${APP_NAME} Setup is complete"
+DetailsButtonText "Show Details"
+InstallButtonText "Install"
+UninstallButtonText "Uninstall"
+ComponentText "Select the components you want to install." "Select the type of installation:" "Components:"
+DirText "Setup will install ${APP_NAME} in the following folder.$\r$\n$\r$\nTo install in a different folder, click Browse." "Destination Folder:" "Browse..." "Select the folder in which to install ${APP_NAME}:"
+UninstallText "This will remove ${APP_NAME} from your computer." "Uninstalling from:"
+
 Function .onInit
   SetRegView 64
   ReadRegStr $0 HKLM "Software\${APP_NAME}" "InstallDir"
