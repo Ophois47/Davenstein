@@ -185,8 +185,9 @@ do
 done
 
 # Build Current Davenstein Release Binary
-# --locked Requires Dependency Resolution From the Committed Cargo.lock
-cargo build --release --locked --bin Davenstein
+# Resolve Dependencies From the Current Cargo Manifests Because Cargo.lock Is
+# Intentionally Untracked
+cargo build --release --bin Davenstein
 
 mkdir -p target/release
 

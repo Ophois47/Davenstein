@@ -10,8 +10,8 @@ set -eu
 # GitHub Actions Uses a Matching Native Runner for Each Public Bundle Because
 # Flatpak Only Supports Host-Compatible Build Architectures
 #
-# The Manifest Performs a Locked Offline Cargo Build Using cargo-sources.json
-# Regenerate That File Whenever Cargo.lock Changes
+# The Manifest Performs an Offline Cargo Build Using cargo-sources.json
+# Generate the Ignored Cargo.lock From the Current Dependency Resolution
 #
 # Installed Layout:
 #     /app/bin/Davenstein
@@ -96,6 +96,7 @@ trap 'rm -rf "$TEMP_ROOT"; rm -f "$GENERATED_METAINFO_PATH"' EXIT HUP INT TERM
 for required_command in \
     appstreamcli \
     chmod \
+    cargo \
     date \
     desktop-file-validate \
     eu-elfcompress \
@@ -125,9 +126,15 @@ if ! python3 -c 'import aiohttp, tomlkit, yaml' >/dev/null 2>&1; then
     exit 1
 fi
 
-# Regenerate the Vendored Cargo Sources From Cargo.lock so the Offline Build
-# Always Matches the Committed Lockfile, Never a Stale Committed Copy
-printf 'Regenerating cargo-sources.json from Cargo.lock\n'
+# Generate the Ignored Cargo.lock From the Current Dependency Resolution
+# Before Vendoring the Exact Crate Sources Required by the Offline Flatpak Build
+printf 'Generating Cargo.lock from current dependency resolution\n'
+cargo generate-lockfile \
+    --manifest-path "$ROOT_DIR/Cargo.toml"
+
+# Regenerate the Vendored Cargo Sources From the Generated Cargo.lock
+# to Keep the Offline Build on the Exact Dependency Resolution for This Run
+printf 'Regenerating cargo-sources.json from generated Cargo.lock\n'
 python3 "$SCRIPT_DIR/flatpak-cargo-generator.py" \
     "$ROOT_DIR/Cargo.lock" \
     -o "$SCRIPT_DIR/cargo-sources.json"

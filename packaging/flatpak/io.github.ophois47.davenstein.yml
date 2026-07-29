@@ -29,8 +29,8 @@ modules:
       env:
         CARGO_HOME: /run/build/davenstein/cargo
     build-commands:
-      # The generated Cargo sources permit a fully offline, locked release build
-      - cargo build --offline --release --locked --bin Davenstein --bin pak_builder
+      # The Generated Cargo Sources Permit a Fully Offline Release Build
+      - cargo build --offline --release --bin Davenstein --bin pak_builder
       # Release builds resolve assets.pak beside the executable, so both files install under /app/bin
       - target/release/pak_builder --root assets --out target/release/assets.pak
       - install -Dm755 target/release/Davenstein /app/bin/Davenstein
@@ -46,7 +46,7 @@ modules:
       - install -Dm644 COPYRIGHT.md /app/share/licenses/io.github.ophois47.davenstein/COPYRIGHT.md
       - install -Dm644 THIRD_PARTY_ASSETS.md /app/share/licenses/io.github.ophois47.davenstein/THIRD_PARTY_ASSETS.md
     sources:
-      # Regenerate this file from Cargo.lock whenever dependency resolution changes
+      # Regenerate This File From the Generated Cargo.lock For Every Package Build
       - cargo-sources.json
       # Copy the checkout while excluding Git internals, build output, and local player data
       - type: dir
