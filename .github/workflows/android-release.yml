@@ -147,8 +147,8 @@ jobs:
         with:
           cmdline-tools-version: ${{ env.ANDROID_COMMAND_LINE_TOOLS_VERSION }}
           packages: ""
-          accept-android-sdk-licenses: "yes"
-          log-accepted-android-sdk-licenses: "false"
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: false
 
       - name: Install Pinned Android SDK Packages
         shell: bash
