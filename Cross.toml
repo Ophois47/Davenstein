@@ -20,6 +20,12 @@ pre-build = [
   "dpkg --add-architecture riscv64 && printf 'Types: deb\nURIs: http://ports.ubuntu.com/ubuntu-ports\nSuites: noble noble-updates noble-backports noble-security\nArchitectures: riscv64\nComponents: main restricted universe multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' > /etc/apt/sources.list.d/ubuntu-riscv64.sources && apt-get update && apt-get install -y --no-install-recommends pkg-config libwayland-dev:riscv64 libasound2-dev:riscv64 libudev-dev:riscv64 libx11-dev:riscv64 libxcursor-dev:riscv64 libxi-dev:riscv64 libxkbcommon-dev:riscv64 libxrandr-dev:riscv64 && rm -rf /var/lib/apt/lists/*"
 ]
 
+# Use The Maintained Windows GNU Image Because The Cross 0.2.5 Image Contains
+# GNU Binutils Older Than 2.40 And Cannot Process Rust's -exclude-symbols
+# COFF Directives, Which Can Overflow The Windows Export Ordinal Table
+[target.x86_64-pc-windows-gnu]
+image = "ghcr.io/cross-rs/x86_64-pc-windows-gnu:main"
+
 # The modern cross-rs image supplies a FreeBSD 13 amd64 sysroot and helper
 # scripts that unpack official FreeBSD packages into that sysroot. The package
 # helper does not recursively install dependencies, so every library proven

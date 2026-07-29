@@ -122,6 +122,63 @@ jobs:
       - name: Install Cross
         run: cargo install cross --version 0.2.5 --locked
 
+      - name: Validate Windows GNU Toolchain
+        shell: bash
+        run: |
+          image=$(
+            awk '
+              /^\[target\.x86_64-pc-windows-gnu\]$/ {
+                in_target = 1
+                next
+              }
+
+              /^\[/ {
+                in_target = 0
+              }
+
+              in_target && /^image = / {
+                gsub(/^image = "/, "")
+                gsub(/"$/, "")
+                print
+                exit
+              }
+            ' Cross.toml
+          )
+
+          test -n "$image"
+
+          docker pull "$image"
+
+          toolchain_output=$(
+            docker run --rm \
+              --entrypoint /bin/sh \
+              "$image" \
+              -c '
+                x86_64-w64-mingw32-ld --version
+                x86_64-w64-mingw32-gcc --version
+              '
+          )
+
+          printf "%s\n" "$toolchain_output"
+
+          linker_version=$(
+            printf "%s\n" "$toolchain_output" |
+              awk 'NR == 1 { print $NF }'
+          )
+
+          minimum_version=2.40
+          oldest_version=$(
+            printf "%s\n" \
+              "$minimum_version" \
+              "$linker_version" |
+              sort -V |
+              head -n 1
+          )
+
+          printf "Windows GNU Linker Version: %s\n" "$linker_version"
+
+          test "$oldest_version" = "$minimum_version"
+
       - name: Build Davenstein for Windows
         run: cross build --release --target x86_64-pc-windows-gnu --bin Davenstein
 
