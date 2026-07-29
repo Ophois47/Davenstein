@@ -15,6 +15,7 @@ on:
           - linux-x86_64
           - linux-arm64
           - linux-armv7
+          - linux-riscv64
           - rpm-x86_64
           - flatpak-x86_64
           - flatpak-arm64
@@ -1561,6 +1562,185 @@ jobs:
           path: target/release-artifacts/linux-armv7/*
           if-no-files-found: error
 
+  # Cross-compile on an x86_64 GitHub runner because hosted RISC-V runners are unavailable
+  # Use the riscv64gc target so the release follows the LP64D double-float ABI
+  # Keep RISC-V 64 as a portable archive until native packaging paths are validated
+  build-linux-riscv64:
+    name: Build Linux RISC-V 64 Portable Archive
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-riscv64'
+    needs: release-preflight
+    runs-on: ubuntu-22.04
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Cross
+        run: cargo install cross --version 0.2.5 --locked
+
+      - name: Install Validation Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils \
+            file
+
+      - name: Build Davenstein for Linux RISC-V 64
+        env:
+          CARGO_BUILD_JOBS: 2
+        run: |
+          cross build \
+            --release \
+            --target riscv64gc-unknown-linux-gnu \
+            --features software_render \
+            --bin Davenstein
+
+      - name: Validate Linux RISC-V 64 Executable
+        shell: bash
+        run: |
+          # Verify the ELF header, floating-point ABI, and dynamic loader
+          # instead of trusting only the Rust target name
+          binary=target/riscv64gc-unknown-linux-gnu/release/Davenstein
+
+          test -x "$binary"
+
+          file "$binary" |
+            tee "$RUNNER_TEMP/davenstein-riscv64-file.txt"
+
+          grep -Eiq \
+            'ELF 64-bit.*RISC-V' \
+            "$RUNNER_TEMP/davenstein-riscv64-file.txt"
+
+          readelf -h "$binary" |
+            tee "$RUNNER_TEMP/davenstein-riscv64-elf-header.txt"
+
+          grep -Eq \
+            'Class:[[:space:]]+ELF64' \
+            "$RUNNER_TEMP/davenstein-riscv64-elf-header.txt"
+
+          grep -Eq \
+            'Machine:[[:space:]]+RISC-V' \
+            "$RUNNER_TEMP/davenstein-riscv64-elf-header.txt"
+
+          grep -Eq \
+            'Flags:.*RVC.*double-float ABI' \
+            "$RUNNER_TEMP/davenstein-riscv64-elf-header.txt"
+
+          readelf -l "$binary" |
+            tee "$RUNNER_TEMP/davenstein-riscv64-program-headers.txt"
+
+          grep -Fq \
+            '/lib/ld-linux-riscv64-lp64d.so.1' \
+            "$RUNNER_TEMP/davenstein-riscv64-program-headers.txt"
+
+      - name: Build Asset Packer
+        run: |
+          mkdir -p target/release
+          rustc --edition=2024 -O \
+            src/pak_builder.rs \
+            -o target/release/pak_builder
+
+      - name: Build Assets
+        run: |
+          ./target/release/pak_builder \
+            --root assets \
+            --out target/release/assets.pak
+
+      - name: Build Linux RISC-V 64 Portable Archive
+        env:
+          VERSION: ${{ env.RELEASE_VERSION }}
+          ARCH: riscv64
+          BINARY_PATH: ${{ github.workspace }}/target/riscv64gc-unknown-linux-gnu/release/Davenstein
+        run: packaging/linux/build-portable.sh
+
+      - name: Validate Linux RISC-V 64 Portable Archive
+        shell: bash
+        run: |
+          archive=$(find target/portable \
+            -maxdepth 1 \
+            -type f \
+            -name 'Davenstein-*-linux-riscv64.tar.gz' \
+            -print \
+            -quit)
+
+          test -n "$archive"
+          test -f "$archive.sha256"
+
+          (
+            cd target/portable
+            sha256sum --check "$(basename "$archive.sha256")"
+          )
+
+          extract_dir="$RUNNER_TEMP/davenstein-linux-riscv64"
+          rm -rf "$extract_dir"
+          mkdir -p "$extract_dir"
+          tar -xzf "$archive" -C "$extract_dir"
+
+          package_root=$(find "$extract_dir" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -print \
+            -quit)
+
+          test -n "$package_root"
+
+          for name in \
+            Davenstein \
+            assets.pak \
+            README.md \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md \
+            davenstein.png \
+            portable.flag \
+            run-davenstein.sh
+          do
+            test -e "$package_root/$name"
+          done
+
+          test -x "$package_root/Davenstein"
+          test -x "$package_root/run-davenstein.sh"
+          test -s "$package_root/assets.pak"
+
+          # Revalidate the extracted executable so the uploaded archive retains the target ABI
+          file "$package_root/Davenstein"
+          file "$package_root/Davenstein" |
+            grep -Eiq 'ELF 64-bit.*RISC-V'
+
+          readelf -h "$package_root/Davenstein" |
+            grep -Eq 'Flags:.*RVC.*double-float ABI'
+
+          readelf -l "$package_root/Davenstein" |
+            grep -Fq '/lib/ld-linux-riscv64-lp64d.so.1'
+
+      - name: Stage Linux RISC-V 64 Release Packages
+        run: |
+          rm -rf target/release-artifacts/linux-riscv64
+          mkdir -p target/release-artifacts/linux-riscv64
+
+          cp \
+            target/portable/Davenstein-*-linux-riscv64.tar.gz \
+            target/release-artifacts/linux-riscv64/
+
+          cp \
+            target/portable/Davenstein-*-linux-riscv64.tar.gz.sha256 \
+            target/release-artifacts/linux-riscv64/
+
+      - name: Upload Linux RISC-V 64 Packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-Linux-RISC-V-64-Packages
+          path: target/release-artifacts/linux-riscv64/*
+          if-no-files-found: error
+
   # Build natively because linuxdeploy and appimagetool must run on ARM64
   # Keep this separate from the cross-compiled archive so both proven paths stay isolated
   # The linux-arm64 manual selection intentionally runs both ARM64 package jobs
@@ -2660,9 +2840,10 @@ jobs:
       - build-linux
       - build-linux-rpm
       - build-linux-flatpak
-      # Require every supported Linux ARM release package before publishing a tagged release
+      # Require every supported Linux ARM and RISC-V 64 release package before publishing a tagged release
       - build-linux-arm64
       - build-linux-armv7
+      - build-linux-riscv64
       - build-linux-arm64-appimage
       - build-linux-arm64-flatpak
       - build-freebsd
