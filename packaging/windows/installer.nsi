@@ -28,7 +28,7 @@ ShowUnInstDetails show
 ; Preserve the native classic NSIS interface instead of requesting themed controls
 Caption "${APP_NAME} Setup"
 UninstallCaption "${APP_NAME} Uninstall"
-BrandingText /TRIMRIGHT "${APP_NAME} Setup"
+BrandingText "${APP_NAME} Setup"
 XPStyle off
 SetFont "MS Sans Serif" 8
 
