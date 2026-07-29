@@ -16,6 +16,7 @@ on:
           - linux-arm64
           - linux-armv7
           - linux-riscv64
+          - linux-powerpc64le
           - rpm-x86_64
           - flatpak-x86_64
           - flatpak-arm64
@@ -2449,6 +2450,212 @@ jobs:
           path: target/release-artifacts/linux-riscv64/*
           if-no-files-found: error
 
+  # Cross-compile on an x86_64 GitHub runner so Cargo build scripts run natively
+  # Use the powerpc64le target for the OpenPOWER ELF V2 little-endian ABI
+  # Keep PowerPC64LE as a portable archive until native packaging paths are validated
+  build-linux-powerpc64le:
+    name: Build Linux PowerPC64LE Portable Archive
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'linux-powerpc64le'
+    needs: release-preflight
+    runs-on: ubuntu-22.04
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Cross
+        run: cargo install cross --version 0.2.5 --locked
+
+      - name: Install Validation Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils \
+            file
+
+      - name: Build Davenstein for Linux PowerPC64LE
+        env:
+          CARGO_BUILD_JOBS: 1
+        run: |
+          cross build \
+            --release \
+            --target powerpc64le-unknown-linux-gnu \
+            --features software_render \
+            --bin Davenstein
+
+      - name: Validate Linux PowerPC64LE Executable
+        shell: bash
+        run: |
+          # Verify the ELF class, byte order, machine, ABI, and dynamic loader
+          # instead of trusting only the Rust target name
+          binary=target/powerpc64le-unknown-linux-gnu/release/Davenstein
+
+          test -x "$binary"
+
+          file "$binary" |
+            tee "$RUNNER_TEMP/davenstein-powerpc64le-file.txt"
+
+          grep -Eiq \
+            'ELF 64-bit.*PowerPC.*OpenPOWER ELF V2 ABI' \
+            "$RUNNER_TEMP/davenstein-powerpc64le-file.txt"
+
+          readelf -h "$binary" |
+            tee "$RUNNER_TEMP/davenstein-powerpc64le-elf-header.txt"
+
+          grep -Eq \
+            'Class:[[:space:]]+ELF64' \
+            "$RUNNER_TEMP/davenstein-powerpc64le-elf-header.txt"
+
+          grep -Eq \
+            "Data:[[:space:]]+2's complement, little endian" \
+            "$RUNNER_TEMP/davenstein-powerpc64le-elf-header.txt"
+
+          grep -Eq \
+            'Machine:[[:space:]]+PowerPC64' \
+            "$RUNNER_TEMP/davenstein-powerpc64le-elf-header.txt"
+
+          readelf -l "$binary" |
+            tee "$RUNNER_TEMP/davenstein-powerpc64le-program-headers.txt"
+
+          grep -Fq \
+            '/lib64/ld64.so.2' \
+            "$RUNNER_TEMP/davenstein-powerpc64le-program-headers.txt"
+
+          readelf -d "$binary" |
+            tee "$RUNNER_TEMP/davenstein-powerpc64le-dynamic.txt"
+
+          for library in \
+            libwayland-client.so.0 \
+            libudev.so.1 \
+            libasound.so.2 \
+            libgcc_s.so.1 \
+            libm.so.6 \
+            libc.so.6
+          do
+            grep -Fq \
+              "Shared library: [$library]" \
+              "$RUNNER_TEMP/davenstein-powerpc64le-dynamic.txt"
+          done
+
+      - name: Build Asset Packer
+        run: |
+          mkdir -p target/release
+          rustc --edition=2024 -O \
+            src/pak_builder.rs \
+            -o target/release/pak_builder
+
+      - name: Build Assets
+        run: |
+          ./target/release/pak_builder \
+            --root assets \
+            --out target/release/assets.pak
+
+      - name: Build Linux PowerPC64LE Portable Archive
+        env:
+          VERSION: ${{ env.RELEASE_VERSION }}
+          ARCH: powerpc64le
+          BINARY_PATH: ${{ github.workspace }}/target/powerpc64le-unknown-linux-gnu/release/Davenstein
+        run: packaging/linux/build-portable.sh
+
+      - name: Validate Linux PowerPC64LE Portable Archive
+        shell: bash
+        run: |
+          archive=$(find target/portable \
+            -maxdepth 1 \
+            -type f \
+            -name 'Davenstein-*-linux-powerpc64le.tar.gz' \
+            -print \
+            -quit)
+
+          test -n "$archive"
+          test -f "$archive.sha256"
+
+          (
+            cd target/portable
+            sha256sum --check "$(basename "$archive.sha256")"
+          )
+
+          extract_dir="$RUNNER_TEMP/davenstein-linux-powerpc64le"
+
+          rm -rf "$extract_dir"
+          mkdir -p "$extract_dir"
+
+          tar -xzf "$archive" -C "$extract_dir"
+
+          package_root=$(find "$extract_dir" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -print \
+            -quit)
+
+          test -n "$package_root"
+
+          for name in \
+            Davenstein \
+            assets.pak \
+            README.md \
+            LICENSE.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            COPYRIGHT.md \
+            THIRD_PARTY_ASSETS.md \
+            davenstein.png \
+            portable.flag \
+            run-davenstein.sh
+          do
+            test -e "$package_root/$name"
+          done
+
+          test -x "$package_root/Davenstein"
+          test -x "$package_root/run-davenstein.sh"
+          test -s "$package_root/assets.pak"
+
+          # Revalidate the extracted executable so the uploaded archive retains
+          # the PowerPC64LE OpenPOWER ABI and loader proven before packaging
+          file "$package_root/Davenstein"
+          file "$package_root/Davenstein" |
+            grep -Eiq 'ELF 64-bit.*PowerPC.*OpenPOWER ELF V2 ABI'
+
+          readelf -h "$package_root/Davenstein" |
+            tee "$RUNNER_TEMP/davenstein-powerpc64le-archive-header.txt"
+
+          grep -Eq \
+            "Data:[[:space:]]+2's complement, little endian" \
+            "$RUNNER_TEMP/davenstein-powerpc64le-archive-header.txt"
+
+          grep -Eq \
+            'Machine:[[:space:]]+PowerPC64' \
+            "$RUNNER_TEMP/davenstein-powerpc64le-archive-header.txt"
+
+          readelf -l "$package_root/Davenstein" |
+            grep -Fq '/lib64/ld64.so.2'
+
+      - name: Stage Linux PowerPC64LE Release Packages
+        run: |
+          rm -rf target/release-artifacts/linux-powerpc64le
+          mkdir -p target/release-artifacts/linux-powerpc64le
+
+          cp \
+            target/portable/Davenstein-*-linux-powerpc64le.tar.gz \
+            target/release-artifacts/linux-powerpc64le/
+
+          cp \
+            target/portable/Davenstein-*-linux-powerpc64le.tar.gz.sha256 \
+            target/release-artifacts/linux-powerpc64le/
+
+      - name: Upload Linux PowerPC64LE Packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-Linux-PowerPC64LE-Packages
+          path: target/release-artifacts/linux-powerpc64le/*
+          if-no-files-found: error
+
   # Build natively because linuxdeploy and appimagetool must run on ARM64
   # Keep this separate from the cross-compiled archive so both proven paths stay isolated
   # The linux-arm64 manual selection intentionally runs both ARM64 package jobs
@@ -3547,10 +3754,11 @@ jobs:
       - build-linux
       - build-linux-rpm
       - build-linux-flatpak
-      # Require every supported Linux ARM and RISC-V 64 release package before publishing a tagged release
+      # Require every supported Linux ARM, PowerPC64LE, and RISC-V 64 release package before publishing a tagged release
       - build-linux-arm64
       - build-linux-armv7
       - build-linux-riscv64
+      - build-linux-powerpc64le
       - build-linux-arm64-appimage
       - build-linux-arm64-flatpak
       - build-freebsd

@@ -39,3 +39,10 @@ image = "ghcr.io/cross-rs/x86_64-unknown-freebsd:main"
 pre-build = [
   "export FREEBSD_MIRROR=$(/freebsd-fetch-best-mirror.sh) && /freebsd-setup-packagesite.sh && /freebsd-install-package.sh alsa-lib libepoll-shim libffi libudev-devd wayland"
 ]
+
+# The Maintained Cross PowerPC64LE Image Provides The Compiler And glibc
+# Sysroot But Not The Native Bevy Platform Libraries. The Preparation Script
+# Extracts The ppc64el Package Payloads Without Installing Foreign glibc
+[target.powerpc64le-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/powerpc64le-unknown-linux-gnu:main"
+pre-build = "./scripts/cross_prepare_powerpc64le.sh"
