@@ -40,6 +40,13 @@ pre-build = [
   "export FREEBSD_MIRROR=$(/freebsd-fetch-best-mirror.sh) && /freebsd-setup-packagesite.sh && /freebsd-install-package.sh alsa-lib libepoll-shim libffi libudev-devd wayland"
 ]
 
+# The Maintained Cross i686 Image Provides The Compiler And glibc Sysroot
+# But Not The Native Bevy Platform Libraries. The Preparation Script
+# Installs And Validates The Matching i386 Multiarch Development Packages
+[target.i686-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/i686-unknown-linux-gnu:main"
+pre-build = "./scripts/cross_prepare_i686.sh"
+
 # The Maintained Cross PowerPC64LE Image Provides The Compiler And glibc
 # Sysroot But Not The Native Bevy Platform Libraries. The Preparation Script
 # Extracts The ppc64el Package Payloads Without Installing Foreign glibc
