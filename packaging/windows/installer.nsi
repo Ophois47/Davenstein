@@ -11,16 +11,29 @@
   !define VERSION "0.0.0-dev"
 !endif
 
+; Preserve The Existing 64-Bit Installer As The Default
+; DAVENSTEIN_WIN32 Selects The 32-Bit Program Files Directory, Registry View,
+; And Architecture-Specific Output Name Without Changing The x86_64 Package
+!ifdef DAVENSTEIN_WIN32
+  !define INSTALL_ROOT "$PROGRAMFILES32"
+  !define REGISTRY_VIEW 32
+  !define INSTALLER_SUFFIX "-windows-i686"
+!else
+  !define INSTALL_ROOT "$PROGRAMFILES64"
+  !define REGISTRY_VIEW 64
+  !define INSTALLER_SUFFIX ""
+!endif
+
 !define APP_NAME "Davenstein"
 !define APP_PUBLISHER "David Petnick"
 !define APP_EXE "Davenstein.exe"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
 
 Name "${APP_NAME}"
-OutFile "Davenstein-Setup-${VERSION}.exe"
+OutFile "Davenstein-Setup-${VERSION}${INSTALLER_SUFFIX}.exe"
 Icon "Davenstein-Install.ico"
 UninstallIcon "Davenstein-Uninstall.ico"
-InstallDir "$PROGRAMFILES64\${APP_NAME}"
+InstallDir "${INSTALL_ROOT}\${APP_NAME}"
 RequestExecutionLevel admin
 ShowInstDetails show
 ShowUnInstDetails show
@@ -50,7 +63,7 @@ DirText "Setup will install ${APP_NAME} in the following folder.$\r$\n$\r$\nTo i
 UninstallText "This will remove ${APP_NAME} from your computer." "Uninstalling from:"
 
 Function .onInit
-  SetRegView 64
+  SetRegView ${REGISTRY_VIEW}
   ReadRegStr $0 HKLM "Software\${APP_NAME}" "InstallDir"
   StrCmp $0 "" no_previous_install
   StrCpy $INSTDIR $0
@@ -58,7 +71,7 @@ no_previous_install:
 FunctionEnd
 
 Function un.onInit
-  SetRegView 64
+  SetRegView ${REGISTRY_VIEW}
 FunctionEnd
 
 Page components

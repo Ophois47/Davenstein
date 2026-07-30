@@ -12,6 +12,7 @@ on:
           - all
           - windows
           - windows-arm64
+          - windows-i686
           - linux-x86_64
           - linux-i686
           - linux-arm64
@@ -1100,6 +1101,727 @@ jobs:
         with:
           name: Davenstein-Windows-ARM64-Packages
           path: target/release-artifacts/windows-arm64/*
+          if-no-files-found: error
+
+  build-windows-i686:
+    name: Build Windows i686 Packages
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'windows-i686'
+    needs: release-preflight
+    runs-on: windows-2022
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
+
+    steps:
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install stable `
+              --profile minimal `
+              --target i686-pc-windows-msvc
+
+          rustup default stable
+          rustc -vV
+          cargo -vV
+
+      - name: Validate Windows Packaging Tools
+        shell: pwsh
+        run: |
+          foreach ($name in @(
+              "llvm-readobj",
+              "makensis"
+          )) {
+              $command = Get-Command $name -ErrorAction SilentlyContinue
+
+              if (-not $command) {
+                  throw "$name is not available on the Windows runner"
+              }
+
+              Write-Host "$name Path: $($command.Source)"
+          }
+
+          llvm-readobj --version
+
+      - name: Build Davenstein for Windows i686
+        shell: pwsh
+        env:
+          CARGO_BUILD_JOBS: 2
+        run: |
+          cargo build `
+              --release `
+              --target i686-pc-windows-msvc `
+              --bin Davenstein
+
+      - name: Validate Windows i686 Executable
+        shell: pwsh
+        run: |
+          $binary = "target\i686-pc-windows-msvc\release\Davenstein.exe"
+
+          if (-not (Test-Path -LiteralPath $binary)) {
+              throw "Windows i686 Davenstein.exe was not created"
+          }
+
+          $headers = & llvm-readobj `
+              --file-headers `
+              $binary
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "llvm-readobj could not inspect Davenstein.exe"
+          }
+
+          $headers
+          $headerText = $headers -join "`n"
+
+          if ($headerText -notmatch "IMAGE_FILE_MACHINE_I386") {
+              throw "Davenstein.exe is not a Windows i686 executable"
+          }
+
+          if (
+              $headerText -match
+              "IMAGE_FILE_MACHINE_AMD64|IMAGE_FILE_MACHINE_ARM64"
+          ) {
+              throw "Davenstein.exe has an unexpected 64-bit machine type"
+          }
+
+          $imports = & llvm-readobj `
+              --coff-imports `
+              $binary
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "llvm-readobj could not inspect Davenstein.exe imports"
+          }
+
+          $imports |
+              Tee-Object `
+                  -FilePath "$env:RUNNER_TEMP\davenstein-i686-imports.txt"
+
+      - name: Build Asset Packer
+        shell: pwsh
+        run: |
+          New-Item `
+              -ItemType Directory `
+              -Force `
+              -Path target\release |
+              Out-Null
+
+          rustc `
+              --edition=2024 `
+              -O `
+              src\pak_builder.rs `
+              -o target\release\pak_builder.exe
+
+      - name: Build Assets
+        shell: pwsh
+        run: |
+          & .\target\release\pak_builder.exe `
+              --root assets `
+              --out target\release\assets.pak
+
+      - name: Build Windows i686 Portable Archive
+        shell: pwsh
+        run: |
+          $version = "${{ env.RELEASE_VERSION }}"
+          $archiveBase = "Davenstein-$version-windows-i686"
+          $portableRoot = Join-Path $PWD "target\portable"
+          $stageDir = Join-Path $portableRoot $archiveBase
+          $archivePath = Join-Path `
+              $portableRoot `
+              "$archiveBase-portable.zip"
+          $checksumPath = "$archivePath.sha256"
+
+          Remove-Item `
+              -Recurse `
+              -Force `
+              $stageDir `
+              -ErrorAction SilentlyContinue
+
+          Remove-Item `
+              -Force `
+              $archivePath, `
+              $checksumPath `
+              -ErrorAction SilentlyContinue
+
+          New-Item `
+              -ItemType Directory `
+              -Force `
+              -Path $stageDir |
+              Out-Null
+
+          Copy-Item `
+              target\i686-pc-windows-msvc\release\Davenstein.exe `
+              (Join-Path $stageDir "Davenstein.exe")
+
+          Copy-Item `
+              target\release\assets.pak `
+              (Join-Path $stageDir "assets.pak")
+
+          Copy-Item `
+              README.md `
+              (Join-Path $stageDir "README.md")
+
+          foreach ($name in @(
+              "LICENSE.md",
+              "LICENSE-MIT",
+              "LICENSE-APACHE",
+              "COPYRIGHT.md",
+              "THIRD_PARTY_ASSETS.md"
+          )) {
+              Copy-Item `
+                  $name `
+                  (Join-Path $stageDir $name)
+          }
+
+          Copy-Item `
+              packaging\windows\Davenstein.ico `
+              (Join-Path $stageDir "Davenstein.ico")
+
+          New-Item `
+              -ItemType File `
+              -Force `
+              -Path (Join-Path $stageDir "portable.flag") |
+              Out-Null
+
+          Compress-Archive `
+              -LiteralPath $stageDir `
+              -DestinationPath $archivePath `
+              -CompressionLevel Optimal
+
+          $hash = (
+              Get-FileHash `
+                  -LiteralPath $archivePath `
+                  -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+
+          "$hash  $(Split-Path -Leaf $archivePath)" |
+              Set-Content `
+                  -LiteralPath $checksumPath `
+                  -Encoding ascii
+
+          Write-Host "Created $archivePath"
+          Write-Host "Created $checksumPath"
+
+      - name: Validate Windows i686 Portable Archive
+        shell: pwsh
+        run: |
+          function Assert-I686Executable {
+              param(
+                  [Parameter(Mandatory)]
+                  [string] $Path
+              )
+
+              $headers = & llvm-readobj `
+                  --file-headers `
+                  $Path
+
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Could not inspect $Path"
+              }
+
+              $headers
+              $headerText = $headers -join "`n"
+
+              if ($headerText -notmatch "IMAGE_FILE_MACHINE_I386") {
+                  throw "$Path is not a Windows i686 executable"
+              }
+
+              if (
+                  $headerText -match
+                  "IMAGE_FILE_MACHINE_AMD64|IMAGE_FILE_MACHINE_ARM64"
+              ) {
+                  throw "$Path has an unexpected 64-bit machine type"
+              }
+          }
+
+          $archive = Get-ChildItem `
+              target\portable\Davenstein-*-windows-i686-portable.zip |
+              Select-Object -First 1
+
+          if (-not $archive) {
+              throw "Windows i686 portable archive was not created"
+          }
+
+          $checksumPath = "$($archive.FullName).sha256"
+
+          if (-not (Test-Path -LiteralPath $checksumPath)) {
+              throw "Windows i686 portable checksum was not created"
+          }
+
+          $hash = (
+              Get-FileHash `
+                  -LiteralPath $archive.FullName `
+                  -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+
+          $checksum = (
+              Get-Content `
+                  -LiteralPath $checksumPath `
+                  -Raw
+          ).Trim().ToLowerInvariant()
+
+          if (-not $checksum.StartsWith($hash)) {
+              throw "Windows i686 portable checksum does not match"
+          }
+
+          $extractDir = Join-Path `
+              $env:RUNNER_TEMP `
+              "davenstein-windows-i686"
+
+          Remove-Item `
+              -Recurse `
+              -Force `
+              $extractDir `
+              -ErrorAction SilentlyContinue
+
+          Expand-Archive `
+              -LiteralPath $archive.FullName `
+              -DestinationPath $extractDir
+
+          $packageRoot = Get-ChildItem `
+              $extractDir `
+              -Directory |
+              Select-Object -First 1
+
+          if (-not $packageRoot) {
+              throw "Windows i686 portable package root is missing"
+          }
+
+          foreach ($name in @(
+              "Davenstein.exe",
+              "assets.pak",
+              "README.md",
+              "LICENSE.md",
+              "LICENSE-MIT",
+              "LICENSE-APACHE",
+              "COPYRIGHT.md",
+              "THIRD_PARTY_ASSETS.md",
+              "Davenstein.ico",
+              "portable.flag"
+          )) {
+              $path = Join-Path $packageRoot.FullName $name
+
+              if (-not (Test-Path -LiteralPath $path)) {
+                  throw "Portable archive is missing $name"
+              }
+          }
+
+          if (
+              (Get-Item `
+                  -LiteralPath (
+                      Join-Path $packageRoot.FullName "assets.pak"
+                  )
+              ).Length -eq 0
+          ) {
+              throw "Portable archive contains an empty assets.pak"
+          }
+
+          Assert-I686Executable `
+              -Path (
+                  Join-Path $packageRoot.FullName "Davenstein.exe"
+              )
+
+      - name: Stage Windows i686 Installer Payload
+        shell: pwsh
+        run: |
+          $payload = "packaging\windows\payload"
+
+          Remove-Item `
+              -Recurse `
+              -Force `
+              $payload `
+              -ErrorAction SilentlyContinue
+
+          New-Item `
+              -ItemType Directory `
+              -Force `
+              -Path $payload |
+              Out-Null
+
+          Copy-Item `
+              target\i686-pc-windows-msvc\release\Davenstein.exe `
+              $payload
+
+          Copy-Item `
+              target\release\assets.pak `
+              $payload
+
+          Copy-Item `
+              README.md `
+              $payload
+
+          Copy-Item `
+              LICENSE.md, `
+              LICENSE-MIT, `
+              LICENSE-APACHE, `
+              COPYRIGHT.md, `
+              THIRD_PARTY_ASSETS.md `
+              $payload
+
+      - name: Build Windows i686 Installer
+        shell: pwsh
+        working-directory: packaging/windows
+        run: |
+          & makensis `
+              "/DVERSION=${{ env.RELEASE_VERSION }}" `
+              "/DDAVENSTEIN_WIN32=1" `
+              installer.nsi
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "NSIS could not build the Windows i686 installer"
+          }
+
+      - name: Create Windows i686 Installer Checksum
+        shell: pwsh
+        run: |
+          $installer = Get-Item `
+              "packaging\windows\Davenstein-Setup-$env:RELEASE_VERSION-windows-i686.exe"
+
+          $checksumPath = "$($installer.FullName).sha256"
+          $hash = (
+              Get-FileHash `
+                  -LiteralPath $installer.FullName `
+                  -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+
+          "$hash  $($installer.Name)" |
+              Set-Content `
+                  -LiteralPath $checksumPath `
+                  -Encoding ascii
+
+          Write-Host "Created $checksumPath"
+
+      - name: Validate Windows i686 Installer
+        shell: pwsh
+        run: |
+          function Assert-I686Executable {
+              param(
+                  [Parameter(Mandatory)]
+                  [string] $Path
+              )
+
+              $headers = & llvm-readobj `
+                  --file-headers `
+                  $Path
+
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Could not inspect $Path"
+              }
+
+              $headers
+              $headerText = $headers -join "`n"
+
+              if ($headerText -notmatch "IMAGE_FILE_MACHINE_I386") {
+                  throw "$Path is not a Windows i686 executable"
+              }
+
+              if (
+                  $headerText -match
+                  "IMAGE_FILE_MACHINE_AMD64|IMAGE_FILE_MACHINE_ARM64"
+              ) {
+                  throw "$Path has an unexpected 64-bit machine type"
+              }
+          }
+
+          $installer = Get-Item `
+              "packaging\windows\Davenstein-Setup-$env:RELEASE_VERSION-windows-i686.exe"
+
+          $checksumPath = "$($installer.FullName).sha256"
+
+          if (-not (Test-Path -LiteralPath $checksumPath)) {
+              throw "Windows i686 installer checksum is missing"
+          }
+
+          $hash = (
+              Get-FileHash `
+                  -LiteralPath $installer.FullName `
+                  -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+
+          $checksum = (
+              Get-Content `
+                  -LiteralPath $checksumPath `
+                  -Raw
+          ).Trim().ToLowerInvariant()
+
+          if (-not $checksum.StartsWith($hash)) {
+              throw "Windows i686 installer checksum does not match"
+          }
+
+          $programFilesX86 = [Environment]::GetFolderPath(
+              [Environment+SpecialFolder]::ProgramFilesX86
+          )
+
+          if ([string]::IsNullOrWhiteSpace($programFilesX86)) {
+              throw "Could not resolve the 32-bit Program Files directory"
+          }
+
+          $installDir = Join-Path $programFilesX86 "Davenstein"
+          $applicationKeyPath = "Software\Davenstein"
+          $uninstallKeyPath = (
+              "Software\Microsoft\Windows\CurrentVersion\" +
+              "Uninstall\Davenstein"
+          )
+
+          $registry32 = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+              [Microsoft.Win32.RegistryHive]::LocalMachine,
+              [Microsoft.Win32.RegistryView]::Registry32
+          )
+
+          $registry64 = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+              [Microsoft.Win32.RegistryHive]::LocalMachine,
+              [Microsoft.Win32.RegistryView]::Registry64
+          )
+
+          foreach ($path in @(
+              $applicationKeyPath,
+              $uninstallKeyPath
+          )) {
+              $existing32 = $registry32.OpenSubKey($path)
+              $existing64 = $registry64.OpenSubKey($path)
+
+              if ($existing32) {
+                  $existing32.Close()
+                  throw "The clean runner already contains $path in Registry32"
+              }
+
+              if ($existing64) {
+                  $existing64.Close()
+                  throw "The clean runner already contains $path in Registry64"
+              }
+          }
+
+          if (Test-Path -LiteralPath $installDir) {
+              throw "The clean runner already contains $installDir"
+          }
+
+          $installProcess = Start-Process `
+              -FilePath $installer.FullName `
+              -ArgumentList "/S" `
+              -Wait `
+              -PassThru
+
+          if ($installProcess.ExitCode -ne 0) {
+              throw (
+                  "Windows i686 installer exited with " +
+                  "$($installProcess.ExitCode)"
+              )
+          }
+
+          foreach ($name in @(
+              "Davenstein.exe",
+              "assets.pak",
+              "README.md",
+              "LICENSE.md",
+              "LICENSE-MIT",
+              "LICENSE-APACHE",
+              "COPYRIGHT.md",
+              "THIRD_PARTY_ASSETS.md",
+              "Davenstein.ico",
+              "Uninstall.exe"
+          )) {
+              $path = Join-Path $installDir $name
+
+              if (-not (Test-Path -LiteralPath $path)) {
+                  throw "Installed package is missing $name"
+              }
+          }
+
+          if (
+              Test-Path `
+                  -LiteralPath (
+                      Join-Path $installDir "portable.flag"
+                  )
+          ) {
+              throw "Installed package unexpectedly contains portable.flag"
+          }
+
+          Assert-I686Executable `
+              -Path (
+                  Join-Path $installDir "Davenstein.exe"
+              )
+
+          $applicationKey = $registry32.OpenSubKey(
+              $applicationKeyPath
+          )
+
+          if (-not $applicationKey) {
+              throw "Windows i686 application registry key is missing"
+          }
+
+          $registeredInstallDir = [string]$applicationKey.GetValue(
+              "InstallDir"
+          )
+
+          $applicationKey.Close()
+
+          if (
+              -not [string]::Equals(
+                  $registeredInstallDir,
+                  $installDir,
+                  [StringComparison]::OrdinalIgnoreCase
+              )
+          ) {
+              throw "The 32-bit registry installation path is incorrect"
+          }
+
+          $uninstallKey = $registry32.OpenSubKey(
+              $uninstallKeyPath
+          )
+
+          if (-not $uninstallKey) {
+              throw "Windows i686 uninstall registry key is missing"
+          }
+
+          $registeredLocation = [string]$uninstallKey.GetValue(
+              "InstallLocation"
+          )
+
+          $registeredVersion = [string]$uninstallKey.GetValue(
+              "DisplayVersion"
+          )
+
+          $uninstallKey.Close()
+
+          if (
+              -not [string]::Equals(
+                  $registeredLocation,
+                  $installDir,
+                  [StringComparison]::OrdinalIgnoreCase
+              )
+          ) {
+              throw "The uninstall registry location is incorrect"
+          }
+
+          if ($registeredVersion -ne $env:RELEASE_VERSION) {
+              throw "The uninstall registry version is incorrect"
+          }
+
+          foreach ($path in @(
+              $applicationKeyPath,
+              $uninstallKeyPath
+          )) {
+              $unexpected64 = $registry64.OpenSubKey($path)
+
+              if ($unexpected64) {
+                  $unexpected64.Close()
+                  throw "$path was incorrectly written to Registry64"
+              }
+          }
+
+          $startMenuDir = Join-Path `
+              $env:ProgramData `
+              "Microsoft\Windows\Start Menu\Programs\Davenstein"
+
+          if (-not (Test-Path -LiteralPath $startMenuDir)) {
+              throw "The all-users Start Menu directory is missing"
+          }
+
+          $registry32.Close()
+          $registry64.Close()
+
+          $uninstaller = Join-Path $installDir "Uninstall.exe"
+
+          $uninstallProcess = Start-Process `
+              -FilePath $uninstaller `
+              -ArgumentList "/S" `
+              -Wait `
+              -PassThru
+
+          if ($uninstallProcess.ExitCode -ne 0) {
+              throw (
+                  "Windows i686 uninstaller exited with " +
+                  "$($uninstallProcess.ExitCode)"
+              )
+          }
+
+          for (
+              $attempt = 0;
+              $attempt -lt 20 -and (
+                  Test-Path -LiteralPath $installDir
+              );
+              $attempt++
+          ) {
+              Start-Sleep -Milliseconds 500
+          }
+
+          if (Test-Path -LiteralPath $installDir) {
+              throw "The Windows i686 installation directory remains"
+          }
+
+          if (Test-Path -LiteralPath $startMenuDir) {
+              throw "The Windows i686 Start Menu directory remains"
+          }
+
+          $registry32 = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+              [Microsoft.Win32.RegistryHive]::LocalMachine,
+              [Microsoft.Win32.RegistryView]::Registry32
+          )
+
+          $registry64 = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+              [Microsoft.Win32.RegistryHive]::LocalMachine,
+              [Microsoft.Win32.RegistryView]::Registry64
+          )
+
+          foreach ($path in @(
+              $applicationKeyPath,
+              $uninstallKeyPath
+          )) {
+              $remaining32 = $registry32.OpenSubKey($path)
+              $remaining64 = $registry64.OpenSubKey($path)
+
+              if ($remaining32) {
+                  $remaining32.Close()
+                  throw "$path remains in Registry32 after uninstall"
+              }
+
+              if ($remaining64) {
+                  $remaining64.Close()
+                  throw "$path remains in Registry64 after uninstall"
+              }
+          }
+
+          $registry32.Close()
+          $registry64.Close()
+
+      - name: Stage Windows i686 Release Packages
+        shell: pwsh
+        run: |
+          $output = "target\release-artifacts\windows-i686"
+
+          Remove-Item `
+              -Recurse `
+              -Force `
+              $output `
+              -ErrorAction SilentlyContinue
+
+          New-Item `
+              -ItemType Directory `
+              -Force `
+              -Path $output |
+              Out-Null
+
+          Copy-Item `
+              target\portable\Davenstein-*-windows-i686-portable.zip `
+              $output
+
+          Copy-Item `
+              target\portable\Davenstein-*-windows-i686-portable.zip.sha256 `
+              $output
+
+          Copy-Item `
+              packaging\windows\Davenstein-Setup-*-windows-i686.exe `
+              $output
+
+          Copy-Item `
+              packaging\windows\Davenstein-Setup-*-windows-i686.exe.sha256 `
+              $output
+
+      - name: Upload Windows i686 Packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: Davenstein-Windows-i686-Packages
+          path: target/release-artifacts/windows-i686/*
           if-no-files-found: error
 
   build-linux:
@@ -3962,6 +4684,7 @@ jobs:
       - release-preflight
       - build-windows
       - build-windows-arm64
+      - build-windows-i686
       - build-linux
       - build-linux-i686
       - build-linux-rpm
