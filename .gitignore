@@ -16,3 +16,9 @@ assets.pak
 DStein.zip
 0025-v3d-force-cpu-preprocessing.patch
 .DS_Store
+
+# iPhone And iPad Resources And Local Xcode State Generated During Builds
+/ios/ios-src/assets.pak
+/ios/DerivedData/
+/ios/Davenstein.xcodeproj/project.xcworkspace/xcuserdata/
+/ios/Davenstein.xcodeproj/xcuserdata/

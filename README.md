@@ -49,7 +49,10 @@ The i686, ARM64, ARMv7, RISC-V 64, and PowerPC64LE packages support compatible L
 - Added PE32 architecture validation, imported DLL auditing, 32-bit Program Files placement, Registry32, silent installation, and uninstall-cleanup verification
 - Added state-aware visible touchscreen controls for gameplay, menus, and tap-to-continue screens
 - Added complete touch-only menu navigation, safe explicit confirmation, game-over and intermission advancement, and gamepad/touch high-score name entry
-- Changed touchscreen movement to a floating four-way D-pad with visible stick feedback while preserving drag-to-turn, fire, use, weapon, and pause controls
+- Changed touchscreen movement to a floating four-way D-pad and turning to a floating horizontal stick that continuously turns while held, with visible feedback, final turn sensitivity `0.6`, and final movement deadzone `0.40`
+- Added a permanent native iPhone and iPad Xcode host with private physical-device signing, Apple Silicon simulator support, application icons, generated assets, and unsigned CI compile proofs
+- Corrected mobile full-screen and safe-area handling, exposed touch controls from launch, moved weapon selection to the top center, and hid desktop-only Display, Resolution, VSync, and Quit rows
+- Corrected the first fire press after level start, respawn, and menu close, and corrected Retina/HiDPI intermission line spacing
 - Corrected the end-of-level intermission regression by ordering tally initialization, counting, one-time bonus application, confirmation handling, text synchronization, and overlay visibility as one deterministic Bevy state machine
 - Corrected the Android Application Not Responding condition and verified responsive gameplay, rendering, menus, and touch input on physical hardware
 - Added touchscreen geometry, accessibility-floor, mode-selection, hit-testing, and regression tests while restoring direct Unix execution of the Android Gradle wrapper
@@ -86,7 +89,7 @@ adb install -r Davenstein-*-Android-arm64-v8a.apk
 
 The APK can also be opened directly on the Android device after allowing package installation from the application used to open the downloaded file
 
-Davenstein provides visible, state-aware touchscreen controls on Android. Gameplay displays a floating four-way movement control, drag-to-turn region, fire, use, weapon-selection, and pause controls. Menus display a direction cluster with explicit OK and BACK buttons, while splash, score, victory, game-over, and intermission screens display tap-to-continue guidance
+Davenstein provides visible, state-aware touchscreen controls through shared Android and iPhone/iPad input and UI systems. Gameplay displays a floating four-way movement control, a floating horizontal turn stick that turns continuously while held, FIRE and USE controls, a top-center weapon row, and MENU. Touch turn sensitivity defaults to `0.6`, while the independently adjustable movement deadzone defaults to `0.40`. Menus display a direction cluster with explicit OK and BACK buttons, while splash, score, victory, game-over, and intermission screens display tap-to-continue guidance
 
 The overlay follows the active input device, so touchscreen controls appear for touch play and hide when keyboard or gamepad input becomes active. The repeated Android Application Not Responding condition observed during development was corrected and the resulting gameplay, rendering, menus, and touch input were verified on physical hardware
 
@@ -403,6 +406,23 @@ Assemble the local release APK:
 ```
 
 The local Gradle output is unsigned. The GitHub Android release workflow performs 16 KiB alignment, release signing, signer and package verification, APK content inspection, checksum creation, and publication
+
+### iPhone And iPad
+
+The permanent native Xcode host is stored under `ios/`. It builds the shared Rust application for physical iPhone and iPad devices through `aarch64-apple-ios` and for Apple Silicon simulators through `aarch64-apple-ios-sim`
+
+Install the Rust targets and generate the application asset pack:
+
+```bash
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+ios/prepare-assets.sh
+```
+
+Complete unsigned device and simulator build commands, project structure, and local-signing guidance are documented in [`ios/README.md`](ios/README.md)
+
+Physical-device testing requires a locally supplied Apple development team and a trusted development profile. No personal or company Apple team identifier is committed in the project
+
+The GitHub release workflow builds unsigned device and simulator applications as compile proofs, validates their bundle metadata and Mach-O platform identities, and keeps them separate from public release packages. Public App Store, TestFlight, and enterprise distribution are not supported
 
 ## Cross Compilation
 

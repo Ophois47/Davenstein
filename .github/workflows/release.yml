@@ -25,6 +25,7 @@ on:
           - flatpak-all
           - freebsd-x86_64
           - android-arm64
+          - ios-arm64
           - macos-arm64
           - macos-intel
           - macos-universal
@@ -4313,6 +4314,194 @@ jobs:
           path: target/release-artifacts/freebsd/*
           if-no-files-found: error
 
+  build-ios:
+    name: Build iPhone And iPad Applications
+    if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'ios-arm64'
+    needs: release-preflight
+    runs-on: macos-15
+    env:
+      RELEASE_VERSION: ${{ needs.release-preflight.outputs.release_version }}
+      IOS_DEVICE_RUST_TARGET: aarch64-apple-ios
+      IOS_SIMULATOR_RUST_TARGET: aarch64-apple-ios-sim
+
+    steps:
+      # Build iPhone And iPad From The Exact Source Revision Used By Every
+      # Other Package In The Main Release Workflow
+      - name: Check Out Source
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add \
+            "$IOS_DEVICE_RUST_TARGET" \
+            "$IOS_SIMULATOR_RUST_TARGET"
+          rustc --version
+          cargo --version
+          rustup target list --installed
+
+      # assets.pak Is Generated From The Committed Asset Tree And Remains
+      # Outside Version Control Just Like Every Other Platform Build
+      - name: Build iPhone And iPad Assets
+        run: ios/prepare-assets.sh
+
+      - name: Validate iPhone And iPad Project Inputs
+        run: |
+          plutil -lint \
+            ios/Davenstein.xcodeproj/project.pbxproj
+          xmllint --noout \
+            ios/Davenstein.xcodeproj/xcshareddata/xcschemes/Davenstein.xcscheme
+          plutil -lint \
+            ios/ios-src/Info.plist
+
+          test -x ios/build_rust_deps.sh
+          test -x ios/prepare-assets.sh
+          test -s ios/ios-src/assets.pak
+          test -s \
+            ios/ios-src/Assets.xcassets/AppIcon.appiconset/AppIcon-Marketing-1024.png
+
+      # CI Deliberately Builds Without A Development Team Or Provisioning
+      # Profile Because These Bundles Are Compile Proofs, Not Public Packages
+      - name: Build Unsigned iPhone And iPad Device Application
+        run: |
+          xcodebuild \
+            -project ios/Davenstein.xcodeproj \
+            -scheme Davenstein \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath target/ios-device \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            PRODUCT_BUNDLE_IDENTIFIER=com.davidpetnick.davenstein \
+            MARKETING_VERSION="$RELEASE_VERSION" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            clean build
+
+      - name: Build Unsigned Apple Silicon Simulator Application
+        run: |
+          xcodebuild \
+            -project ios/Davenstein.xcodeproj \
+            -scheme Davenstein \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath target/ios-simulator \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            PRODUCT_BUNDLE_IDENTIFIER=com.davidpetnick.davenstein \
+            MARKETING_VERSION="$RELEASE_VERSION" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            clean build
+
+      - name: Validate iPhone And iPad Applications
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          device_app=target/ios-device/Build/Products/Release-iphoneos/Davenstein.app
+          simulator_app=target/ios-simulator/Build/Products/Release-iphonesimulator/Davenstein.app
+
+          for app in "$device_app" "$simulator_app"; do
+            test -d "$app"
+            test -x "$app/Davenstein"
+            test -s "$app/assets.pak"
+            test -s "$app/Assets.car"
+            plutil -lint "$app/Info.plist"
+          done
+
+          DEVICE_APP="$device_app" \
+          SIMULATOR_APP="$simulator_app" \
+          EXPECTED_VERSION="$RELEASE_VERSION" \
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import plistlib
+
+          expected_version = os.environ["EXPECTED_VERSION"]
+
+          expected = (
+              (Path(os.environ["DEVICE_APP"]), "iPhoneOS"),
+              (Path(os.environ["SIMULATOR_APP"]), "iPhoneSimulator"),
+          )
+
+          for app, platform in expected:
+              with (app / "Info.plist").open("rb") as handle:
+                  info = plistlib.load(handle)
+
+              assert info["CFBundleIdentifier"] == (
+                  "com.davidpetnick.davenstein"
+              )
+              assert info["CFBundleShortVersionString"] == expected_version
+              assert set(info["UIDeviceFamily"]) == {1, 2}
+              assert platform in info["CFBundleSupportedPlatforms"]
+          PY
+
+          file "$device_app/Davenstein"
+          lipo -archs "$device_app/Davenstein" |
+            grep -qw arm64
+          xcrun vtool -show-build "$device_app/Davenstein" |
+            grep -q 'platform IOS'
+
+          file "$simulator_app/Davenstein"
+          lipo -archs "$simulator_app/Davenstein" |
+            grep -qw arm64
+          xcrun vtool -show-build "$simulator_app/Davenstein" |
+            grep -q 'platform IOSSIMULATOR'
+
+      # Keep Unsigned Apple Validation Bundles Available To Workflow Reviewers
+      # Without Matching The Davenstein-* Public Release Artifact Pattern
+      - name: Archive iPhone And iPad Validation Applications
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf target/ios-artifacts
+          mkdir -p target/ios-artifacts
+
+          device_app=target/ios-device/Build/Products/Release-iphoneos/Davenstein.app
+          simulator_app=target/ios-simulator/Build/Products/Release-iphonesimulator/Davenstein.app
+
+          device_zip=target/ios-artifacts/Davenstein-${RELEASE_VERSION}-ios-arm64-device-unsigned.zip
+          simulator_zip=target/ios-artifacts/Davenstein-${RELEASE_VERSION}-ios-arm64-simulator-unsigned.zip
+
+          ditto \
+            -c \
+            -k \
+            --sequesterRsrc \
+            --keepParent \
+            "$device_app" \
+            "$device_zip"
+
+          ditto \
+            -c \
+            -k \
+            --sequesterRsrc \
+            --keepParent \
+            "$simulator_app" \
+            "$simulator_zip"
+
+          (
+            cd target/ios-artifacts
+            shasum -a 256 \
+              "$(basename "$device_zip")" \
+              > "$(basename "$device_zip").sha256"
+            shasum -a 256 \
+              "$(basename "$simulator_zip")" \
+              > "$(basename "$simulator_zip").sha256"
+            shasum -a 256 -c *.sha256
+          )
+
+      - name: Upload iPhone And iPad Build Validation
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-iphone-ipad-build-validation
+          path: target/ios-artifacts/*
+          if-no-files-found: error
+
   build-macos:
     name: Build Apple Silicon macOS App
     if: github.event_name == 'push' || inputs.build_target == 'all' || inputs.build_target == 'macos-arm64' || inputs.build_target == 'macos-universal'
@@ -4735,6 +4924,8 @@ jobs:
       - build-freebsd
       # Require The Signed Android ARM64 APK Before Publishing A Tagged Release
       - build-android-arm64
+      # Require Unsigned iPhone And iPad Device And Simulator Compile Proofs Before Publishing
+      - build-ios
       - build-macos
       - build-macos-universal
     runs-on: ubuntu-latest
