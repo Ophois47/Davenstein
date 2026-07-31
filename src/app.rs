@@ -64,6 +64,7 @@ use bevy::asset::{
 	AssetPlugin,
 };
 use bevy::camera::ClearColorConfig;
+use bevy::camera::visibility::RenderLayers;
 use bevy::window::{PresentMode, ScreenEdge, WindowPlugin};
 use bevy::light::cluster::GlobalClusterSettings;
 use davelib::options::{MenuUiCamera, MenuUiCameraRef};
@@ -182,6 +183,43 @@ fn spawn_menu_ui_camera(mut commands: Commands) {
 	commands.insert_resource(MenuUiCameraRef(entity));
 }
 
+/// Persistent Background Clear Camera. Fixes the Magenta/Purple Flash Seen Before
+/// the First Splash Screen on Mobile.
+///
+/// Until the Player Starts a Game, the World Cameras (3-D, HUD, Present) Do Not
+/// Exist - They Are Spawned by 'world::setup', Which Only Runs on a Level Rebuild.
+/// The Only Camera Alive at Startup Is the MenuUiCamera, and It Uses
+/// 'ClearColorConfig::None' so It Can Composite Menus Over Live Gameplay. With No
+/// Camera Clearing the Window, the Freshly Acquired Swapchain Drawable Is
+/// Uninitialized; iOS / Metal Presents That as Magenta Until the Splash Image
+/// Loads and Covers It (Most Visible When the First Asset Load Is Slow). Desktop
+/// GPUs Usually Hand Back Zeroed Drawables, so the Flash Is a Mobile Symptom.
+///
+/// This Camera Sits at the Lowest Render Order and Clears the Window to Black
+/// Every Frame, Guaranteeing a Defined Background Before Anything Composites. It
+/// Renders Nothing Itself - It Is Pinned to an Otherwise Unused Render Layer so It
+/// Only Clears - Never Owns 'IsDefaultUiCamera', Runs at One Sample to Match the
+/// Window Surface, and Is Never Despawned. Once the Present Camera Exists It Draws
+/// the World Straight Over This Black, so the Camera Is Harmless During Play
+fn spawn_background_clear_camera(mut commands: Commands) {
+	commands.spawn((
+		Camera2d::default(),
+		Camera {
+			// Below Every Other Camera (World 0/1/2, Menu 10) so It Clears First
+			order: -1000,
+			clear_color: ClearColorConfig::Custom(Color::BLACK),
+			..default()
+		},
+		// One Sample, Matching the Window Surface and the Menu Camera - a
+		// Multisampled Clear-Only Camera Would Mismatch the 1-Sample Target
+		Msaa::Off,
+		// An Unused Render Layer: Nothing Is Assigned to Layer 8, so This Camera
+		// Clears the Window and Draws No Sprite or UI Node, Avoiding Any Chance of
+		// It Redrawing Content or Forming a Canvas Feedback Loop
+		RenderLayers::layer(8),
+	));
+}
+
 pub fn run() {
 	info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
 	let asset_file_path = if cfg!(debug_assertions) {
@@ -286,6 +324,7 @@ pub fn run() {
 		.add_systems(Startup, setup_audio)
 		.add_systems(Startup, start_music.after(setup_audio))
 		.add_systems(Startup, spawn_menu_ui_camera)
+		.add_systems(Startup, spawn_background_clear_camera)
 		.add_systems(Startup, disable_gpu_clustering)
 		.add_systems(
 			Update,
