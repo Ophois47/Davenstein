@@ -8,9 +8,9 @@ touch look input
 Current and Planned Sources
 - Keyboard and Mouse - Implemented
 - Gamepad - Implemented with the gamepad_sensitivity and gamepad_deadzone Settings
-- Touch - Implemented with a Floating Virtual Stick, Look Drag, and On-Screen
-  Buttons. Geometry Lives in input::touch_layout; the On-Screen Overlay That Draws
-  Those Same Rectangles Is a Later Milestone
+- Touch - Implemented with Floating Movement and Turn Sticks and On-Screen
+  Buttons. Geometry Lives in input::touch_layout, and ui::touch_overlay Draws the
+  Corresponding Controls
 */
 
 pub mod keyboard_mouse;

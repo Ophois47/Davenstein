@@ -1887,6 +1887,7 @@ pub(super) fn sync_hud_layout_on_window_change(
 pub(super) fn sync_mission_overlay_layout_on_window_change(
     q_changed: Query<&Window, (With<PrimaryWindow>, Changed<Window>)>,
     q_win: Query<&Window, With<PrimaryWindow>>,
+    canvas: Option<Res<WorldCanvas>>,
     mut q_overlay: Query<&mut Node, (With<crate::level_complete::MissionSuccessOverlay>, Without<MissionOverlayContent>, Without<MissionBjCardImage>, Without<MissionOverlayNativePos>)>,
     mut q_content: Query<&mut Node, (With<MissionOverlayContent>, Without<crate::level_complete::MissionSuccessOverlay>, Without<MissionBjCardImage>, Without<MissionOverlayNativePos>)>,
     mut q_bj: Query<&mut Node, (With<MissionBjCardImage>, Without<crate::level_complete::MissionSuccessOverlay>, Without<MissionOverlayContent>, Without<MissionOverlayNativePos>)>,
@@ -1909,11 +1910,18 @@ pub(super) fn sync_mission_overlay_layout_on_window_change(
     const STATUS_H: f32 = 44.0;
     const TEXT_SCALE: f32 = 0.90;
 
-    let win_w = win.resolution.width();
+    let (canvas_w, canvas_h) = ui_ref_dims(canvas.as_deref(), &q_win);
     let win_h = win.resolution.height();
 
-    let width_scale_i = (win_w / VIEW_W).floor().max(1.0) as i32;
-    let status_h_px = STATUS_H * (width_scale_i as f32);
+    // Match spawn_mission_success_overlay Exactly: Derive the Bar's Integer Scale
+    // From the CANVAS Width (the Same Basis compute_hud_layout Uses for the Real
+    // Bar) and Project Its Canvas Height Into This Overlay's Window Logical Space
+    // by the canvas->window Upscale (win_h / canvas_h). The Previous Version Used
+    // the Window Logical WIDTH for the Scale and the Raw Canvas Height for the
+    // Inset, so It Neither Matched the Rendered Bar nor Agreed With the Spawn Path
+    // on Mobile, Leaving the Teal Panel Overlapping the Bar After the First Resize
+    let width_scale_i = (canvas_w / VIEW_W).floor().max(1.0) as i32;
+    let status_h_px = (STATUS_H * width_scale_i as f32 / canvas_h.max(1.0)) * win_h;
 
     let avail_h = (win_h - status_h_px).max(1.0);
     let max_scale_h_i = (avail_h / VIEW_H).floor().max(1.0) as i32;
@@ -2234,6 +2242,7 @@ fn spawn_status_bar(
 fn spawn_mission_success_overlay(
     commands: &mut Commands,
     hud_scale: f32,
+    canvas_h: f32,
     q_windows: &Query<&Window, With<PrimaryWindow>>,
     start_floor_num: i32,
     bj_pistol_0: Handle<Image>,
@@ -2249,10 +2258,23 @@ fn spawn_mission_success_overlay(
     const TEXT_SCALE: f32 = 0.90;
 
     let width_scale_i = hud_scale.floor().max(1.0) as i32;
-    let status_h_px = STATUS_H * (width_scale_i as f32);
 
     let win = q_windows.iter().next().expect("PrimaryWindow");
     let win_h = win.resolution.height();
+
+    // Reserve Exactly the HUD Status Bar's On-Screen Height. The Bar Is
+    // (STATUS_H * width_scale_i) CANVAS Pixels Tall and Renders on the Canvas
+    // Camera, Which the Present Camera Upscales to Fill the Whole Window. This
+    // Overlay Instead Lives on the Full-Window Menu Camera, so the Canvas Height
+    // Must Be Projected Into Window Logical Pixels by the Same canvas->window
+    // Upscale Factor (win_h / canvas_h). Using the Raw Canvas Figure Directly - as
+    // This Did Before - Only Happened to Match on Desktop at Native Render Scale
+    // and 1x DPI; on Mobile canvas_h Is Larger Than the Logical Window, so the
+    // Reserved Gap Came Out Too Small and the Teal Panel Overlapped the Top of the
+    // Bar. This Projection Is DPI- and render_scale-Proof and Reduces to the Old
+    // Value Whenever canvas_h Equals win_h
+    let status_h_px = (STATUS_H * width_scale_i as f32 / canvas_h.max(1.0)) * win_h;
+
     let avail_h = (win_h - status_h_px).max(1.0);
     let max_scale_h_i = (avail_h / VIEW_H).floor().max(1.0) as i32;
 
@@ -2948,7 +2970,7 @@ pub(crate) fn setup_hud(
     mut images: ResMut<Assets<Image>>,
 ) {
     let assets = load_hud_setup_assets(&mut commands, &asset_server, &hud);
-    let (ui_w, _ui_h) = ui_ref_dims(canvas.as_deref(), &q_windows);
+    let (ui_w, ui_h) = ui_ref_dims(canvas.as_deref(), &q_windows);
     let layout = compute_hud_layout(ui_w);
 
     // Backing Texture for the Death Dissolve. Starts Fully Transparent and Is
@@ -3016,6 +3038,7 @@ pub(crate) fn setup_hud(
     spawn_mission_success_overlay(
         &mut commands,
         layout.hud_scale,
+        ui_h,
         &q_windows,
         start_floor_num,
         assets.bj_pistol_0.clone(),

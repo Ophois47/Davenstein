@@ -184,14 +184,20 @@ impl TouchLayout {
         // Travels Straight Up Rather Than Diagonally Across the Look Area
         let use_door = square_from_bottom_right(right, fire.min.y - gap, action_size);
 
-        // Weapon Slots Run Left to Right Along the Bottom Edge, Ending Just Left of
-        // Fire, so Slot 4 (Chaingun) Is the Shortest Reach From the Firing Thumb
-        let weapons_right = fire.min.x - gap;
-        let weapons_left = weapons_right - (4.0 * weapon_size + 3.0 * gap);
+        // Weapon Slots Run Left to Right Across the TOP CENTRE of the Screen, Slot 1
+        // (Knife) Leftmost Through Slot 4 (Chaingun) Rightmost. The Four-Button Row
+        // Is Centred Horizontally on the Window. Moved Off the Bottom Edge so a
+        // Mid-Fight Weapon Switch Is a Deliberate Reach to the Top Rather Than
+        // Something the Firing or Movement Thumb Triggers by Brushing the Bottom Row.
+        // The max(margin) Guard Keeps the Row On-Screen if MIN_TOUCH_PX Inflation on
+        // a Tiny Window Ever Makes It Wider Than the Window Itself
+        let weapons_row_w = 4.0 * weapon_size + 3.0 * gap;
+        let weapons_left = ((window_size.x - weapons_row_w) * 0.5).max(margin);
+        let weapons_top = margin;
         let mut weapons = [Rect::EMPTY; 4];
         for (index, slot) in weapons.iter_mut().enumerate() {
             let left = weapons_left + index as f32 * (weapon_size + gap);
-            *slot = Rect::new(left, bottom - weapon_size, left + weapon_size, bottom);
+            *slot = Rect::new(left, weapons_top, left + weapon_size, weapons_top + weapon_size);
         }
 
         // Pause Sits Top-Right, Clear of Both Thumbs so It Is Never Hit Mid-Firefight
@@ -201,14 +207,14 @@ impl TouchLayout {
         // Lands Here and Finds the Stick Free Becomes the Stick; Everything the
         // Buttons and the Stick Do Not Claim Aims Instead
         //
-        // Capped at the Weapon Row: Buttons Hit-Test First, so on Narrower Aspects
-        // (a 4:3 Tablet) an Uncapped Half-Width Region Would Silently Lose Its
-        // Rightmost Sliver to Weapon Slot 1 and the Overlay Would Draw a Button on
-        // Top of Ground the Player Was Told Belongs to Movement. The Floor Keeps a
-        // Usable Region on Degenerate Desktop Windows Where MIN_TOUCH_PX Inflation
-        // Pushes the Row Far Left; There the Row Wins the Overlap, as Documented
+        // With the Weapon Row Now at the Top Centre It No Longer Shares the Bottom
+        // Edge With the Movement Zone, so the Region Is a Simple Left Half - No
+        // Weapon-Row Cap Is Needed Any More. Where the Left Half and the Centred
+        // Weapon Row Do Overlap (the Top Strip), the Claim Pass Tests Buttons Before
+        // the Stick Region, so a Tap on a Weapon Is Always Read as That Weapon and
+        // Never as Movement. The Floor Keeps a Usable Region on Degenerate Narrow
+        // Windows
         let stick_right = (window_size.x * STICK_REGION_FRAC)
-            .min(weapons_left - gap)
             .max(window_size.x * 0.25);
         let stick_region = Rect::new(0.0, 0.0, stick_right, window_size.y);
 
@@ -401,17 +407,38 @@ mod tests {
     }
 
     #[test]
-    fn stick_region_is_capped_at_the_weapon_row() {
-        // A 4:3 Tablet Is Narrow Enough That an Uncapped Half-Width Region Would
-        // Run Under Weapon Slot 1. The Cap Must Keep Them Disjoint There While
-        // Leaving the Phone's Region at Its Full Half Width
-        let tablet = TouchLayout::compute(TABLET, 1.0);
-        for slot in tablet.weapons {
-            assert!(!rects_overlap(tablet.stick_region, slot), "cap failed on tablet");
-        }
+    fn weapon_row_sits_centred_along_the_top() {
+        // The Row Moved From the Bottom Edge to the Top Centre. Every Slot Shares
+        // the Top Margin, and the Row Is Centred: the Gap to the Left of Slot 1
+        // Equals the Gap to the Right of Slot 4
+        for size in [PHONE, TABLET, DESKTOP] {
+            let l = TouchLayout::compute(size, 1.0);
+            let top_margin = size.min_element() * MARGIN_FRAC;
 
-        let phone = TouchLayout::compute(PHONE, 1.0);
-        assert_eq!(phone.stick_region.max.x, PHONE.x * STICK_REGION_FRAC);
+            for slot in l.weapons {
+                assert!(
+                    (slot.min.y - top_margin).abs() < 1.0,
+                    "weapon slot not at the top margin on {size}",
+                );
+            }
+
+            let left_gap = l.weapons[0].min.x;
+            let right_gap = size.x - l.weapons[3].max.x;
+            assert!(
+                (left_gap - right_gap).abs() < 1.0,
+                "weapon row not horizontally centred on {size}",
+            );
+        }
+    }
+
+    #[test]
+    fn stick_region_is_the_left_half() {
+        // With Weapons off the Bottom Edge the Region No Longer Needs a Weapon-Row
+        // Cap: It Is Simply the Left STICK_REGION_FRAC of Every Test Window
+        for size in [PHONE, TABLET, DESKTOP] {
+            let l = TouchLayout::compute(size, 1.0);
+            assert_eq!(l.stick_region.max.x, size.x * STICK_REGION_FRAC);
+        }
     }
 
     #[test]

@@ -119,6 +119,7 @@ pub fn gather(
     let touch_driven = if controls.touch_enabled {
         touch::contribute(
             &mut acc,
+            &time,
             &touches,
             &mut touch_io.assign,
             &touch_io.layout,
