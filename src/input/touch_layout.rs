@@ -51,6 +51,18 @@ const MENU_NAV_SIZE_FRAC: f32 = 0.13;
 const GAP_FRAC: f32 = 0.02;
 const MARGIN_FRAC: f32 = 0.03;
 
+// Floor for the Edge Inset, in Logical Pixels. The Proportional 'MARGIN_FRAC' Is
+// Tied to the SHORTER Side, so on a Phone (~393 pt Tall in Landscape) It Works
+// Out to Only ~12 pt - Well Inside a Modern Handheld's ~50 pt Rounded-Corner
+// Radius, so the Outer Corners of the Edge-Anchored Buttons (Fire, Pause, OK,
+// BACK, the Menu Cluster) Poke Into the Curved-Off Region and Look Clipped. A
+// Point at Inset 'm' From a Corner Clears a Radius-R Arc Once m >= R*(1 - 1/sqrt2)
+// ~= 0.29R, so ~15 pt Clears a 50 pt Corner; 20 pt Adds Headroom for Devices With
+// Larger Radii. This Floor Only Bites on the Phone - Tablets and Desktop Already
+// Exceed It Proportionally - so It Nudges the Controls Inward Exactly Where the
+// Clipping Happens and Leaves Larger Screens Untouched
+const MIN_MARGIN_PX: f32 = 20.0;
+
 // Virtual Stick Travel Radius as a Fraction of the Shorter Side
 // This Is the Drag Distance That Means Full Speed, Not the Size of a Drawn Circle
 const STICK_RADIUS_FRAC: f32 = 0.15;
@@ -171,7 +183,7 @@ impl TouchLayout {
         let action_size = sized(ACTION_SIZE_FRAC);
         let weapon_size = sized(WEAPON_SIZE_FRAC);
         let gap = short * GAP_FRAC;
-        let margin = short * MARGIN_FRAC;
+        let margin = (short * MARGIN_FRAC).max(MIN_MARGIN_PX);
 
         let right = window_size.x - margin;
         let bottom = window_size.y - margin;
@@ -413,7 +425,7 @@ mod tests {
         // Equals the Gap to the Right of Slot 4
         for size in [PHONE, TABLET, DESKTOP] {
             let l = TouchLayout::compute(size, 1.0);
-            let top_margin = size.min_element() * MARGIN_FRAC;
+            let top_margin = (size.min_element() * MARGIN_FRAC).max(MIN_MARGIN_PX);
 
             for slot in l.weapons {
                 assert!(
