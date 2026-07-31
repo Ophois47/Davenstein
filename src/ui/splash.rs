@@ -5023,25 +5023,34 @@ fn spawn_name_entry_ui(
         Visibility::Visible,
     );
 
-    // Hint at bottom (Desktop Only)
-    // "(Press ENTER when done)" Names a Key a Handheld Does Not Have. Name Entry
-    // Still Works on Touch - the Letter Carousel Runs off the D-Pad Cluster and OK
-    // Commits - so the Screen Is Not Stranded; the Keyboard Line Is Simply Hidden
-    // There Rather Than Shown Wrong (See davelib::options::MOBILE_PLATFORM)
-    if !davelib::options::MOBILE_PLATFORM {
-        let hint = "(Press ENTER when done)";
-        let hint_w = measure_menu_text_width(ui_scale, hint);
-        let hint_x = ((w - hint_w) * 0.5).round().max(0.0);
-        let hint_y = (160.0 * ui_scale).round();
+    // Hint at Bottom. Desktop Names the ENTER Key. A Handheld Has No Keyboard, so
+    // Instead of Hiding the Line (Which Left Players Staring at Name Slots and a
+    // Bare D-Pad With No Idea How to Type) It Gets a Short Legend for the Carousel
+    // the Touch Cluster Already Drives: Up or Down Cycles the Current Letter, Right
+    // Locks It In and Starts the Next, and OK Submits the Name. All Characters Here
+    // Are Letters, Spaces, and Parens - the Same Glyphs the Old ENTER Hint Used - so
+    // Nothing Falls Outside the Menu Bitmap Font
+    let hint_lines: &[&str] = if davelib::options::MOBILE_PLATFORM {
+        &["(Up or Down picks a letter)", "(Right for next   OK when done)"]
+    } else {
+        &["(Press ENTER when done)"]
+    };
+
+    let base_y = 160.0 * ui_scale;
+    let line_step = 12.0 * ui_scale;
+    for (i, &line) in hint_lines.iter().enumerate() {
+        let line_w = measure_menu_text_width(ui_scale, line);
+        let line_x = ((w - line_w) * 0.5).round().max(0.0);
+        let line_y = (base_y + i as f32 * line_step).round();
 
         spawn_menu_bitmap_text(
             commands,
             canvas,
             imgs.menu_font_gray.clone(),
-            hint_x,
-            hint_y,
+            line_x,
+            line_y,
             ui_scale,
-            hint,
+            line,
             Visibility::Visible,
         );
     }
