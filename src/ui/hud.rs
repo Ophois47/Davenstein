@@ -2604,16 +2604,22 @@ fn spawn_game_over_overlay(commands: &mut Commands, ui_font: Handle<Font>) {
                 TextLayout::justify(Justify::Center),
             ));
 
-            go.spawn((
-                Text::new("Press ENTER to Continue ..."),
-                TextFont {
-                    font: FontSource::Handle(ui_font.clone()),
-                    font_size: FontSize::Px(24.0),
-                    ..default()
-                },
-                TextColor(Color::WHITE),
-                TextLayout::justify(Justify::Center),
-            ));
+            // Keyboard Prompt, Desktop Only. On a Handheld There Is No ENTER Key and
+            // Any Tap Already Advances This Screen, so the Line Is Both Wrong and
+            // Redundant There - Hidden Rather Than Retitled Because the Tap Gesture Is
+            // Self-Evident (See davelib::options::MOBILE_PLATFORM)
+            if !davelib::options::MOBILE_PLATFORM {
+                go.spawn((
+                    Text::new("Press ENTER to Continue ..."),
+                    TextFont {
+                        font: FontSource::Handle(ui_font.clone()),
+                        font_size: FontSize::Px(24.0),
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                    TextLayout::justify(Justify::Center),
+                ));
+            }
         });
 }
 

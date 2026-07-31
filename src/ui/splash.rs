@@ -5023,22 +5023,28 @@ fn spawn_name_entry_ui(
         Visibility::Visible,
     );
 
-    // Hint at bottom
-    let hint = "(Press ENTER when done)";
-    let hint_w = measure_menu_text_width(ui_scale, hint);
-    let hint_x = ((w - hint_w) * 0.5).round().max(0.0);
-    let hint_y = (160.0 * ui_scale).round();
+    // Hint at bottom (Desktop Only)
+    // "(Press ENTER when done)" Names a Key a Handheld Does Not Have. Name Entry
+    // Still Works on Touch - the Letter Carousel Runs off the D-Pad Cluster and OK
+    // Commits - so the Screen Is Not Stranded; the Keyboard Line Is Simply Hidden
+    // There Rather Than Shown Wrong (See davelib::options::MOBILE_PLATFORM)
+    if !davelib::options::MOBILE_PLATFORM {
+        let hint = "(Press ENTER when done)";
+        let hint_w = measure_menu_text_width(ui_scale, hint);
+        let hint_x = ((w - hint_w) * 0.5).round().max(0.0);
+        let hint_y = (160.0 * ui_scale).round();
 
-    spawn_menu_bitmap_text(
-        commands,
-        canvas,
-        imgs.menu_font_gray.clone(),
-        hint_x,
-        hint_y,
-        ui_scale,
-        hint,
-        Visibility::Visible,
-    );
+        spawn_menu_bitmap_text(
+            commands,
+            canvas,
+            imgs.menu_font_gray.clone(),
+            hint_x,
+            hint_y,
+            ui_scale,
+            hint,
+            Visibility::Visible,
+        );
+    }
 }
 
 fn spawn_scores_ui(

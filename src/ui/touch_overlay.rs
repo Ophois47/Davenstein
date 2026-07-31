@@ -311,9 +311,13 @@ pub(super) fn sync_touch_overlay_tree(
             spawn_button(&mut commands, root, &font, TouchControlKind::MenuBack, &layout, "BACK");
         }
 
-        TouchUiMode::Advance => {
-            spawn_advance_hint(&mut commands, root, &font, &layout);
-        }
+        // Any-Input Screens (Splash, Score Tables, Level-Complete Tally, Game Over,
+        // Episode Text): the Whole Screen Advances on a Tap, so No Hint or Button Is
+        // Drawn. The Bare Root Just Waits for the Tap, Same as Off. The Old "TAP TO
+        // CONTINUE" Chip Sat Bottom-Centre and Crowded the Tally Numbers and Splash
+        // Art; Since the Gesture Is Discoverable and Universal Here, the Cleanest UI
+        // Is None
+        TouchUiMode::Advance => {}
 
         // A Dark Glass Draws Nothing; the Bare Root Waits for the Next Mode
         TouchUiMode::Off => {}
@@ -418,62 +422,6 @@ fn spawn_gameplay_hints(
             ChildOf(hint),
         ));
     }
-}
-
-// The Any-Input Screens Get One Explicit Instruction Instead of Buttons. Bottom
-// Centre, Clear of the Splash Art, the Score Tables, and the Tally Numbers
-fn spawn_advance_hint(
-    commands: &mut Commands,
-    root: Entity,
-    font: &Handle<Font>,
-    layout: &TouchLayout,
-) {
-    let inset = layout.window_size.y * 0.04;
-
-    let row = commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                bottom: Val::Px(inset),
-                width: Val::Percent(100.0),
-                height: Val::Px(44.0),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            ChildOf(root),
-        ))
-        .id();
-
-    let chip = commands
-        .spawn((
-            Node {
-                border: UiRect::all(Val::Px(BUTTON_BORDER_PX)),
-                padding: UiRect::axes(Val::Px(18.0), Val::Px(8.0)),
-                // Corner Radius Is a Node Field in Bevy 0.19, Not a Component
-                border_radius: BorderRadius::all(Val::Px(BUTTON_CORNER_PX)),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(BUTTON_FILL.into()),
-            BorderColor::all(Color::from(BUTTON_BORDER)),
-            ChildOf(row),
-        ))
-        .id();
-
-    commands.spawn((
-        Text::new("TAP TO CONTINUE"),
-        TextFont {
-            font: FontSource::Handle(font.clone()),
-            font_size: FontSize::Px(16.0),
-            ..default()
-        },
-        TextColor(LABEL_COLOR.into()),
-        TextLayout::justify(Justify::Center),
-        ChildOf(chip),
-    ));
 }
 
 // The Floating Stick's Two Circles, Spawned Hidden. sync_touch_stick_visual
