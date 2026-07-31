@@ -293,15 +293,46 @@ pub fn run() {
 			Update,
 			level_pitch_without_mouselook.after(apply_look),
 		)
+		// The Intermission Is One State Machine, Not Seven Independent Systems.
+		// Keep Every Mutation And Read In a Fixed Order so a New Schedule Edge
+		// Elsewhere Cannot Render Pre-Initialization Values, Tick Before the
+		// Targets Exist, or Advance the Level Before Its Bonus Is Applied
 		.add_systems(Update, level_complete::tick_elevator_exit_delay)
-		.add_systems(Update, level_complete::sync_mission_success_overlay_visibility)
-		.add_systems(Update, level_complete::start_mission_success_tally_on_win)
-		.add_systems(Update, level_complete::tick_mission_success_tally)
-		.add_systems(Update, level_complete::sync_mission_success_stats_text)
+		.add_systems(
+			Update,
+			level_complete::start_mission_success_tally_on_win
+				.after(level_complete::tick_elevator_exit_delay),
+		)
+		.add_systems(
+			Update,
+			level_complete::tick_mission_success_tally
+				.after(level_complete::start_mission_success_tally_on_win),
+		)
+		.add_systems(
+			Update,
+			level_complete::apply_mission_success_bonus_to_player_score_once
+				.after(level_complete::tick_mission_success_tally),
+		)
 		// After InputGather so the Tally Reacts to This Frame's Confirm
-		// (Gamepad South, a Touch Tap) Rather Than Last Frame's
-		.add_systems(Update, level_complete::mission_success_input.after(davelib::input::InputGather))
-		.add_systems(Update, level_complete::apply_mission_success_bonus_to_player_score_once)
+		// (Gamepad South, a Touch Tap) Rather Than Last Frame's. Also Run After
+		// Bonus Application so Level Advancement Cannot Reassign CurrentLevel
+		// Before the Completed Floor's Score and Episode Statistics Are Final
+		.add_systems(
+			Update,
+			level_complete::mission_success_input
+				.after(davelib::input::InputGather)
+				.after(level_complete::apply_mission_success_bonus_to_player_score_once),
+		)
+		.add_systems(
+			Update,
+			level_complete::sync_mission_success_stats_text
+				.after(level_complete::mission_success_input),
+		)
+		.add_systems(
+			Update,
+			level_complete::sync_mission_success_overlay_visibility
+				.after(level_complete::start_mission_success_tally_on_win),
+		)
 		.add_systems(Update, pickups::billboard_pickups.run_if(world_ready))
 		.add_systems(Update, billboard_decorations.run_if(world_ready))
 		.add_systems(Update, use_pushwalls.run_if(world_ready).after(davelib::input::InputGather))
