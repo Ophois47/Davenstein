@@ -210,7 +210,17 @@ impl SettingsFile {
         }
         if let Some(s) = &self.video.display_mode {
             if let Some(m) = display_mode_from_str(s) {
-                video.display_mode = m;
+                // On a Handheld, Coerce Any Non-Borderless Stored Mode to
+                // Borderless. This Is What Self-Heals an Install Already Bricked by
+                // an Earlier Build: a Persisted "windowed" (Plus Its Forced Desktop
+                // Resolution) Otherwise Reapplies at Every Launch and Snaps the
+                // Surface to the Safe-Area Size Before the Player Can Reach a Menu
+                // to Change It Back. Desktop Keeps the Loaded Value Verbatim
+                video.display_mode = if davelib::options::MOBILE_PLATFORM {
+                    DisplayMode::BorderlessFullscreen
+                } else {
+                    m
+                };
             }
         }
         if let Some(r) = self.video.resolution {

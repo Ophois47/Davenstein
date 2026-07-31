@@ -73,11 +73,19 @@ pub enum ActiveInputDevice {
 // Touchscreen Still Takes Over on Its First Deliberate Act on Either Platform
 impl Default for ActiveInputDevice {
     fn default() -> Self {
-        #[cfg(target_os = "android")]
+        // Every Touch-Only Handheld (iPhone, iPad, Android) Boots With Touch as the
+        // Driver. iOS Was Previously Absent From This Gate, so an iPhone Started in
+        // KeyboardMouse and the Overlay - Whose Visibility Follows This Resource -
+        // Stayed Hidden Until a First Deliberate Touch. But the Splash and Menu Are
+        // the First Things Shown, and a Menu Never Auto-Reveals the Overlay From a
+        // Stray Tap (See contribute_menu), so the Player Faced Invisible Controls
+        // With No Way to Summon Them. Desktop Keeps KeyboardMouse; a Gamepad or a
+        // Real Touch Still Takes Over on Its First Deliberate Act on Either Platform
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             ActiveInputDevice::Touch
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             ActiveInputDevice::KeyboardMouse
         }

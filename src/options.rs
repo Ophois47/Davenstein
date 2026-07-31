@@ -20,6 +20,20 @@ use bevy::window::{
 
 use crate::player;
 
+// True on the Touch-Only Handheld Targets (iPhone, iPad, Android), False on Every
+// Desktop Build. The Whole Windowing Model Differs on These Platforms: There Is No
+// Movable, Resizable Window and No User-Chosen Resolution - the Surface Is Always
+// the Full Screen the OS Hands Us. Several Desktop-Only Code Paths Below Write
+// Through 'window.resolution' or Cycle to a Windowed 'DisplayMode', Both of Which
+// Are Meaningless Here and Actively Harmful: on iOS 'request_inner_size' Returns
+// the SAFE-AREA Rect (Screen Minus the Notch and Home-Indicator Insets), so a
+// Single Resolution Write Snaps Bevy's Logical Window Smaller Than the Glass While
+// Touch Coordinates Keep Arriving in Full-Screen Space, Desyncing Every On-Screen
+// Touch Rectangle From Where It Is Drawn. Gating Those Writes Off Here Keeps the
+// Handheld Surface at Its Native Full-Screen Size for the Life of the Session
+pub const MOBILE_PLATFORM: bool =
+	cfg!(any(target_os = "ios", target_os = "android"));
+
 pub struct OptionsPlugin;
 
 impl Plugin for OptionsPlugin {
@@ -75,6 +89,14 @@ impl DisplayMode {
 	/// Cycle Forward Through Display Modes (Wraps Around)
 	/// Skips Exclusive Fullscreen on Wayland
 	pub fn next(self) -> Self {
+		// Handhelds Have Exactly One Legal Display Mode. Collapsing the Cycle to a
+		// No-Op Means Even if the Row Is Somehow Reached (an Imported Desktop
+		// Config, a Future Menu Change) the Player Can Never Land on Windowed and
+		// Trigger the Safe-Area Resize Desync Documented on MOBILE_PLATFORM
+		if MOBILE_PLATFORM {
+			return DisplayMode::BorderlessFullscreen;
+		}
+
 		let skip = Self::skip_exclusive();
 		match self {
 			DisplayMode::Windowed => DisplayMode::BorderlessFullscreen,
@@ -92,6 +114,12 @@ impl DisplayMode {
 	/// Cycle backward through display modes (wraps around)
 	/// Skips Exclusive Fullscreen on Wayland
 	pub fn prev(self) -> Self {
+		// Same Single-Mode Collapse as 'next': Borderless Is the Only Mode a
+		// Handheld Surface Can Represent, so Both Directions Resolve to It
+		if MOBILE_PLATFORM {
+			return DisplayMode::BorderlessFullscreen;
+		}
+
 		let skip = Self::skip_exclusive();
 		match self {
 			DisplayMode::Windowed => {
@@ -503,9 +531,9 @@ pub struct ControlSettings {
 	/// Is Actually Seen, so This Exists to Suppress Stray Trackpad or Touch
 	/// Monitor Contact Rather Than to Opt In
 	pub touch_enabled: bool,
-	/// Multiplier Applied to Touch Turn-Drag Deltas
+	/// Multiplier Applied to the Touch Turn-Stick Axis
 	/// Range: 0.1 ..= 10.0
-	/// Default: 1.0
+	/// Default: 0.4
 	/// Separate From mouse_sensitivity Because a Thumb Drag Covers Far Less
 	/// Screen Distance Than a Mouse Sweep and Wants Its Own Tuning
 	/// Named Turn Rather Than Look Because Touch Drives Yaw Only, With No
@@ -530,7 +558,7 @@ impl Default for ControlSettings {
 			gamepad_sensitivity: 1.0,
 			gamepad_deadzone: 0.1,
 			touch_enabled: true,
-			touch_turn_sensitivity: 1.0,
+			touch_turn_sensitivity: 0.4,
 			touch_ui_scale: 1.0,
 			key_bindings: KeyBindings::default(),
 		}
@@ -847,6 +875,15 @@ fn desired_video_mode_selection(
 }
 
 fn desired_window_mode(s: &VideoSettings, q_monitors: &Query<&Monitor>) -> WindowMode {
+	// A Handheld Surface Is Always Borderless Full Screen. Resolve to It Directly
+	// Rather Than Trusting 's.display_mode', so Even a Stale Windowed or Exclusive
+	// Value (e.g. From a settings.ron Copied Off a Desktop) Cannot Ask UIKit for a
+	// Windowed Surface That Does Not Exist. This Is the Runtime Half of the Guard;
+	// the settings Loader Also Sanitizes the Stored Value (See settings/model.rs)
+	if MOBILE_PLATFORM {
+		return WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+	}
+
 	match s.display_mode {
 		DisplayMode::Windowed            => WindowMode::Windowed,
 		DisplayMode::BorderlessFullscreen => WindowMode::BorderlessFullscreen(
@@ -881,7 +918,14 @@ fn apply_video_settings_startup(
 	if let Some(mut window) = q_window.iter_mut().next() {
 		window.present_mode = desired_present_mode(&settings);
 		window.mode = desired_window_mode(&settings, &q_monitors);
-		if settings.display_mode == DisplayMode::Windowed {
+		// Never Write 'window.resolution' on a Handheld. On iOS the Backing
+		// 'request_inner_size' Returns the Safe-Area Rect (Screen Minus Notch and
+		// Home-Indicator Insets), So Even Setting It to the Screen's Own Size Snaps
+		// Bevy's Logical Window Smaller Than the Glass. Touches Still Arrive in
+		// Full-Screen Coordinates, So Every TouchLayout Rectangle Ends Up Offset
+		// From Where It Is Drawn - Worst at the Bottom-Right, Under OK and BACK.
+		// Borderless Already Fills the Screen, So There Is Nothing to Set Here
+		if !MOBILE_PLATFORM && settings.display_mode == DisplayMode::Windowed {
 			// settings.resolution Holds PHYSICAL Monitor-Mode Pixels (the List Is
 			// Built From 'mode.physical_size'), so Set the Physical Resolution
 			// Directly. '.set()' Treats Its Arguments as LOGICAL and Multiplies by
@@ -942,7 +986,11 @@ fn apply_video_settings_on_change(
 			*last_requested_mode = Some(want_mode);
 		}
 
-		if settings.display_mode == DisplayMode::Windowed {
+		// Handhelds Never Resize the Window (See 'apply_video_settings_startup'):
+		// the Only Legal Surface Is Borderless Full Screen and Any Resolution Write
+		// Would Reintroduce the Safe-Area Snap. The '!MOBILE_PLATFORM' Guard Makes
+		// the Whole Windowed Resize Branch Dead Code on iOS and Android
+		if !MOBILE_PLATFORM && settings.display_mode == DisplayMode::Windowed {
 			// Compare and Set in PHYSICAL Pixels. settings.resolution Is Physical
 			// (From 'mode.physical_size'); Comparing Against Logical 'width()' or
 			// Setting via '.set()' Applies the Display Scale Factor Twice and, on a
@@ -1188,8 +1236,8 @@ impl ControlSettings {
 		)
 	}
 
-	/// Returns Sensitivity Scaled Yaw Delta From a Raw Horizontal Touch
-	/// Drag in Logical Window Pixels
+	/// Returns the Sensitivity-Scaled Horizontal Touch Turn-Stick Axis
+	/// The Input Is Normally -1.0 Through 1.0; Sensitivity Scales the Output
 	///
 	/// Takes and Returns a Single Axis, Not a Vec2, Because Touch Turning Is
 	/// Yaw-Only: the Original Game Had No Vertical Look, and Pitch Here Sits
@@ -1199,8 +1247,8 @@ impl ControlSettings {
 	///
 	/// There Is Deliberately No invert_y Term. With No Pitch Axis There Is
 	/// Nothing for It to Invert
-	pub fn scaled_touch_turn(&self, raw_delta_x: f32) -> f32 {
-		raw_delta_x * self.touch_turn_sensitivity
+	pub fn scaled_touch_turn(&self, turn_axis: f32) -> f32 {
+		turn_axis * self.touch_turn_sensitivity
 	}
 }
 

@@ -64,7 +64,7 @@ use bevy::asset::{
 	AssetPlugin,
 };
 use bevy::camera::ClearColorConfig;
-use bevy::window::{PresentMode, WindowPlugin};
+use bevy::window::{PresentMode, ScreenEdge, WindowPlugin};
 use bevy::light::cluster::GlobalClusterSettings;
 use davelib::options::{MenuUiCamera, MenuUiCameraRef};
 
@@ -202,6 +202,18 @@ pub fn run() {
 		.set(WindowPlugin {
 			primary_window: Some(Window {
 				present_mode: PresentMode::Fifo,
+				// iOS Home Indicator + System Edge Gestures. Both Fields Are Inert
+				// on Desktop (bevy_window Documents Them as iOS-Only), so There Is
+				// No cfg Needed. 'prefers_home_indicator_hidden' Removes the White
+				// Bar That Otherwise Sits Over the Fire / OK Thumb Arc. Deferring
+				// System Gestures on ALL Edges Is the Important One: Without It the
+				// First Swipe Near the Bottom Edge Opens Control Center or the App
+				// Switcher Instead of Reaching Our Controls, Which the Player
+				// Experiences as the Bottom-Row Buttons (Confirm, Back, Weapons)
+				// Suddenly Not Responding. Deferral Makes iOS Require a SECOND Swipe
+				// for Its Own Gesture, Handing the First Touch to the Game
+				prefers_home_indicator_hidden: true,
+				preferred_screen_edges_deferring_system_gestures: ScreenEdge::All,
 				..default()
 			}),
 			..default()

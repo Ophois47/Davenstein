@@ -1126,19 +1126,28 @@ fn build_change_view_items(
     let vsync_label = if video.vsync { "VSync: ON" } else { "VSync: OFF" };
     items.push((ChangeViewKind::Vsync, vsync_label.to_string()));
 
-    // Display Mode
-    items.push((
-        ChangeViewKind::DisplayMode,
-        format!("Display: {}", video.display_mode.label()),
-    ));
+    // Display Mode (Desktop Only)
+    // A Handheld Has Exactly One Legal Display Mode (Borderless Full Screen), so
+    // the Row Would Be an Unchangeable Toggle. Hiding It Also Removes the Only
+    // In-Menu Path That Could Move a Phone Onto Windowed and Trigger the Safe-Area
+    // Resize Desync (See davelib::options::MOBILE_PLATFORM)
+    if !davelib::options::MOBILE_PLATFORM {
+        items.push((
+            ChangeViewKind::DisplayMode,
+            format!("Display: {}", video.display_mode.label()),
+        ));
+    }
 
     // Resolution (Shown for Windowed and Exclusive Fullscreen)
     // Hidden for Borderless, Where the OS Forces Desktop Resolution and the
-    // Setting Would Have No Effect
-    if matches!(
-        video.display_mode,
-        DisplayMode::Windowed | DisplayMode::ExclusiveFullscreen
-    ) {
+    // Setting Would Have No Effect. Also Hidden on Every Handheld, Which Is Always
+    // Borderless and Has No User-Selectable Resolution
+    if !davelib::options::MOBILE_PLATFORM
+        && matches!(
+            video.display_mode,
+            DisplayMode::Windowed | DisplayMode::ExclusiveFullscreen
+        )
+    {
         let res_idx = res_list.index_of(video.resolution);
         items.push((
             ChangeViewKind::Resolution,
@@ -6834,7 +6843,11 @@ fn splash_advance_on_any_input(
 
             let is_nudgeable = matches!(
                 current_kind,
-                Some(ControlOptionKind::MouseSensitivity) | Some(ControlOptionKind::GamepadSensitivity) | Some(ControlOptionKind::GamepadDeadzone)
+                Some(ControlOptionKind::MouseSensitivity)
+                    | Some(ControlOptionKind::GamepadSensitivity)
+                    | Some(ControlOptionKind::GamepadDeadzone)
+                    | Some(ControlOptionKind::TouchSensitivity)
+                    | Some(ControlOptionKind::TouchUiScale)
             );
 
             if is_nudgeable && (left_held || right_held || left_just || right_just) {
