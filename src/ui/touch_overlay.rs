@@ -59,9 +59,19 @@ const BUTTON_BORDER_PRESSED: Srgba = Srgba::new(1.0, 1.0, 1.0, 0.95);
 
 const LABEL_COLOR: Srgba = Srgba::new(1.0, 1.0, 1.0, 0.85);
 
-// Region Hints Are Deliberately Fainter Than Buttons: They Teach, They Are Not
-// Targets, and They Sit on Top of the Live Game View
-const HINT_COLOR: Srgba = Srgba::new(1.0, 1.0, 1.0, 0.30);
+// First-Launch Onboarding Hints. Shown Once per Session Over the Play Area, Then
+// Faded Out (See fade_gameplay_hints). Unlike the Old Persistent Faint Labels
+// These Are Meant to Read Clearly for Their Brief Life, so the Text Is Bright and
+// Sits on a Soft Dark Pill for Legibility Over the Live 3-D View. Alphas Are the
+// PEAK Values; the Fade Scales Both Toward Zero Together
+const HINT_TEXT_A: f32 = 0.95;
+const HINT_BG_A: f32 = 0.55;
+const HINT_TEXT_COLOR: Srgba = Srgba::new(1.0, 1.0, 1.0, HINT_TEXT_A);
+const HINT_BG_COLOR: Srgba = Srgba::new(0.0, 0.0, 0.0, HINT_BG_A);
+
+// Hold at Full Opacity, Then Fade. Total Life Is HINT_HOLD_SECS + HINT_FADE_SECS
+const HINT_HOLD_SECS: f32 = 2.0;
+const HINT_FADE_SECS: f32 = 1.2;
 
 const STICK_BASE_FILL: Srgba = Srgba::new(1.0, 1.0, 1.0, 0.08);
 const STICK_BASE_BORDER: Srgba = Srgba::new(1.0, 1.0, 1.0, 0.35);
@@ -78,6 +88,20 @@ const OVERLAY_Z: i32 = 50;
 // Root of the Whole Overlay Tree; Despawned and Respawned as One Unit
 #[derive(Component)]
 pub(super) struct TouchOverlayRoot;
+
+// Set True the First Time the Gameplay Overlay Is Built This Session, so the
+// MOVE / LOOK Onboarding Hints Appear Exactly Once at First Launch and Never
+// Again - Not on Every Unpause or Weapon Switch That Rebuilds the Overlay
+#[derive(Resource, Default)]
+pub(super) struct TouchHintsShown(pub bool);
+
+// Drives the Timed Fade of a Single Onboarding Hint. One Timer for the Whole Life
+// (Hold + Fade); fade_gameplay_hints Reads elapsed_secs to Pick the Alpha and
+// Despawns the Hint When Finished
+#[derive(Component)]
+struct GameplayHintFade {
+    life: Timer,
+}
 
 // Which Layout Rectangle a Drawn Button Mirrors, Plus the Last Pressed State so
 // Colour Writes Happen Only on Edges Instead of Dirtying the Renderer Every Frame
@@ -234,6 +258,7 @@ pub(super) fn sync_touch_overlay_tree(
     mode: Res<TouchUiMode>,
     layout: Res<TouchLayout>,
     device: Res<ActiveInputDevice>,
+    mut hints_shown: ResMut<TouchHintsShown>,
     q_roots: Query<Entity, With<TouchOverlayRoot>>,
 ) {
     if !mode.is_changed() && !layout.is_changed() && !q_roots.is_empty() {
@@ -298,7 +323,14 @@ pub(super) fn sync_touch_overlay_tree(
                 );
             }
 
-            spawn_gameplay_hints(&mut commands, root, &font, &layout);
+            // Onboarding Hints Exactly Once per Session. The Overlay Rebuilds on
+            // Every Mode Change (Unpause, Death, Weapon Screens), so Gating on This
+            // Flag - Not Merely on Being in Gameplay - Is What Keeps MOVE / LOOK
+            // From Flashing Back Up Every Time Play Resumes
+            if !hints_shown.0 {
+                spawn_gameplay_hints(&mut commands, root, &font, &layout);
+                hints_shown.0 = true;
+            }
             spawn_stick_visual(&mut commands, root, &layout);
         }
 
@@ -384,43 +416,81 @@ fn spawn_gameplay_hints(
 ) {
     let window = layout.window_size;
 
+    // Both Labels on the SAME Horizontal Line, Centred Vertically. MOVE Sits Over
+    // the Stick Region (Left), LOOK Over the Look Region (Right). Sizing Scales
+    // Gently With the Shorter Side so the Pills Read Well on Phone Through Tablet
+    // Without Ballooning
+    let line_y = window.y * 0.5;
+    let short = window.x.min(window.y);
+    let font_px = (short * 0.055).clamp(20.0, 40.0);
+    let pill_h = font_px * 2.0;
+
     let hints = [
-        ("MOVE", layout.stick_region.center().x, window.y * 0.62),
-        (
-            "LOOK",
-            (layout.stick_region.max.x + window.x) * 0.5,
-            window.y * 0.45,
-        ),
+        ("MOVE", layout.stick_region.center().x),
+        ("LOOK", (layout.stick_region.max.x + window.x) * 0.5),
     ];
 
-    for (text, centre_x, centre_y) in hints {
-        let hint = commands
-            .spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(centre_x - 110.0),
-                    top: Val::Px(centre_y - 12.0),
-                    width: Val::Px(220.0),
-                    height: Val::Px(24.0),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-                ChildOf(root),
-            ))
-            .id();
+    for (text, centre_x) in hints {
+        // Width From the Text Itself, Not a Screen Fraction, so the Two Pills Never
+        // Collide on a Narrow 4:3 Tablet. The 0.65 Advance and Generous Padding
+        // Over-Estimate Slightly so the Bitmap Text Never Clips
+        let pill_w = text.len() as f32 * font_px * 0.65 + font_px * 2.0;
 
         commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(centre_x - pill_w * 0.5),
+                top: Val::Px(line_y - pill_h * 0.5),
+                width: Val::Px(pill_w),
+                height: Val::Px(pill_h),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                border_radius: BorderRadius::all(Val::Px(pill_h * 0.5)),
+                ..default()
+            },
+            BackgroundColor(HINT_BG_COLOR.into()),
             Text::new(text),
             TextFont {
                 font: FontSource::Handle(font.clone()),
-                font_size: FontSize::Px(14.0),
+                font_size: FontSize::Px(font_px),
                 ..default()
             },
-            TextColor(HINT_COLOR.into()),
+            TextColor(HINT_TEXT_COLOR.into()),
             TextLayout::justify(Justify::Center),
-            ChildOf(hint),
+            GameplayHintFade {
+                life: Timer::from_seconds(HINT_HOLD_SECS + HINT_FADE_SECS, TimerMode::Once),
+            },
+            ChildOf(root),
         ));
+    }
+}
+
+// Fades the First-Launch Onboarding Hints and Removes Them. Runs Every Frame:
+// Holds Full Opacity for HINT_HOLD_SECS, Then Ramps Both the Text and Pill Alpha
+// to Zero Over HINT_FADE_SECS, and Despawns Each Hint When Its Life Timer Ends.
+// The Hints Are Children of the Overlay Root, so a Mode Change That Rebuilds the
+// Overlay Also Clears Any Mid-Fade Hint - Fine, Since They Only Ever Show Once
+pub(super) fn fade_gameplay_hints(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut q: Query<(Entity, &mut TextColor, &mut BackgroundColor, &mut GameplayHintFade)>,
+) {
+    for (entity, mut text_color, mut bg, mut hint) in &mut q {
+        hint.life.tick(time.delta());
+
+        let elapsed = hint.life.elapsed_secs();
+        let factor = if elapsed <= HINT_HOLD_SECS {
+            1.0
+        } else {
+            (1.0 - (elapsed - HINT_HOLD_SECS) / HINT_FADE_SECS).clamp(0.0, 1.0)
+        };
+
+        text_color.0 = text_color.0.with_alpha(HINT_TEXT_A * factor);
+        bg.0 = bg.0.with_alpha(HINT_BG_A * factor);
+
+        if hint.life.finished() {
+            commands.entity(entity).despawn();
+        }
     }
 }
 
