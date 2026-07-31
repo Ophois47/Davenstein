@@ -1911,17 +1911,20 @@ pub(super) fn sync_mission_overlay_layout_on_window_change(
     const TEXT_SCALE: f32 = 0.90;
 
     let (canvas_w, canvas_h) = ui_ref_dims(canvas.as_deref(), &q_win);
+    let win_w = win.resolution.width();
     let win_h = win.resolution.height();
 
-    // Match spawn_mission_success_overlay Exactly: Derive the Bar's Integer Scale
-    // From the CANVAS Width (the Same Basis compute_hud_layout Uses for the Real
-    // Bar) and Project Its Canvas Height Into This Overlay's Window Logical Space
-    // by the canvas->window Upscale (win_h / canvas_h). The Previous Version Used
-    // the Window Logical WIDTH for the Scale and the Raw Canvas Height for the
-    // Inset, so It Neither Matched the Rendered Bar nor Agreed With the Spawn Path
-    // on Mobile, Leaving the Teal Panel Overlapping the Bar After the First Resize
-    let width_scale_i = (canvas_w / VIEW_W).floor().max(1.0) as i32;
-    let status_h_px = (STATUS_H * width_scale_i as f32 / canvas_h.max(1.0)) * win_h;
+    // Content Scale From the WINDOW LOGICAL Width, Matching spawn_mission_success_
+    // overlay. The Tally Lays Out in the Menu Camera's Logical Space; Using the
+    // Canvas (Physical) Width Here Double-Counts DPI on HiDPI Displays and Spaces
+    // the Stat Lines Too Far Apart
+    let width_scale_i = (win_w / VIEW_W).floor().max(1.0) as i32;
+
+    // Bar Inset Projected From Canvas Space, Same Formula as the Spawn Path: the
+    // Real Bar Is (STATUS_H * floor(canvas_w / 320)) Canvas Pixels Tall, Upscaled
+    // to Fill the Window, so Project by win_h / canvas_h to Get Window Logical Pixels
+    let bar_canvas_scale = (canvas_w / VIEW_W).floor().max(1.0);
+    let status_h_px = (STATUS_H * bar_canvas_scale / canvas_h.max(1.0)) * win_h;
 
     let avail_h = (win_h - status_h_px).max(1.0);
     let max_scale_h_i = (avail_h / VIEW_H).floor().max(1.0) as i32;
@@ -2257,23 +2260,27 @@ fn spawn_mission_success_overlay(
 
     const TEXT_SCALE: f32 = 0.90;
 
-    let width_scale_i = hud_scale.floor().max(1.0) as i32;
-
     let win = q_windows.iter().next().expect("PrimaryWindow");
+    let win_w = win.resolution.width();
     let win_h = win.resolution.height();
 
-    // Reserve Exactly the HUD Status Bar's On-Screen Height. The Bar Is
-    // (STATUS_H * width_scale_i) CANVAS Pixels Tall and Renders on the Canvas
-    // Camera, Which the Present Camera Upscales to Fill the Whole Window. This
-    // Overlay Instead Lives on the Full-Window Menu Camera, so the Canvas Height
-    // Must Be Projected Into Window Logical Pixels by the Same canvas->window
-    // Upscale Factor (win_h / canvas_h). Using the Raw Canvas Figure Directly - as
-    // This Did Before - Only Happened to Match on Desktop at Native Render Scale
-    // and 1x DPI; on Mobile canvas_h Is Larger Than the Logical Window, so the
-    // Reserved Gap Came Out Too Small and the Teal Panel Overlapped the Top of the
-    // Bar. This Projection Is DPI- and render_scale-Proof and Reduces to the Old
-    // Value Whenever canvas_h Equals win_h
-    let status_h_px = (STATUS_H * width_scale_i as f32 / canvas_h.max(1.0)) * win_h;
+    // Content Scale for the 320-Wide Tally, in WINDOW LOGICAL Pixels. This Overlay
+    // Draws on the Full-Window Menu Camera, so Its Layout Scale Must Come From the
+    // Window's Own Logical Width, Never the Canvas. Deriving It From the Canvas
+    // (Physical) Width Double-Counts the DPI Factor on a HiDPI Display Like a
+    // Retina Mac, Which Roughly Doubles overlay_scale and Spaces the Stat Lines
+    // Far Apart - the Regression This Restores
+    let width_scale_i = (win_w / VIEW_W).floor().max(1.0) as i32;
+
+    // Status Bar Inset Is a Separate Concern From Content Scale. The HUD Bar Is
+    // Sized in CANVAS Pixels (STATUS_H * hud_scale) and the Present Camera Upscales
+    // the Whole Canvas to Fill the Window, so to Reserve Exactly Its On-Screen
+    // Height Here We Project That Canvas Height Into Window Logical Pixels by the
+    // canvas->window Factor (win_h / canvas_h). Keeping This Distinct From
+    // width_scale_i Is What Fixes the Mobile Overlap and the HiDPI Line Spacing at
+    // Once; It Reduces to STATUS_H * hud_scale Whenever canvas_h Equals win_h
+    let bar_canvas_scale = hud_scale.floor().max(1.0);
+    let status_h_px = (STATUS_H * bar_canvas_scale / canvas_h.max(1.0)) * win_h;
 
     let avail_h = (win_h - status_h_px).max(1.0);
     let max_scale_h_i = (avail_h / VIEW_H).floor().max(1.0) as i32;
