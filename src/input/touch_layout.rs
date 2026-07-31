@@ -51,6 +51,15 @@ const MENU_NAV_SIZE_FRAC: f32 = 0.13;
 const GAP_FRAC: f32 = 0.02;
 const MARGIN_FRAC: f32 = 0.03;
 
+// Extra Left Inset for the Menu D-Pad Cluster Only, in Logical Pixels. In
+// Landscape the Front-Camera / Notch Housing Sits Partway Down One Side and Bites
+// Deeper Than the Corner Radius the MIN_MARGIN Floor Already Clears, so the
+// Left-Most Nav Button (Which Anchors at the Plain Margin) Was Getting Its Edge
+// Clipped. Only the Cluster Needs This - the Right-Side and Corner Buttons Are
+// Away From the Housing - so It Is Applied to the Cluster's Left Column Alone
+// Rather Than the Shared Margin. Tunable: Raise if a Deeper Notch Still Clips
+const MENU_NAV_LEFT_INSET_PX: f32 = 20.0;
+
 // Floor for the Edge Inset, in Logical Pixels. The Proportional 'MARGIN_FRAC' Is
 // Tied to the SHORTER Side, so on a Phone (~393 pt Tall in Landscape) It Works
 // Out to Only ~12 pt - Well Inside a Modern Handheld's ~50 pt Rounded-Corner
@@ -234,7 +243,7 @@ impl TouchLayout {
         // Where a D-Pad Would Put It. Bottom-Left Mirrors the Movement Stick's Home
         // so Menu Navigation and Movement Live Under the Same Thumb
         let nav_size = sized(MENU_NAV_SIZE_FRAC);
-        let col0 = margin;
+        let col0 = margin + MENU_NAV_LEFT_INSET_PX;
         let col1 = col0 + nav_size + gap;
         let col2 = col1 + nav_size + gap;
         let row_down_top = window_size.y - margin - nav_size;

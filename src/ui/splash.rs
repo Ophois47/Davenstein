@@ -82,6 +82,18 @@ fn splash_stretch_image(image: Handle<Image>) -> ImageNode {
 
 const BASE_W: f32 = 320.0;
 const BASE_H: f32 = 200.0;
+
+// The Menus and the Level-End Tally Are Composed on the 320x200 Grid and Scaled
+// Up by an INTEGER Factor (Fractional Scale Wobbles the Bitmap Glyphs). The Factor
+// Is the Largest That Fits Both Axes: floor(min(w/320, h/200)). That Floor Is Fine
+// on Desktop, but a Landscape Phone Is Only ~393 Logical Points Tall, so h/200
+// Works Out to ~1.96 and Floors to 1 - Rendering the Whole Menu at Native Size,
+// Tiny in the Middle of a Large Screen. This Snap Nudges the Ratio Up Before the
+// Floor so a Dimension That Is Within ~4% of the Next Integer Scale Rounds Up to
+// It, Taking Phones From Scale 1 to 2 (a Few Pixels of the Outer Frame Fall Off
+// the Top and Bottom Edges, Which Is Invisible in Practice). Normal Desktop
+// Resolutions Are Not Near a Boundary, so They Are Unchanged
+const MENU_SCALE_SNAP: f32 = 0.08;
 const MENU_BANNER_NATIVE_H: f32 = 48.0;
 const MENU_BANNER_SOURCE_W: f32 = 800.0;
 const MENU_BANNER_SOURCE_H: f32 = 97.0;
@@ -105,8 +117,7 @@ impl MenuLayout {
     fn new(window_w: f32, window_h: f32) -> Self {
         let window_w = window_w.round().max(1.0);
         let window_h = window_h.round().max(1.0);
-        let scale = (window_w / BASE_W)
-            .min(window_h / BASE_H)
+        let scale = ((window_w / BASE_W).min(window_h / BASE_H) + MENU_SCALE_SNAP)
             .floor()
             .max(1.0);
         let safe_w = (BASE_W * scale).round();
@@ -3247,7 +3258,7 @@ fn spawn_episode_score_ui(
     // Height Available Above the Status Bar, in Window Space
     let view_h_px = (win_h - hud_h_px).max(1.0);
 
-    let max_scale_h = (view_h_px / BASE_VIEW_H).floor().max(1.0);
+    let max_scale_h = (view_h_px / BASE_VIEW_H + MENU_SCALE_SNAP).floor().max(1.0);
     let ui_scale = hud_scale.min(max_scale_h);
 
     let canvas_w_px = (BASE_W * ui_scale).round().max(1.0);
@@ -4084,7 +4095,9 @@ fn spawn_centered_banner_title(
 }
 
 fn compute_scaled_size(win_w: f32, win_h: f32) -> (f32, f32) {
-    let scale = (win_w / BASE_W).min(win_h / BASE_H).floor().max(1.0);
+    let scale = ((win_w / BASE_W).min(win_h / BASE_H) + MENU_SCALE_SNAP)
+        .floor()
+        .max(1.0);
     (BASE_W * scale, BASE_H * scale)
 }
 
