@@ -7511,6 +7511,12 @@ fn splash_advance_on_any_input(
                 return;
             }
 
+            // Same Guard the Menu Branch Uses: the Enter Press or Confirm Tap
+            // That Dismissed the Game Over Screen Is Still just_pressed on the
+            // Frame This UI First Spawns, and Without the Guard It Would Submit
+            // an Empty Name to the Table Before the Player Ever Saw the Screen
+            let mut just_spawned = false;
+
             if q.q_splash_roots.iter().next().is_none() {
                 spawn_name_entry_ui(
                     &mut commands,
@@ -7520,6 +7526,7 @@ fn splash_advance_on_any_input(
                     resources.name_entry.rank,
                     &resources.name_entry.name,
                 );
+                just_spawned = true;
             }
 
             let keycode_to_letter = |kc: KeyCode| -> Option<char> {
@@ -7572,6 +7579,64 @@ fn splash_advance_on_any_input(
                 }
             }
 
+            // Letter Carousel for Devices Without Letters: Up/Down Cycle the
+            // Last Character Through the Alphabet (Starting One if the Name Is
+            // Empty), Right Commits It and Starts the Next Slot, and Left or
+            // Cancel Deletes - the Same Contract as Backspace Above
+            //
+            // W, A, S, and D Double as MenuNav Directions on the Keyboard. In
+            // This One Screen the Letter Meaning Wins: When the Direction Bit
+            // Arrived With Its Letter Key just_pressed, the Push Above Already
+            // Consumed the Keystroke and the Carousel Must Stay Out of It.
+            // Arrow Keys, the D-Pad, and the Touch Cluster Are Unaffected
+            const CAROUSEL_CHARS: &[char] = &[
+                'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+                'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+                ' ',
+            ];
+
+            let nav_up = nav.up && !keyboard.just_pressed(KeyCode::KeyW);
+            let nav_down = nav.down && !keyboard.just_pressed(KeyCode::KeyS);
+            let nav_left = nav.left && !keyboard.just_pressed(KeyCode::KeyA);
+            let nav_right = nav.right && !keyboard.just_pressed(KeyCode::KeyD);
+
+            if nav_up || nav_down {
+                match resources.name_entry.name.pop() {
+                    Some(current) => {
+                        // An Unknown Character (Typed Punctuation Can Never
+                        // Happen, but Defensive) Restarts the Cycle at 'A'
+                        let at = CAROUSEL_CHARS
+                            .iter()
+                            .position(|&c| c == current)
+                            .unwrap_or(0);
+                        let step = if nav_up { 1 } else { CAROUSEL_CHARS.len() - 1 };
+                        let next = CAROUSEL_CHARS[(at + step) % CAROUSEL_CHARS.len()];
+                        resources.name_entry.name.push(next);
+                    }
+                    None => {
+                        resources.name_entry.name.push('A');
+                    }
+                }
+                changed = true;
+            }
+
+            if nav_right && !resources.name_entry.name.is_empty()
+                && resources.name_entry.name.len() < 3
+            {
+                resources.name_entry.name.push('A');
+                changed = true;
+            }
+
+            // Escape Gated Out for the Same Reason as the Letters: It Never Did
+            // Anything on This Screen and Should Not Start Deleting Now. The
+            // Gamepad's East and the Touch Cluster's BACK Are What This Is For
+            let nav_cancel = nav.cancel && !keyboard.just_pressed(KeyCode::Escape);
+
+            if (nav_left || nav_cancel) && !resources.name_entry.name.is_empty() {
+                resources.name_entry.name.pop();
+                changed = true;
+            }
+
             resources.name_entry.cursor_pos = resources.name_entry.name.len().min(3);
 
             if changed {
@@ -7589,7 +7654,15 @@ fn splash_advance_on_any_input(
                 );
             }
 
-            if keyboard.just_pressed(KeyCode::Enter) || keyboard.just_pressed(KeyCode::NumpadEnter) {
+            // Confirm Rather Than Enter Alone so Gamepad South and the Touch
+            // Cluster's OK Submit Too. Enter Is Kept Explicitly: nav.confirm
+            // Also Carries Space, and Listing Enter Preserves the Original
+            // Contract Even if the Confirm Mapping Ever Narrows
+            if !just_spawned
+                && (keyboard.just_pressed(KeyCode::Enter)
+                    || keyboard.just_pressed(KeyCode::NumpadEnter)
+                    || nav.confirm)
+            {
                 let name = resources.name_entry.name.clone();
                 let score = resources.name_entry.score;
                 let episode_num = resources.name_entry.episode;

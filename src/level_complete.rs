@@ -463,6 +463,7 @@ pub fn sync_mission_success_stats_text(
 pub fn mission_success_input(
     keys: Res<ButtonInput<KeyCode>>,
     intent: Res<PlayerIntent>,
+    nav: Res<davelib::input::MenuNav>,
     win: Res<LevelComplete>,
     mut tally: ResMut<MissionSuccessTally>,
     mut advance: ResMut<crate::ui::sync::AdvanceLevelRequested>,
@@ -474,10 +475,16 @@ pub fn mission_success_input(
         return;
     }
 
-    // Advance the Intermission on Any Action Input so Gamepad Matches Keyboard
-    // Fire or Use From PlayerIntent Plus Enter or Space, Like the Original Any Key
+    // Advance the Intermission on Any Action Input so Every Device Matches
+    // Keyboard. The Load-Bearing Term Is nav.confirm: the Control Lock Is Held
+    // for the Whole Intermission and gather Zeroes PlayerIntent at the Source
+    // While Locked, so the intent Terms Below Can Never Fire Here - They Are
+    // Kept Only for the Day the Lock Rules Loosen. MenuNav Is Deliberately
+    // Exempt From the Lock, so Confirm Carries the Gamepad's South Button and
+    // the Touch Overlay's Tap-to-Continue Through the Tally
     let go = keys.just_pressed(KeyCode::Enter)
         || keys.just_pressed(KeyCode::Space)
+        || nav.confirm
         || intent.use_pressed
         || intent.fire_pressed;
 

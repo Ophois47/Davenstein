@@ -59,12 +59,29 @@ const CENTRE_BAND: f32 = 0.15;
 // Updated by 'gather' Once per Frame From What the Sources Actually Contributed,
 // Not From What Hardware Happens to Be Attached. Holds Its Value When Nothing Is
 // Being Driven, so the Last Real Driver Stays the Owner Through Idle Frames
-#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveInputDevice {
-    #[default]
     KeyboardMouse,
     Gamepad,
     Touch,
+}
+
+// A Phone Has No Keyboard, so Waiting for a First Deliberate Touch Before
+// Admitting Touch Is the Driver Would Boot the Player Into a Screen With Every
+// Control Invisible - Exactly the Discoverability Hole the Overlay Exists to
+// Close. Desktop Keeps Keyboard as the Resting Default; a Gamepad or a
+// Touchscreen Still Takes Over on Its First Deliberate Act on Either Platform
+impl Default for ActiveInputDevice {
+    fn default() -> Self {
+        #[cfg(target_os = "android")]
+        {
+            ActiveInputDevice::Touch
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            ActiveInputDevice::KeyboardMouse
+        }
+    }
 }
 
 // The One Gamepad Whose Input Is Read, Plus the Bookkeeping That Picks It

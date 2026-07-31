@@ -42,6 +42,16 @@ pub struct CheatMessageState {
     prev_god: bool,
 }
 
+impl CheatMessageState {
+    // Whether the Modal Is Currently Up. Read by the Touch Overlay's Mode Sync,
+    // Which Must Treat the Frozen Game Behind the Box as an Any-Input Screen
+    // Rather Than Live Gameplay. Read-Only Because the Open/Dismiss Edges Are
+    // This Module's Whole Contract and Nothing Else May Drive Them
+    pub(crate) fn is_active(&self) -> bool {
+        self.active
+    }
+}
+
 /// What the Box Says. The Original's Text Also Announced 100% Health, 99 Ammo, and
 /// Both Keys -- Grants This Port's God Mode Does Not (Yet) Make, so the Text Only
 /// Claims What is True. When the Full MLI Grant is Added, This String is the Only

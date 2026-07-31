@@ -26,7 +26,7 @@ use bevy::prelude::*;
 pub use devices::{ActiveGamepad, ActiveInputDevice};
 pub use intent::PlayerIntent;
 pub use menu::MenuNav;
-pub use sources::touch::TouchAssignments;
+pub use sources::touch::{TouchAssignments, TouchUiMode};
 pub use touch_layout::TouchLayout;
 
 // System Set Containing Per-Frame Intent Gathering
@@ -43,6 +43,7 @@ impl Plugin for InputPlugin {
             .init_resource::<PlayerIntent>()
             .init_resource::<MenuNav>()
             .init_resource::<TouchAssignments>()
+            .init_resource::<TouchUiMode>()
             .init_resource::<TouchLayout>()
             .init_resource::<ActiveGamepad>()
             .init_resource::<ActiveInputDevice>()

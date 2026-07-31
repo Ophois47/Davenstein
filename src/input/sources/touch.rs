@@ -78,6 +78,39 @@ const STICK_DEADZONE: f32 = 0.12;
 // Left Thumb on One Control and Matches How Players Already Expect to Sprint
 const RUN_RING: f32 = 0.8;
 
+// Which Set of On-Screen Controls Is Live Right Now
+//
+// Written Once per Frame by the UI Layer (ui::touch_overlay), Which Is the Only
+// Place That Knows Whether the Player Is Looking at Gameplay, a Menu, or an
+// Any-Input Screen. Read Here to Decide Which Rectangles Touches Are Tested
+// Against, and Read by the Overlay to Decide Which Rectangles to Draw - the Same
+// Value Gates Both Halves so a Control Can Never Be Tappable While Invisible or
+// Visible While Dead
+//
+// Derived From the PREVIOUS Frame's UI State Because the Sync System Runs Before
+// InputGather While the Menu Machine Runs After It. One Frame of Lag Is Safe
+// Here for the Same Reason Role Pinning Is: Only Just-Pressed Touches Claim
+// Anything, so a Finger Held Across a Mode Change Cannot Acquire a New Job
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TouchUiMode {
+    // Live Gameplay: Stick, Turn Drag, Fire, Use, Weapons, Pause
+    Gameplay,
+
+    // A Navigable Menu: the Direction Cluster, Confirm, and Back
+    Menu,
+
+    // A Screen Any Deliberate Input Advances (Splash, Scores, Victory, Game
+    // Over, the Intermission Tally): Every Tap Becomes Confirm. Safe Precisely
+    // Because These Screens Have No Highlighted Item a Stray Thumb Could
+    // Activate - Menus Never Get This Treatment, Per the contribute_menu Note.
+    // The Default Because the Application Opens on the First Splash Screen
+    #[default]
+    Advance,
+
+    // No Touch UI at All (Death Fizzle, the Get-Psyched Loader, Touch Disabled)
+    Off,
+}
+
 // Which Touch ID Currently Owns Each Held Control, and the State That Control Needs
 // Cleared Automatically as Fingers Leave, Including Touches the OS Cancels
 #[derive(Resource, Debug, Default)]
@@ -129,6 +162,7 @@ pub fn contribute(
     assign: &mut TouchAssignments,
     layout: &TouchLayout,
     controls: &ControlSettings,
+    mode: TouchUiMode,
 ) -> bool {
     // No Measured Window Yet Means No Meaningful Geometry to Test Against
     if !layout.is_ready() {
@@ -158,6 +192,26 @@ pub fn contribute(
         if touches.get_pressed(id).is_none() {
             assign.fire = None;
         }
+    }
+
+    // Outside Gameplay the Screen Belongs to the Menu Controls: Nothing Claims
+    // and Nothing Contributes. Held Assignments Are Deliberately Kept (Not
+    // Cleared) so a Thumb Resting on the Stick Keeps Its Job Across a Quick
+    // Pause and Movement Resumes the Instant the Menu Closes - the Same Promise
+    // gather Makes for Held Keys, and Fire Stays Safe Under the Same Latch
+    //
+    // The One Piece of State That Must Stay Current Is the Turn Finger's Stored
+    // X: It Is a Delta Baseline, and a Baseline Frozen at Menu-Open Would Turn
+    // Everything the Finger Drifted While the Menu Was Up Into One Violent View
+    // Snap on the First Live Frame. Re-Anchoring Every Paused Frame Makes the
+    // Return Delta Start From Wherever the Finger Actually Is
+    if mode != TouchUiMode::Gameplay {
+        if let Some((id, _)) = assign.turn {
+            if let Some(touch) = touches.get_pressed(id) {
+                assign.turn = Some((id, touch.position().x));
+            }
+        }
+        return false;
     }
 
     // PASS 2 - CLAIM
@@ -235,18 +289,30 @@ pub fn contribute(
                 offset = direction * layout.stick_radius;
             }
 
-            // Normalize to Unit Travel, Then Apply the Same Radial Deadzone Shape the
-            // Gamepad Uses so Both Sticks Ramp Identically From Their Deadzone Edge
+            // 4-Way D-Pad Snap
+            //
+            // The Left Thumb Now Reads Like a D-Pad Rather Than an Analog Stick:
+            // Past a Small Centre Deadzone the Dominant Axis Wins and Movement Is
+            // Emitted at Full Travel on That ONE Cardinal. No Diagonals, No
+            // Half-Speed Drift - Press a Direction, Get Exactly That Direction,
+            // Which Suits Wolf3D's Blocky Corridors Far Better Than a Mushy Lean.
+            // The Floating Origin Is Kept (Touch Down Sets Centre, Slide to Pick a
+            // Direction), so the Thumb Never Has to Find a Fixed Pad First
+            //
+            // (8-Way, With Diagonals, Is a Planned Follow-Up)
             let raw = offset / layout.stick_radius;
-            let stick = super::apply_deadzone(raw, STICK_DEADZONE);
+            let wish = if raw.length() < STICK_DEADZONE {
+                Vec2::ZERO
+            } else if raw.x.abs() >= raw.y.abs() {
+                // Horizontal Wins: Strafe. X Already Matches move_wish's Strafe Axis
+                Vec2::new(raw.x.signum(), 0.0)
+            } else {
+                // Vertical Wins: Forward or Back. Screen Y Grows Downward, so an
+                // Upward Slide (Negative Y) Becomes Positive Forward
+                Vec2::new(0.0, -raw.y.signum())
+            };
 
-            // Screen Y Grows Downward, so Dragging UP Is Forward. Negating Y Here Is
-            // the Whole Conversion Into move_wish's Local Player Frame. Stick X Stays
-            // Strafe, Matching the Keyboard and the Left Stick, Because Turning Lives
-            // on the Drag Where It Gets 1:1 Positional Control Instead of a Rate
-            let wish = Vec2::new(stick.x, -stick.y);
-
-            // Past the Deadzone the Thumb Has Genuinely Moved the Stick
+            // A Cardinal Was Chosen, so the Thumb Is Genuinely Driving Movement
             if wish != Vec2::ZERO {
                 driven = true;
             }
@@ -256,9 +322,9 @@ pub fn contribute(
                 acc.move_wish = wish;
             }
 
-            // Run in the Outer Ring. Tested After the Deadzone Rescale, so RUN_RING
-            // Is a Fraction of Usable Travel Rather Than of Raw Distance
-            acc.run |= stick.length() >= RUN_RING;
+            // Push Toward the Outer Ring to Run, the Same Threshold the Analog
+            // Stick Used, Measured on Raw Travel Since There Is No Longer a Rescale
+            acc.run |= raw.length() >= RUN_RING;
         }
     }
 
@@ -299,21 +365,155 @@ pub fn contribute(
     driven || assign.fire.is_some()
 }
 
-// Merge Touch Menu Navigation Into the Shared MenuNav Accumulator
-// Currently the Pause Button Only, Which Is Enough for a Touch-Only Player to Open
-// the Menu and Reach Every Existing Escape Path
+// Merge Touch Menu Navigation Into the Shared MenuNav Accumulator, Returning
+// Whether Any Tap Actually Landed on a Control so the Caller Can Count Touch as
+// the Driving Device and Reveal the Overlay
 //
-// There Is Intentionally No Tap-Anywhere-Confirms Here. It Would Be One Line and It
-// Would Be a Bug: MenuNav.confirm Activates Whatever Item Is Highlighted, so a
-// Stray Thumb Anywhere on the Glass Could Pick "Quit" Out of the Pause Menu. Menu
-// Navigation Gets Real Buttons When the Overlay Lands and They Can Be Seen and Aimed
-// At. Until Then Menus Stay on Keyboard and Gamepad
-pub fn contribute_menu(nav: &mut MenuNav, touches: &Touches, layout: &TouchLayout) {
+// What a Tap Means Depends Entirely on the Mode:
+//   Gameplay - the Pause Button Is the Only Menu Control on the Glass
+//   Menu     - the Direction Cluster Plus Confirm and Back, Nothing Else
+//   Advance  - Any Tap Anywhere Is Confirm, Because These Screens Have No
+//              Highlighted Item and Exist Only to Be Advanced
+//   Off      - the Glass Is Dead
+//
+// There Is Still Intentionally No Tap-Anywhere-Confirms in MENU Mode. It Would Be
+// One Line and It Would Be a Bug: MenuNav.confirm Activates Whatever Item Is
+// Highlighted, so a Stray Thumb Anywhere on the Glass Could Pick "Quit" Out of
+// the Pause Menu. Confirm in a Menu Requires the One Visible, Labeled Button
+pub fn contribute_menu(
+    nav: &mut MenuNav,
+    touches: &Touches,
+    layout: &TouchLayout,
+    mode: TouchUiMode,
+) -> bool {
     if !layout.is_ready() {
-        return;
+        return false;
     }
 
+    let mut driven = false;
     for touch in touches.iter_just_pressed() {
-        nav.pause |= layout.pause.contains(touch.position());
+        driven |= apply_menu_touch(nav, layout, mode, touch.position());
+    }
+
+    driven
+}
+
+// Map One Just-Pressed Touch Point Onto the Menu Accumulator for the Given Mode
+// Pure Geometry Against the Layout, Split Out From contribute_menu so the
+// Mapping Can Be Unit Tested Without Constructing a Live Touches Resource
+fn apply_menu_touch(
+    nav: &mut MenuNav,
+    layout: &TouchLayout,
+    mode: TouchUiMode,
+    point: Vec2,
+) -> bool {
+    match mode {
+        TouchUiMode::Gameplay => {
+            let hit = layout.pause.contains(point);
+            nav.pause |= hit;
+            hit
+        }
+
+        TouchUiMode::Menu => {
+            // First Hit Wins. The Layout Tests Guarantee These Rectangles Are
+            // Pairwise Disjoint at Normal Scale, so the Order Only Matters on
+            // Saturated Extreme-Scale Windows Where Neighbours Can Abut
+            let hit_up = layout.menu_up.contains(point);
+            let hit_down = !hit_up && layout.menu_down.contains(point);
+            let hit_left = !hit_up && !hit_down && layout.menu_left.contains(point);
+            let hit_right =
+                !hit_up && !hit_down && !hit_left && layout.menu_right.contains(point);
+            let hit_confirm = layout.menu_confirm.contains(point);
+            let hit_back = !hit_confirm && layout.menu_back.contains(point);
+
+            nav.up |= hit_up;
+            nav.down |= hit_down;
+            nav.left |= hit_left;
+            nav.right |= hit_right;
+            nav.confirm |= hit_confirm;
+            nav.cancel |= hit_back;
+
+            hit_up || hit_down || hit_left || hit_right || hit_confirm || hit_back
+        }
+
+        TouchUiMode::Advance => {
+            nav.confirm = true;
+            true
+        }
+
+        TouchUiMode::Off => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A Real Computed Layout Rather Than Hand-Built Rectangles, so These Tests
+    // Also Break if the Geometry and the Mapping Ever Drift Apart
+    fn layout() -> TouchLayout {
+        TouchLayout::compute(Vec2::new(998.0, 448.0), 1.0)
+    }
+
+    #[test]
+    fn menu_mode_maps_each_button_to_its_nav_bit() {
+        let l = layout();
+        let cases = [
+            (l.menu_up.center(), |n: &MenuNav| n.up),
+            (l.menu_down.center(), |n: &MenuNav| n.down),
+            (l.menu_left.center(), |n: &MenuNav| n.left),
+            (l.menu_right.center(), |n: &MenuNav| n.right),
+            (l.menu_confirm.center(), |n: &MenuNav| n.confirm),
+            (l.menu_back.center(), |n: &MenuNav| n.cancel),
+        ];
+
+        for (point, read_bit) in cases {
+            let mut nav = MenuNav::default();
+            assert!(apply_menu_touch(&mut nav, &l, TouchUiMode::Menu, point));
+            assert!(read_bit(&nav), "wrong bit for tap at {point}");
+        }
+    }
+
+    #[test]
+    fn menu_mode_never_confirms_from_a_stray_tap() {
+        // The Accidental-Quit Guard: Empty Glass in a Menu Must Contribute
+        // Nothing at All, No Matter Where the Thumb Lands
+        let l = layout();
+        let mut nav = MenuNav::default();
+        assert!(!apply_menu_touch(&mut nav, &l, TouchUiMode::Menu, l.stick_region.center()));
+        assert_eq!(nav, MenuNav::default());
+    }
+
+    #[test]
+    fn gameplay_mode_maps_pause_and_only_pause() {
+        let l = layout();
+
+        let mut nav = MenuNav::default();
+        assert!(apply_menu_touch(&mut nav, &l, TouchUiMode::Gameplay, l.pause.center()));
+        assert!(nav.pause);
+
+        // The Fire Button and the Menu Cluster's Home Do Nothing Here
+        let mut nav = MenuNav::default();
+        assert!(!apply_menu_touch(&mut nav, &l, TouchUiMode::Gameplay, l.fire.center()));
+        assert!(!apply_menu_touch(&mut nav, &l, TouchUiMode::Gameplay, l.menu_up.center()));
+        assert_eq!(nav, MenuNav::default());
+    }
+
+    #[test]
+    fn advance_mode_turns_any_tap_into_confirm() {
+        let l = layout();
+        let mut nav = MenuNav::default();
+        assert!(apply_menu_touch(&mut nav, &l, TouchUiMode::Advance, Vec2::new(3.0, 3.0)));
+        assert!(nav.confirm);
+        assert!(!nav.pause && !nav.up && !nav.down && !nav.left && !nav.right && !nav.cancel);
+    }
+
+    #[test]
+    fn off_mode_ignores_the_glass_entirely() {
+        let l = layout();
+        let mut nav = MenuNav::default();
+        assert!(!apply_menu_touch(&mut nav, &l, TouchUiMode::Off, l.menu_confirm.center()));
+        assert!(!apply_menu_touch(&mut nav, &l, TouchUiMode::Off, l.pause.center()));
+        assert_eq!(nav, MenuNav::default());
     }
 }

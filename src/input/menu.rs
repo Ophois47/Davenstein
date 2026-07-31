@@ -8,7 +8,7 @@ use bevy::prelude::*;
 // Every Input Source Writes Into This Resource, Menu Code Only Reads It
 // This Lets Keyboard, Gamepad, and Later Touch Drive Menus Through One Vocabulary
 // Rewritten in Full Every Frame by gather so It Never Becomes Stale
-#[derive(Resource, Debug, Clone, Copy, Default)]
+#[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MenuNav {
     // Move the Highlight Up or Down a List
     pub up: bool,

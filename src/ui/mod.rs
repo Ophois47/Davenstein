@@ -7,6 +7,7 @@ mod hud;
 pub(crate) mod level_end_font;
 mod splash;
 mod state;
+mod touch_overlay;
 pub mod sync;
 
 use bevy::prelude::*;
@@ -64,7 +65,9 @@ impl Plugin for UiPlugin {
 			.add_systems(Update, sync::sync_player_hp_with_hud)
 			.add_systems(Update, sync::handle_player_death_once)
 			.add_systems(Update, sync::tick_death_delay_and_request_restart)
-			.add_systems(Update, sync::game_over_input)
+			// After InputGather so the Game Over Screen Reacts to This Frame's
+			// Confirm (Gamepad South, a Touch Tap) Rather Than Last Frame's
+			.add_systems(Update, sync::game_over_input.after(davelib::input::InputGather))
 			// HUD + Viewmodel Systems
 			.add_systems(Update, hud::sync_hud_layout_on_window_change)
 			.add_systems(Update, hud::sync_mission_overlay_layout_on_window_change)
@@ -83,6 +86,25 @@ impl Plugin for UiPlugin {
 			// the Pause Menu Cannot Open Underneath This Box in Any System Order
 			.add_systems(Update, cheat_message::trigger_cheat_message)
 			.add_systems(Update, cheat_message::dismiss_cheat_message)
+			// On-Screen Touch Controls. The Mode Sync Runs Before InputGather so
+			// the Touch Source Tests This Frame's Fingers Against the Control Set
+			// the Player Is Looking At; the Drawing Systems Run After It so the
+			// Overlay Reflects This Frame's Assignments (Stick Under the Thumb,
+			// Fire Lit While Held) Without a Frame of Lag
+			.add_systems(
+				Update,
+				touch_overlay::sync_touch_ui_mode.before(davelib::input::InputGather),
+			)
+			.add_systems(
+				Update,
+				(
+					touch_overlay::sync_touch_overlay_tree,
+					touch_overlay::sync_touch_overlay_visibility,
+					touch_overlay::sync_touch_button_feedback,
+					touch_overlay::sync_touch_stick_visual,
+				)
+					.after(davelib::input::InputGather),
+			)
 			.add_systems(Update, hud::weapon_fire_and_viewmodel)
 			.add_systems(Update, hud::sync_hud_hp_digits)
 			.add_systems(Update, hud::sync_hud_ammo_digits)

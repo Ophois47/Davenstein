@@ -298,7 +298,9 @@ pub fn run() {
 		.add_systems(Update, level_complete::start_mission_success_tally_on_win)
 		.add_systems(Update, level_complete::tick_mission_success_tally)
 		.add_systems(Update, level_complete::sync_mission_success_stats_text)
-		.add_systems(Update, level_complete::mission_success_input)
+		// After InputGather so the Tally Reacts to This Frame's Confirm
+		// (Gamepad South, a Touch Tap) Rather Than Last Frame's
+		.add_systems(Update, level_complete::mission_success_input.after(davelib::input::InputGather))
 		.add_systems(Update, level_complete::apply_mission_success_bonus_to_player_score_once)
 		.add_systems(Update, pickups::billboard_pickups.run_if(world_ready))
 		.add_systems(Update, billboard_decorations.run_if(world_ready))

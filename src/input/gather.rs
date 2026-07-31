@@ -28,6 +28,7 @@ Priority Over the On-Screen Controls
 */
 
 use bevy::prelude::*;
+use bevy::ecs::system::SystemParam;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::input::touch::Touches;
 use bevy::window::{CursorOptions, PrimaryWindow};
@@ -38,9 +39,29 @@ use crate::input::devices::{ActiveGamepad, ActiveInputDevice};
 use crate::input::sources::keyboard_mouse;
 use crate::input::sources::gamepad;
 use crate::input::sources::touch;
-use crate::input::sources::touch::TouchAssignments;
+use crate::input::sources::touch::{TouchAssignments, TouchUiMode};
 use crate::input::touch_layout::TouchLayout;
 use crate::options::ControlSettings;
+
+// The Touch Resources gather Needs, Bundled Into One System Parameter
+//
+// Bevy Allows a System Function at Most Sixteen Parameters. gather Reads Nearly
+// Every Input Resource in the Crate and Sat at That Ceiling; Adding the Touch
+// Mode Pushed It Over. Grouping the Three Touch-Only Resources Here Buys the
+// Headroom Without Splitting the System, and Keeps Them Named Together Since
+// They Are Always Used Together - the Layout Is the Geometry, the Mode Says
+// Which Half of It Is Live, and the Assignments Are Which Finger Owns What
+#[derive(SystemParam)]
+pub struct TouchGatherParams<'w> {
+    // Screen Geometry of the On-Screen Controls, Rebuilt Before This Set Runs
+    pub layout: Res<'w, TouchLayout>,
+    // Which Control Set the Glass Currently Carries (Gameplay, Menu, Advance,
+    // Off), Synced Before This Set Runs From the Previous Frame's UI State
+    pub mode: Res<'w, TouchUiMode>,
+    // Which Finger Owns Which Held Touch Control. Persists Across Frames, So It
+    // Cannot Be a Local: the Overlay Reads It to Draw the Stick Under the Thumb
+    pub assign: ResMut<'w, TouchAssignments>,
+}
 
 // Read Every Input Source and Commit One Merged PlayerIntent for This Frame
 // Resetting the Accumulator to Default Each Frame Clears Unpressed Inputs
@@ -53,11 +74,9 @@ pub fn gather(
     q_gamepads: Query<&Gamepad>,
     touches: Res<Touches>,
     controls: Res<ControlSettings>,
-    // Screen Geometry of the On-Screen Controls, Rebuilt Before This Set Runs
-    touch_layout: Res<TouchLayout>,
-    // Which Finger Owns Which Held Touch Control. Persists Across Frames, So It
-    // Cannot Be a Local: the Overlay Reads It to Draw the Stick Under the Thumb
-    mut touch_assign: ResMut<TouchAssignments>,
+    // Layout, Mode, and Finger Assignments, Bundled to Stay Under the Sixteen
+    // Parameter System Limit. See TouchGatherParams
+    mut touch_io: TouchGatherParams,
     // The One Gamepad Whose Input Is Read, Maintained by devices::bind_active_gamepad
     active_gamepad: Res<ActiveGamepad>,
     // Which Device Class Is Actually Driving. Written at the End of This System
@@ -101,16 +120,33 @@ pub fn gather(
         touch::contribute(
             &mut acc,
             &touches,
-            &mut touch_assign,
-            &touch_layout,
+            &mut touch_io.assign,
+            &touch_io.layout,
             &controls,
+            *touch_io.mode,
         )
     } else {
-        if !touch_assign.is_idle() {
-            touch_assign.clear();
+        if !touch_io.assign.is_idle() {
+            touch_io.assign.clear();
         }
         false
     };
+
+    // Menu Navigation Uses the Same Reset-Then-Merge Pattern as PlayerIntent
+    // Built Before Arbitration Because a Tap on a Menu Button Is as Deliberate an
+    // Act as a Stick Deflection: It Must Be Able to Make Touch the Active Device,
+    // Which Is What Reveals the Overlay to a Player Navigating Menus by Thumb
+    let mut nav = MenuNav::default();
+    keyboard_mouse::contribute_menu(&mut nav, &keys);
+    if controls.gamepad_enabled {
+        gamepad::contribute_menu(&mut nav, &q_gamepads, &active_gamepad);
+    }
+    let touch_menu_driven = if controls.touch_enabled {
+        touch::contribute_menu(&mut nav, &touches, &touch_io.layout, *touch_io.mode)
+    } else {
+        false
+    };
+    let touch_driven = touch_driven || touch_menu_driven;
 
     // ARBITRATION - Which Device Class Is Actually Driving
     //
@@ -166,15 +202,5 @@ pub fn gather(
     }
 
     *intent = acc;
-
-    // Menu Navigation Uses the Same Reset-Then-Merge Pattern as PlayerIntent
-    let mut nav = MenuNav::default();
-    keyboard_mouse::contribute_menu(&mut nav, &keys);
-    if controls.gamepad_enabled {
-        gamepad::contribute_menu(&mut nav, &q_gamepads, &active_gamepad);
-    }
-    if controls.touch_enabled {
-        touch::contribute_menu(&mut nav, &touches, &touch_layout);
-    }
     *menu = nav;
 }

@@ -169,6 +169,10 @@ pub fn tick_death_delay_and_request_restart(
 // Then Check if Score Qualifies for High Scores
 pub fn game_over_input(
     keys: Res<ButtonInput<KeyCode>>,
+    // Confirm From Any Device (Gamepad South, a Tap on the Touch Overlay's
+    // Any-Input Screen). MenuNav Is Exempt From the Control Lock Held During
+    // Game Over, Which Is Exactly Why It Works Here Where PlayerIntent Cannot
+    nav: Res<davelib::input::MenuNav>,
     game_over: Res<GameOver>,
     hud: Res<HudState>,
     current_level: Res<davelib::level::CurrentLevel>,
@@ -186,7 +190,7 @@ pub fn game_over_input(
         return;
     }
 
-    if !keys.just_pressed(KeyCode::Enter) {
+    if !keys.just_pressed(KeyCode::Enter) && !nav.confirm {
         return;
     }
 
