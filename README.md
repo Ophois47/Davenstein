@@ -50,6 +50,7 @@ The i686, ARM64, ARMv7, RISC-V 64, and PowerPC64LE packages support compatible L
 - Added state-aware visible touchscreen controls for gameplay, menus, and tap-to-continue screens
 - Added complete touch-only menu navigation, safe explicit confirmation, game-over and intermission advancement, and gamepad/touch high-score name entry
 - Changed touchscreen movement to a floating four-way D-pad with visible stick feedback while preserving drag-to-turn, fire, use, weapon, and pause controls
+- Corrected the end-of-level intermission regression by ordering tally initialization, counting, one-time bonus application, confirmation handling, text synchronization, and overlay visibility as one deterministic Bevy state machine
 - Corrected the Android Application Not Responding condition and verified responsive gameplay, rendering, menus, and touch input on physical hardware
 - Added touchscreen geometry, accessibility-floor, mode-selection, hit-testing, and regression tests while restoring direct Unix execution of the Android Gradle wrapper
 
