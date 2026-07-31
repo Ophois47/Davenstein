@@ -458,13 +458,13 @@ mod tests {
     #[test]
     fn menu_mode_maps_each_button_to_its_nav_bit() {
         let l = layout();
-        let cases = [
-            (l.menu_up.center(), |n: &MenuNav| n.up),
-            (l.menu_down.center(), |n: &MenuNav| n.down),
-            (l.menu_left.center(), |n: &MenuNav| n.left),
-            (l.menu_right.center(), |n: &MenuNav| n.right),
-            (l.menu_confirm.center(), |n: &MenuNav| n.confirm),
-            (l.menu_back.center(), |n: &MenuNav| n.cancel),
+        let cases: [(Vec2, Box<dyn Fn(&MenuNav) -> bool>); 6] = [
+            (l.menu_up.center(), Box::new(|n: &MenuNav| n.up)),
+            (l.menu_down.center(), Box::new(|n: &MenuNav| n.down)),
+            (l.menu_left.center(), Box::new(|n: &MenuNav| n.left)),
+            (l.menu_right.center(), Box::new(|n: &MenuNav| n.right)),
+            (l.menu_confirm.center(), Box::new(|n: &MenuNav| n.confirm)),
+            (l.menu_back.center(), Box::new(|n: &MenuNav| n.cancel)),
         ];
 
         for (point, read_bit) in cases {
