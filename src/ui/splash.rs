@@ -992,6 +992,64 @@ const MENU_LABELS_PAUSE: [&str; 9] = [
     "Quit",
 ];
 
+// Compile-Time Guard for the Mobile Row-Trimming Below. The Accessors Drop the
+// LAST Entry of Each Array on a Handheld, Which Is Only Correct While That Entry
+// Is Quit. If a Future Edit Reorders Either Array so Something Else Becomes Last,
+// These Asserts Fail the Build Rather Than Silently Hiding the Wrong Row (e.g.
+// Trimming "Return to Game" off the Pause Menu). The Paired Label Arrays Cannot
+// Drift in Length Because Their Sizes Are Fixed in the Type and Match the Actions
+const _: () = assert!(matches!(
+    MENU_ACTIONS_MAIN[MENU_ACTIONS_MAIN.len() - 1],
+    MenuAction::Quit,
+));
+const _: () = assert!(matches!(
+    MENU_ACTIONS_PAUSE[MENU_ACTIONS_PAUSE.len() - 1],
+    MenuAction::Quit,
+));
+
+// Active Main-Menu Actions for This Platform. iOS Forbids an App Terminating
+// Itself (Apple's HIG Treats Leaving an App as the OS's Job via Home / the App
+// Switcher), so a Quit Row There Is a Dead Button at Best and a Review Rejection
+// at Worst. Handhelds Therefore Get the Array Minus Its Trailing Quit; Desktop
+// Gets It Whole. Slicing the Existing Const (Rather Than Duplicating a Shorter
+// List) Keeps Labels and Actions From Drifting Apart
+fn menu_actions_main() -> &'static [MenuAction] {
+    if davelib::options::MOBILE_PLATFORM {
+        &MENU_ACTIONS_MAIN[..MENU_ACTIONS_MAIN.len() - 1]
+    } else {
+        &MENU_ACTIONS_MAIN
+    }
+}
+
+// Active Pause-Menu Actions for This Platform. Same Quit-Trimming Rule as
+// menu_actions_main; "Return to Game" Stays Because It Sits Above Quit
+fn menu_actions_pause() -> &'static [MenuAction] {
+    if davelib::options::MOBILE_PLATFORM {
+        &MENU_ACTIONS_PAUSE[..MENU_ACTIONS_PAUSE.len() - 1]
+    } else {
+        &MENU_ACTIONS_PAUSE
+    }
+}
+
+// Active Main-Menu Labels, Trimmed in Lockstep With menu_actions_main so the
+// Rows Drawn and the Actions Dispatched Stay Index-Aligned on Every Platform
+fn menu_labels_main() -> &'static [&'static str] {
+    if davelib::options::MOBILE_PLATFORM {
+        &MENU_LABELS_MAIN[..MENU_LABELS_MAIN.len() - 1]
+    } else {
+        &MENU_LABELS_MAIN
+    }
+}
+
+// Active Pause-Menu Labels, Trimmed in Lockstep With menu_actions_pause
+fn menu_labels_pause() -> &'static [&'static str] {
+    if davelib::options::MOBILE_PLATFORM {
+        &MENU_LABELS_PAUSE[..MENU_LABELS_PAUSE.len() - 1]
+    } else {
+        &MENU_LABELS_PAUSE
+    }
+}
+
 #[derive(Resource)]
 pub(crate) struct SplashImages {
     splash0: Handle<Image>,
@@ -5286,9 +5344,9 @@ fn spawn_menu_hint(
     let hint_y = layout.y(BASE_H - hint_native_h - hint_bottom_pad);
 
     let labels: &[&str] = if from_pause {
-        &MENU_LABELS_PAUSE
+        menu_labels_pause()
     } else {
-        &MENU_LABELS_MAIN
+        menu_labels_main()
     };
     let row_count = labels.len();
     let panel_left = layout.x(76.0);
@@ -5598,9 +5656,9 @@ fn splash_advance_on_any_input(
             let is_pause = *resources.step == SplashStep::PauseMenu;
 
             let item_count = if is_pause {
-                MENU_ACTIONS_PAUSE.len()
+                menu_actions_pause().len()
             } else {
-                MENU_ACTIONS_MAIN.len()
+                menu_actions_main().len()
             };
 
             if item_count == 0 {
@@ -5700,9 +5758,9 @@ fn splash_advance_on_any_input(
                 sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
                 let action = if is_pause {
-                    MENU_ACTIONS_PAUSE[menu.selection]
+                    menu_actions_pause()[menu.selection]
                 } else {
-                    MENU_ACTIONS_MAIN[menu.selection]
+                    menu_actions_main()[menu.selection]
                 };
 
                 match action {
