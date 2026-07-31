@@ -539,6 +539,17 @@ pub struct ControlSettings {
 	/// Named Turn Rather Than Look Because Touch Drives Yaw Only, With No
 	/// Pitch Axis at All. See input::sources::touch for Why
 	pub touch_turn_sensitivity: f32,
+	/// Inner Deadzone for the Left MOVE Stick, as a Fraction of Its Travel Radius
+	/// Range: 0.05 ..= 0.6
+	/// Default: 0.30
+	/// Distinct From touch_turn_sensitivity Because the Two Sticks Are Tuned on
+	/// Different Axes: the Turn Stick Is a Continuous RATE (Scaled by Sensitivity),
+	/// While the Move Stick Is a 4-Way D-Pad Snap Whose Only Meaningful Knob Is How
+	/// Far the Thumb Must Travel Before a Cardinal Registers. A Larger Value Makes
+	/// the Stick LESS Twitchy: a Thumb Resting or Drifting Near Centre Stays Still,
+	/// Which Is What Lets a Player Line Up on a Doorway Without Creeping Sideways.
+	/// Read (and Re-Clamped) by input::sources::touch, Which Owns the Snap Math
+	pub touch_move_deadzone: f32,
 	/// Multiplier Applied to the Size of Every On-Screen Touch Control
 	/// Range: 0.5 ..= 2.0
 	/// Default: 1.0
@@ -558,7 +569,15 @@ impl Default for ControlSettings {
 			gamepad_sensitivity: 1.0,
 			gamepad_deadzone: 0.1,
 			touch_enabled: true,
-			touch_turn_sensitivity: 0.4,
+			// Raised From 0.4: at 0.4 the Full-Deflection Turn Rate Was
+			// 0.4 * TOUCH_LOOK_RATE (2.5) = 1.0 rad/s, Which Read as Sluggish on a
+			// Phone Where the Thumb Cannot Sweep Far. 0.7 Gives ~1.75 rad/s by
+			// Default While the Controls Slider Still Spans the Full 0.1..=10.0 Range
+			touch_turn_sensitivity: 0.7,
+			// Wider Than the Old Hard-Coded 0.12 Stick Deadzone so the Move Stick Is
+			// Calmer Out of the Box and Does Not Drift While the Player Aligns on
+			// Doors and Corners. Still Player-Tunable in Controls
+			touch_move_deadzone: 0.30,
 			touch_ui_scale: 1.0,
 			key_bindings: KeyBindings::default(),
 		}

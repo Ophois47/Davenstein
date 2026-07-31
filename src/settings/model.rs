@@ -76,6 +76,7 @@ pub struct ControlDto {
     pub gamepad_deadzone: Option<f32>,
     pub touch_enabled: Option<bool>,
     pub touch_turn_sensitivity: Option<f32>,
+    pub touch_move_deadzone: Option<f32>,
     pub touch_ui_scale: Option<f32>,
     // Key Bindings Deliberately Omitted for Now (See Module Header)
 }
@@ -178,6 +179,7 @@ impl SettingsFile {
                 gamepad_deadzone: Some(control.gamepad_deadzone),
                 touch_enabled: Some(control.touch_enabled),
                 touch_turn_sensitivity: Some(control.touch_turn_sensitivity),
+                touch_move_deadzone: Some(control.touch_move_deadzone),
                 touch_ui_scale: Some(control.touch_ui_scale),
             },
             sound: SoundDto {
@@ -267,6 +269,9 @@ impl SettingsFile {
         }
         if let Some(v) = self.control.touch_turn_sensitivity {
             control.touch_turn_sensitivity = v;
+        }
+        if let Some(v) = self.control.touch_move_deadzone {
+            control.touch_move_deadzone = v;
         }
         if let Some(v) = self.control.touch_ui_scale {
             control.touch_ui_scale = v;

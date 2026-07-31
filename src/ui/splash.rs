@@ -1299,6 +1299,7 @@ enum ControlOptionKind {
     GamepadDeadzone,
     TouchEnabled,
     TouchSensitivity,
+    TouchMoveDeadzone,
     TouchUiScale,
     KeyBindings,
     Back,
@@ -1365,6 +1366,20 @@ fn build_control_options_items(control: &ControlSettings) -> Vec<(ControlOptionK
     items.push((
         ControlOptionKind::TouchSensitivity,
         format!("Touch Sens: {}", touch_sens_display),
+    ));
+
+    // Touch Move Deadzone (0.05-0.6, display as 5-60%)
+    //
+    // The Left-Stick Companion to Touch Sens. Larger Means the Thumb Must Travel
+    // Farther From Centre Before Movement Fires, Which Kills the Sideways Drift
+    // That Made Lining Up on Doors Fiddly. Deliberately a Deadzone, Not a "Move
+    // Sensitivity" Multiplier: the Move Stick Is a 4-Way D-Pad Snap With No Analog
+    // Speed to Scale, so Travel-to-Trigger Is the Only Honest Knob (See
+    // input::sources::touch)
+    let touch_move_dz_pct = (control.touch_move_deadzone * 100.0).round() as i32;
+    items.push((
+        ControlOptionKind::TouchMoveDeadzone,
+        format!("Move Deadzone: {}%", touch_move_dz_pct),
     ));
 
     // Touch Control Size (0.5-2.0, display as 50-200%)
@@ -6905,6 +6920,7 @@ fn splash_advance_on_any_input(
                     | Some(ControlOptionKind::GamepadSensitivity)
                     | Some(ControlOptionKind::GamepadDeadzone)
                     | Some(ControlOptionKind::TouchSensitivity)
+                    | Some(ControlOptionKind::TouchMoveDeadzone)
                     | Some(ControlOptionKind::TouchUiScale)
             );
 
@@ -6978,6 +6994,18 @@ fn splash_advance_on_any_input(
                         let delta = if options.control.hold_dir > 0 { 0.1 } else { -0.1 };
                         for _ in 0..nudge_ticks {
                             resources.control_settings.touch_turn_sensitivity = (resources.control_settings.touch_turn_sensitivity + delta).clamp(0.1, 10.0);
+                        }
+                        // Explicitly Mark as Changed
+                        resources.control_settings.set_changed();
+                    }
+
+                    Some(ControlOptionKind::TouchMoveDeadzone) => {
+                        // Same Step and Range as the Gamepad Deadzone Row: Both Are
+                        // Centre-Zone Fractions and Read as One Family. Re-Clamped in
+                        // input::sources::touch Too, for Hand-Edited Config Files
+                        let delta = if options.control.hold_dir > 0 { 0.01 } else { -0.01 };
+                        for _ in 0..nudge_ticks {
+                            resources.control_settings.touch_move_deadzone = (resources.control_settings.touch_move_deadzone + delta).clamp(0.05, 0.6);
                         }
                         // Explicitly Mark as Changed
                         resources.control_settings.set_changed();

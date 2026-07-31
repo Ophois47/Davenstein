@@ -6,8 +6,8 @@ shared PlayerIntent accumulator, exactly like the keyboard and gamepad sources. 
 runs last so keyboard and gamepad keep move_wish and weapon_select priority
 
 Touch Turns. It Never Pitches
-The drag region writes yaw and nothing else, always, whatever mouselook_enabled
-says. Three reasons, in ascending order of how much they matter:
+The right turn stick writes yaw and nothing else, always, whatever
+mouselook_enabled says. Three reasons, in ascending order of how much they matter:
 
 1. Wolfenstein 3-D had no vertical look. Its renderer drew the world as vertical
    columns and had no way to express a pitched view, so pitch is a Davenstein
@@ -24,9 +24,9 @@ says. Three reasons, in ascending order of how much they matter:
    crosshair feedback to explain why. The mouse does not have this problem because a
    mouse slides on a flat surface
 
-Vertical drag travel is therefore discarded outright rather than scaled down, and
-the stored per-finger state is a single f32 X coordinate so no vertical component
-can leak back in later by accident
+Vertical stick travel is therefore discarded outright rather than scaled down, and
+the stored per-finger state is a single f32 X origin so no vertical component can
+leak back in later by accident
 
 Note this is independent of mouselook_enabled, which is a MOUSE setting. Turning
 must never be unavailable to a touch player, for the same reason keyboard turning
@@ -38,15 +38,16 @@ A touch claims its job once, on the frame it lands, from where it landed. It the
 keeps that job until the finger leaves the glass, however far it wanders. This is
 the single most important property of the module. Classifying by current position
 every frame looks equivalent and is not: lift the turning finger while strafing and
-the surviving stick finger gets re-read as a turn drag, so the player lurches and
+the surviving stick finger gets re-read as a turn stick, so the player lurches and
 the view snaps. Pinning by ID makes a two-thumb hold behave like two independent
 controllers, which is also what lets fire be held while the other thumb turns
 
 Layout ownership belongs to TouchLayout, not here. This file asks "does this point
 fall in that rectangle" and never decides where the rectangle is
 
-Only Fire Needs Stored State
-Held controls (the stick, the turn drag, fire) need an ID pinned across frames.
+Held Controls Need Pinned State
+Held controls (the movement stick, the turn stick, fire) need an ID pinned across
+frames.
 Edge controls (use, weapon select, pause) are read straight from
 iter_just_pressed, which is inherently one frame wide, so a resting finger cannot
 repeat them and there is nothing to store or release
@@ -60,23 +61,44 @@ use crate::input::menu::MenuNav;
 use crate::input::touch_layout::TouchLayout;
 use crate::options::ControlSettings;
 
-// Base Sensitivity Applied on Top of ControlSettings.touch_turn_sensitivity
-// Touch Deltas Arrive in Logical Pixels Just Like Mouse Deltas, so This Is the
-// Same Kind of Constant as keyboard_mouse::BASE_SENSITIVITY and Is Set a Little
-// Higher Because a Thumb Drag Covers Far Less Distance Than a Mouse Sweep
-// Expect to Retune This Once It Has Been Felt on Real Hardware
-const BASE_SENSITIVITY: f32 = 0.0035;
+// Maximum Right-Stick Turn Rate in Radians per Second
+// Matches the Existing Gamepad Baseline so the Two Held Stick Inputs Share the
+// Same Full-Deflection Speed Before Their Separate Sensitivity Settings Apply
+const TOUCH_LOOK_RATE: f32 = 2.5;
+
+// Inner Deadzone for the Right Turn Stick, as a Fraction of Its Travel Radius
+// A Resting Thumb Jitters by a Pixel or Two, so a Small Centre Zone Must Stay Still
+const TURN_DEADZONE: f32 = 0.12;
 
 // Inner Deadzone for the Virtual Stick, as a Fraction of Its Travel Radius
-// A Thumb Resting on Glass Jitters by a Pixel or Two Constantly. Without This the
-// Player Drifts While Standing Still. Not Exposed as a Setting Because Unlike a
-// Worn Physical Stick There Is No Per-Device Variation to Compensate For
-const STICK_DEADZONE: f32 = 0.12;
+// A Thumb Resting on Glass Jitters by a Pixel or Two Constantly. Without a Centre
+// Zone the Player Drifts While Standing Still, Which Made It Hard to Line Up on
+// Doorways. Now Player-Tunable via ControlSettings.touch_move_deadzone; These Are
+// the Clamp Bounds, Re-Enforced at the Read Site Because a Hand-Edited
+// settings.ron Never Passes Through the Menu's Own Clamp
+const MOVE_DEADZONE_MIN: f32 = 0.05;
+const MOVE_DEADZONE_MAX: f32 = 0.6;
 
 // Fraction of Stick Travel Past Which Run Engages
 // Folding Run Into the Stick's Outer Ring Instead of Giving It a Button Keeps the
 // Left Thumb on One Control and Matches How Players Already Expect to Sprint
 const RUN_RING: f32 = 0.8;
+
+// Convert Horizontal Turn-Stick Travel Into a Signed, Deadzoned Axis
+// Pure Arithmetic so the Response Curve Can Be Tested Without a Live Touches Resource
+fn turn_axis(offset_x: f32, radius: f32) -> f32 {
+    if radius <= 0.0 {
+        return 0.0;
+    }
+
+    let raw = (offset_x / radius).clamp(-1.0, 1.0);
+    let magnitude = raw.abs();
+    if magnitude <= TURN_DEADZONE {
+        return 0.0;
+    }
+
+    raw.signum() * ((magnitude - TURN_DEADZONE) / (1.0 - TURN_DEADZONE))
+}
 
 // Which Set of On-Screen Controls Is Live Right Now
 //
@@ -93,7 +115,7 @@ const RUN_RING: f32 = 0.8;
 // Anything, so a Finger Held Across a Mode Change Cannot Acquire a New Job
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TouchUiMode {
-    // Live Gameplay: Stick, Turn Drag, Fire, Use, Weapons, Pause
+    // Live Gameplay: Movement Stick, Turn Stick, Fire, Use, Weapons, Pause
     Gameplay,
 
     // A Navigable Menu: the Direction Cluster, Confirm, and Back
@@ -121,11 +143,9 @@ pub struct TouchAssignments {
     // Travel Is Exceeded (See the Contribution Pass)
     pub stick: Option<(u64, Vec2)>,
 
-    // Turning Finger and the Last X Coordinate This Module Observed for It
-    // Stored Rather Than Read Back From Bevy on Purpose; See the Long Note in the
-    // Contribution Pass. Deliberately an f32 and Not a Vec2: Touch Turning Is
-    // Yaw-Only, and a Type That Cannot Hold a Y Coordinate Cannot Later Grow One
-    // by Accident
+    // Turning Finger and Its Floating Horizontal Origin
+    // Deliberately an f32 and Not a Vec2: Touch Turning Is Yaw-Only, and a Type
+    // That Cannot Hold a Y Coordinate Cannot Later Grow One by Accident
     pub turn: Option<(u64, f32)>,
 
     // Finger Holding the Fire Button
@@ -158,6 +178,7 @@ impl TouchAssignments {
 // for Somebody Choosing to Play by Touch. Motion, a Held Button, or an Edge Is Required
 pub fn contribute(
     acc: &mut PlayerIntent,
+    time: &Time,
     touches: &Touches,
     assign: &mut TouchAssignments,
     layout: &TouchLayout,
@@ -200,11 +221,9 @@ pub fn contribute(
     // Pause and Movement Resumes the Instant the Menu Closes - the Same Promise
     // gather Makes for Held Keys, and Fire Stays Safe Under the Same Latch
     //
-    // The One Piece of State That Must Stay Current Is the Turn Finger's Stored
-    // X: It Is a Delta Baseline, and a Baseline Frozen at Menu-Open Would Turn
-    // Everything the Finger Drifted While the Menu Was Up Into One Violent View
-    // Snap on the First Live Frame. Re-Anchoring Every Paused Frame Makes the
-    // Return Delta Start From Wherever the Finger Actually Is
+    // The One Piece of State That Must Stay Current Is the Turn Finger's Origin
+    // Re-Centring It Every Paused Frame Prevents Thumb Drift in a Menu From Becoming
+    // an Immediate Held Turn When Gameplay Resumes
     if mode != TouchUiMode::Gameplay {
         if let Some((id, _)) = assign.turn {
             if let Some(touch) = touches.get_pressed(id) {
@@ -228,7 +247,7 @@ pub fn contribute(
         let point = touch.position();
 
         // Pause Is Menu Navigation, Not Gameplay Intent, so It Is Consumed by
-        // contribute_menu. Swallowed Here Only So It Cannot Also Start a Turn Drag
+        // contribute_menu. Swallowed Here Only So It Cannot Also Start a Turn Stick
         if layout.pause.contains(point) {
             continue;
         }
@@ -262,10 +281,10 @@ pub fn contribute(
             continue;
         }
 
-        // Everything Left Over Turns. Only the Landing X Is Kept, Because Only
-        // Horizontal Travel Will Ever Be Read. Falling Through Rather Than Demanding
-        // the Right Half Means a Second Finger on the LEFT Side Still Turns Once the
-        // Stick Is Taken, Which Is How Left-Handed Players Actually Hold a Phone
+        // Everything Left Over Turns. The Landing X Becomes the Floating
+        // Horizontal Origin. Falling Through Rather Than Demanding the Right Half
+        // Means a Second Finger on the LEFT Side Still Turns Once the Movement Stick
+        // Is Taken, Which Is How Left-Handed Players Actually Hold a Phone
         if assign.turn.is_none() {
             assign.turn = Some((id, point.x));
         }
@@ -301,7 +320,13 @@ pub fn contribute(
             //
             // (8-Way, With Diagonals, Is a Planned Follow-Up)
             let raw = offset / layout.stick_radius;
-            let wish = if raw.length() < STICK_DEADZONE {
+            // Re-Clamp the Player's Setting Here, Not Just in the Menu: a
+            // Hand-Edited settings.ron Can Carry Any Value, and a Deadzone Above 1.0
+            // Would Silently Freeze the Move Stick Entirely
+            let move_deadzone = controls
+                .touch_move_deadzone
+                .clamp(MOVE_DEADZONE_MIN, MOVE_DEADZONE_MAX);
+            let wish = if raw.length() < move_deadzone {
                 Vec2::ZERO
             } else if raw.x.abs() >= raw.y.abs() {
                 // Horizontal Wins: Strafe. X Already Matches move_wish's Strafe Axis
@@ -328,30 +353,30 @@ pub fn contribute(
         }
     }
 
-    // Turn Drag to Yaw. Horizontal Travel Only; See the Module Header for Why There
-    // Is No Pitch Term Here and Why There Should Never Be One
-    if let Some((id, last_x)) = assign.turn {
+    // Right Turn Stick to Yaw. Horizontal Deflection Is a Held Rate, Not a
+    // Per-Frame Swipe Delta, so the Player Can Keep Turning Without Repeated Swipes
+    if let Some((id, origin_x)) = assign.turn {
         if let Some(touch) = touches.get_pressed(id) {
             let x = touch.position().x;
+            let mut offset_x = x - origin_x;
 
-            // Deliberately NOT Touch::delta()
-            // Bevy Only Refreshes previous_position on Frames Where at Least One
-            // Touch Event Arrived (Upstream Issue 12442). A Finger Held Perfectly
-            // Still Sends No Move Events, so previous_position Stops Advancing and
-            // delta() Keeps Returning the Last Real Movement Forever: the View Spins
-            // On Its Own While the Thumb Sits Motionless. Differencing Against a
-            // Coordinate This Module Stored Itself Is Correct on Every Frame, and
-            // Costs One f32. Do Not "Simplify" This Back to delta()
-            let delta_x = x - last_x;
-            assign.turn = Some((id, x));
+            // Trail the Floating Origin Once the Thumb Runs Past Full Travel
+            // This Removes Dead Slack When the Thumb Comes Back Toward Centre
+            if offset_x.abs() > layout.stick_radius {
+                let direction = offset_x.signum();
+                assign.turn = Some((id, x - direction * layout.stick_radius));
+                offset_x = direction * layout.stick_radius;
+            }
 
-            if delta_x != 0.0 {
+            let turn = turn_axis(offset_x, layout.stick_radius);
+            if turn != 0.0 {
                 driven = true;
 
-                // Sign Matches the Mouse, Gamepad, and Keyboard Turn Paths: Dragging
-                // Right Turns Right. invert_y Is Not Consulted Because There Is No
-                // Vertical Axis to Invert
-                acc.look_delta.x -= controls.scaled_touch_turn(delta_x) * BASE_SENSITIVITY;
+                // Sign Matches Mouse, Gamepad, and Keyboard: Holding Right Turns Right
+                // invert_y Is Not Consulted Because There Is No Vertical Axis to Invert
+                acc.look_delta.x -= controls.scaled_touch_turn(turn)
+                    * TOUCH_LOOK_RATE
+                    * time.delta_secs();
             }
         }
     }
@@ -453,6 +478,36 @@ mod tests {
     // Also Break if the Geometry and the Mapping Ever Drift Apart
     fn layout() -> TouchLayout {
         TouchLayout::compute(Vec2::new(998.0, 448.0), 1.0)
+    }
+
+    #[test]
+    fn turn_axis_stays_zero_at_centre_and_through_the_deadzone() {
+        assert_eq!(turn_axis(0.0, 100.0), 0.0);
+        assert_eq!(turn_axis(12.0, 100.0), 0.0);
+        assert_eq!(turn_axis(-12.0, 100.0), 0.0);
+    }
+
+    #[test]
+    fn turn_axis_rescales_the_live_range_and_preserves_direction() {
+        let right = turn_axis(56.0, 100.0);
+        let left = turn_axis(-56.0, 100.0);
+
+        assert!((right - 0.5).abs() < 0.000_001);
+        assert!((left + 0.5).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn turn_axis_clamps_past_full_travel() {
+        assert_eq!(turn_axis(100.0, 100.0), 1.0);
+        assert_eq!(turn_axis(250.0, 100.0), 1.0);
+        assert_eq!(turn_axis(-100.0, 100.0), -1.0);
+        assert_eq!(turn_axis(-250.0, 100.0), -1.0);
+    }
+
+    #[test]
+    fn turn_axis_rejects_a_nonpositive_radius() {
+        assert_eq!(turn_axis(50.0, 0.0), 0.0);
+        assert_eq!(turn_axis(50.0, -100.0), 0.0);
     }
 
     #[test]
