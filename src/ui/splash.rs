@@ -1180,9 +1180,16 @@ fn build_change_view_items(
 ) -> Vec<(ChangeViewKind, String)> {
     let mut items = Vec::new();
 
-    // VSync
-    let vsync_label = if video.vsync { "VSync: ON" } else { "VSync: OFF" };
-    items.push((ChangeViewKind::Vsync, vsync_label.to_string()));
+    // VSync (Desktop Only)
+    // On a Handheld the Display Is Always Vsync-Locked: VSync On Maps to
+    // PresentMode::Fifo (Supported), and VSync Off Maps to AutoNoVsync, Which Has
+    // No Unsynced Present Mode to Fall Back to on iOS / Metal and Resolves to Fifo
+    // Anyway. The Toggle Therefore Does Nothing Visible There, so the Row Is Hidden
+    // to Avoid a Control That Looks Broken (See davelib::options::MOBILE_PLATFORM)
+    if !davelib::options::MOBILE_PLATFORM {
+        let vsync_label = if video.vsync { "VSync: ON" } else { "VSync: OFF" };
+        items.push((ChangeViewKind::Vsync, vsync_label.to_string()));
+    }
 
     // Display Mode (Desktop Only)
     // A Handheld Has Exactly One Legal Display Mode (Borderless Full Screen), so
