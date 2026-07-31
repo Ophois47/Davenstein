@@ -189,15 +189,30 @@ pub fn gather(
         *fire_release_latch = true;
         acc = PlayerIntent::default();
     } else if *fire_release_latch {
-        // First Unlocked Frames: the Finger That Confirmed "Back to Game" is Usually
-        // Still Down on a Button That Doubles as Fire. Hold Fire at False Until Every
-        // Fire Input Reads Released for a Frame, Then Disarm. Movement and Look Pass
-        // Through Untouched -- Walking Out of a Menu Should Feel Instant, Only the
-        // Trigger Needs the Release
-        if acc.fire || acc.fire_pressed {
+        // First Unlocked Frames. The Latch Exists Because the Button That Confirmed
+        // "Back to Game" (Gamepad South, a Mouse Click) Can Still Be Physically Down
+        // as Gameplay Resumes, and Those Bindings Double as Fire - so a HELD Button
+        // Would Bleed an Unwanted Shot Into the World
+        //
+        // The Discriminator Is the Press EDGE. A Button Held Since Before the Unlock
+        // Carries No New Edge This Frame (It Was Pressed a Frame Earlier, Inside the
+        // Menu), So fire_pressed Is False While fire Is True. A DELIBERATE New Trigger
+        // Pull After the Unlock Does Carry a Fresh fire_pressed. Treating Those the
+        // Same - the Old Behavior - Ate the First Shot Whenever a Player Fired the
+        // Instant a Level Loaded or a Menu Closed. It Hit Touch Hardest: the On-Screen
+        // Fire Button Is Large and Players Mash It the Moment an Enemy Appears, and the
+        // Semi-Auto Pistol's wants_fire Is Edge-Driven, so the Eaten Edge Meant No Shot
+        // (a Held Button Kept the Latch Armed and Fired Nothing Until Released)
+        if acc.fire_pressed {
+            // Fresh, Deliberate Trigger Pull: Let It Fire and Disarm. A Leftover
+            // Confirm Hold Never Reaches Here Because It Has No New Edge
+            *fire_release_latch = false;
+        } else if acc.fire {
+            // Held With No New Edge: This Is the Confirm/Fire Button Still Down From
+            // Before the Unlock. Suppress It and Stay Armed Until It Is Released
             acc.fire = false;
-            acc.fire_pressed = false;
         } else {
+            // Trigger Reads Released: Disarm
             *fire_release_latch = false;
         }
     }
