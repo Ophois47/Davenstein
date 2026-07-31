@@ -52,6 +52,7 @@ The i686, ARM64, ARMv7, RISC-V 64, and PowerPC64LE packages support compatible L
 - Changed touchscreen movement to a floating four-way D-pad and turning to a floating horizontal stick that continuously turns while held, with visible feedback, final turn sensitivity `0.6`, and final movement deadzone `0.40`
 - Added a permanent native iPhone and iPad Xcode host with private physical-device signing, Apple Silicon simulator support, application icons, generated assets, and unsigned CI compile proofs
 - Corrected mobile full-screen and safe-area handling, exposed touch controls from launch, moved weapon selection to the top center, and hid desktop-only Display, Resolution, VSync, and Quit rows
+- Eliminated the magenta mobile startup flash by keeping a persistent lowest-order black-clearing background camera active before splash and gameplay rendering begin
 - Corrected the first fire press after level start, respawn, and menu close, and corrected Retina/HiDPI intermission line spacing
 - Corrected the end-of-level intermission regression by ordering tally initialization, counting, one-time bonus application, confirmation handling, text synchronization, and overlay visibility as one deterministic Bevy state machine
 - Corrected the Android Application Not Responding condition and verified responsive gameplay, rendering, menus, and touch input on physical hardware
