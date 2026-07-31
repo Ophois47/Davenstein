@@ -303,11 +303,11 @@ pub(super) fn sync_touch_overlay_tree(
         }
 
         TouchUiMode::Menu => {
-            spawn_button(&mut commands, root, &font, TouchControlKind::MenuUp, &layout, "^");
-            spawn_button(&mut commands, root, &font, TouchControlKind::MenuDown, &layout, "v");
-            spawn_button(&mut commands, root, &font, TouchControlKind::MenuLeft, &layout, "<");
-            spawn_button(&mut commands, root, &font, TouchControlKind::MenuRight, &layout, ">");
-            spawn_button(&mut commands, root, &font, TouchControlKind::MenuConfirm, &layout, "OK");
+            spawn_button(&mut commands, root, &font, TouchControlKind::MenuUp, &layout, "UP");
+            spawn_button(&mut commands, root, &font, TouchControlKind::MenuDown, &layout, "DOWN");
+            spawn_button(&mut commands, root, &font, TouchControlKind::MenuLeft, &layout, "LEFT");
+            spawn_button(&mut commands, root, &font, TouchControlKind::MenuRight, &layout, "RIGHT");
+            spawn_button(&mut commands, root, &font, TouchControlKind::MenuConfirm, &layout, "ENTER");
             spawn_button(&mut commands, root, &font, TouchControlKind::MenuBack, &layout, "BACK");
         }
 
@@ -383,7 +383,7 @@ fn spawn_gameplay_hints(
     let hints = [
         ("MOVE", layout.stick_region.center().x, window.y * 0.62),
         (
-            "DRAG TO TURN",
+            "LOOK",
             (layout.stick_region.max.x + window.x) * 0.5,
             window.y * 0.45,
         ),
