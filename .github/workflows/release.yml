@@ -1294,10 +1294,13 @@ jobs:
                   -Algorithm SHA256
           ).Hash.ToLowerInvariant()
 
-          "$hash  $(Split-Path -Leaf $archivePath)" |
-              Set-Content `
-                  -LiteralPath $checksumPath `
-                  -Encoding ascii
+          # Emit A Portable LF-Only Checksum So Unix sha256sum And shasum
+          # Do Not Treat A Carriage Return as Part Of The Package Filename
+          [System.IO.File]::WriteAllText(
+              $checksumPath,
+              "$hash  $(Split-Path -Leaf $archivePath)`n",
+              [System.Text.Encoding]::ASCII
+          )
 
           Write-Host "Created $archivePath"
           Write-Host "Created $checksumPath"
@@ -1346,6 +1349,21 @@ jobs:
 
           if (-not (Test-Path -LiteralPath $checksumPath)) {
               throw "Windows i686 portable checksum was not created"
+          }
+
+          $checksumBytes = [System.IO.File]::ReadAllBytes(
+              $checksumPath
+          )
+
+          if ($checksumBytes -contains 13) {
+              throw "Windows i686 portable checksum contains CR bytes"
+          }
+
+          if (
+              $checksumBytes.Length -eq 0 -or
+              $checksumBytes[-1] -ne 10
+          ) {
+              throw "Windows i686 portable checksum does not end with LF"
           }
 
           $hash = (
@@ -1484,10 +1502,13 @@ jobs:
                   -Algorithm SHA256
           ).Hash.ToLowerInvariant()
 
-          "$hash  $($installer.Name)" |
-              Set-Content `
-                  -LiteralPath $checksumPath `
-                  -Encoding ascii
+          # Emit A Portable LF-Only Checksum So Unix sha256sum And shasum
+          # Do Not Treat A Carriage Return as Part Of The Package Filename
+          [System.IO.File]::WriteAllText(
+              $checksumPath,
+              "$hash  $($installer.Name)`n",
+              [System.Text.Encoding]::ASCII
+          )
 
           Write-Host "Created $checksumPath"
 
@@ -1530,6 +1551,21 @@ jobs:
 
           if (-not (Test-Path -LiteralPath $checksumPath)) {
               throw "Windows i686 installer checksum is missing"
+          }
+
+          $checksumBytes = [System.IO.File]::ReadAllBytes(
+              $checksumPath
+          )
+
+          if ($checksumBytes -contains 13) {
+              throw "Windows i686 installer checksum contains CR bytes"
+          }
+
+          if (
+              $checksumBytes.Length -eq 0 -or
+              $checksumBytes[-1] -ne 10
+          ) {
+              throw "Windows i686 installer checksum does not end with LF"
           }
 
           $hash = (
