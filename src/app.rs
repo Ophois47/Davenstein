@@ -65,7 +65,7 @@ use bevy::asset::{
 };
 use bevy::camera::ClearColorConfig;
 use bevy::camera::visibility::RenderLayers;
-use bevy::window::{PresentMode, ScreenEdge, WindowPlugin};
+use bevy::window::{PresentMode, PrimaryWindow, ScreenEdge, WindowPlugin};
 use bevy::light::cluster::GlobalClusterSettings;
 use davelib::options::{MenuUiCamera, MenuUiCameraRef};
 
@@ -220,6 +220,31 @@ fn spawn_background_clear_camera(mut commands: Commands) {
 	));
 }
 
+// Reveal the Primary Window a Few Frames After Launch on Mobile, Where It Started
+// Hidden (See the WindowPlugin 'visible' Field). By the Time This Fires the
+// Background Clear Camera Has Painted Black for Several Frames, so Unhiding Shows a
+// Clean Black Screen Rather Than the Uninitialized Metal Drawable. A Small Frame
+// Count, Not Zero: One Frame Is Not Always Enough for the Cleared Drawable to Have
+// Reached the Surface. The System Removes Its Own Effect by Latching 'done' and Is
+// a No-Op on Desktop, Where the Window Was Never Hidden
+fn reveal_window_after_first_frames(
+	mut frames: Local<u32>,
+	mut done: Local<bool>,
+	mut windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
+	if *done || !davelib::options::MOBILE_PLATFORM {
+		return;
+	}
+	*frames += 1;
+	// Three Frames of Confirmed Black Before Revealing
+	if *frames >= 3 {
+		if let Ok(mut window) = windows.single_mut() {
+			window.visible = true;
+		}
+		*done = true;
+	}
+}
+
 pub fn run() {
 	info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
 	let asset_file_path = if cfg!(debug_assertions) {
@@ -252,6 +277,17 @@ pub fn run() {
 				// for Its Own Gesture, Handing the First Touch to the Game
 				prefers_home_indicator_hidden: true,
 				preferred_screen_edges_deferring_system_gestures: ScreenEdge::All,
+				// Start Hidden on Mobile, Revealed by 'reveal_window_after_first_frames'
+				// Once a Black Frame Has Actually Been Drawn. This Closes the Residual,
+				// Intermittent Magenta Flash the Background Clear Camera Alone Could Not:
+				// on iOS the Surface's Very First Drawable Can Be Presented Uninitialized
+				// AROUND Surface Configuration, Before Bevy's First Cleared Frame Reaches
+				// the Screen - Below Any Camera's Reach. A Hidden Window Composites
+				// Nothing, so That Garbage Drawable Is Never Visible; by the Time We
+				// Unhide, the Clear Camera Has Painted Black. Desktop Stays Visible From
+				// the Start (No Such Uninitialized-Present Behaviour, and Hiding Would
+				// Only Add a Startup Flicker There)
+				visible: !davelib::options::MOBILE_PLATFORM,
 				..default()
 			}),
 			..default()
@@ -325,6 +361,7 @@ pub fn run() {
 		.add_systems(Startup, start_music.after(setup_audio))
 		.add_systems(Startup, spawn_menu_ui_camera)
 		.add_systems(Startup, spawn_background_clear_camera)
+		.add_systems(Update, reveal_window_after_first_frames)
 		.add_systems(Startup, disable_gpu_clustering)
 		.add_systems(
 			Update,
