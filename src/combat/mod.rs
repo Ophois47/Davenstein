@@ -89,6 +89,12 @@ pub struct FireShot {
     pub origin: Vec3,
     pub dir: Vec3,
     pub max_dist: f32,
+    // Aim-Assist Cone HALF-Angle in Radians, 0 = No Assist (Exact Ray Only). Set by
+    // the Firing Device: a Gamepad Turns at a Fixed Rate and Cannot Fine-Correct, so
+    // It Passes a Small Cone and a Shot Connects if an Enemy Is Within That Angle of
+    // Aim, Has Line of Sight, and Is in Range - the Hitscan Forgiveness the SNES /
+    // Jaguar / 3DO Ports Used. Mouse and Keyboard Pass 0 so Desk Aiming Stays Exact
+    pub aim_cone: f32,
 }
 
 fn process_enemy_fireball_shots(
@@ -283,6 +289,53 @@ fn process_fire_shots(
         }
     }
 
+    // Aim-Assist Cone Hit (Gamepad). Returns the Distance to the Enemy if It Is
+    // Within 'cone' Radians of the Aim Direction, in Front, Within Range, and Has an
+    // Unobstructed Line of Sight - Otherwise None. Distance-Independent Forgiveness,
+    // Unlike a Wider Hitbox: a Few Degrees Off Aim Connects at Any Range. The Line-
+    // of-Sight Raycast Runs Toward the ENEMY (Not the Aim Ray) so an Off-Axis Enemy
+    // Behind a Wall Is Correctly Missed, Which the Caller's Aim-Ray Wall Test Cannot
+    // Judge for a Shot That Is Not Pointed Straight at the Target
+    fn cone_hit(
+        grid: &MapGrid,
+        solid: &SolidStatics,
+        origin: Vec3,
+        dir: Vec3,
+        center: Vec3,
+        half_h: f32,
+        cone: f32,
+        max_dist: f32,
+    ) -> Option<f32> {
+        let d = Vec2::new(dir.x, dir.z).normalize_or_zero();
+        if d == Vec2::ZERO {
+            return None;
+        }
+        let to = Vec2::new(center.x - origin.x, center.z - origin.z);
+        let dist = to.length();
+        // Point-Blank Is Already Covered by the Ray-Circle Test; Skip It Here
+        if dist < 1e-4 || dist > max_dist {
+            return None;
+        }
+        let to_n = to / dist;
+        // cos Falls as the Angle Grows, so >= cos(cone) Means Within the Cone
+        if d.dot(to_n) < cone.cos() {
+            return None;
+        }
+        // Near-Horizontal Shot: Confirm the Enemy's Vertical Extent Straddles Aim
+        let y_at = origin.y + dir.y * dist;
+        if y_at < center.y - half_h || y_at > center.y + half_h {
+            return None;
+        }
+        // Line of Sight Along the Ray TO the Enemy
+        let dir_to = Vec3::new(to_n.x, 0.0, to_n.y);
+        if let Some(hit) = raycast_grid(grid, solid, origin, dir_to, dist) {
+            if hit.dist < dist - 1e-3 {
+                return None;
+            }
+        }
+        Some(dist)
+    }
+
     for shot in shots.read() {
         let dir = shot.dir.normalize_or_zero();
         if dir == Vec3::ZERO {
@@ -312,17 +365,38 @@ fn process_fire_shots(
             let (radius, half_h, center_y) = hitbox(*kind);
             let center = Vec3::new(p.x, center_y, p.z);
 
-            let Some(t) = ray_hit_vertical_cylinder(
+            // Exact On-Axis Hit: the Ray Passes Within the Enemy's Radius. Occluded
+            // by the Wall Along the AIM Ray (world_dist), Which Is Correct Here Since
+            // the Enemy Is On the Line
+            let mut hit_t: Option<f32> = ray_hit_vertical_cylinder(
                 shot.origin,
                 dir,
                 center,
                 radius,
                 half_h,
-            ) else {
+            )
+            .filter(|&t| t <= max_dist && t < world_dist);
+
+            // Off-Axis Aim-Assist Fallback (Gamepad Only; aim_cone Is 0 Otherwise).
+            // Does Its Own Line-of-Sight Test, so It Is Not Gated on world_dist
+            if hit_t.is_none() && shot.aim_cone > 0.0 {
+                hit_t = cone_hit(
+                    &grid,
+                    &solid,
+                    shot.origin,
+                    dir,
+                    center,
+                    half_h,
+                    shot.aim_cone,
+                    max_dist,
+                );
+            }
+
+            let Some(t) = hit_t else {
                 continue;
             };
 
-            if t <= max_dist && t < world_dist {
+            {
                 let etx = occ.0.x;
                 let etz = occ.0.y;
                 let dist_tiles = (ptx - etx).abs().max((ptz - etz).abs());

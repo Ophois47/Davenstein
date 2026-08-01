@@ -535,6 +535,7 @@ pub(crate) fn weapon_fire_and_viewmodel(
     time: Res<Time>,
     intent: Res<PlayerIntent>,
     lock: Res<PlayerControlLock>,
+    active_device: Res<crate::input::devices::ActiveInputDevice>,
     sprites: Option<Res<ViewModelSprites>>,
     mut weapon: ResMut<WeaponState>,
     mut hud: ResMut<HudState>,
@@ -937,6 +938,18 @@ pub(crate) fn weapon_fire_and_viewmodel(
                 origin,
                 dir,
                 max_dist,
+                // Aim-Assist Only for the Gamepad, Whose Fixed-Rate Turning Cannot
+                // Fine-Correct. ~7 Degrees of Cone Roughly Doubles the At-Range Hit
+                // Window Without the Game Rotating the View - the SNES / Jaguar / 3DO
+                // Feel. Keyboard and Mouse Stay Pixel-Exact at 0. Tunable Here
+                aim_cone: if matches!(
+                    *active_device,
+                    crate::input::devices::ActiveInputDevice::Gamepad
+                ) {
+                    7.0_f32.to_radians()
+                } else {
+                    0.0
+                },
             });
 
             // Gun Fire Makes Noise That Wakes Non-Ambush Guards, Hit or Miss --
