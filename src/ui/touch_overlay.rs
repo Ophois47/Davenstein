@@ -99,7 +99,7 @@ pub(super) struct TouchHintsShown(pub bool);
 // (Hold + Fade); fade_gameplay_hints Reads elapsed_secs to Pick the Alpha and
 // Despawns the Hint When Finished
 #[derive(Component)]
-struct GameplayHintFade {
+pub(super) struct GameplayHintFade {
     life: Timer,
 }
 
@@ -488,7 +488,10 @@ pub(super) fn fade_gameplay_hints(
         text_color.0 = text_color.0.with_alpha(HINT_TEXT_A * factor);
         bg.0 = bg.0.with_alpha(HINT_BG_A * factor);
 
-        if hint.life.finished() {
+        // Despawn From the Elapsed Time Rather Than Timer::finished(): the Latter Is
+        // Not a Public Method on This Bevy's Timer, and We Already Have elapsed. At
+        // This Point factor Has Reached 0, so the Hint Is Fully Transparent
+        if elapsed >= HINT_HOLD_SECS + HINT_FADE_SECS {
             commands.entity(entity).despawn();
         }
     }

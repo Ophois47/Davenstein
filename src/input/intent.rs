@@ -41,4 +41,10 @@ pub struct PlayerIntent {
     // Uses a Device-Neutral Index Rather Than the Binary's WeaponSlot Enum
     // This Keeps davelib Free of a Dependency on the Binary Crate
     pub weapon_select: Option<u8>,
+
+    // Relative Weapon Change Requested This Frame: +1 = Next, -1 = Previous, 0 = None
+    // For Controllers Without Enough Buttons to Select a Weapon Absolutely (a D-Pad
+    // Pad Whose D-Pad Now Drives Movement). The Consumer Steps selected Through the
+    // OWNED Weapons in This Direction, Wrapping, so an Unowned Slot Is Skipped
+    pub weapon_step: i8,
 }

@@ -625,6 +625,14 @@ pub(crate) fn weapon_fire_and_viewmodel(
         }
     }
 
+    // Relative Weapon Cycle From PlayerIntent (Gamepad Shoulders / Select). Runs
+    // After the Absolute Select Above. It Only Moves selected; the "Weapon Changed
+    // Externally" Block Just Below Notices the Change and Does the Full Reset, so We
+    // Do Not Duplicate It Here
+    if intent.weapon_step != 0 {
+        hud.cycle_weapon(intent.weapon_step);
+    }
+
     // If Weapon Changed Externally Somehow, Reset Anim Accumulator
     if locals.last_weapon.map(|w| w != hud.selected).unwrap_or(true) {
         locals.fire_anim_accum = 0.0;
@@ -632,6 +640,11 @@ pub(crate) fn weapon_fire_and_viewmodel(
         weapon.showing_fire = false;
         locals.last_weapon = Some(hud.selected);
         locals.auto_linger = 0.0;
+        // Make the New Weapon Immediately Ready, Same as the Absolute-Select Path.
+        // Without This a Weapon Reached by the Cycle Would Inherit the Previous
+        // Weapon's Remaining Cooldown Before It Could Fire
+        let dur = weapon.cooldown.duration();
+        weapon.cooldown.set_elapsed(dur);
         if let Ok(mut img) = vm_q.single_mut() {
             img.image = sprites.idle(hud.selected);
         }

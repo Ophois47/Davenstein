@@ -30,6 +30,14 @@ use super::apply_deadzone;
 // Promote to ControlSettings if It Should Be Exposed in the Options Menu, Like KEY_TURN_SPEED
 const GAMEPAD_LOOK_RATE: f32 = 2.5;
 
+// Fixed Turn Rates for the D-Pad, in Radians per Second, Mirroring the Keyboard
+// Arrows (KEY_TURN_SPEED / KEY_TURN_SPEED_RUN). The D-Pad Is Digital, so Unlike the
+// Analog Right Stick It Turns at a Constant Rate While Held Rather Than Scaling With
+// Deflection. Running Turns Faster, Matching the Keyboard Feel. This Is What Lets a
+// Stickless Pad Aim by Turning ("Mouselook Off"): the View Sweeps at a Steady Speed
+const DPAD_TURN_RATE: f32 = 1.4;
+const DPAD_TURN_RATE_RUN: f32 = 3.0;
+
 // Merge the Bound Gamepad into the Shared PlayerIntent Accumulator
 // Runs After Keyboard and Mouse so Keyboard Keeps move_wish and weapon_select Priority
 // Edges Use just_pressed and are Read in Update so They Never Double Fire in FixedUpdate
@@ -64,15 +72,53 @@ pub fn contribute(
     // Below Is Byte-for-Byte What It Always Was, so the Diff That Removed Multi-Device
     // Merging Shows Only the Scoping Change and Not a Reindent of Sixty Lines
     {
-        // Movement From the Left Stick in the Local Player Frame
-        // X = Strafe (+ = Right), Y = Forward (+ = Forward), Matching move_wish
-        // Keyboard Priority: Fill move_wish Only When No Keyboard Movement This Frame
+        // Run Is Held on the Left Shoulder (LB) for Pads That Have One, or the Left
+        // Stick Click for Dual-Stick Pads. A Bare NES Pad Has Neither and Simply
+        // Walks - Period-Accurate for a 1992 Console Shooter. Read Early Because the
+        // D-Pad Turn Rate Below Depends on It
+        let run = gp.pressed(GamepadButton::LeftTrigger) || gp.pressed(GamepadButton::LeftThumb);
+        acc.run |= run;
+
+        // Holding North Turns the D-Pad's Left/Right From TURNING Into STRAFING - the
+        // Only Way a Stickless Pad Can Sidestep. Pads Too Sparse to Spare a Face
+        // Button (NES) Simply Never Strafe
+        let strafe_mod = gp.pressed(GamepadButton::North);
+
+        // Movement Comes From Two Places, in Priority Order Behind the Keyboard:
+        //   1. The Left Stick (Dual-Stick Pads), Analog, X = Strafe, Y = Forward
+        //   2. The D-Pad (Every Pad), Digital: Up/Down = Forward/Back, and Left/Right
+        //      = Strafe ONLY While North Is Held (Otherwise Left/Right Turns, Below)
+        // Whichever Is Active Fills move_wish; the Stick Wins if Both Are Pushed
         let stick = apply_deadzone(gp.left_stick(), dz);
-        if stick != Vec2::ZERO {
+
+        let dpad_right = gp.pressed(GamepadButton::DPadRight);
+        let dpad_left = gp.pressed(GamepadButton::DPadLeft);
+        let dpad_lr = (dpad_right as i32 - dpad_left as i32) as f32;
+
+        let mut dpad_move = Vec2::ZERO;
+        if gp.pressed(GamepadButton::DPadUp) {
+            dpad_move.y += 1.0;
+        }
+        if gp.pressed(GamepadButton::DPadDown) {
+            dpad_move.y -= 1.0;
+        }
+        if strafe_mod {
+            dpad_move.x += dpad_lr;
+        }
+        // Cap the Diagonal so Forward + Strafe Is Not Faster Than a Single Direction,
+        // Matching the Stick Path Whose Magnitude Is Already Bounded by the Deadzone
+        // Curve. A Pure Cardinal Stays at Full Speed
+        dpad_move = dpad_move.clamp_length_max(1.0);
+
+        if stick != Vec2::ZERO || dpad_move != Vec2::ZERO {
             driven = true;
         }
-        if acc.move_wish == Vec2::ZERO && stick != Vec2::ZERO {
-            acc.move_wish = stick;
+        if acc.move_wish == Vec2::ZERO {
+            if stick != Vec2::ZERO {
+                acc.move_wish = stick;
+            } else if dpad_move != Vec2::ZERO {
+                acc.move_wish = dpad_move;
+            }
         }
 
         // Look From the Right Stick, Applied as a Rate Because the Stick is a Position
@@ -88,31 +134,53 @@ pub fn contribute(
             acc.look_delta.y += pitch * GAMEPAD_LOOK_RATE * dt;
         }
 
-        // Run While the Left Stick is Clicked In
-        acc.run |= gp.pressed(GamepadButton::LeftThumb);
+        // Turn From the D-Pad's Left/Right at the Fixed Rate, Unless North Is Held
+        // (in Which Case Left/Right Already Strafed Above). Same Yaw Sign as the
+        // Right Stick: Right Turns Right
+        if !strafe_mod && dpad_lr != 0.0 {
+            driven = true;
+            let rate = if run { DPAD_TURN_RATE_RUN } else { DPAD_TURN_RATE };
+            acc.look_delta.x -= dpad_lr * rate * dt;
+        }
 
-        // Fire on the South Face Button (A on Xbox), Held Plus a One Frame Edge
-        acc.fire |= gp.pressed(GamepadButton::South);
-        acc.fire_pressed |= gp.just_pressed(GamepadButton::South);
+        // Fire on the South Face Button (A on Xbox) OR the Right Trigger, Each Held
+        // Plus a One-Frame Edge. RT Is the Analog Trigger - RightTrigger2 in Bevy's
+        // Naming, Where RightTrigger Is the Bumper - and Bevy Reports It as a Button
+        // Once Its Pull Crosses the Default Press Threshold, so pressed / just_pressed
+        // Behave Just Like a Face Button. South Stays Bound so It Keeps Doubling as
+        // Menu Confirm and So Players Used to It Are Not Disrupted
+        acc.fire |= gp.pressed(GamepadButton::South)
+            || gp.pressed(GamepadButton::RightTrigger2);
+        acc.fire_pressed |= gp.just_pressed(GamepadButton::South)
+            || gp.just_pressed(GamepadButton::RightTrigger2);
 
-        // Use or Open Door on the West Face Button (X on Xbox), One Frame Edge
-        acc.use_pressed |= gp.just_pressed(GamepadButton::West);
+        // Use / Open Door / Elevator on West (X on Xbox) OR East (B), a One-Frame
+        // Edge. Bound to Both so "Use" Lands on a Natural Button Whatever the Pad:
+        // East Is the NES B Button, West the Convenient Second Face Button Elsewhere.
+        // Use Is Never Automatic - Doors and Secrets Are the Core Verb of the Game
+        acc.use_pressed |= gp.just_pressed(GamepadButton::West)
+            || gp.just_pressed(GamepadButton::East);
 
-        // Weapon Select on the D-Pad, Absolute 1..=4 Matching the Keyboard Slots
-        // Up = 1 Knife, Right = 2 Pistol, Down = 3 MachineGun, Left = 4 Chaingun
-        // or() Keeps Keyboard Priority When Both Fire the Same Frame
-        let weapon = if gp.just_pressed(GamepadButton::DPadUp) {
-            Some(1)
-        } else if gp.just_pressed(GamepadButton::DPadRight) {
-            Some(2)
-        } else if gp.just_pressed(GamepadButton::DPadDown) {
-            Some(3)
-        } else if gp.just_pressed(GamepadButton::DPadLeft) {
-            Some(4)
-        } else {
-            None
-        };
-        acc.weapon_select = acc.weapon_select.or(weapon);
+        // Weapon Switching Moved OFF the D-Pad (Which Now Drives Movement) and Onto
+        // the Shoulders as a Relative Cycle Through Owned Weapons:
+        //   Right Shoulder (RB) or Select = Next Weapon
+        //   Left Trigger (LT) = Previous Weapon (Dual-Trigger Pads Only)
+        // Select Gives a Bare NES Pad - Which Has No Shoulders - a Way to Change
+        // Weapons at All. or() Keeps Keyboard's Absolute Select Priority the Same
+        // Frame. The Consumer Skips Unowned Slots (See HudState::cycle_weapon)
+        let mut step: i8 = 0;
+        if gp.just_pressed(GamepadButton::RightTrigger)
+            || gp.just_pressed(GamepadButton::Select)
+        {
+            step += 1;
+        }
+        if gp.just_pressed(GamepadButton::LeftTrigger2) {
+            step -= 1;
+        }
+        if step != 0 {
+            driven = true;
+            acc.weapon_step = step;
+        }
 
         // Any Button at All Counts as Driving, Including Ones This Source Does Not
         // Bind. A Player Mashing an Unmapped Shoulder Button Is Still Plainly Using

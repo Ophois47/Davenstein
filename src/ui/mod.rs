@@ -42,6 +42,7 @@ impl Plugin for UiPlugin {
 			.init_resource::<hud::HudFacePrevHp>()
 			.init_resource::<hud::HudFaceLook>()
 			.init_resource::<hud::WeaponState>()
+			.init_resource::<touch_overlay::TouchHintsShown>()
 			.add_plugins(splash::SplashPlugin)
 			.add_systems(Startup, hud::setup_hud)
 			.add_systems(Startup, splash::setup_splash)
@@ -102,6 +103,7 @@ impl Plugin for UiPlugin {
 					touch_overlay::sync_touch_overlay_visibility,
 					touch_overlay::sync_touch_button_feedback,
 					touch_overlay::sync_touch_stick_visual,
+					touch_overlay::fade_gameplay_hints,
 				)
 					.after(davelib::input::InputGather),
 			)

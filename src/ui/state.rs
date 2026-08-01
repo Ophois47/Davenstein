@@ -34,6 +34,32 @@ impl HudState {
         let bit = 1u8 << (w as u8);
         self.owned_mask |= bit;
     }
+
+    // Step the Selected Weapon to the Next OWNED Slot in a Direction: dir > 0 Moves
+    // Toward the Chaingun, dir < 0 Toward the Knife, Wrapping at Either End. Unowned
+    // Slots Are Skipped. Used by Gamepad Shoulder Cycling, Where There Is No Button
+    // to Pick a Slot Absolutely. Knife and Pistol Are Always Owned, so the Loop
+    // Always Lands on a Valid Weapon Within Four Steps
+    pub fn cycle_weapon(&mut self, dir: i8) {
+        if dir == 0 {
+            return;
+        }
+        let step: i32 = if dir > 0 { 1 } else { -1 };
+        let mut idx = self.selected as i32;
+        for _ in 0..4 {
+            idx = (idx + step).rem_euclid(4);
+            let slot = match idx {
+                0 => WeaponSlot::Knife,
+                1 => WeaponSlot::Pistol,
+                2 => WeaponSlot::MachineGun,
+                _ => WeaponSlot::Chaingun,
+            };
+            if self.owns(slot) {
+                self.selected = slot;
+                return;
+            }
+        }
+    }
 }
 
 impl Default for HudState {
