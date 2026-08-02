@@ -34,22 +34,34 @@ pub fn grab_mouse(
         return;
     };
 
-    // Hide the Cursor Whenever the Window Is Focused (Gameplay and Menus). Only
-    // Show It Again on Focus Loss so Alt-Tab Behaves Normally
-    let want_visible = !window.focused;
-
-    // Lock the Mouse for Relative Look Only When Mouselook Is On and Focused.
-    // With Mouselook Off the Cursor Stays Hidden but Unlocked (Keyboard-Only)
-    let want_grab = if controls.mouselook_enabled && window.focused {
-        CursorGrabMode::Locked
+    if window.focused {
+        // While Focused We Always Want the Cursor Hidden, and Locked if Mouselook Is
+        // On (None Otherwise for Keyboard-Only Play, so the Mouse Stops Turning).
+        //
+        // Re-Assert BOTH Every Frame Rather Than Only on Change. macOS Can Silently
+        // Show the Cursor or Drop the Lock Out From Under winit - a System Event, a
+        // Momentary Focus Flicker, the Pointer Reaching a Screen Edge - Without
+        // Bevy's Cached CursorOptions Noticing. The Old "Write Only When != Desired"
+        // Guard Then Never Re-Applied, Because the Stale Cache Still Matched the
+        // Desired Value, and the Cursor Stayed Up Until Focus Toggled. Writing the
+        // Fields Unconditionally Marks CursorOptions Changed, so Bevy Re-Issues the
+        // winit Grab / Hide and Recovers Within a Frame. Re-Locking When Already
+        // Locked Is Idempotent, so There Is No Cursor Jump During Normal Play
+        cursor.visible = false;
+        cursor.grab_mode = if controls.mouselook_enabled {
+            CursorGrabMode::Locked
+        } else {
+            CursorGrabMode::None
+        };
     } else {
-        CursorGrabMode::None
-    };
-
-    if cursor.visible != want_visible {
-        cursor.visible = want_visible;
-    }
-    if cursor.grab_mode != want_grab {
-        cursor.grab_mode = want_grab;
+        // Not Focused: the OS Owns the Cursor (Alt-Tab, Notification, Mission
+        // Control). Show It and Release the Grab - on Change Only, so We Do Not
+        // Thrash winit While the App Sits in the Background
+        if !cursor.visible {
+            cursor.visible = true;
+        }
+        if cursor.grab_mode != CursorGrabMode::None {
+            cursor.grab_mode = CursorGrabMode::None;
+        }
     }
 }
