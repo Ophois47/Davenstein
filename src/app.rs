@@ -246,6 +246,29 @@ fn reveal_window_after_first_frames(
 }
 
 pub fn run() {
+	// Inject SDL Controller Mappings gilrs's Bundled Copy Lacks, BEFORE DefaultPlugins
+	// Constructs gilrs Below - gilrs Reads SDL_GAMECONTROLLERCONFIG Once, at Build.
+	//
+	// The Retrolink SNES Controller (and Its Rebranded Clones) Report Their D-Pad on
+	// ANALOG AXES, Not a Hat or Buttons: a3/a4 on macOS, a0/a1 on Windows. With No
+	// Mapping, GamepadButton::DPadUp / DPadDown Never Fire (Only One Axis Extreme
+	// Leaks Through as "Forward") and the Face Buttons Land on Raw Indices, So Fire /
+	// Use / Back Are All Wrong. These Two Lines - GUID + Platform Matched by gilrs -
+	// Put the Pad on the Standard Layout the Whole Input Path Already Speaks. Append
+	// More Lines (Newline-Separated) as Other Unrecognised Pads Turn Up
+	const GAMEPAD_MAPPINGS: &str = concat!(
+		"03000000790000001100000006010000,Retrolink SNES Controller,a:b2,b:b1,back:b8,dpdown:+a4,dpleft:-a3,dpright:+a3,dpup:-a4,leftshoulder:b4,rightshoulder:b5,start:b9,x:b3,y:b0,platform:Mac OS X,\n",
+		"03000000bd12000015d0000000000000,Retrolink SNES Controller,a:b2,b:b1,back:b8,dpdown:+a1,dpleft:-a0,dpright:+a0,dpup:-a1,leftshoulder:b4,rightshoulder:b5,start:b9,x:b3,y:b0,platform:Windows,\n",
+	);
+	// SAFETY: This Runs at the Very Top of run(), Before Bevy Spawns Any Task Pool, so
+	// the Process Is Still Single-Threaded and Setting an Env Var Cannot Race Another
+	// Thread's env Access. set_var Is unsafe on Rust Edition 2024 and Safe Before It;
+	// the allow Keeps a Pre-2024 Build From Erroring on the Then-Unnecessary unsafe
+	#[allow(unused_unsafe)]
+	unsafe {
+		std::env::set_var("SDL_GAMECONTROLLERCONFIG", GAMEPAD_MAPPINGS);
+	}
+
 	info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
 	let asset_file_path = if cfg!(debug_assertions) {
 		"assets".to_string()
