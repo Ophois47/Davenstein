@@ -781,7 +781,18 @@ fn check_sight(
     let dx = player_pos.x - my_pos.x;
     let dz = player_pos.z - my_pos.z;
     if dx.abs() < MINSIGHT_TILES && dz.abs() < MINSIGHT_TILES {
-        return true;
+        // DIVERGENCE FROM THE ORIGINAL: id's CheckSight returns true here with no
+        // line trace, so an actor senses the player at point-blank through anything.
+        // That is the one path by which an actor "sees" through a thin wall or a
+        // CLOSED door at close range (still only inside a connected area, since
+        // hears_player gates the caller). We require a real sightline instead: a
+        // wall or closed door between the two blocks the auto-notice, while an actor
+        // facing away in open space still notices, so MINSIGHT's useful part remains
+        return los_clear(
+            grid,
+            Vec2::new(my_pos.x, my_pos.z),
+            Vec2::new(player_pos.x, player_pos.z),
+        );
     }
 
     // Cardinal Facings (One Zero Component) Restrict Sight to the Front
