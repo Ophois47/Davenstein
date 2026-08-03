@@ -638,13 +638,26 @@ fn tile_at(grid: &MapGrid, t: IVec2) -> Option<Tile> {
     Some(grid.tile(x, z))
 }
 
-fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
-    if from == to {
+/// World-position line-of-sight in XZ. `from` and `to` are actual world
+/// coordinates, so a shot can be gated on where the actor and player REALLY are
+/// rather than their tile centres - the tile-centre trace let an actor fire the
+/// frame the player slipped behind a corner, because the centre of the player's
+/// tile was still exposed even though the player was not. Tile callers reach this
+/// through `has_line_of_sight`, which passes tile centres and behaves exactly as
+/// before.
+fn los_clear(grid: &MapGrid, from: Vec2, to: Vec2) -> bool {
+    if (from - to).length_squared() < 1e-12 {
         return true;
     }
 
-    let origin = Vec2::new(from.x as f32, from.y as f32);
-    let target = Vec2::new(to.x as f32, to.y as f32);
+    let origin = from;
+    let target = to;
+
+    // The Tile the Target Point Lies In, for the Corner-Skip and Reached-Target
+    // Tests Below. For an Integer (Tile-Centre) Input This Equals the Tile Index,
+    // so the Tile Wrapper Keeps Its Old Behaviour Exactly
+    let to_ix = (to.x + 0.5).floor() as i32;
+    let to_iz = (to.y + 0.5).floor() as i32;
 
     let mut dir = target - origin;
     let max_dist = dir.length();
@@ -710,7 +723,7 @@ fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
                 if cx < 0 || cz < 0 || cx >= grid.width as i32 || cz >= grid.height as i32 {
                     return false;
                 }
-                if cx == to.x && cz == to.y {
+                if cx == to_ix && cz == to_iz {
                     continue;
                 }
                 let t = grid.tile(cx as usize, cz as usize);
@@ -732,7 +745,7 @@ fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
             return false;
         }
 
-        if ix == to.x && iz == to.y {
+        if ix == to_ix && iz == to_iz {
             return true;
         }
 
@@ -741,6 +754,13 @@ fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
             return false;
         }
     }
+}
+
+/// Tile-centre line-of-sight, the original entry point. Waking (`check_sight`)
+/// still uses this coarse test; only the SHOOT gate was tightened to real
+/// positions via `los_clear`.
+fn has_line_of_sight(grid: &MapGrid, from: IVec2, to: IVec2) -> bool {
+    los_clear(grid, from.as_vec2(), to.as_vec2())
 }
 
 /// Faithful Port of Wolf3D's `CheckSight` (WOLFSRC/WL_STATE.C), Minus the
@@ -1400,7 +1420,13 @@ fn enemy_ai_combat(
             let dy = (player_tile.y - my_tile.y).abs();
             let shoot_dist = dx.max(dy);
 
-            let can_see = has_line_of_sight(&grid, my_tile, player_tile);
+            // Shoot Gate Uses REAL Positions (los_clear), Not Tile Centres, so an Actor
+            // Cannot Fire Through the Corner the Player Just Stepped Behind
+            let can_see = los_clear(
+                &grid,
+                Vec2::new(tf.translation.x, tf.translation.z),
+                Vec2::new(player_pos.x, player_pos.z),
+            );
             let in_range = shoot_dist <= GUARD_SHOOT_MAX_DIST_TILES;
 
             if !can_see || !in_range {
@@ -1548,7 +1574,13 @@ fn enemy_ai_combat(
                 continue;
             }
 
-            let can_see = has_line_of_sight(&grid, my_tile, player_tile);
+            // Shoot Gate Uses REAL Positions (los_clear), Not Tile Centres, so an Actor
+            // Cannot Fire Through the Corner the Player Just Stepped Behind
+            let can_see = los_clear(
+                &grid,
+                Vec2::new(tf.translation.x, tf.translation.z),
+                Vec2::new(player_pos.x, player_pos.z),
+            );
             let dx = (player_tile.x - my_tile.x).abs();
             let dy = (player_tile.y - my_tile.y).abs();
             let dist_tiles = dx.max(dy) as f32;
@@ -1567,7 +1599,13 @@ fn enemy_ai_combat(
 
         // Shoot Logic (Non Dogs)
         if !matches!(*kind, EnemyKind::Dog) {
-            let can_see = has_line_of_sight(&grid, my_tile, player_tile);
+            // Shoot Gate Uses REAL Positions (los_clear), Not Tile Centres, so an Actor
+            // Cannot Fire Through the Corner the Player Just Stepped Behind
+            let can_see = los_clear(
+                &grid,
+                Vec2::new(tf.translation.x, tf.translation.z),
+                Vec2::new(player_pos.x, player_pos.z),
+            );
 
             let dx = (player_tile.x - my_tile.x).abs();
             let dy = (player_tile.y - my_tile.y).abs();
