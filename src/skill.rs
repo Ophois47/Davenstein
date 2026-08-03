@@ -44,11 +44,16 @@ impl SkillLevel {
     }
 
     /// Get Damage Multiplier for Difficulty
-    /// Wolfenstein 3-D Reduces Enemy Damage on Easier Difficulties
+    /// Matches the Original Wolf3D 'TakeDamage' (WL_AGENT.C), Which Applies
+    /// 'points >>= 2' - a QUARTER of Incoming Damage - Only on gd_baby ("Can I Play,
+    /// Daddy?") and Full Damage on Every Other Skill. Levels 1..=3 Keep Davenstein's
+    /// Own Gentler-Than-Original Curve at "Don't Hurt Me"; Level 0 Is Set to the
+    /// Authentic 0.25 so the Easiest Mode Feels Like the Original's Easiest Rather
+    /// Than Four Times as Punishing (Which It Was When This Went Unapplied)
     pub fn damage_multiplier(&self) -> f32 {
         match self.0 {
-            0 => 0.5,  // Can I Play Daddy: 50% damage
-            1 => 0.75, // Don't Hurt Me: 75% damage
+            0 => 0.25, // Can I Play Daddy: quarter damage, authentic points>>=2
+            1 => 0.75, // Don't Hurt Me: 75% damage (house curve, gentler than original)
             2 => 1.0,  // Bring 'Em On: 100% damage
             3 => 1.0,  // Death Incarnate: 100% damage
             _ => 1.0,
@@ -91,7 +96,7 @@ mod tests {
 
     #[test]
     fn test_damage_multipliers() {
-        assert_eq!(SkillLevel(0).damage_multiplier(), 0.5);
+        assert_eq!(SkillLevel(0).damage_multiplier(), 0.25);
         assert_eq!(SkillLevel(1).damage_multiplier(), 0.75);
         assert_eq!(SkillLevel(2).damage_multiplier(), 1.0);
         assert_eq!(SkillLevel(3).damage_multiplier(), 1.0);

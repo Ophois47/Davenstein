@@ -57,6 +57,7 @@ pub fn apply_enemy_fire_to_player_vitals(
     lock: Res<PlayerControlLock>,
     latch: Res<PlayerDeathLatch>,
     god: Res<davelib::player::GodMode>,
+    skill: Res<crate::skill::SkillLevel>,
     mut enemy_fire: MessageReader<EnemyFire>,
 ) {
     // God Mode: Ignore Damage (But Drain Events)
@@ -74,12 +75,18 @@ pub fn apply_enemy_fire_to_player_vitals(
 
     let Some(mut vitals) = q_player.iter_mut().next() else { return; };
 
+    // The Difficulty Damage Multiplier Is Applied HERE, the Analogue of the
+    // Original's Single 'TakeDamage' Choke Point (points >>= 2 on the Easiest Skill).
+    // floor() Reproduces That Integer Truncation: 0.25 * dmg == dmg >> 2
+    let mult = skill.damage_multiplier();
+
     for ev in enemy_fire.read() {
         // Damage == 0 Means Miss
         if ev.damage <= 0 {
             continue;
         }
-        vitals.hp = (vitals.hp - ev.damage).max(0);
+        let dmg = (ev.damage as f32 * mult).floor().max(0.0) as i32;
+        vitals.hp = (vitals.hp - dmg).max(0);
     }
 }
 

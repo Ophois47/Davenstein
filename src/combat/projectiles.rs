@@ -476,6 +476,7 @@ pub fn tick_projectiles(
 	grid: Option<Res<MapGrid>>,
 	solid: Option<Res<SolidStatics>>,
 	god: Option<Res<GodMode>>,
+	skill: Res<crate::skill::SkillLevel>,
 	mut sfx: MessageWriter<PlaySfx>,
 	mut q_player: Query<(&Transform, &mut PlayerVitals), (With<Player>, Without<Projectile>)>,
 	mut q: Query<(Entity, &mut Transform, &Projectile, Option<&mut RocketSmokeEmitter>)>,
@@ -498,7 +499,12 @@ pub fn tick_projectiles(
 		let b = a + proj.dir * proj.speed * dt;
 
 		if !god && segment_hits_player_xz(a, b, player_pos, hit_r) {
-			let dmg = kind_damage(proj.kind);
+			// Same Difficulty Scaling as Hitscan (See apply_enemy_fire_to_player_vitals):
+			// Boss Rockets and Syringes Are Enemy Damage Too, so the Easiest Skill
+			// Should Soften Them the Same Quarter Amount as Bullets
+			let dmg = (kind_damage(proj.kind) as f32 * skill.damage_multiplier())
+				.floor()
+				.max(0.0) as i32;
 			vitals.hp = (vitals.hp - dmg).max(0);
 			commands.entity(e).despawn();
 			continue;
