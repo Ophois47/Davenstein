@@ -27,7 +27,7 @@ impl Default for HighScores {
         // Match Original Wolfenstein 3-D Default High Scores
         Self {
             entries: vec![
-                HighScoreEntry { name: "IDS".into(), score: 10000, episode: 1 },
+                HighScoreEntry { name: "DJP".into(), score: 10000, episode: 1 },
                 HighScoreEntry { name: "ADR".into(), score: 10000, episode: 1 },
                 HighScoreEntry { name: "JOH".into(), score: 10000, episode: 1 },
                 HighScoreEntry { name: "KEV".into(), score: 10000, episode: 1 },
@@ -113,9 +113,17 @@ impl HighScores {
                 continue;
             };
 
-            let Ok(scores) = ron::from_str::<Self>(&contents) else {
+            let Ok(mut scores) = ron::from_str::<Self>(&contents) else {
                 continue;
             };
+
+            // Heal a File Written Before add() Was Hardened: Trim Every Stored Name
+            // and Drop Any That Are Blank After Trimming, so an Old Whitespace-Only
+            // Entry No Longer Shows as a Blank Row in the Standings
+            for e in &mut scores.entries {
+                e.name = e.name.trim().chars().take(3).collect();
+            }
+            scores.entries.retain(|e| !e.name.is_empty());
 
             return scores;
         }
@@ -148,12 +156,27 @@ impl HighScores {
             return None;
         }
 
+        // Clean the Name: Drop Control Chars (Including Any Stray Newline), Then Trim
+        // Surrounding Whitespace and Cap at 3 Initials. The Carousel Lets a Slot Be a
+        // Space and the Confirm Key Also Carries Space, so a Name Can Arrive as " ",
+        // "DJ ", or Empty; Storing That Produced a Blank / Half-Blank Row in the
+        // Standings That Then Persisted in the Saved File. If Nothing Real Is Left,
+        // Refuse the Entry Rather Than Record a Blank Line
+        let clean: String = name
+            .chars()
+            .filter(|c| !c.is_control())
+            .collect::<String>()
+            .trim()
+            .chars()
+            .take(3)
+            .collect();
+
+        if clean.is_empty() {
+            return None;
+        }
+
         let entry = HighScoreEntry {
-            name: name
-                .chars()
-                .filter(|c| !c.is_control()) // Filter ALL Control Chars Including \n
-                .take(3)
-                .collect(),
+            name: clean,
             score,
             episode,
         };
