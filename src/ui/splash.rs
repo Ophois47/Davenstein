@@ -96,6 +96,11 @@ const PSYCHED_HUD_BORDER_OVERLAP: f32 = 2.0;
 /// Bottom Frame
 const PSYCHED_BAR_BOTTOM_INSET: f32 = 1.0;
 
+/// Final Screen-Pixel Adjustment for the Progress Bar
+/// Removes the Residual Black Row Below the Fill Without Moving the Banner or
+/// Replacing the Source-Pixel Reservation for Its Painted Bottom Frame
+const PSYCHED_BAR_BOTTOM_NUDGE_PX: f32 = 1.0;
+
 fn splash_stretch_image(image: Handle<Image>) -> ImageNode {
     ImageNode {
         image,
@@ -8704,7 +8709,14 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
 
     let bar_h = (1.0 * scale).max(1.0).round();
     let bar_bottom_inset = (PSYCHED_BAR_BOTTOM_INSET * scale).round();
-    let bar_top = (top + spr_h - bar_bottom_inset - bar_h).max(top);
+    let bar_top = (
+        top
+            + spr_h
+            - bar_bottom_inset
+            - bar_h
+            + PSYCHED_BAR_BOTTOM_NUDGE_PX
+    )
+    .clamp(top, top + spr_h - bar_h);
 
     // Inset the Bar From Both Banner Edges so It Stays Inside the Painted Frame
     let bar_inset = (PSYCHED_BAR_INSET * scale).round();
