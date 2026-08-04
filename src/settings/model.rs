@@ -29,6 +29,7 @@ use davelib::options::{
     GameplaySettings,
     MsaaSetting,
     RenderScale,
+    SoundMode,
     SoundSettings,
     VideoSettings,
 };
@@ -90,6 +91,8 @@ pub struct SoundDto {
     pub sfx_volume: Option<f32>,
     pub music_enabled: Option<bool>,
     pub sfx_enabled: Option<bool>,
+    /// "adlib" | "pc_speaker"
+    pub sound_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -138,6 +141,21 @@ fn render_scale_to_str(r: RenderScale) -> &'static str {
         RenderScale::Pct75 => "75",
         RenderScale::Pct50 => "50",
         RenderScale::Pct33 => "33",
+    }
+}
+
+fn sound_mode_to_str(m: SoundMode) -> &'static str {
+    match m {
+        SoundMode::AdLib => "adlib",
+        SoundMode::PcSpeaker => "pc_speaker",
+    }
+}
+
+fn sound_mode_from_str(s: &str) -> Option<SoundMode> {
+    match s {
+        "adlib" => Some(SoundMode::AdLib),
+        "pc_speaker" => Some(SoundMode::PcSpeaker),
+        _ => None,
     }
 }
 
@@ -190,6 +208,7 @@ impl SettingsFile {
                 sfx_volume: Some(sound.sfx_volume),
                 music_enabled: Some(sound.music_enabled),
                 sfx_enabled: Some(sound.sfx_enabled),
+                sound_mode: Some(sound_mode_to_str(sound.sound_mode).to_string()),
             },
             gameplay: GameplayDto {
                 reversible_pushwalls: Some(gameplay.reversible_pushwalls),
@@ -297,6 +316,11 @@ impl SettingsFile {
         }
         if let Some(v) = self.sound.sfx_enabled {
             sound.sfx_enabled = v;
+        }
+        if let Some(s) = &self.sound.sound_mode {
+            if let Some(m) = sound_mode_from_str(s) {
+                sound.sound_mode = m;
+            }
         }
 
         // --- Gameplay ---
