@@ -41,20 +41,20 @@ Every listed release package is built and validated in continuous integration. T
 
 The i686, ARM64, ARMv7, RISC-V 64, and PowerPC64LE packages support compatible Linux systems for their respective architectures. The Linux i686 package targets little-endian 32-bit x86 systems using ELF32 and the `/lib/ld-linux.so.2` dynamic loader. The RISC-V 64 package targets RV64GC systems using the LP64D double-float ABI. The PowerPC64LE package targets little-endian 64-bit PowerPC Linux systems using the OpenPOWER ELF V2 ABI. The Windows i686 packages target the 32-bit MSVC ABI and install through the 32-bit Windows application and registry paths. The ARM packages do not imply working Raspberry Pi V3D hardware acceleration. See Compatibility below for the current Raspberry Pi status
 
-### Davenstein 1.3.1 Highlights
+### Davenstein 1.4.0 Highlights
 
-- Restored authentic difficulty-based enemy damage scaling for hitscan and projectile attacks, including quarter damage on the easiest skill
-- Tightened enemy shooting and close-range awareness line of sight so walls, doors, and real world corner positions block attacks and point-blank notice
-- Corrected native 320x200 mobile presentation on short landscape displays and moved touch controls clear of rounded corners and camera housings
-- Reworked persistent touch labels into a once-per-session onboarding cue and added mobile-specific high-score carousel guidance
-- Removed redundant touch continuation hints and desktop-only keyboard prompts from mobile screens
-- Eliminated the intermittent iOS magenta startup flash by withholding the primary window until cleared frames are ready
-- Corrected intermittent macOS cursor reappearance by restoring the hidden and locked pointer state while gameplay remains focused
-- Added a complete D-pad-only control scheme for stickless NES and SNES-style gamepads
-- Added gamepad-only hitscan aim assistance without rotating the view or changing mouse and keyboard aiming
-- Hardened high-score entry against blank, whitespace-only, and control-character names while placing DJP atop the default table
+- Added an authentic PC Speaker sound mode with a persistent SFX Device option for switching between AdLib and PC Speaker audio
+- Added verified Retrolink SNES controller support on macOS while preserving normal modern analog-controller behavior
+- Added optional classic mouse push-to-move controls modeled after Wolfenstein 3-D, a scrolling Control Options viewport, and stronger classic run-speed tuning
+- Added a Classic 320-wide render scale and lower-resolution choices with safe color and depth target reallocation
+- Hardened fullscreen resolution selection across desktop platforms and replaced exclusive fullscreen with borderless fullscreen on macOS
+- Prevented fast projectiles from tunneling through walls or striking the player through intervening geometry
+- Restored Wolfenstein 3-D open-door closing behavior and corrected intermittent dropped first shots
+- Corrected the Get Psyched backdrop, HUD transition, progress-bar placement, and status-bar edge treatment
+- Restored the nine original randomized Wolfenstein 3-D quit taunts
+- Made the quit confirmation fully modal so dismissal input cannot also close the underlying pause menu
 
-Read the [complete Davenstein 1.3.1 technical release notes](docs/releases/1.3.1.md)
+Read the [complete Davenstein 1.4.0 technical release notes](docs/releases/1.4.0.md)
 
 ### Bug Reports
 
