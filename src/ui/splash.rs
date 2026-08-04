@@ -69,11 +69,15 @@ const PSYCHED_DURATION_SECS: f32 = 2.5;
 const PSYCHED_SPR_W: f32 = 220.0;
 const PSYCHED_SPR_H: f32 = 40.0;
 
-// Wolf3D Play-Screen Border / Get-Psyched Backdrop Teal. This Is VGA Palette
-// Index 135 (0x87) From id's gamepal, the Same Dark-Cyan That Frames the Status
-// Bar and Viewport in the Original. 6-Bit DAC (0,42,42) Expands to 8-Bit
-// (0,170,170) = #00AAAA. The Old (0,140,140) Read Muddier Than the HUD Frame
-const PSYCHED_TEAL: Color = Color::srgb(0.0, 0.6667, 0.6667);
+// Wolf3D Play-Screen Border / Get-Psyched Backdrop Teal
+// DrawPlayBorder Uses VGA Palette Index 127, Whose 6-Bit DAC Value (0,16,16)
+// Expands to the Exact 8-Bit Dark Teal (0,64,64) Used by Davenstein's Viewport
+// and Status-Bar Frame
+const PSYCHED_TEAL: Color = Color::srgb(
+    0.0,
+    64.0 / 255.0,
+    64.0 / 255.0,
+);
 const PSYCHED_RED: Color = Color::srgb(0.80, 0.00, 0.00);
 /// Horizontal Inset for the Loading Bar, in Source Pixels. The Bar Used to Run
 /// Flush to Both Banner Edges; It Should Instead Stop Just Inside, by Exactly the

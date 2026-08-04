@@ -80,14 +80,28 @@ pub enum DisplayMode {
 }
 
 impl DisplayMode {
-	/// True if Exclusive Fullscreen Should Be Skipped
-	/// (Wayland Does Not Support It)
+	/// True if Exclusive Fullscreen Should Be Skipped, Removing It From the
+	/// Display-Mode Cycle and the Settings-Load Fallback so the Player Never
+	/// Lands on It.
+	///
+	/// Two Platforms Cannot Deliver True Exclusive Fullscreen Well:
+	/// - Wayland Simply Does Not Support It (Falls Back to Borderless Anyway).
+	/// - macOS Has No Real Low Hardware Modes on Modern Panels, so
+	///   WindowMode::Fullscreen Captures the Native Display and Scales, Which
+	///   Shows Fuzzy Non-Native Scaling on Entry and Reshuffles the Desktop on
+	///   Exit as the Capture Is Released. Borderless Fills the Screen at Native
+	///   Resolution With None of That, and the Retro Low-Res Look Is Delivered
+	///   by Render Scale (Which Nearest-Neighbor Upscales a Small 3-D Canvas)
+	///   Independently of Display Mode -- so Nothing Is Lost by Hiding the Row
 	fn skip_exclusive() -> bool {
+		if cfg!(target_os = "macos") {
+			return true;
+		}
 		std::env::var("WAYLAND_DISPLAY").map_or(false, |v| !v.is_empty())
 	}
 
 	/// Cycle Forward Through Display Modes (Wraps Around)
-	/// Skips Exclusive Fullscreen on Wayland
+	/// Skips Exclusive Fullscreen Where It Cannot Behave (Wayland, macOS)
 	pub fn next(self) -> Self {
 		// Handhelds Have Exactly One Legal Display Mode. Collapsing the Cycle to a
 		// No-Op Means Even if the Row Is Somehow Reached (an Imported Desktop
@@ -112,7 +126,7 @@ impl DisplayMode {
 	}
 
 	/// Cycle backward through display modes (wraps around)
-	/// Skips Exclusive Fullscreen on Wayland
+	/// Skips Exclusive Fullscreen Where It Cannot Behave (Wayland, macOS)
 	pub fn prev(self) -> Self {
 		// Same Single-Mode Collapse as 'next': Borderless Is the Only Mode a
 		// Handheld Surface Can Represent, so Both Directions Resolve to It
@@ -1018,28 +1032,25 @@ fn desired_window_mode(s: &VideoSettings, q_monitors: &Query<&Monitor>) -> Windo
 		DisplayMode::BorderlessFullscreen => WindowMode::BorderlessFullscreen(
 			MonitorSelection::Current,
 		),
-		DisplayMode::ExclusiveFullscreen  => WindowMode::Fullscreen(
-			MonitorSelection::Current,
-			// macOS Cannot Reliably Switch Display Modes. CGDisplay REPORTS
-			// Legacy Modes (320x400, 640x480, 800x600, ...) in
-			// 'monitor.video_modes' That Modern Panels Cannot Actually Set,
-			// and There Is No API to Probe Settability Without Attempting the
-			// Switch - Which winit 0.30 Answers With a Hard Panic ("failed to
-			// set video mode" in window_delegate.rs) Inside bevy_winit's Own
-			// Systems, Where Game Code Cannot Catch It. So on macOS Exclusive
-			// Fullscreen Always Runs at the Display's CURRENT Mode and the
-			// Resolution Setting Drives Windowed Sizing Only; Low-Res
-			// Rendering on a Mac Is Delivered Through Render Scale Instead,
-			// Which Shrinks the Same Framebuffer Without Asking the Panel to
-			// Do Anything. This Also Self-Heals a settings.ron Already
-			// Persisted With a Crashing Fullscreen Resolution: the Stored
-			// Value Simply Stops Being Asked For at the Next Launch
+		DisplayMode::ExclusiveFullscreen  => {
+			// On macOS, Exclusive Fullscreen Is Hidden From the Menu (See
+			// skip_exclusive), but a Value Can Still Arrive Here From a Persisted
+			// settings.ron or a Config Copied Off Another Platform. Redirect It to
+			// Borderless so Such a Value Takes the Clean Native-Fill Path Instead
+			// of WindowMode::Fullscreen's Display Capture, Which Fuzzes on Entry
+			// and Reshuffles the Desktop on Exit. This Is the Runtime Half of the
+			// Guard; the Menu Half Is skip_exclusive Never Letting the Player Pick
+			// It in the First Place. On Other Platforms Exclusive Fullscreen Still
+			// Snaps to the Nearest Real Video Mode as Before
 			if cfg!(target_os = "macos") {
-				VideoModeSelection::Current
+				WindowMode::BorderlessFullscreen(MonitorSelection::Current)
 			} else {
-				desired_video_mode_selection(s.resolution, q_monitors)
-			},
-		),
+				WindowMode::Fullscreen(
+					MonitorSelection::Current,
+					desired_video_mode_selection(s.resolution, q_monitors),
+				)
+			}
+		}
 	}
 }
 
