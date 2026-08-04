@@ -118,7 +118,18 @@ impl Plugin for UiPlugin {
 				)
 					.after(davelib::input::InputGather),
 			)
-			.add_systems(Update, hud::weapon_fire_and_viewmodel)
+			.add_systems(
+				Update,
+				// After InputGather so the Weapon Reads THIS Frame's Fire Press.
+				// Every Other Gameplay Input Consumer (use_doors, use_pushwalls,
+				// game_over_input) Is Ordered This Way; This System Was the Lone
+				// Exception. Without the Constraint Bevy Could Schedule It Before
+				// InputGather on Some Frames, so It Read Last Frame's PlayerIntent
+				// and Missed the Single-Frame fire_pressed Edge -- an Intermittent
+				// "First Click Did Nothing" That Depended on That Frame's Parallel
+				// System Order (See hud::weapon_fire_and_viewmodel's Fire Intent)
+				hud::weapon_fire_and_viewmodel.after(davelib::input::InputGather),
+			)
 			.add_systems(Update, hud::sync_hud_hp_digits)
 			.add_systems(Update, hud::sync_hud_ammo_digits)
 			.add_systems(Update, hud::sync_hud_score_digits)
