@@ -948,7 +948,25 @@ fn desired_window_mode(s: &VideoSettings, q_monitors: &Query<&Monitor>) -> Windo
 		),
 		DisplayMode::ExclusiveFullscreen  => WindowMode::Fullscreen(
 			MonitorSelection::Current,
-			desired_video_mode_selection(s.resolution, q_monitors),
+			// macOS Cannot Reliably Switch Display Modes. CGDisplay REPORTS
+			// Legacy Modes (320x400, 640x480, 800x600, ...) in
+			// 'monitor.video_modes' That Modern Panels Cannot Actually Set,
+			// and There Is No API to Probe Settability Without Attempting the
+			// Switch - Which winit 0.30 Answers With a Hard Panic ("failed to
+			// set video mode" in window_delegate.rs) Inside bevy_winit's Own
+			// Systems, Where Game Code Cannot Catch It. So on macOS Exclusive
+			// Fullscreen Always Runs at the Display's CURRENT Mode and the
+			// Resolution Setting Drives Windowed Sizing Only; Low-Res
+			// Rendering on a Mac Is Delivered Through Render Scale Instead,
+			// Which Shrinks the Same Framebuffer Without Asking the Panel to
+			// Do Anything. This Also Self-Heals a settings.ron Already
+			// Persisted With a Crashing Fullscreen Resolution: the Stored
+			// Value Simply Stops Being Asked For at the Next Launch
+			if cfg!(target_os = "macos") {
+				VideoModeSelection::Current
+			} else {
+				desired_video_mode_selection(s.resolution, q_monitors)
+			},
 		),
 	}
 }
