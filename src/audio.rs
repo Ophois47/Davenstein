@@ -592,6 +592,19 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
     );
 
     commands.insert_resource(lib);
+
+    // PC Speaker library: load id's 87 tones from pc/00..86.wav, indexed by id's
+    // sound number so pc_index() can address them. Missing files just stay unloaded
+    // (silent) rather than erroring. Drop the WAVs into assets/sounds/sfx/pc/.
+    let mut pc = PcSpeakerLibrary {
+        patterns: Vec::with_capacity(87),
+    };
+    for i in 0..87usize {
+        pc.patterns
+            .push(Some(asset_server.load(format!("sounds/sfx/pc/{i:02}.wav"))));
+    }
+    commands.insert_resource(pc);
+    commands.insert_resource(SoundMode::default());
 }
 
 pub fn start_music(
@@ -816,9 +829,128 @@ pub fn tick_auto_stop_sfx(
 	}
 }
 
+/// Which sound set is active. SoundCard = the digitized samples (default);
+/// PcSpeaker = the authentic id beeper tones rendered to sounds/sfx/pc/NN.wav.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SoundMode {
+    #[default]
+    SoundCard,
+    PcSpeaker,
+}
+
+/// id's 87 Wolf3D PC-speaker sounds, rendered to pc/00..86.wav and loaded BY
+/// INDEX so pc_index() (which uses id's canonical AUDIOWL6.H sound numbers) can
+/// address any of them. None = a handle that has not loaded (missing file).
+#[derive(Resource, Default)]
+pub struct PcSpeakerLibrary {
+    pub patterns: Vec<Option<Handle<AudioSource>>>,
+}
+
+/// Map a Davenstein SfxKind to id's Wolf3D PC-speaker sound number (AUDIOWL6.H
+/// order, which this data preserves - proven by the pickup anchors). Returns None
+/// for sounds we have not confidently placed yet; those fall back to the digitized
+/// sample in PC mode rather than play a wrong beep. Refine the None arms by ear.
+fn pc_index(kind: SfxKind) -> Option<usize> {
+    use SfxKind as K;
+    let idx = match kind {
+        K::DoorOpen => 18,          // OPENDOORSND
+        K::DoorClose => 19,         // CLOSEDOORSND
+        K::NoWay => 6,              // NOWAYSND
+        K::Pushwall => 46,          // PUSHWALLSND
+        K::ElevatorSwitch => 40,    // LEVELDONESND
+        K::MenuMove => 5,           // MOVEGUN1SND
+        K::MenuSelect => 2,         // SELECTITEMSND
+        K::MenuBack => 39,          // ESCPRESSEDSND
+        K::IntermissionTick => 42,  // ENDBONUS1SND
+        K::IntermissionConfirm => 43, // ENDBONUS2SND
+        K::IntermissionNoBonus => 47, // NOBONUSSND
+        K::IntermissionPercent100 => 48, // PERCENT100SND
+        K::IntermissionBonusApply => 44, // BONUS1UPSND
+        K::EpisodeVictoryYea => 72, // YEAHSND
+        K::KnifeSwing => 23,        // ATKKNIFESND
+        K::PistolFire => 24,        // ATKPISTOLSND
+        K::MachineGunFire => 26,    // ATKMACHINEGUNSND
+        K::ChaingunFire => 11,      // ATKGATLINGSND
+        K::RocketImpact => 86,      // MISSILEHITSND
+        K::PickupChaingun => 38,    // GETGATLINGSND
+        K::PickupMachineGun => 30,  // GETMACHINESND
+        K::PickupAmmo => 31,        // GETAMMOSND
+        K::PickupHealthFirstAid => 34, // HEALTH2SND (medkit)
+        K::PickupHealthDinner => 33,   // HEALTH1SND (food)
+        K::PickupHealthDogFood => 33,  // HEALTH1SND (food)
+        K::PickupOneUp => 44,       // BONUS1UPSND
+        K::PickupTreasureCross => 35,   // BONUS1SND
+        K::PickupTreasureChalice => 36, // BONUS2SND
+        K::PickupTreasureChest => 37,   // BONUS3SND
+        K::PickupTreasureCrown => 45,   // BONUS4SND
+        K::PickupKey => 12,         // GETKEYSND
+        K::EnemyAlert(k) => {
+            return match k {
+                EnemyKind::Guard => Some(21),   // HALTSND
+                EnemyKind::Ss => Some(51),      // SCHUTZADSND
+                EnemyKind::Officer => Some(66), // SPIONSND
+                EnemyKind::Dog => Some(41),     // DOGBARKSND
+                EnemyKind::Hans => Some(55),    // GUTENTAGSND
+                EnemyKind::Schabbs => Some(64), // SCHABBSHASND
+                EnemyKind::Hitler => Some(65),  // HITLERHASND
+                _ => None, // Gretel / Mecha / Ghost / Otto / General / Mutant - refine by ear
+            };
+        }
+        K::EnemyShoot(k) => {
+            return match k {
+                EnemyKind::Ss => Some(60),  // SSFIRESND
+                EnemyKind::Dog => Some(68), // DOGATTACKSND
+                _ => Some(58),              // NAZIFIRESND (guard / officer / mutant / bosses)
+            };
+        }
+        K::EnemyDeath(k) => {
+            return match k {
+                EnemyKind::Dog => Some(10),     // DOGDEATHSND
+                EnemyKind::Guard => Some(29),   // DEATHSCREAM1SND
+                EnemyKind::Ss => Some(22),      // DEATHSCREAM2SND
+                EnemyKind::Officer => Some(25), // DEATHSCREAM3SND
+                EnemyKind::Mutant => Some(52),  // AHHHGSND
+                _ => None, // bosses -> digitized death for now
+            };
+        }
+    };
+    Some(idx)
+}
+
+/// In PC Speaker mode, spawn the mapped id beeper tone for this sound and report
+/// that we handled it (caller then skips the digitized path). Returns false in
+/// SoundCard mode or when the kind is unmapped / its handle has not loaded, so the
+/// normal sample plays instead. The tone is a single flat mono one-shot -
+/// authentically non-spatial, since the real PC speaker had no positional audio.
+fn try_spawn_pc_sfx(
+    commands: &mut Commands,
+    pc_lib: &PcSpeakerLibrary,
+    mode: SoundMode,
+    kind: SfxKind,
+    sfx_vol: f32,
+) -> bool {
+    if mode != SoundMode::PcSpeaker {
+        return false;
+    }
+    let Some(idx) = pc_index(kind) else {
+        return false;
+    };
+    let Some(Some(handle)) = pc_lib.patterns.get(idx) else {
+        return false;
+    };
+    commands.spawn((
+        AudioPlayer::new(handle.clone()),
+        PlaybackSettings::DESPAWN.with_volume(Volume::Linear(sfx_vol)),
+    ));
+    true
+}
+
 pub fn play_sfx_events(
 	lib: Res<SfxLibrary>,
 	settings: Res<SoundSettings>,
+	pc_lib: Res<PcSpeakerLibrary>,
+	mut sound_mode: ResMut<SoundMode>,
+	keys: Res<ButtonInput<KeyCode>>,
 	mut commands: Commands,
 	mut ev: MessageReader<PlaySfx>,
 	q_active_pickup: Query<Entity, With<ActivePickupSfx>>,
@@ -835,6 +967,19 @@ pub fn play_sfx_events(
 	>,
 ) {
     let mut rng = rand::rng();
+
+	// TEMPORARY: F10 toggles Sound Card <-> PC Speaker so the new tones can be
+	// auditioned in-game. This moves to a row in the Sound options menu (and
+	// persists in SoundSettings) once that is wired; harmless to leave until then.
+	if keys.just_pressed(KeyCode::F10) {
+		*sound_mode = match *sound_mode {
+			SoundMode::SoundCard => SoundMode::PcSpeaker,
+			SoundMode::PcSpeaker => SoundMode::SoundCard,
+		};
+		info!("##==> Sound mode: {:?}", *sound_mode);
+	}
+	let mode = *sound_mode;
+
 	let mut last_pickup: Option<PlaySfx> = None;
 	let mut non_pickups: Vec<PlaySfx> = Vec::new();
 
@@ -858,6 +1003,12 @@ pub fn play_sfx_events(
 	}
 
 	for e in non_pickups {
+		// PC Speaker mode: play the mapped id tone and skip the digitized path.
+		// Unmapped kinds return false and fall through to the sample below.
+		if try_spawn_pc_sfx(&mut commands, &pc_lib, mode, e.kind, settings.effective_sfx_volume()) {
+			continue;
+		}
+
 		let is_intermission = matches!(
 			e.kind,
 			SfxKind::IntermissionTick
@@ -1171,6 +1322,11 @@ if is_enemy_voice && !is_boss_voice {
 	}
 
 	let Some(e) = last_pickup else { return; };
+
+	// PC Speaker mode: play the mapped id tone for the pickup and stop here.
+	if try_spawn_pc_sfx(&mut commands, &pc_lib, mode, e.kind, settings.effective_sfx_volume()) {
+		return;
+	}
 
 	// Check if SFX Should Play
 	if !settings.should_play_sfx() {
