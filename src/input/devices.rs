@@ -39,7 +39,6 @@ Source
 
 use std::collections::HashSet;
 
-use bevy::input::gamepad::{GamepadAxisChangedEvent, GamepadButtonChangedEvent};
 use bevy::prelude::*;
 
 use crate::options::ControlSettings;
@@ -126,55 +125,6 @@ impl ActiveGamepad {
     // Split Out so the Disabled-Path Guard in bind_active_gamepad Reads as One Intent
     fn has_any_observation(&self) -> bool {
         !self.centred.is_empty()
-    }
-}
-
-// Temporary Hardware Trace for Controller Mapping Validation
-//
-// Logs Standardized Bevy Button and Axis Events Together With the USB
-// Vendor/Product IDs so Physical Controls Can Be Mapped Without Guessing
-pub fn log_gamepad_input(
-    q_gamepads: Query<(&Gamepad, Option<&Name>)>,
-    mut button_events: MessageReader<GamepadButtonChangedEvent>,
-    mut axis_events: MessageReader<GamepadAxisChangedEvent>,
-) {
-    for event in button_events.read() {
-        let Ok((gamepad, name)) = q_gamepads.get(event.entity) else {
-            continue;
-        };
-
-        let label = name
-            .map(|name| name.as_str())
-            .unwrap_or("Unnamed Gamepad");
-
-        info!(
-            "##==> Gamepad Input: {} [{:04x}:{:04x}] Button {:?} {:?} value={:.3}",
-            label,
-            gamepad.vendor_id().unwrap_or(0),
-            gamepad.product_id().unwrap_or(0),
-            event.button,
-            event.state,
-            event.value,
-        );
-    }
-
-    for event in axis_events.read() {
-        let Ok((gamepad, name)) = q_gamepads.get(event.entity) else {
-            continue;
-        };
-
-        let label = name
-            .map(|name| name.as_str())
-            .unwrap_or("Unnamed Gamepad");
-
-        info!(
-            "##==> Gamepad Input: {} [{:04x}:{:04x}] Axis {:?} value={:.3}",
-            label,
-            gamepad.vendor_id().unwrap_or(0),
-            gamepad.product_id().unwrap_or(0),
-            event.axis,
-            event.value,
-        );
     }
 }
 

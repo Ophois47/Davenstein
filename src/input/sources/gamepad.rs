@@ -38,6 +38,52 @@ const GAMEPAD_LOOK_RATE: f32 = 2.5;
 const DPAD_TURN_RATE: f32 = 1.4;
 const DPAD_TURN_RATE_RUN: f32 = 3.0;
 
+// Retrolink's 0079:0011 Retro Pads Expose the Physical D-Pad as Two Axes After
+// the macOS Mapping Repair: Vertical on Left Stick Y, Horizontal on Right Stick X
+const RETROLINK_VENDOR_ID: u16 = 0x0079;
+const RETROLINK_PRODUCT_ID: u16 = 0x0011;
+const MENU_AXIS_PRESS: f32 = 0.75;
+const MENU_AXIS_RELEASE: f32 = 0.25;
+
+// The Repaired Retro D-Pad Reports Full Deflection on Every Horizontal Press
+// Halve Only This Profile's Yaw so Individual Taps Make Finer Turns
+const RETROLINK_TURN_SCALE: f32 = 0.5;
+
+// Held-State Latches Turn Continuous Retro-Pad Axes Into One Menu Edge per Press
+// The Axis Must Return Near Centre Before the Same Direction Can Fire Again
+#[derive(Default)]
+pub struct RetroMenuAxisLatch {
+    up: bool,
+    down: bool,
+    left: bool,
+    right: bool,
+}
+
+impl RetroMenuAxisLatch {
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+fn is_retrolink_retro_pad(gamepad: &Gamepad) -> bool {
+    gamepad.vendor_id() == Some(RETROLINK_VENDOR_ID)
+        && gamepad.product_id() == Some(RETROLINK_PRODUCT_ID)
+}
+
+fn axis_just_pressed(latched: &mut bool, value: f32) -> bool {
+    if *latched {
+        if value <= MENU_AXIS_RELEASE {
+            *latched = false;
+        }
+        false
+    } else if value >= MENU_AXIS_PRESS {
+        *latched = true;
+        true
+    } else {
+        false
+    }
+}
+
 // Merge the Bound Gamepad into the Shared PlayerIntent Accumulator
 // Runs After Keyboard and Mouse so Keyboard Keeps move_wish and weapon_select Priority
 // Edges Use just_pressed and are Read in Update so They Never Double Fire in FixedUpdate
@@ -125,7 +171,14 @@ pub fn contribute(
         let rs = apply_deadzone(gp.right_stick(), dz);
         if rs != Vec2::ZERO {
             driven = true;
-            let (look_x, look_y) = controls.scaled_gamepad_look(rs.x, rs.y);
+            let (mut look_x, look_y) = controls.scaled_gamepad_look(rs.x, rs.y);
+
+            // The Repaired Retro D-Pad Reports Full Deflection on Every Press, so
+            // Reduce Only Its Horizontal Turn Rate and Leave Analog Pads Unchanged
+            if is_retrolink_retro_pad(gp) {
+                look_x *= RETROLINK_TURN_SCALE;
+            }
+
             // Yaw: Pushing the Stick Right Turns Right, Matching Mouse and Keyboard Signs
             acc.look_delta.x -= look_x * GAMEPAD_LOOK_RATE * dt;
             // Pitch: Pushing Up Looks Up by Default and invert_y Flips the Sign
@@ -204,12 +257,19 @@ pub fn contribute(
 // Binding Is Claimed by 'bind_active_gamepad' From Any Button Press Regardless of
 // Whether the Game Is in a Menu, so Pressing South on an Unbound Pad Binds It That
 // Frame and Navigates on the Next
-pub fn contribute_menu(nav: &mut MenuNav, gamepads: &Query<&Gamepad>, active: &ActiveGamepad) {
+pub fn contribute_menu(
+    nav: &mut MenuNav,
+    gamepads: &Query<&Gamepad>,
+    active: &ActiveGamepad,
+    retro_axes: &mut RetroMenuAxisLatch,
+) {
     let Some(bound) = active.bound else {
+        retro_axes.clear();
         return;
     };
 
     let Ok(gp) = gamepads.get(bound) else {
+        retro_axes.clear();
         return;
     };
 
@@ -217,6 +277,21 @@ pub fn contribute_menu(nav: &mut MenuNav, gamepads: &Query<&Gamepad>, active: &A
     nav.down |= gp.just_pressed(GamepadButton::DPadDown);
     nav.left |= gp.just_pressed(GamepadButton::DPadLeft);
     nav.right |= gp.just_pressed(GamepadButton::DPadRight);
+
+    // The 0079:0011 macOS Repair Must Use Axes to Preserve Both Halves of Its
+    // Physical D-Pad, so Recreate Digital Menu Edges With Hysteresis Here
+    if is_retrolink_retro_pad(gp) {
+        let vertical = gp.left_stick().y;
+        let horizontal = gp.right_stick().x;
+
+        nav.up |= axis_just_pressed(&mut retro_axes.up, vertical);
+        nav.down |= axis_just_pressed(&mut retro_axes.down, -vertical);
+        nav.left |= axis_just_pressed(&mut retro_axes.left, -horizontal);
+        nav.right |= axis_just_pressed(&mut retro_axes.right, horizontal);
+    } else {
+        retro_axes.clear();
+    }
+
     nav.confirm |= gp.just_pressed(GamepadButton::South);
     nav.cancel |= gp.just_pressed(GamepadButton::East);
     nav.pause |= gp.just_pressed(GamepadButton::Start);

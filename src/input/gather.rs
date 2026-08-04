@@ -87,6 +87,9 @@ pub fn gather(
     // Armed While Control is Locked; Keeps Fire Suppressed After Unlock Until the
     // Trigger is Released Once. A Local Because it is This System's Private Edge State
     mut fire_release_latch: Local<bool>,
+    // Continuous Retro-Pad Axes Need a Private Release Latch to Produce One Menu
+    // Navigation Edge per Physical Press Instead of Repeating Every Render Frame
+    mut retro_menu_axes: Local<gamepad::RetroMenuAxisLatch>,
     mut intent: ResMut<PlayerIntent>,
     mut menu: ResMut<MenuNav>,
 ) {
@@ -140,7 +143,12 @@ pub fn gather(
     let mut nav = MenuNav::default();
     keyboard_mouse::contribute_menu(&mut nav, &keys);
     if controls.gamepad_enabled {
-        gamepad::contribute_menu(&mut nav, &q_gamepads, &active_gamepad);
+        gamepad::contribute_menu(
+            &mut nav,
+            &q_gamepads,
+            &active_gamepad,
+            &mut retro_menu_axes,
+        );
     }
     let touch_menu_driven = if controls.touch_enabled {
         touch::contribute_menu(&mut nav, &touches, &touch_io.layout, *touch_io.mode)

@@ -64,10 +64,6 @@ impl Plugin for InputPlugin {
             )
             .add_systems(
                 Update,
-                devices::log_gamepad_input.before(InputGather),
-            )
-            .add_systems(
-                Update,
                 gather::gather.in_set(InputGather),
             )
             .add_systems(Update, cursor::grab_mouse);
