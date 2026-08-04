@@ -49,7 +49,7 @@ const QUIT_MESSAGES: [&str; 9] = [
     "Press N to save the world.\nPress Y to abandon it in\nits hour of need.",
     "Press N if you are brave.\nPress Y to cower in shame.",
     "Heroes, press N.\nWimps, press Y.",
-    "You are at an intersection.\nA sign says, 'Press Y to\nquit.' >",
+    "You are at an intersection.\nA sign says, 'Press Y to quit.'\n>",
     "For guns and glory, press N.\nFor work and worry, press Y.",
 ];
 
@@ -86,7 +86,7 @@ pub fn open_quit_confirm(
         return;
     }
 
-    // The Wolf3D endStrings[] Pick Was rnd % 9. random_range Matches That Spread
+    // Choose Uniformly Among the Original Nine Wolf3D endStrings[] Entries
     let idx = rand::rng().random_range(0..QUIT_MESSAGES.len() as u32) as usize;
 
     state.active = true;
