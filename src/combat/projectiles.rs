@@ -421,6 +421,36 @@ fn tile_blocks_projectile(t: Tile) -> bool {
 	}
 }
 
+// Swept Wall Test: Walk the Whole a -> b Segment, Not Just the Endpoint, and Return
+// the First Point That Lands in a Blocking Tile (Wall / Closed Door) or Leaves the
+// Map. Point-Sampling Only b Let a Fast Projectile - a Ghost's Fireball Especially -
+// Tunnel Straight Through a Wall When It Travelled More Than a Tile in a Single Frame,
+// Reappearing in the Next Room. Steps at the Same 0.08 Resolution as
+// segment_hits_solid_statics so Both Agree on Sub-Tile Contacts
+fn segment_hits_wall(grid: &MapGrid, a: Vec3, b: Vec3) -> Option<Vec3> {
+	let d = b - a;
+	let len = Vec3::new(d.x, 0.0, d.z).length();
+	if len <= 0.0001 {
+		return match tile_at_world(grid, a) {
+			Some(t) => tile_blocks_projectile(t).then_some(a),
+			None => Some(a), // Out of Bounds Counts as Blocked so the Projectile Dies
+		};
+	}
+
+	let step = 0.08;
+	let steps = (len / step).ceil().max(1.0) as i32;
+	for i in 1..=steps {
+		let t = (i as f32) / (steps as f32);
+		let p = a.lerp(b, t);
+		match tile_at_world(grid, p) {
+			Some(tile) if tile_blocks_projectile(tile) => return Some(p),
+			None => return Some(p), // Left the Map -> Treat as a Wall Hit
+			_ => {}
+		}
+	}
+	None
+}
+
 pub fn tick_smoke_puffs(
 	mut commands: Commands,
 	assets: Option<Res<ProjectileAssets>>,
@@ -498,7 +528,14 @@ pub fn tick_projectiles(
 		let a = xform.translation;
 		let b = a + proj.dir * proj.speed * dt;
 
-		if !god && segment_hits_player_xz(a, b, player_pos, hit_r) {
+		// Clip the Travel Segment at the First Wall / Closed Door Along It. Sampling
+		// Only the Endpoint b Let a Fast Projectile Tunnel Through a Wall in One Frame;
+		// Clipping FIRST Also Prevents the Player From Being Hit Through a Wall by the
+		// Same Over-Long Step, Because Nothing Beyond the Wall Is Considered This Frame
+		let wall_hit = segment_hits_wall(&grid, a, b);
+		let b_eff = wall_hit.unwrap_or(b);
+
+		if !god && segment_hits_player_xz(a, b_eff, player_pos, hit_r) {
 			// Same Difficulty Scaling as Hitscan (See apply_enemy_fire_to_player_vitals):
 			// Boss Rockets and Syringes Are Enemy Damage Too, so the Easiest Skill
 			// Should Soften Them the Same Quarter Amount as Bullets
@@ -511,7 +548,7 @@ pub fn tick_projectiles(
 		}
 
 		if let Some(solid) = solid.as_deref() {
-			if segment_hits_solid_statics(a, b, solid) {
+			if segment_hits_solid_statics(a, b_eff, solid) {
 				if matches!(proj.kind, ProjectileKind::Rocket) {
 					let hit_pos = a + proj.dir * 0.12;
 					spawn_rocket_impact(&mut commands, &mut mats, &assets, hit_pos);
@@ -523,14 +560,9 @@ pub fn tick_projectiles(
 			}
 		}
 
-		let Some(tile_b) = tile_at_world(&grid, b) else {
-			commands.entity(e).despawn();
-			continue;
-		};
-
-		if tile_blocks_projectile(tile_b) {
+		if let Some(hit_pos) = wall_hit {
 			if matches!(proj.kind, ProjectileKind::Rocket) {
-				let hit_pos = a + proj.dir * 0.12;
+				// Impact at the Actual First Contact Point, Not a Fixed Nudge Past a
 				spawn_rocket_impact(&mut commands, &mut mats, &assets, hit_pos);
 				sfx.write(PlaySfx { kind: SfxKind::RocketImpact, pos: hit_pos });
 			}
