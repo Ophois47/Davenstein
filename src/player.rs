@@ -531,8 +531,13 @@ pub fn use_doors(
 
         match cur {
             Tile::DoorOpen => {
-                // Wolfenstein 3D Behavior: Using an Already Open Door Does Nothing
-                *vis = Visibility::Hidden;
+                // Wolf3D's OperateDoor TOGGLES: using an OPEN door closes it. Expire
+                // the hold-open timer so the auto-close system shuts the door this
+                // tick. Routing through that system (rather than forcing it closed
+                // here) keeps its clearance checks - it will not close on the player
+                // or on an actor standing in the doorway - and plays the close sound.
+                // Left visible so the close animation is seen.
+                state.open_timer = 0.0;
             }
             Tile::DoorClosed => {
                 if locked && ((needs_gold && !has_gold) || (needs_silver && !has_silver)) {
