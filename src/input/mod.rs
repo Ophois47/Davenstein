@@ -21,8 +21,11 @@ pub mod gather;
 pub mod menu;
 pub mod touch_layout;
 
+mod mappings;
+
 use bevy::prelude::*;
 
+pub(crate) use mappings::install_platform_gamepad_mappings;
 pub use devices::{ActiveGamepad, ActiveInputDevice};
 pub use intent::PlayerIntent;
 pub use menu::MenuNav;

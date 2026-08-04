@@ -246,6 +246,8 @@ fn reveal_window_after_first_frames(
 }
 
 pub fn run() {
+	davelib::input::install_platform_gamepad_mappings();
+
 	info!("##==> Davenstein Build: {}", env!("CARGO_PKG_VERSION"));
 	let asset_file_path = if cfg!(debug_assertions) {
 		"assets".to_string()
