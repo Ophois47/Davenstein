@@ -3212,7 +3212,7 @@ fn spawn_resolution_submenu_ui(
         let mut max_line_w = 0.0f32;
         let mut cur_line_w = 0.0f32;
         for ch in text.chars() {
-            if ch == '\n' { 
+            if ch == '\n' {
                 max_line_w = max_line_w.max(cur_line_w);
                 cur_line_w = 0.0;
                 continue;
@@ -6063,7 +6063,7 @@ fn splash_advance_on_any_input(
                             resources.music_mode.0 = MusicModeKind::Menu;
                         }
                     }
-                    
+
                     MenuAction::Control => {
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
@@ -6500,14 +6500,20 @@ fn splash_advance_on_any_input(
                 let cursor_w = (19.0 * ui_scale).round();
                 let cursor_h = (10.0 * ui_scale).round();
                 let row_h = (16.0 * ui_scale).round().max(1.0);
-                let sub_count = resources.res_list.entries.len();
+                // MUST Match the Spawner: It Renders Only the Entries Settable in
+                // the Current Display Mode (See selectable_indices), so the Cursor
+                // Geometry Has to Count and Measure the SAME Filtered List. Using
+                // the Full entries Count Here Was What Slid the Highlight Off Its
+                // Row Once Fullscreen Hid the Unsettable Modes on macOS
+                let visible = resources.res_list.selectable_indices(resources.video_settings.display_mode);
+                let sub_count = visible.len().max(1);
                 let list_h = (sub_count as f32 * row_h).round();
                 let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
 
-                // Measure Max Width of Sub Menu Items
+                // Measure Max Width Over the Visible Rows Only, Matching the Spawner
                 let mut max_item_w = 0.0f32;
-                for idx in 0..sub_count {
-                    let label = resources.res_list.label_at(idx);
+                for &entry_idx in &visible {
+                    let label = resources.res_list.label_at(entry_idx);
                     let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
                     let mut lw = 0.0f32;
                     for ch in label.chars() {
@@ -8688,13 +8694,13 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
     let loading = commands
         .spawn((
             LoadingUi,
-            ZIndex(950),
+            ZIndex(94),
             Node {
-                width: Val::Percent(100.0),
-                height: Val::Px(view_h),
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
                 top: Val::Px(0.0),
+                right: Val::Px(0.0),
+                bottom: Val::Px(hud_h),
                 ..default()
             },
             BackgroundColor(PSYCHED_TEAL),
