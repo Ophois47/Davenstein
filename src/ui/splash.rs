@@ -97,9 +97,9 @@ const PSYCHED_HUD_BORDER_OVERLAP: f32 = 2.0;
 const PSYCHED_BAR_BOTTOM_INSET: f32 = 1.0;
 
 /// Final Screen-Pixel Adjustment for the Progress Bar
-/// Removes the Residual Black Row Below the Fill Without Moving the Banner or
-/// Replacing the Source-Pixel Reservation for Its Painted Bottom Frame
-const PSYCHED_BAR_BOTTOM_NUDGE_PX: f32 = 1.0;
+/// Kept at Zero so the Fill Sits on the Lowest Black Row Rather Than the Gray
+/// Bottom Border
+const PSYCHED_BAR_BOTTOM_NUDGE_PX: f32 = 0.0;
 
 fn splash_stretch_image(image: Handle<Image>) -> ImageNode {
     ImageNode {
