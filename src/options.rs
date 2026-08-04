@@ -338,13 +338,13 @@ pub struct ResolutionList {
 	pub entries: Vec<(u32, u32)>,
 	/// Parallel to entries: Whether Each Resolution Has a Real, Settable Monitor
 	/// Video Mode Behind It. Exclusive Fullscreen Can Only Switch to Modes the
-	/// Display Actually Reports; on Modern Panels (Especially macOS Retina) the
-	/// Low Legacy Modes Like 640x480 Are Either Absent or Emulated Scaling Hacks
-	/// the Windowing Backend Cannot Set, and Requesting One Panics. Windowed Mode
-	/// Ignores This Entirely -- a Window Can Be Any Size -- so This Only Gates the
-	/// Exclusive-Fullscreen Resolution List. Populated by populate_resolution_list;
-	/// Before That Runs (or if No Monitor Modes Are Seen) Everything Is Treated as
-	/// Settable, Matching the Old Behavior on Platforms That Can Switch Modes
+	/// Display Actually Reports; a Preset With No Matching Reported Mode Cannot Be
+	/// Set on Any Desktop Platform -- on macOS Requesting One Panics the Windowing
+	/// Backend, on Windows / Linux It Silently No-Ops or Black-Screens. Windowed
+	/// Mode Ignores This Entirely -- a Window Can Be Any Size -- so This Only Gates
+	/// the Exclusive-Fullscreen Resolution List. Populated by
+	/// populate_resolution_list; Before That Runs (or if No Monitor Modes Are Seen)
+	/// Everything Is Treated as Settable so the Full List Is Never Wrongly Hidden
 	pub fullscreen_settable: Vec<bool>,
 }
 
@@ -405,10 +405,11 @@ impl ResolutionList {
 	/// Entry Indices Selectable in the Given Display Mode. Windowed (and
 	/// Borderless, Though It Hides the Row Anyway) Can Use Any Size, so Every
 	/// Entry Is Returned. Exclusive Fullscreen Is Limited to Entries With a Real
-	/// Settable Monitor Mode Behind Them, Which on macOS Drops the Low Legacy
-	/// Modes That Would Otherwise Panic the Windowing Backend. Never Returns an
-	/// Empty List: if Nothing Is Settable (Pathological), Falls Back to All
-	/// Entries so the Menu Is Never a Dead End
+	/// Settable Monitor Mode Behind Them on Every Desktop Platform -- Dropping
+	/// Modes the Display Cannot Switch To, Which on macOS Would Otherwise Panic
+	/// the Windowing Backend and Elsewhere Would Silently No-Op or Black-Screen.
+	/// Never Returns an Empty List: if Nothing Is Settable (Pathological), Falls
+	/// Back to All Entries so the Menu Is Never a Dead End
 	pub fn selectable_indices(&self, mode: DisplayMode) -> Vec<usize> {
 		if !matches!(mode, DisplayMode::ExclusiveFullscreen) {
 			return (0..self.entries.len()).collect();
@@ -777,13 +778,22 @@ fn populate_resolution_list(
 	let mut out: Vec<(u32, u32)> = merged.into_iter().collect();
 	out.sort_by_key(|&(w, h)| ((w as u64) * (h as u64), w as u64, h as u64));
 
-	// Determine Which Entries Exclusive Fullscreen Can Actually Switch To. This
-	// Only Constrains macOS: Its Panels Report Legacy Modes (640x480 and Below)
-	// That Are Not Truly Settable, and Asking for One Panics the Windowing
-	// Backend (See desired_window_mode). On Every Other Desktop, Mode Switching
-	// Works, so All Entries Stay Settable and the List Is Unchanged. A Preset Is
-	// Settable if the Monitor Reports a Real Mode of the Same Pixel Dimensions
-	let settable: Vec<bool> = if cfg!(target_os = "macos") {
+	// Determine Which Entries Exclusive Fullscreen Can Actually Switch To, on
+	// EVERY Desktop Platform. Exclusive Fullscreen Physically Reprograms the
+	// Display Controller and Can Only Use Modes the Monitor Genuinely Reports;
+	// Offering a Preset With No Real Mode Behind It Is at Best a Silent No-Op or
+	// Black Screen (Windows / Linux) and at Worst a Hard Panic in the Windowing
+	// Backend (macOS -- See desired_window_mode). The Check Is Identical
+	// Everywhere: a Preset Is Settable if the Monitor Reports a Real Mode of the
+	// Same Pixel Dimensions.
+	//
+	// Safe to Run Unconditionally Here Because the monitor_found == 0 Guard Above
+	// Already Returned if No Real Modes Were Seen, so real_modes Is Never Empty at
+	// This Point. Should a Driver Still Report an Oddly Sparse List, the
+	// filtered.is_empty() Fallback in selectable_indices Shows the Full List
+	// Rather Than Trapping the Player -- the List Only Ever TIGHTENS When There Is
+	// Trustworthy Data to Tighten It With
+	let settable: Vec<bool> = {
 		let mut real_modes: Vec<(u32, u32)> = Vec::new();
 		for monitor in q_monitors.iter() {
 			for mode in &monitor.video_modes {
@@ -798,8 +808,6 @@ fn populate_resolution_list(
 				real_modes.iter().any(|&(rw, rh)| rw == w && rh == h)
 			})
 			.collect()
-	} else {
-		vec![true; out.len()]
 	};
 
 	info!(
