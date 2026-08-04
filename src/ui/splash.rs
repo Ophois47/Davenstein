@@ -1262,6 +1262,7 @@ fn build_change_view_items(
 enum SoundOptionKind {
     MasterVolume,
     MusicVolume,
+    SfxDevice,
     SfxVolume,
     MusicEnabled,
     SfxEnabled,
@@ -1283,6 +1284,12 @@ fn build_sound_options_items(sound: &SoundSettings) -> Vec<(SoundOptionKind, Str
     items.push((
         SoundOptionKind::MusicVolume,
         format!("Music Volume: {}%", music_pct),
+    ));
+
+    // SFX Device (AdLib / PC Speaker) - sits directly above SFX Volume
+    items.push((
+        SoundOptionKind::SfxDevice,
+        format!("SFX Device: {}", sound.sound_mode.label()),
     ));
 
     // SFX Volume (0-100%)
@@ -6694,6 +6701,25 @@ fn splash_advance_on_any_input(
             let left_held = keyboard.pressed(KeyCode::ArrowLeft);
             let right_held = keyboard.pressed(KeyCode::ArrowRight);
 
+            // SFX Device row: a two-state toggle, not a slider. Left OR Right (from
+            // keyboard, gamepad, or touch - all folded into left_just/right_just)
+            // flips AdLib <-> PC Speaker with a single press. Enter toggles it too,
+            // handled in the confirm block below.
+            if matches!(current_kind, Some(SoundOptionKind::SfxDevice)) && (left_just || right_just) {
+                sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
+                resources.sound_settings.sound_mode = resources.sound_settings.sound_mode.toggled();
+                resources.sound_settings.set_changed();
+
+                for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+                spawn_sound_options_ui(
+                    &mut commands, &asset_server,
+                    w, h, scale, imgs,
+                    options.sound.selection,
+                    &resources.sound_settings,
+                );
+                return;
+            }
+
             let is_nudgeable = matches!(
                 current_kind,
                 Some(SoundOptionKind::MasterVolume) | Some(SoundOptionKind::MusicVolume) | Some(SoundOptionKind::SfxVolume)
@@ -6865,6 +6891,19 @@ fn splash_advance_on_any_input(
                     Some(SoundOptionKind::SfxEnabled) => {
                         resources.sound_settings.sfx_enabled = !resources.sound_settings.sfx_enabled;
                         // Explicitly Mark as Changed
+                        resources.sound_settings.set_changed();
+
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+                        spawn_sound_options_ui(
+                            &mut commands, &asset_server,
+                            w, h, scale, imgs,
+                            options.sound.selection,
+                            &resources.sound_settings,
+                        );
+                    }
+
+                    Some(SoundOptionKind::SfxDevice) => {
+                        resources.sound_settings.sound_mode = resources.sound_settings.sound_mode.toggled();
                         resources.sound_settings.set_changed();
 
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }

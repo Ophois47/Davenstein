@@ -616,6 +616,34 @@ pub struct MusicTrack;
 #[derive(Component)]
 pub struct SfxSound;
 
+/// Which set of sound effects plays. AdLib = the digitized samples the game ships
+/// with (default); PcSpeaker = id's authentic beeper tones loaded from
+/// sounds/sfx/pc. Chosen via the "SFX Device" row in the Sound options menu.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SoundMode {
+	#[default]
+	AdLib,
+	PcSpeaker,
+}
+
+impl SoundMode {
+	/// Label shown on the "SFX Device" menu row.
+	pub fn label(self) -> &'static str {
+		match self {
+			SoundMode::AdLib => "AdLib",
+			SoundMode::PcSpeaker => "PC Speaker",
+		}
+	}
+
+	/// Flip between the two devices (Left / Right / Enter all toggle the row).
+	pub fn toggled(self) -> Self {
+		match self {
+			SoundMode::AdLib => SoundMode::PcSpeaker,
+			SoundMode::PcSpeaker => SoundMode::AdLib,
+		}
+	}
+}
+
 #[derive(Resource, Clone, Copy, PartialEq)]
 pub struct SoundSettings {
 	/// Overall Volume Multiplier (Written to 'GlobalVolume')
@@ -635,6 +663,8 @@ pub struct SoundSettings {
 	/// When False, SFX Spawning Systems
 	/// Should Early Return (Check Before Playing SFX)
 	pub sfx_enabled: bool,
+	/// Which sound-effect device is active (AdLib samples vs PC-speaker tones)
+	pub sound_mode: SoundMode,
 }
 
 impl Default for SoundSettings {
@@ -645,6 +675,7 @@ impl Default for SoundSettings {
 			sfx_volume: 1.0,
 			music_enabled: true,
 			sfx_enabled: true,
+			sound_mode: SoundMode::AdLib,
 		}
 	}
 }

@@ -16,7 +16,7 @@ use rand::RngExt;
 
 use crate::enemies::EnemyKind;
 use crate::level::{CurrentLevel, LevelId};
-use crate::options::{SoundSettings, MusicTrack, SfxSound};
+use crate::options::{SoundSettings, MusicTrack, SfxSound, SoundMode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SfxKind {
@@ -604,7 +604,6 @@ pub fn setup_audio(mut commands: Commands, asset_server: Res<AssetServer>) {
             .push(Some(asset_server.load(format!("sounds/sfx/pc/{i:02}.wav"))));
     }
     commands.insert_resource(pc);
-    commands.insert_resource(SoundMode::default());
 }
 
 pub fn start_music(
@@ -829,15 +828,6 @@ pub fn tick_auto_stop_sfx(
 	}
 }
 
-/// Which sound set is active. SoundCard = the digitized samples (default);
-/// PcSpeaker = the authentic id beeper tones rendered to sounds/sfx/pc/NN.wav.
-#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum SoundMode {
-    #[default]
-    SoundCard,
-    PcSpeaker,
-}
-
 /// id's 87 Wolf3D PC-speaker sounds, rendered to pc/00..86.wav and loaded BY
 /// INDEX so pc_index() (which uses id's canonical AUDIOWL6.H sound numbers) can
 /// address any of them. None = a handle that has not loaded (missing file).
@@ -917,40 +907,26 @@ fn pc_index(kind: SfxKind) -> Option<usize> {
     Some(idx)
 }
 
-/// In PC Speaker mode, spawn the mapped id beeper tone for this sound and report
-/// that we handled it (caller then skips the digitized path). Returns false in
-/// SoundCard mode or when the kind is unmapped / its handle has not loaded, so the
-/// normal sample plays instead. The tone is a single flat mono one-shot -
-/// authentically non-spatial, since the real PC speaker had no positional audio.
-fn try_spawn_pc_sfx(
-    commands: &mut Commands,
-    pc_lib: &PcSpeakerLibrary,
+/// Resolve the PC-speaker tone handle for a sound, if PC mode is active and the
+/// sound is mapped and loaded. The caller applies the per-category supersession
+/// and spawns it (a flat mono one-shot - authentically non-spatial, since the real
+/// speaker had no positional audio). None -> the digitized sample plays instead.
+fn pc_handle<'a>(
+    pc_lib: &'a PcSpeakerLibrary,
     mode: SoundMode,
     kind: SfxKind,
-    sfx_vol: f32,
-) -> bool {
+) -> Option<&'a Handle<AudioSource>> {
     if mode != SoundMode::PcSpeaker {
-        return false;
+        return None;
     }
-    let Some(idx) = pc_index(kind) else {
-        return false;
-    };
-    let Some(Some(handle)) = pc_lib.patterns.get(idx) else {
-        return false;
-    };
-    commands.spawn((
-        AudioPlayer::new(handle.clone()),
-        PlaybackSettings::DESPAWN.with_volume(Volume::Linear(sfx_vol)),
-    ));
-    true
+    let idx = pc_index(kind)?;
+    pc_lib.patterns.get(idx)?.as_ref()
 }
 
 pub fn play_sfx_events(
 	lib: Res<SfxLibrary>,
 	settings: Res<SoundSettings>,
 	pc_lib: Res<PcSpeakerLibrary>,
-	mut sound_mode: ResMut<SoundMode>,
-	keys: Res<ButtonInput<KeyCode>>,
 	mut commands: Commands,
 	mut ev: MessageReader<PlaySfx>,
 	q_active_pickup: Query<Entity, With<ActivePickupSfx>>,
@@ -968,17 +944,8 @@ pub fn play_sfx_events(
 ) {
     let mut rng = rand::rng();
 
-	// TEMPORARY: F10 toggles Sound Card <-> PC Speaker so the new tones can be
-	// auditioned in-game. This moves to a row in the Sound options menu (and
-	// persists in SoundSettings) once that is wired; harmless to leave until then.
-	if keys.just_pressed(KeyCode::F10) {
-		*sound_mode = match *sound_mode {
-			SoundMode::SoundCard => SoundMode::PcSpeaker,
-			SoundMode::PcSpeaker => SoundMode::SoundCard,
-		};
-		info!("##==> Sound mode: {:?}", *sound_mode);
-	}
-	let mode = *sound_mode;
+	// The active SFX device comes from the Sound options menu ("SFX Device" row).
+	let mode = settings.sound_mode;
 
 	let mut last_pickup: Option<PlaySfx> = None;
 	let mut non_pickups: Vec<PlaySfx> = Vec::new();
@@ -1003,9 +970,76 @@ pub fn play_sfx_events(
 	}
 
 	for e in non_pickups {
-		// PC Speaker mode: play the mapped id tone and skip the digitized path.
-		// Unmapped kinds return false and fall through to the sample below.
-		if try_spawn_pc_sfx(&mut commands, &pc_lib, mode, e.kind, settings.effective_sfx_volume()) {
+		// PC Speaker mode: play the mapped id tone with the SAME per-category
+		// "newest supersedes previous" behaviour the AdLib path uses - despawn the
+		// prior active sound of this category, then spawn the tone tagged with the
+		// matching Active* marker. Unmapped kinds fall through to the digitized path.
+		if let Some(handle) = pc_handle(&pc_lib, mode, e.kind) {
+			let handle = handle.clone();
+			use SfxKind as K;
+			match e.kind {
+				K::MenuMove | K::MenuSelect | K::MenuBack => {
+					for ent in q_active_menu.iter() {
+						commands.entity(ent).try_despawn();
+					}
+				}
+				K::IntermissionTick
+				| K::IntermissionConfirm
+				| K::IntermissionNoBonus
+				| K::IntermissionPercent100
+				| K::IntermissionBonusApply => {
+					for ent in q_active_intermission.iter() {
+						commands.entity(ent).try_despawn();
+					}
+				}
+				K::EnemyAlert(_) | K::EnemyDeath(_) => {
+					for ent in q_active_enemy_voice.iter() {
+						commands.entity(ent).try_despawn();
+					}
+				}
+				K::EnemyShoot(_) => {
+					for (ent, sink, spatial) in q_active_enemy_gun.iter() {
+						if let Some(s) = spatial {
+							s.stop();
+						}
+						if let Some(s) = sink {
+							s.stop();
+						}
+						commands.entity(ent).try_despawn();
+					}
+				}
+				_ => {}
+			}
+
+			let sfx_vol = settings.effective_sfx_volume();
+			let id = commands
+				.spawn((
+					AudioPlayer::new(handle),
+					PlaybackSettings::DESPAWN.with_volume(Volume::Linear(sfx_vol)),
+				))
+				.id();
+
+			// Tag with the category marker so the NEXT sound of this category
+			// supersedes this one, exactly as the digitized path does
+			match e.kind {
+				K::MenuMove | K::MenuSelect | K::MenuBack => {
+					commands.entity(id).insert(ActiveMenuSfx);
+				}
+				K::IntermissionTick
+				| K::IntermissionConfirm
+				| K::IntermissionNoBonus
+				| K::IntermissionPercent100
+				| K::IntermissionBonusApply => {
+					commands.entity(id).insert(ActiveIntermissionSfx);
+				}
+				K::EnemyAlert(_) | K::EnemyDeath(_) => {
+					commands.entity(id).insert(ActiveEnemyVoiceSfx);
+				}
+				K::EnemyShoot(_) => {
+					commands.entity(id).insert(ActiveEnemyGunSfx);
+				}
+				_ => {}
+			}
 			continue;
 		}
 
@@ -1323,8 +1357,19 @@ if is_enemy_voice && !is_boss_voice {
 
 	let Some(e) = last_pickup else { return; };
 
-	// PC Speaker mode: play the mapped id tone for the pickup and stop here.
-	if try_spawn_pc_sfx(&mut commands, &pc_lib, mode, e.kind, settings.effective_sfx_volume()) {
+	// PC Speaker mode: play the pickup tone. Despawn any active pickup sound first
+	// and tag the new one ActivePickupSfx, so the newest pickup is the only one
+	// playing and supersedes the previous - matching the AdLib pickup behaviour.
+	if let Some(handle) = pc_handle(&pc_lib, mode, e.kind) {
+		let handle = handle.clone();
+		for ent in q_active_pickup.iter() {
+			commands.entity(ent).try_despawn();
+		}
+		commands.spawn((
+			ActivePickupSfx,
+			AudioPlayer::new(handle),
+			PlaybackSettings::DESPAWN.with_volume(Volume::Linear(settings.effective_sfx_volume())),
+		));
 		return;
 	}
 
