@@ -41,24 +41,20 @@ Every listed release package is built and validated in continuous integration. T
 
 The i686, ARM64, ARMv7, RISC-V 64, and PowerPC64LE packages support compatible Linux systems for their respective architectures. The Linux i686 package targets little-endian 32-bit x86 systems using ELF32 and the `/lib/ld-linux.so.2` dynamic loader. The RISC-V 64 package targets RV64GC systems using the LP64D double-float ABI. The PowerPC64LE package targets little-endian 64-bit PowerPC Linux systems using the OpenPOWER ELF V2 ABI. The Windows i686 packages target the 32-bit MSVC ABI and install through the 32-bit Windows application and registry paths. The ARM packages do not imply working Raspberry Pi V3D hardware acceleration. See Compatibility below for the current Raspberry Pi status
 
-### Davenstein 1.3.0 Highlights
+### Davenstein 1.3.1 Highlights
 
-- Added native Windows i686 MSVC releases with both an NSIS installer and portable ZIP
-- Added Linux i686 portable releases targeting little-endian 32-bit x86 systems
-- Added validated i386 native dependency preparation with `pkg-config`, linker, ELF32, machine, loader, and shared-library checks
-- Added PE32 architecture validation, imported DLL auditing, 32-bit Program Files placement, Registry32, silent installation, and uninstall-cleanup verification
-- Added state-aware visible touchscreen controls for gameplay, menus, and tap-to-continue screens
-- Added complete touch-only menu navigation, safe explicit confirmation, game-over and intermission advancement, and gamepad/touch high-score name entry
-- Changed touchscreen movement to a floating four-way D-pad and turning to a floating horizontal stick that continuously turns while held, with visible feedback, final turn sensitivity `0.6`, and final movement deadzone `0.40`
-- Added a permanent native iPhone and iPad Xcode host with private physical-device signing, Apple Silicon simulator support, application icons, generated assets, and unsigned CI compile proofs
-- Corrected mobile full-screen and safe-area handling, exposed touch controls from launch, moved weapon selection to the top center, and hid desktop-only Display, Resolution, VSync, and Quit rows
-- Eliminated the magenta mobile startup flash by keeping a persistent lowest-order black-clearing background camera active before splash and gameplay rendering begin
-- Corrected the first fire press after level start, respawn, and menu close, and corrected Retina/HiDPI intermission line spacing
-- Corrected the end-of-level intermission regression by ordering tally initialization, counting, one-time bonus application, confirmation handling, text synchronization, and overlay visibility as one deterministic Bevy state machine
-- Corrected the Android Application Not Responding condition and verified responsive gameplay, rendering, menus, and touch input on physical hardware
-- Added touchscreen geometry, accessibility-floor, mode-selection, hit-testing, and regression tests while restoring direct Unix execution of the Android Gradle wrapper
+- Restored authentic difficulty-based enemy damage scaling for hitscan and projectile attacks, including quarter damage on the easiest skill
+- Tightened enemy shooting and close-range awareness line of sight so walls, doors, and real world corner positions block attacks and point-blank notice
+- Corrected native 320x200 mobile presentation on short landscape displays and moved touch controls clear of rounded corners and camera housings
+- Reworked persistent touch labels into a once-per-session onboarding cue and added mobile-specific high-score carousel guidance
+- Removed redundant touch continuation hints and desktop-only keyboard prompts from mobile screens
+- Eliminated the intermittent iOS magenta startup flash by withholding the primary window until cleared frames are ready
+- Corrected intermittent macOS cursor reappearance by restoring the hidden and locked pointer state while gameplay remains focused
+- Added a complete D-pad-only control scheme for stickless NES and SNES-style gamepads
+- Added gamepad-only hitscan aim assistance without rotating the view or changing mouse and keyboard aiming
+- Hardened high-score entry against blank, whitespace-only, and control-character names while placing DJP atop the default table
 
-Read the [complete Davenstein 1.3.0 technical release notes](docs/releases/1.3.0.md)
+Read the [complete Davenstein 1.3.1 technical release notes](docs/releases/1.3.1.md)
 
 ### Bug Reports
 
