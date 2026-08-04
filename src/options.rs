@@ -336,6 +336,16 @@ pub fn world_canvas_size(win_w: u32, win_h: u32, scale: RenderScale) -> UVec2 {
 #[derive(Resource, Clone)]
 pub struct ResolutionList {
 	pub entries: Vec<(u32, u32)>,
+	/// Parallel to entries: Whether Each Resolution Has a Real, Settable Monitor
+	/// Video Mode Behind It. Exclusive Fullscreen Can Only Switch to Modes the
+	/// Display Actually Reports; on Modern Panels (Especially macOS Retina) the
+	/// Low Legacy Modes Like 640x480 Are Either Absent or Emulated Scaling Hacks
+	/// the Windowing Backend Cannot Set, and Requesting One Panics. Windowed Mode
+	/// Ignores This Entirely -- a Window Can Be Any Size -- so This Only Gates the
+	/// Exclusive-Fullscreen Resolution List. Populated by populate_resolution_list;
+	/// Before That Runs (or if No Monitor Modes Are Seen) Everything Is Treated as
+	/// Settable, Matching the Old Behavior on Platforms That Can Switch Modes
+	pub fullscreen_settable: Vec<bool>,
 }
 
 impl Default for ResolutionList {
@@ -354,6 +364,10 @@ impl Default for ResolutionList {
 				(1920, 1080),
 				(2560, 1440),
 			],
+			// Before populate_resolution_list Runs, Assume Everything Is Settable
+			// so Non-macOS Desktops and Any Platform With Real Mode Switching Keep
+			// the Full List. The Vec Length Is Kept in Sync With entries There
+			fullscreen_settable: vec![true; 8],
 		}
 	}
 }
@@ -385,6 +399,29 @@ impl ResolutionList {
 			format!("{}x{}", w, h)
 		} else {
 			"???".to_string()
+		}
+	}
+
+	/// Entry Indices Selectable in the Given Display Mode. Windowed (and
+	/// Borderless, Though It Hides the Row Anyway) Can Use Any Size, so Every
+	/// Entry Is Returned. Exclusive Fullscreen Is Limited to Entries With a Real
+	/// Settable Monitor Mode Behind Them, Which on macOS Drops the Low Legacy
+	/// Modes That Would Otherwise Panic the Windowing Backend. Never Returns an
+	/// Empty List: if Nothing Is Settable (Pathological), Falls Back to All
+	/// Entries so the Menu Is Never a Dead End
+	pub fn selectable_indices(&self, mode: DisplayMode) -> Vec<usize> {
+		if !matches!(mode, DisplayMode::ExclusiveFullscreen) {
+			return (0..self.entries.len()).collect();
+		}
+
+		let filtered: Vec<usize> = (0..self.entries.len())
+			.filter(|&i| self.fullscreen_settable.get(i).copied().unwrap_or(true))
+			.collect();
+
+		if filtered.is_empty() {
+			(0..self.entries.len()).collect()
+		} else {
+			filtered
 		}
 	}
 }
@@ -740,14 +777,41 @@ fn populate_resolution_list(
 	let mut out: Vec<(u32, u32)> = merged.into_iter().collect();
 	out.sort_by_key(|&(w, h)| ((w as u64) * (h as u64), w as u64, h as u64));
 
+	// Determine Which Entries Exclusive Fullscreen Can Actually Switch To. This
+	// Only Constrains macOS: Its Panels Report Legacy Modes (640x480 and Below)
+	// That Are Not Truly Settable, and Asking for One Panics the Windowing
+	// Backend (See desired_window_mode). On Every Other Desktop, Mode Switching
+	// Works, so All Entries Stay Settable and the List Is Unchanged. A Preset Is
+	// Settable if the Monitor Reports a Real Mode of the Same Pixel Dimensions
+	let settable: Vec<bool> = if cfg!(target_os = "macos") {
+		let mut real_modes: Vec<(u32, u32)> = Vec::new();
+		for monitor in q_monitors.iter() {
+			for mode in &monitor.video_modes {
+				real_modes.push((mode.physical_size.x, mode.physical_size.y));
+			}
+		}
+		out.iter()
+			.map(|&(w, h)| {
+				// The Native Mode Is Always Settable (It Is the Current Mode);
+				// Otherwise Require an Exact Reported Match. Native Was Merged in
+				// From These Same Modes, so It Matches Here Too
+				real_modes.iter().any(|&(rw, rh)| rw == w && rh == h)
+			})
+			.collect()
+	} else {
+		vec![true; out.len()]
+	};
+
 	info!(
-		"Resolution list: {} presets + native -> {} entries ({} monitor modes seen)",
+		"Resolution list: {} presets + native -> {} entries ({} monitor modes seen), {} fullscreen-settable",
 		before,
 		out.len(),
-		monitor_found
+		monitor_found,
+		settable.iter().filter(|&&s| s).count()
 	);
 
 	res_list.entries = out;
+	res_list.fullscreen_settable = settable;
 }
 
 /// Create the Persistent World Canvas Image Once at Startup

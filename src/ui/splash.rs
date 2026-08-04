@@ -75,10 +75,12 @@ const PSYCHED_SPR_H: f32 = 40.0;
 // (0,170,170) = #00AAAA. The Old (0,140,140) Read Muddier Than the HUD Frame
 const PSYCHED_TEAL: Color = Color::srgb(0.0, 0.6667, 0.6667);
 const PSYCHED_RED: Color = Color::srgb(0.80, 0.00, 0.00);
-/// Horizontal Inset for the Loading Bar in Source Pixels. The Bar Used to Run
-/// Flush to Both Edges of the Banner Art; Stopping a Few Pixels Short Keeps It
-/// Inside the Banner's Painted Frame. Tune Against the get_psyched.png Border
-const PSYCHED_BAR_INSET: f32 = 3.0;
+/// Horizontal Inset for the Loading Bar, in Source Pixels. The Bar Used to Run
+/// Flush to Both Banner Edges; It Should Instead Stop Just Inside, by Exactly the
+/// Width of the Banner's 1 px Vertical Frame Rule -- the Same 1 px That Sets the
+/// Bar's Own Height. Keeping It at 1 (Not the Old 3) Means the Bar Barely Clears
+/// the Painted Border Rather Than Pulling Well Short of Where It Used to Reach
+const PSYCHED_BAR_INSET: f32 = 1.0;
 
 fn splash_stretch_image(image: Handle<Image>) -> ImageNode {
     ImageNode {
@@ -3166,10 +3168,11 @@ fn spawn_resolution_submenu_ui(
     scale: f32,
     imgs: &SplashImages,
     selection: usize,
+    video: &VideoSettings,
     res_list: &ResolutionList,
 ) {
-    let item_count = res_list.entries.len();
-    let selection = selection.min(item_count.saturating_sub(1));
+    // item_count and selection Are Derived Below From the Filtered Visible List
+    // (See selectable_indices), Not the Raw entries Count
 
     let root = commands
         .spawn((
@@ -3293,8 +3296,16 @@ fn spawn_resolution_submenu_ui(
         width: Val::Px(border_w), height: Val::Px(panel_h), ..default()
     }, BackgroundColor(Color::srgb(0.70, 0.0, 0.0)), ChildOf(canvas)));
 
+    // Only Show Resolutions Settable in the Current Display Mode. In Exclusive
+    // Fullscreen on macOS This Drops the Low Legacy Modes the Panel Cannot
+    // Actually Switch To; in Windowed Mode Every Entry Is Shown. selection Is a
+    // Position Within THIS Filtered List, Not a Raw entries Index
+    let visible: Vec<usize> = res_list.selectable_indices(video.display_mode);
+    let item_count = visible.len();
+    let selection = selection.min(item_count.saturating_sub(1));
+
     // Resolution List
-    let labels: Vec<String> = (0..item_count).map(|i| res_list.label_at(i)).collect();
+    let labels: Vec<String> = visible.iter().map(|&e| res_list.label_at(e)).collect();
 
     let cursor_w = (19.0 * ui_scale).round();
     let cursor_h = (10.0 * ui_scale).round();
@@ -6421,7 +6432,8 @@ fn splash_advance_on_any_input(
                     return;
                 }
 
-                let res_count = resources.res_list.entries.len();
+                let visible = resources.res_list.selectable_indices(resources.video_settings.display_mode);
+                let res_count = visible.len().max(1);
 
                 if keyboard.just_pressed(KeyCode::ArrowUp) || keyboard.just_pressed(KeyCode::KeyW) || nav.up {
                     if options.change_view.res_submenu_idx > 0 {
@@ -6444,9 +6456,13 @@ fn splash_advance_on_any_input(
                 {
                     sfx.write(PlaySfx { kind: SfxKind::MenuSelect, pos: Vec3::ZERO });
 
-                    if let Some(&(rw, rh)) = resources.res_list.entries.get(options.change_view.res_submenu_idx) {
-                        resources.video_settings.resolution = (rw, rh);
-                        resources.video_settings.set_changed();
+                    // res_submenu_idx Is a Position in the Filtered Visible List;
+                    // Map It to the Real entries Index Before Reading the Size
+                    if let Some(&entry_idx) = visible.get(options.change_view.res_submenu_idx) {
+                        if let Some(&(rw, rh)) = resources.res_list.entries.get(entry_idx) {
+                            resources.video_settings.resolution = (rw, rh);
+                            resources.video_settings.set_changed();
+                        }
                     }
 
                     options.change_view.res_submenu_open = false;
@@ -6620,6 +6636,32 @@ fn splash_advance_on_any_input(
                         } else {
                             resources.video_settings.display_mode.prev()
                         };
+
+                        // If the New Mode Is Exclusive Fullscreen and the Stored
+                        // Resolution Is Not Settable There (e.g. a Windowed 640x480
+                        // on macOS), Snap to the Nearest Settable Entry so the
+                        // Resolution Row Never Shows a Mode That Cannot Apply. In
+                        // Windowed Mode Every Entry Is Settable, so This Is a No-Op
+                        let mode = resources.video_settings.display_mode;
+                        let visible = resources.res_list.selectable_indices(mode);
+                        let cur = resources.video_settings.resolution;
+                        let still_ok = visible.iter().any(|&e| {
+                            resources.res_list.entries.get(e).copied() == Some(cur)
+                        });
+                        if !still_ok {
+                            // Pick the Settable Entry Closest in Total Pixel Count
+                            let target = cur.0 as i64 * cur.1 as i64;
+                            let best = visible.iter().copied().min_by_key(|&e| {
+                                let (w, h) = resources.res_list.entries[e];
+                                ((w as i64 * h as i64) - target).abs()
+                            });
+                            if let Some(e) = best {
+                                if let Some(&(rw, rh)) = resources.res_list.entries.get(e) {
+                                    resources.video_settings.resolution = (rw, rh);
+                                }
+                            }
+                        }
+
                         resources.video_settings.set_changed(); // Explicitly Mark as Changed
                         // Don't Respawn Now, Window Dimensions Will Change Next
                         // Frame After Apply System Runs. Set Flag for Deferred Respawn
@@ -6777,13 +6819,22 @@ fn splash_advance_on_any_input(
                     Some(ChangeViewKind::Resolution) => {
                         // Open Resolution Sub Menu
                         options.change_view.res_submenu_open = true;
-                        options.change_view.res_submenu_idx = resources.res_list.index_of(resources.video_settings.resolution);
+                        // res_submenu_idx Is Now a Position in the FILTERED Visible
+                        // List. Convert the Current Resolution's Raw entries Index to
+                        // Its Position There; if the Current Resolution Is Not Settable
+                        // in This Mode (e.g. a Persisted 640x480 Now Filtered Out of
+                        // macOS Fullscreen), Fall Back to Position 0
+                        let raw_idx = resources.res_list.index_of(resources.video_settings.resolution);
+                        let visible = resources.res_list.selectable_indices(resources.video_settings.display_mode);
+                        options.change_view.res_submenu_idx =
+                            visible.iter().position(|&e| e == raw_idx).unwrap_or(0);
 
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
                         spawn_resolution_submenu_ui(
                             &mut commands, &asset_server,
                             w, h, scale, imgs,
                             options.change_view.res_submenu_idx,
+                            &resources.video_settings,
                             &resources.res_list,
                         );
                     }
