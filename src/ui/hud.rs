@@ -1831,6 +1831,11 @@ pub(super) fn sync_hud_layout_on_window_change(
         ) in &mut q
         {
             if outer.is_some() {
+                // Keep the Blue Backdrop Exactly as Wide as the Scaled Art (See
+                // spawn_status_bar). Without Updating Width Here the Outer Would Have
+                // Stayed at Its Spawn Width Across Render-Scale Changes, Re-Exposing
+                // the Blue Edge at Non-Multiple-of-320 Scales
+                n.width = Val::Px(layout.hud_w_px);
                 n.height = Val::Px(layout.status_h_px);
             }
 
@@ -2013,7 +2018,16 @@ fn spawn_status_bar(
             HudStatusBarOuter,
             ZIndex(95),
             Node {
-                width: Val::Percent(100.0),
+                // Width Is the SCALED HUD Width, Not 100%. hud_w_px Is
+                // 320 * floor(canvas_w / 320), so at Scales Where the Canvas Is Not
+                // an Exact Multiple of 320 (e.g. 20% -> 768, 15% -> 576) a Full-Width
+                // Blue Backdrop Would Extend 'canvas_w - hud_w_px' Pixels Past the
+                // Centered Status-Bar Art on Each Side, Leaking the Wolf HUD Blue Out
+                // at the Outer Edges. Matching the Blue to the Art Width Means the
+                // Leftover Region Shows Whatever Sits Behind HudRoot (the Letterbox),
+                // Never a Stray Blue Sliver. The Resync in
+                // sync_hud_layout_on_window_change Sets This Same Width on Scale Change
+                width: Val::Px(layout.hud_w_px),
                 height: Val::Px(layout.status_h_px),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
