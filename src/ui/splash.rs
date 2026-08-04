@@ -5815,6 +5815,13 @@ fn splash_advance_on_any_input(
     let keyboard = &*input.keyboard;
     let mouse = &*input.mouse;
     let nav = &*input.menu_nav;
+
+    // The Quit Confirmation Is Modal. Keep Its Closing Input From Reaching the
+    // Menu State Machine Until the Full Input Stroke Has Been Released
+    if resources.quit_confirm.blocks_menu_input() {
+        return;
+    }
+
     let Some(win) = q.q_win.iter().next() else { return; };
 
     let win_w = win.width().round().max(1.0);

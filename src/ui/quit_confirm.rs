@@ -59,6 +59,9 @@ const QUIT_MESSAGES: [&str; 9] = [
 pub struct QuitConfirmState {
     active: bool,
     just_opened: bool,
+    /// Holds the Dismissal Input Until It Has Been Released so the Same Escape,
+    /// Mouse, or Gamepad Press Cannot Also Act on the Menu Under the Modal
+    input_latched: bool,
 }
 
 impl QuitConfirmState {
@@ -67,6 +70,11 @@ impl QuitConfirmState {
     /// Screen Rather Than Live Gameplay, Exactly as It Does the Cheat Box
     pub(crate) fn is_active(&self) -> bool {
         self.active
+    }
+
+    /// Whether the Menu State Machine Must Ignore Input for the Modal
+    pub(crate) fn blocks_menu_input(&self) -> bool {
+        self.active || self.input_latched
     }
 }
 
@@ -91,6 +99,7 @@ pub fn open_quit_confirm(
 
     state.active = true;
     state.just_opened = true;
+    state.input_latched = false;
     lock.0 = true;
 
     splash::spawn_quit_confirm_ui(commands, imgs, win_w, win_h, QUIT_MESSAGES[idx]);
@@ -110,6 +119,22 @@ pub fn resolve_quit_confirm(
     q_ui: Query<Entity, With<QuitConfirmUi>>,
 ) {
     if !state.active {
+        if state.input_latched {
+            let input_still_down = keys.get_pressed().next().is_some()
+                || mouse.get_pressed().next().is_some()
+                || nav.confirm
+                || nav.cancel
+                || nav.pause
+                || nav.up
+                || nav.down
+                || nav.left
+                || nav.right;
+
+            if !input_still_down {
+                state.input_latched = false;
+            }
+        }
+
         return;
     }
 
@@ -149,6 +174,7 @@ pub fn resolve_quit_confirm(
         commands.entity(e).try_despawn();
     }
     state.active = false;
+    state.input_latched = true;
 
     // Hand Control Back Only if Nothing Else Claimed the Lock While the Box Was
     // Up. Mirrors the Cheat Box: a Guard for the Future Rather Than a Live Path,
