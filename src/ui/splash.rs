@@ -86,6 +86,15 @@ const PSYCHED_RED: Color = Color::srgb(0.80, 0.00, 0.00);
 /// the Painted Border Rather Than Pulling Well Short of Where It Used to Reach
 const PSYCHED_BAR_INSET: f32 = 1.0;
 
+/// Vertical Overlap Into the Status Bar in Source Pixels
+/// Covers the Painted Top Rule and One Teal Guard Row so the Loading Backdrop
+/// Meets the HUD Without a Visible Separator at Any Integer HUD Scale
+const PSYCHED_HUD_BORDER_OVERLAP: f32 = 2.0;
+
+/// Distance Above the Banner Bottom for the Loading Bar in Source Pixels
+/// Keeps the Red Fill on the Black Interior Instead of the Painted Bottom Frame
+const PSYCHED_BAR_BOTTOM_INSET: f32 = 2.0;
+
 fn splash_stretch_image(image: Handle<Image>) -> ImageNode {
     ImageNode {
         image,
@@ -8673,6 +8682,11 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
     let hud_h = (BASE_HUD_H * hud_scale).round();
     let view_h = (win_h - hud_h).max(0.0);
 
+    // Extend the Teal Loading Backdrop Across the Status Bar's Painted Top Rule
+    // The Loading Root Renders Above the Bar but Overlaps Only This Narrow Strip
+    let hud_border_overlap = (PSYCHED_HUD_BORDER_OVERLAP * hud_scale).round();
+    let loading_bottom = (hud_h - hud_border_overlap).max(0.0);
+
     let mut scale = hud_scale.max(1.0);
     let mut spr_w = (PSYCHED_SPR_W * scale).round();
     let mut spr_h = (PSYCHED_SPR_H * scale).round();
@@ -8688,7 +8702,8 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
     let top = ((view_h - spr_h) * 0.5).round().max(0.0);
 
     let bar_h = (1.0 * scale).max(1.0).round();
-    let bar_top = (top + spr_h - bar_h).max(0.0);
+    let bar_bottom_inset = (PSYCHED_BAR_BOTTOM_INSET * scale).round();
+    let bar_top = (top + spr_h - bar_bottom_inset - bar_h).max(top);
 
     // Inset the Bar From Both Banner Edges so It Stays Inside the Painted Frame
     let bar_inset = (PSYCHED_BAR_INSET * scale).round();
@@ -8698,13 +8713,13 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
     let loading = commands
         .spawn((
             LoadingUi,
-            ZIndex(94),
+            ZIndex(96),
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
                 top: Val::Px(0.0),
                 right: Val::Px(0.0),
-                bottom: Val::Px(hud_h),
+                bottom: Val::Px(loading_bottom),
                 ..default()
             },
             BackgroundColor(PSYCHED_TEAL),
