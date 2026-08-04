@@ -92,8 +92,9 @@ const PSYCHED_BAR_INSET: f32 = 1.0;
 const PSYCHED_HUD_BORDER_OVERLAP: f32 = 2.0;
 
 /// Distance Above the Banner Bottom for the Loading Bar in Source Pixels
-/// Keeps the Red Fill on the Black Interior Instead of the Painted Bottom Frame
-const PSYCHED_BAR_BOTTOM_INSET: f32 = 2.0;
+/// Places the Red Fill on the Lowest Black Row Immediately Above the Painted
+/// Bottom Frame
+const PSYCHED_BAR_BOTTOM_INSET: f32 = 1.0;
 
 fn splash_stretch_image(image: Handle<Image>) -> ImageNode {
     ImageNode {
