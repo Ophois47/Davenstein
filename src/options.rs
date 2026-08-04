@@ -951,7 +951,14 @@ fn resize_world_canvas(
 	mut images: ResMut<Assets<Image>>,
 	q_window: Query<&Window, With<PrimaryWindow>>,
 	mut q_sprite: Query<&mut Sprite, With<WorldPresenter>>,
-	mut q_targets: Query<&mut RenderTarget>,
+	// The Canvas-Writing Cameras (World 3-D + HUD) Are Identified by Their
+	// RenderTarget Pointing at the Canvas Handle. We Need &mut Camera Here Too, so
+	// the Two Are Fetched Together in One Query to Avoid a RenderTarget Access
+	// Conflict. The Present and Menu Cameras Target the Window and Are Skipped
+	mut q_canvas_cams: Query<(&mut Camera, &mut RenderTarget)>,
+	// Two-Phase Swap State: Some(size) Means "Cameras Were Deactivated Last Frame
+	// for a Pending Resize to This Size; Perform the Swap and Reactivate Now"
+	mut pending: Local<Option<UVec2>>,
 ) {
 	let Some(window) = q_window.iter().next() else { return; };
 
@@ -959,43 +966,66 @@ fn resize_world_canvas(
 	let win_h = window.resolution.physical_height().max(1);
 	let want = world_canvas_size(win_w, win_h, settings.render_scale);
 
-	// Resize the Backing Canvas Image Only When the Target Size Truly Changes.
-	// On the Pi's V3D Vulkan Driver, Resizing a Render-Target Image in Place While
-	// the 3-D Camera Has It Bound Can Stall the Pipeline at Level Load (the Game
-	// Hangs on Start After the Window Settles to Native Resolution). Set
-	// DSTEIN_NO_CANVAS_RESIZE=1 to Freeze the Canvas at Its Created Size and Skip
-	// the In-Place Resize Entirely, Which Avoids the Stall; the Present Sprite Still
-	// Stretches to Fill the Window, so the Image Just Upscales From Its Initial Size
 	let skip_resize = std::env::var("DSTEIN_NO_CANVAS_RESIZE")
 		.map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 		.unwrap_or(false);
-	if !skip_resize && want != canvas.size {
-		// RECREATE the Canvas Image at the New Size Rather Than Resizing It in
-		// Place. Resizing a Render-Target Image in Place Leaves the World Camera's
-		// Auto-Managed DEPTH Texture at the OLD Size, so the Next 3-D Pass Has a
-		// Depth Attachment That No Longer Matches the Resized Color Attachment;
-		// wgpu Rejects the Mismatched Sizes and Aborts the Frame - the Crash Seen
-		// When Switching Window Mode. A Fresh Image Forces the Color and Its Depth
-		// to Be Allocated Together at the New Size. All Three Consumers of the Old
-		// Handle (World Camera, HUD Camera, Present Sprite) Are Repointed Below
+
+	// TWO-PHASE, CAMERA-DEACTIVATED CANVAS SWAP
+	//
+	// The Earlier Approach Recreated the Canvas Image and Repointed the Cameras in
+	// a Single Frame. That Still Raced Bevy's Per-Camera Auto-Managed DEPTH Texture:
+	// the Color Attachment Adopted the New Size Immediately While the Cached Depth
+	// Could Lag by a Frame, so a 3-D Pass Ran With Mismatched Color and Depth Sizes
+	// and wgpu Aborted (e.g. Depth 3840x2160 vs Color 320x180 Toggling Classic).
+	// Small Size Deltas Sometimes Slipped Through; the Large Classic<->Native Jump
+	// Loses the Race Reliably.
+	//
+	// This Removes the Race by Construction Rather Than Trying to Win It. When the
+	// Size Changes We First DEACTIVATE the Canvas-Writing Cameras and Wait One
+	// Frame. With Those Cameras Inactive, No 3-D Pass Runs, so There Is No Color /
+	// Depth Pairing to Mismatch. The Following Frame We Recreate the Image, Repoint
+	// Everything, and Reactivate - Bevy Then Allocates a Fresh Color+Depth Pair
+	// Together at the New Size on the Next Active Pass. The One-Frame Blank Is the
+	// Acceptable Flicker; Correctness Comes First
+	if pending.is_none() {
+		if !skip_resize && want != canvas.size {
+			// Phase 1: Deactivate the Cameras That Draw Into the Canvas and Defer
+			for (mut cam, target) in q_canvas_cams.iter_mut() {
+				let targets_canvas =
+					matches!(&*target, RenderTarget::Image(t) if t.handle == canvas.handle);
+				if targets_canvas {
+					cam.is_active = false;
+				}
+			}
+			*pending = Some(want);
+			return;
+		}
+	} else {
+		// Phase 2: Cameras Have Been Inactive for a Frame. Recreate the Canvas at
+		// the Pending Size, Repoint the Consumers, and Reactivate. Guard on the
+		// Pending Size Still Matching 'want' so a Second Change Mid-Swap Restarts
+		// Cleanly Rather Than Committing a Stale Size
+		let target_size = pending.take().unwrap_or(want);
 		let old = canvas.handle.clone();
 
 		let mut image = Image::new_target_texture(
-			want.x,
-			want.y,
+			target_size.x,
+			target_size.y,
 			TextureFormat::Rgba8UnormSrgb,
 			None,
 		);
 		image.sampler = ImageSampler::nearest();
 		let new_handle = images.add(image);
 
-		// Repoint the Two Cameras That Render Into the Canvas (World + HUD). The
-		// Present and Menu Cameras Target the Window, so the Handle Guard Skips Them
-		for mut target in q_targets.iter_mut() {
+		// Repoint the Canvas-Writing Cameras and Reactivate Them Together, so the
+		// First Active Pass After This Sees the New Target and Allocates a Matched
+		// Color+Depth Pair
+		for (mut cam, mut target) in q_canvas_cams.iter_mut() {
 			let targets_canvas =
 				matches!(&*target, RenderTarget::Image(t) if t.handle == old);
 			if targets_canvas {
 				*target = RenderTarget::Image(new_handle.clone().into());
+				cam.is_active = true;
 			}
 		}
 
@@ -1007,7 +1037,7 @@ fn resize_world_canvas(
 		}
 
 		canvas.handle = new_handle;
-		canvas.size = want;
+		canvas.size = target_size;
 		// 'old' Drops Here; With Every Consumer Repointed It Has No Strong Handles
 		// Left, so the Previous Image and Its Depth Are Released Automatically
 	}
