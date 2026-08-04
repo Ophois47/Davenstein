@@ -69,7 +69,11 @@ const PSYCHED_DURATION_SECS: f32 = 2.5;
 const PSYCHED_SPR_W: f32 = 220.0;
 const PSYCHED_SPR_H: f32 = 40.0;
 
-const PSYCHED_TEAL: Color = Color::srgb(0.00, 0.55, 0.55);
+// Wolf3D Play-Screen Border / Get-Psyched Backdrop Teal. This Is VGA Palette
+// Index 135 (0x87) From id's gamepal, the Same Dark-Cyan That Frames the Status
+// Bar and Viewport in the Original. 6-Bit DAC (0,42,42) Expands to 8-Bit
+// (0,170,170) = #00AAAA. The Old (0,140,140) Read Muddier Than the HUD Frame
+const PSYCHED_TEAL: Color = Color::srgb(0.0, 0.6667, 0.6667);
 const PSYCHED_RED: Color = Color::srgb(0.80, 0.00, 0.00);
 /// Horizontal Inset for the Loading Bar in Source Pixels. The Bar Used to Run
 /// Flush to Both Edges of the Banner Art; Stopping a Few Pixels Short Keeps It
@@ -238,6 +242,7 @@ struct SplashResources<'w> {
     gameplay_settings: ResMut<'w, GameplaySettings>,
     load_req: ResMut<'w, crate::save::LoadGameRequested>,
     save_req: ResMut<'w, crate::save::SaveGameRequested>,
+    quit_confirm: ResMut<'w, crate::ui::quit_confirm::QuitConfirmState>,
 }
 
 #[derive(SystemParam)]
@@ -6113,7 +6118,25 @@ fn splash_advance_on_any_input(
                     }
 
                     MenuAction::Quit => {
-                        app_exit.write(bevy::app::AppExit::Success);
+                        // The Original Never Quit on the Spot: It Raised a Random
+                        // Y / N Taunt First. Freeze and Draw the Box; the App Only
+                        // Exits if the Player Answers Yes (See ui::quit_confirm).
+                        // Works From Both the Main Menu and the In-Game Pause Menu,
+                        // Since Both Route Through This Shared Quit Action
+                        if let Some(imgs) = resources.imgs.as_ref() {
+                            crate::ui::quit_confirm::open_quit_confirm(
+                                &mut commands,
+                                &mut resources.quit_confirm,
+                                &mut resources.lock,
+                                imgs,
+                                win_w,
+                                win_h,
+                            );
+                        } else {
+                            // Images Somehow Absent: Fall Back to the Old Instant
+                            // Exit Rather Than Trapping the Player on a Dead Menu
+                            app_exit.write(bevy::app::AppExit::Success);
+                        }
                     }
                 }
             }
@@ -8808,6 +8831,71 @@ pub(crate) fn spawn_cheat_message_ui(
     win_h: f32,
     text: &str,
 ) {
+    // The Root Carries the Cheat Marker; the Shared Helper Fills It. Splitting
+    // This Out Lets the Quit-Confirm Box Reuse the Identical Panel, Bevel, and
+    // Centered-Text Idiom Below Without Copying Any of the Geometry
+    let root = commands
+        .spawn((
+            crate::ui::cheat_message::CheatMessageUi,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                width: Val::Px(win_w.round().max(1.0)),
+                height: Val::Px(win_h.round().max(1.0)),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            GlobalZIndex(40),
+        ))
+        .id();
+
+    spawn_message_box_contents(commands, root, imgs, win_w, win_h, text);
+}
+
+/// Spawn the Quit-Confirmation Box. Same Grey VGA Panel as the Cheat Warning,
+/// Carrying a Distinct Marker so Its Own Y / N Handler Owns the Lifecycle. The
+/// Message Text Is Chosen by the Caller (a Random Wolf3D Quit Line)
+pub(crate) fn spawn_quit_confirm_ui(
+    commands: &mut Commands,
+    imgs: &SplashImages,
+    win_w: f32,
+    win_h: f32,
+    text: &str,
+) {
+    let root = commands
+        .spawn((
+            crate::ui::quit_confirm::QuitConfirmUi,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                top: Val::Px(0.0),
+                width: Val::Px(win_w.round().max(1.0)),
+                height: Val::Px(win_h.round().max(1.0)),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            // One Above the Cheat Box's 40, Harmless Since the Two Are Never Up
+            // at Once (Both Take the Control Lock, Which Gates Every Opener)
+            GlobalZIndex(41),
+        ))
+        .id();
+
+    spawn_message_box_contents(commands, root, imgs, win_w, win_h, text);
+}
+
+/// Shared Renderer for the Classic Grey Message Box, Drawn Onto a Caller-Owned
+/// Root. The Caller Puts Its Own Marker on the Root and Owns Despawn; This Only
+/// Draws the Panel, Raised Bevel, and Centered Double-Struck Text. Extracted
+/// Verbatim From the Original Cheat-Box Body so Both Modals Look Pixel-Identical
+fn spawn_message_box_contents(
+    commands: &mut Commands,
+    root: Entity,
+    imgs: &SplashImages,
+    win_w: f32,
+    win_h: f32,
+    text: &str,
+) {
     // Positioning Goes Through MenuLayout so the Box Stays Centered in the 320x200
     // Safe Area on Letterboxed Windows, Exactly Like Every Other Menu Panel
     let layout = MenuLayout::new(win_w, win_h);
@@ -8865,24 +8953,10 @@ pub(crate) fn spawn_cheat_message_ui(
     let text_h = ((lines.len() as f32) * line_h).max(1.0);
     let panel_h = (text_h + pad * 2.0).round();
 
-    // The Root is the Only Entity the Caller Needs to Know About. Full-Window and
-    // Transparent so the Frozen Game Stays Visible Behind the Panel, Exactly as the
-    // Original Drew its Box Straight Over the Last Rendered Frame
-    let root = commands
-        .spawn((
-            crate::ui::cheat_message::CheatMessageUi,
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                top: Val::Px(0.0),
-                width: Val::Px(layout.window_w),
-                height: Val::Px(layout.window_h),
-                ..default()
-            },
-            BackgroundColor(Color::NONE),
-            GlobalZIndex(40),
-        ))
-        .id();
+    // Root Is Provided by the Caller (Which Owns the Marker and Despawn). The
+    // Panel and Text Below Are Children of It. Full-Window Transparency Was Set
+    // on the Root at the Call Site so the Frozen Game Stays Visible Behind the
+    // Box, Exactly as the Original Drew Its Box Over the Last Rendered Frame
 
     // Panel Fill: the Classic VGA Grey
     commands.spawn((

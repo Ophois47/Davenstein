@@ -44,6 +44,7 @@ use davelib::options::ControlSettings;
 use davelib::player::PlayerControlLock;
 
 use super::cheat_message::CheatMessageState;
+use super::quit_confirm::QuitConfirmState;
 use super::{DeathOverlay, GameOver, SplashStep};
 use crate::level_complete::LevelComplete;
 
@@ -169,6 +170,7 @@ fn derive_touch_ui_mode(
     step: SplashStep,
     touch_enabled: bool,
     cheat_active: bool,
+    quit_active: bool,
     game_over: bool,
     mission_won: bool,
     death_active: bool,
@@ -200,7 +202,7 @@ fn derive_touch_ui_mode(
         | SplashStep::EpisodeEndText1 => TouchUiMode::Advance,
 
         SplashStep::Done => {
-            if cheat_active {
+            if cheat_active || quit_active {
                 TouchUiMode::Advance
             } else if game_over {
                 TouchUiMode::Advance
@@ -227,6 +229,7 @@ pub(super) fn sync_touch_ui_mode(
     step: Res<SplashStep>,
     controls: Res<ControlSettings>,
     cheat: Res<CheatMessageState>,
+    quit: Res<QuitConfirmState>,
     game_over: Res<GameOver>,
     win: Res<LevelComplete>,
     death: Res<DeathOverlay>,
@@ -237,6 +240,7 @@ pub(super) fn sync_touch_ui_mode(
         *step,
         controls.touch_enabled,
         cheat.is_active(),
+        quit.is_active(),
         game_over.0,
         win.0,
         death.active,
@@ -670,7 +674,7 @@ mod tests {
 
     // Shorthand: Everything Off, Playing Normally
     fn gameplay(step: SplashStep) -> TouchUiMode {
-        derive_touch_ui_mode(step, true, false, false, false, false, false)
+        derive_touch_ui_mode(step, true, false, false, false, false, false, false)
     }
 
     #[test]
@@ -717,34 +721,40 @@ mod tests {
         // Game Over Wants a Tap Even Though the Fizzle Backdrop Is Still Active
         // Underneath It and the Lock Is Held - the Order of the Ladder Is the Test
         let game_over =
-            derive_touch_ui_mode(SplashStep::Done, true, false, true, false, true, true);
+            derive_touch_ui_mode(SplashStep::Done, true, false, false, true, false, true, true);
         assert_eq!(game_over, TouchUiMode::Advance);
 
         // The Intermission Tally Advances by Tap While Locked
         let tally =
-            derive_touch_ui_mode(SplashStep::Done, true, false, false, true, false, true);
+            derive_touch_ui_mode(SplashStep::Done, true, false, false, false, true, false, true);
         assert_eq!(tally, TouchUiMode::Advance);
 
         // The Cheat Modal Freezes Play and Dismisses on Any Input
         let cheat =
-            derive_touch_ui_mode(SplashStep::Done, true, true, false, false, false, true);
+            derive_touch_ui_mode(SplashStep::Done, true, true, false, false, false, false, true);
         assert_eq!(cheat, TouchUiMode::Advance);
+
+        // The Quit Prompt Behaves the Same Way for Touch: a Frozen Any-Input
+        // Screen (Its Y / N Split Is Handled in the Keyboard / Gamepad Path)
+        let quit =
+            derive_touch_ui_mode(SplashStep::Done, true, false, true, false, false, false, true);
+        assert_eq!(quit, TouchUiMode::Advance);
 
         // The Fizzle Itself Takes No Input
         let dying =
-            derive_touch_ui_mode(SplashStep::Done, true, false, false, false, true, true);
+            derive_touch_ui_mode(SplashStep::Done, true, false, false, false, false, true, true);
         assert_eq!(dying, TouchUiMode::Off);
 
         // Any Other Lock Is a Loading State: Dark Glass
         let loading =
-            derive_touch_ui_mode(SplashStep::Done, true, false, false, false, false, true);
+            derive_touch_ui_mode(SplashStep::Done, true, false, false, false, false, false, true);
         assert_eq!(loading, TouchUiMode::Off);
     }
 
     #[test]
     fn disabling_touch_darkens_the_glass_everywhere() {
         for step in [SplashStep::Menu, SplashStep::Splash0, SplashStep::Done] {
-            let mode = derive_touch_ui_mode(step, false, false, false, false, false, false);
+            let mode = derive_touch_ui_mode(step, false, false, false, false, false, false, false);
             assert_eq!(mode, TouchUiMode::Off, "step {step:?}");
         }
     }

@@ -3,6 +3,7 @@ Davenstein - by David Petnick
 */
 
 pub(crate) mod cheat_message;
+pub(crate) mod quit_confirm;
 mod hud;
 pub(crate) mod level_end_font;
 mod splash;
@@ -31,6 +32,7 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<cheat_message::CheatMessageState>()
+			.init_resource::<quit_confirm::QuitConfirmState>()
 			.init_resource::<HudState>()
 			.init_resource::<DamageFlash>()
 			.init_resource::<PickupFlash>()
@@ -87,6 +89,15 @@ impl Plugin for UiPlugin {
 			// the Pause Menu Cannot Open Underneath This Box in Any System Order
 			.add_systems(Update, cheat_message::trigger_cheat_message)
 			.add_systems(Update, cheat_message::dismiss_cheat_message)
+			// The Original's Sarcastic Quit Prompt. Same Modal Machinery as the
+			// Cheat Box: a Grey Y / N Box That Freezes Play. The Opener Is Driven
+			// Inline From the Splash Quit Action (Which Owns the Window Dims and
+			// Images); Only the Resolver Needs to Run Every Frame. After
+			// InputGather so It Reads This Frame's Y / N and Gamepad Confirm
+			.add_systems(
+				Update,
+				quit_confirm::resolve_quit_confirm.after(davelib::input::InputGather),
+			)
 			// On-Screen Touch Controls. The Mode Sync Runs Before InputGather so
 			// the Touch Source Tests This Frame's Fingers Against the Control Set
 			// the Player Is Looking At; the Drawing Systems Run After It so the
