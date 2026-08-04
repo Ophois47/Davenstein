@@ -173,46 +173,101 @@ pub enum RenderScale {
 	Pct75,
 	Pct50,
 	Pct33,
+	/// Lower Relative Steps. On a High-DPI (Retina) Panel Even These Render at
+	/// More Than DOS Resolution Because the Factor Multiplies a Large PHYSICAL
+	/// Pixel Count; They Are Here for Mild Softening and for the Chunky Look on
+	/// Ordinary 1080p Displays. For a Guaranteed Classic Look on Any Panel, Use
+	/// the Absolute Classic Step Below Instead
+	Pct25,
+	Pct20,
+	Pct15,
+	/// Absolute DOS-Style Target: the Canvas Is a Fixed 320 Pixels WIDE, With
+	/// Height Derived From the Viewport Aspect so Pixels Stay Square and Nothing
+	/// Is Stretched (See world_canvas_size). Unlike the Percentages This Ignores
+	/// Window Size Entirely, so It Reproduces the Original's Fat 320-Wide Blocks
+	/// Identically on a 1080p Monitor or a Retina Panel -- the Real Wolf3D Crunch
+	Classic320,
 }
 
 impl RenderScale {
 	/// Cycle Forward Through Scales (Wraps Around)
 	pub fn next(self) -> Self {
 		match self {
-			RenderScale::Native => RenderScale::Pct75,
-			RenderScale::Pct75  => RenderScale::Pct50,
-			RenderScale::Pct50  => RenderScale::Pct33,
-			RenderScale::Pct33  => RenderScale::Native,
+			RenderScale::Native    => RenderScale::Pct75,
+			RenderScale::Pct75     => RenderScale::Pct50,
+			RenderScale::Pct50     => RenderScale::Pct33,
+			RenderScale::Pct33     => RenderScale::Pct25,
+			RenderScale::Pct25     => RenderScale::Pct20,
+			RenderScale::Pct20     => RenderScale::Pct15,
+			RenderScale::Pct15     => RenderScale::Classic320,
+			RenderScale::Classic320 => RenderScale::Native,
 		}
 	}
 
 	/// Cycle Backward Through Scales (Wraps Around)
 	pub fn prev(self) -> Self {
 		match self {
-			RenderScale::Native => RenderScale::Pct33,
-			RenderScale::Pct75  => RenderScale::Native,
-			RenderScale::Pct50  => RenderScale::Pct75,
-			RenderScale::Pct33  => RenderScale::Pct50,
+			RenderScale::Native     => RenderScale::Classic320,
+			RenderScale::Pct75      => RenderScale::Native,
+			RenderScale::Pct50      => RenderScale::Pct75,
+			RenderScale::Pct33      => RenderScale::Pct50,
+			RenderScale::Pct25      => RenderScale::Pct33,
+			RenderScale::Pct20      => RenderScale::Pct25,
+			RenderScale::Pct15      => RenderScale::Pct20,
+			RenderScale::Classic320 => RenderScale::Pct15,
 		}
 	}
 
 	/// Human Readable Label for the Menu
 	pub fn label(self) -> &'static str {
 		match self {
-			RenderScale::Native => "Native",
-			RenderScale::Pct75  => "75%",
-			RenderScale::Pct50  => "50%",
-			RenderScale::Pct33  => "33%",
+			RenderScale::Native     => "Native",
+			RenderScale::Pct75      => "75%",
+			RenderScale::Pct50      => "50%",
+			RenderScale::Pct33      => "33%",
+			RenderScale::Pct25      => "25%",
+			RenderScale::Pct20      => "20%",
+			RenderScale::Pct15      => "15%",
+			RenderScale::Classic320 => "Classic",
 		}
 	}
 
-	/// Multiplier Applied to Window Pixels to Get the Canvas Size
+	/// Multiplier Applied to Window Pixels to Get the Canvas Size. Only Meaningful
+	/// for the RELATIVE (Percentage) Scales; the Absolute Classic Target Returns
+	/// 0.0 Here Because Its Size Does Not Come From a Multiply -- Callers Must Check
+	/// is_absolute First and Take the Fixed-Width Path in world_canvas_size Instead
 	pub fn factor(self) -> f32 {
 		match self {
-			RenderScale::Native => 1.0,
-			RenderScale::Pct75  => 0.75,
-			RenderScale::Pct50  => 0.5,
-			RenderScale::Pct33  => 1.0 / 3.0,
+			RenderScale::Native     => 1.0,
+			RenderScale::Pct75      => 0.75,
+			RenderScale::Pct50      => 0.5,
+			RenderScale::Pct33      => 1.0 / 3.0,
+			RenderScale::Pct25      => 0.25,
+			RenderScale::Pct20      => 0.20,
+			RenderScale::Pct15      => 0.15,
+			RenderScale::Classic320 => 0.0,
+		}
+	}
+
+	/// True for Scales Whose Canvas Size Is a FIXED Pixel Grid Rather Than a
+	/// Fraction of the Window. world_canvas_size Branches on This: Absolute Scales
+	/// Ignore the Window Width and Pin the Canvas to a Classic Horizontal
+	/// Resolution, Which Is the Only Way to Reach DOS-Style Chunk on a High-DPI
+	/// Panel Where a Percentage of the Physical Buffer Is Still Far Finer Than 320
+	pub fn is_absolute(self) -> bool {
+		matches!(self, RenderScale::Classic320)
+	}
+
+	/// Fixed Canvas WIDTH in Pixels for an Absolute Scale. Height Is Derived From
+	/// the Viewport Aspect by the Caller so Pixels Stay Square. 320 Is the Classic
+	/// Wolfenstein 3-D Horizontal Resolution
+	pub fn absolute_width(self) -> u32 {
+		match self {
+			RenderScale::Classic320 => 320,
+			// Percentages Are Not Absolute; This Is Never Reached for Them Because
+			// Callers Gate on is_absolute, but Return 320 Rather Than Panic if a
+			// Future Caller Forgets the Gate
+			_ => 320,
 		}
 	}
 }
@@ -337,6 +392,19 @@ pub fn ui_ref_dims(
 /// Compute the Canvas Size in Physical Pixels for a Given Window Size + Scale
 /// Clamped to at Least 1x1 so a Degenerate Window Never Yields a Zero Texture
 pub fn world_canvas_size(win_w: u32, win_h: u32, scale: RenderScale) -> UVec2 {
+	// Absolute Scales (Classic) Pin the Canvas to a Fixed WIDTH and Derive Height
+	// From the Viewport Aspect, so the Result Is the Same Chunky 320-Wide Grid on
+	// Any Panel Regardless of Its Physical Pixel Count. This Is What the Percentage
+	// Path Cannot Do on a Retina Display, Where Even 15% of the Physical Buffer Is
+	// Still Far Finer Than 320. Height = Width * (win_h / win_w) Keeps Pixels Square
+	// so Nothing Is Stretched -- the "Cap at 320, Match Aspect, No Distortion" Rule
+	if scale.is_absolute() {
+		let target_w = scale.absolute_width().max(1);
+		let aspect = (win_h as f32 / win_w.max(1) as f32).max(0.0001);
+		let target_h = ((target_w as f32) * aspect).round() as u32;
+		return UVec2::new(target_w, target_h.max(1));
+	}
+
 	let f = scale.factor();
 	UVec2::new(
 		((win_w as f32 * f).round() as u32).max(1),

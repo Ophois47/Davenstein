@@ -62,7 +62,7 @@ pub struct VideoDto {
     pub view_size: Option<u8>,
     /// "off" | "x4"
     pub msaa: Option<String>,
-    /// "native" | "75" | "50" | "33"
+    /// "native" | "75" | "50" | "33" | "25" | "20" | "15" | "classic320"
     pub render_scale: Option<String>,
 }
 
@@ -141,6 +141,13 @@ fn render_scale_to_str(r: RenderScale) -> &'static str {
         RenderScale::Pct75 => "75",
         RenderScale::Pct50 => "50",
         RenderScale::Pct33 => "33",
+        RenderScale::Pct25 => "25",
+        RenderScale::Pct20 => "20",
+        RenderScale::Pct15 => "15",
+        // Stored as "classic320" (Not "classic") so the Key Stays Unambiguous if a
+        // Future Absolute Target Like Classic240 Is Ever Added. The Menu Label Is
+        // the Friendly "Classic"; Only the On-Disk Key Differs
+        RenderScale::Classic320 => "classic320",
     }
 }
 
@@ -165,6 +172,10 @@ fn render_scale_from_str(s: &str) -> Option<RenderScale> {
         "75" => Some(RenderScale::Pct75),
         "50" => Some(RenderScale::Pct50),
         "33" => Some(RenderScale::Pct33),
+        "25" => Some(RenderScale::Pct25),
+        "20" => Some(RenderScale::Pct20),
+        "15" => Some(RenderScale::Pct15),
+        "classic320" => Some(RenderScale::Classic320),
         _ => None,
     }
 }
