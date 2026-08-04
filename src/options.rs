@@ -512,6 +512,11 @@ pub struct ControlSettings {
 	/// When True, mouse motion turns/looks. When False, the mouse is ignored
 	/// for looking and you turn with the keyboard turn keys (classic style).
 	pub mouselook_enabled: bool,
+	/// When True, Mouse Y Motion Drives Forward / Back Walking, Wolf3D-Style
+	/// (Push the Mouse Away to Walk Forward, Pull It Back to Reverse)
+	/// Independent of mouselook_enabled so Turn and Move Can Be Mixed Freely
+	/// Default: false, so Existing Players Are Not Surprised by New Movement
+	pub mouse_move_enabled: bool,
 	/// When False, Skip All Gamepad Input, Including Menu Navigation
 	/// Default: true
 	pub gamepad_enabled: bool,
@@ -565,6 +570,7 @@ impl Default for ControlSettings {
 			mouse_sensitivity: 1.0,
 			invert_y: false,
 			mouselook_enabled: true,
+			mouse_move_enabled: false,
 			gamepad_enabled: true,
 			gamepad_sensitivity: 1.0,
 			gamepad_deadzone: 0.1,

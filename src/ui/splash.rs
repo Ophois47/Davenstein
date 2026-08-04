@@ -71,6 +71,10 @@ const PSYCHED_SPR_H: f32 = 40.0;
 
 const PSYCHED_TEAL: Color = Color::srgb(0.00, 0.55, 0.55);
 const PSYCHED_RED: Color = Color::srgb(0.80, 0.00, 0.00);
+/// Horizontal Inset for the Loading Bar in Source Pixels. The Bar Used to Run
+/// Flush to Both Edges of the Banner Art; Stopping a Few Pixels Short Keeps It
+/// Inside the Banner's Painted Frame. Tune Against the get_psyched.png Border
+const PSYCHED_BAR_INSET: f32 = 3.0;
 
 fn splash_stretch_image(image: Handle<Image>) -> ImageNode {
     ImageNode {
@@ -813,6 +817,9 @@ struct SoundOptionsLocalState {
 #[derive(Default)]
 struct ControlOptionsLocalState {
     selection: usize,
+    /// Index of the First Visible Row in the Scrolling Viewport. Follows the
+    /// Selection so the Highlighted Row Never Leaves the Panel
+    scroll: usize,
     from_pause: bool,
     /// Hold Repeat State for Left / Right on Numeric Values (Sensitivities, Deadzone)
     hold_dir: i8,
@@ -1318,6 +1325,7 @@ fn build_sound_options_items(sound: &SoundSettings) -> Vec<(SoundOptionKind, Str
 enum ControlOptionKind {
     MouseSensitivity,
     Mouselook,
+    MouseMove,
     InvertY,
     GamepadEnabled,
     GamepadSensitivity,
@@ -1347,6 +1355,16 @@ fn build_control_options_items(control: &ControlSettings) -> Vec<(ControlOptionK
         "Mouselook: OFF"
     };
     items.push((ControlOptionKind::Mouselook, mouselook_label.to_string()));
+
+    // Mouse Push-to-Move Toggle (Wolf3D-Style), Mouse Y Walks Forward / Back When ON
+    // A Separate Row Beside Mouselook Rather Than a Merged "Use Mouse" so Turn
+    // and Move Can Be Mixed Freely
+    let mouse_move_label = if control.mouse_move_enabled {
+        "Mouse Move: ON"
+    } else {
+        "Mouse Move: OFF"
+    };
+    items.push((ControlOptionKind::MouseMove, mouse_move_label.to_string()));
 
     // Invert Y
     let invert_label = if control.invert_y { "Invert Y: ON" } else { "Invert Y: OFF" };
@@ -2096,6 +2114,124 @@ fn spawn_sound_options_ui(
     ));
 }
 
+/// Vertical Space Reserved Inside the Panel Above and Below the List for the
+/// Scroll Arrow Indicators, in Source Pixels
+const CONTROL_SCROLL_ARROW_ZONE: f32 = 7.0;
+
+/// Shared Geometry for the Control Options Panel and Its Scrolling Viewport
+///
+/// The Spawn Function and the Per-Frame Cursor Positioning in the
+/// SplashStep::ControlOptions Arm Used to Recompute This Independently, Which
+/// Invited Exactly the Row-Height Drift the Old Comments Warned About.
+/// Computing It in One Place Makes That Class of Bug Impossible
+struct ControlOptionsLayout {
+    panel_left: f32,
+    panel_top: f32,
+    panel_w: f32,
+    panel_h: f32,
+    border_w: f32,
+    row_h: f32,
+    /// How Many Rows Fit Inside the Panel Once the Arrow Zones Are Reserved
+    visible_rows: usize,
+    ui_scale: f32,
+}
+
+fn control_options_layout(w: f32) -> ControlOptionsLayout {
+    let ui_scale = (w / BASE_W).round().max(1.0);
+
+    let hint_native_h = 12.0;
+    let hint_bottom_pad = 6.0;
+    let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
+
+    let panel_left = (18.0 * ui_scale).round();
+    let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
+    let panel_right = ((BASE_W - 18.0) * ui_scale).round();
+    let panel_w = (panel_right - panel_left).max(1.0);
+    let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
+    let panel_h = (panel_bottom - panel_top).max(1.0);
+
+    let border_w = (2.0 * ui_scale).round().max(1.0);
+
+    // Fixed Classic Row Height. The Old Compress-to-Fit Fallback Is Gone: the
+    // List Now Scrolls Instead of Squishing, so the 1992 Row Spacing Holds at
+    // Any Item Count
+    let row_h = (16.0 * ui_scale).round().max(1.0);
+
+    let arrow_zone = (CONTROL_SCROLL_ARROW_ZONE * ui_scale).round();
+    let usable_h = (panel_h - 2.0 * border_w - 2.0 * arrow_zone).max(row_h);
+    let visible_rows = ((usable_h / row_h).floor() as usize).max(1);
+
+    ControlOptionsLayout {
+        panel_left,
+        panel_top,
+        panel_w,
+        panel_h,
+        border_w,
+        row_h,
+        visible_rows,
+        ui_scale,
+    }
+}
+
+/// Clamp the Scroll Offset so the Selection Stays Inside the Viewport and the
+/// Window Never Runs Past Either End of the List
+fn control_options_clamp_scroll(
+    selection: usize,
+    scroll: usize,
+    item_count: usize,
+    visible_rows: usize,
+) -> usize {
+    let shown = item_count.min(visible_rows);
+    let max_scroll = item_count.saturating_sub(shown);
+
+    let mut s = scroll.min(max_scroll);
+    if selection < s {
+        s = selection;
+    }
+    if selection >= s + shown {
+        s = selection + 1 - shown;
+    }
+    s
+}
+
+/// Spawn a Small Pixel-Art Scroll Arrow Built From Stacked Colored Bars
+///
+/// No New Texture Asset Is Needed: Four Source-Pixel Rows of Widths 2 / 4 / 6 / 8
+/// Read as a Clean Triangle at Any Integer UI Scale
+fn spawn_scroll_arrow(
+    commands: &mut Commands,
+    parent: Entity,
+    center_x: f32,
+    top: f32,
+    ui_scale: f32,
+    pointing_up: bool,
+) {
+    const ROW_WIDTHS: [f32; 4] = [2.0, 4.0, 6.0, 8.0];
+    let px = ui_scale.max(1.0).round();
+
+    for i in 0..ROW_WIDTHS.len() {
+        let w_src = if pointing_up {
+            ROW_WIDTHS[i]
+        } else {
+            ROW_WIDTHS[ROW_WIDTHS.len() - 1 - i]
+        };
+        let bar_w = (w_src * px).round().max(1.0);
+
+        commands.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px((center_x - bar_w * 0.5).round()),
+                top: Val::Px((top + i as f32 * px).round()),
+                width: Val::Px(bar_w),
+                height: Val::Px(px),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.85, 0.83, 0.78)),
+            ChildOf(parent),
+        ));
+    }
+}
+
 /// Spawn Control Options Menu UI
 fn spawn_control_options_ui(
     commands: &mut Commands,
@@ -2105,6 +2241,7 @@ fn spawn_control_options_ui(
     scale: f32,
     imgs: &SplashImages,
     selection: usize,
+    scroll: usize,
     control: &ControlSettings,
 ) {
     let items = build_control_options_items(control);
@@ -2194,16 +2331,14 @@ fn spawn_control_options_ui(
     let hint_x = ((BASE_W - hint_native_w) * 0.5 * ui_scale).round();
     let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
 
-    // Panel Geometry Matches Episode Select Style
-    let panel_left = (18.0 * ui_scale).round();
-    let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
-    let panel_right = ((BASE_W - 18.0) * ui_scale).round();
-
-    let panel_w = (panel_right - panel_left).max(1.0);
-    let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
-    let panel_h = (panel_bottom - panel_top).max(1.0);
-
-    let border_w = (2.0 * ui_scale).round().max(1.0);
+    // Panel Geometry Comes From the Shared Layout Helper so the Per-Frame
+    // Cursor Math in the ControlOptions Step Can Never Drift From the Rows
+    let layout = control_options_layout(w);
+    let panel_left = layout.panel_left;
+    let panel_top = layout.panel_top;
+    let panel_w = layout.panel_w;
+    let panel_h = layout.panel_h;
+    let border_w = layout.border_w;
 
     // Main Panel Background
     commands.spawn((
@@ -2285,39 +2420,46 @@ fn spawn_control_options_ui(
 
     let cursor_w = (19.0 * ui_scale).round();
     let cursor_h = (10.0 * ui_scale).round();
-    // Rows Compress to Fit Rather Than Spilling Out of the Panel
-    //
-    // The Panel Runs From EP_LIST_TOP - 4 Down to Just Above the Bottom Hint, About 152
-    // Source Pixels, Which at the 16 px Style Row Holds Exactly NINE Rows. This Screen Now
-    // Carries Eleven With Touch Added, and It Will Grow Again When Per-Device Gamepad
-    // Selection Lands - so a Fixed Row Height Would Push "Key Bindings" and "Back" Out
-    // Through the Bottom Border Where They Cannot Be Seen or Aimed At
-    //
-    // Taking the SMALLER of the Style Height and an Even Division of the Panel Keeps the
-    // Familiar Spacing on Any Screen That Still Fits and Degrades by Tightening Rather
-    // Than by Losing Rows. Glyphs Are MENU_FONT_HEIGHT * MENU_FONT_DRAW_SCALE = 10 Source
-    // Pixels Tall, so There Is Real Headroom Before This Starts to Crowd
-    //
-    // Deliberately Local to This Screen. The Other Option Lists Have Their Own Identical
-    // row_h Line and Are Nowhere Near Their Capacity; Hoisting This Into a Shared Helper
-    // Is Worth Doing When a Second Screen Actually Needs It
-    let row_h_style = 16.0 * ui_scale;
-    let row_h_fit = (panel_h - 2.0 * border_w) / (item_count.max(1) as f32);
-    let row_h = row_h_style.min(row_h_fit).round().max(1.0);
 
+    // Scrolling Viewport: Rows Keep the Classic 16 px Spacing and the List
+    // Scrolls Under the Selection Instead of Compressing to Fit. Only the Rows
+    // Inside the Window Are Spawned; ControlOptionsItem Keeps the ABSOLUTE Item
+    // Index so the Selection-Visibility System Works Unchanged
+    let row_h = layout.row_h;
+    let shown = item_count.min(layout.visible_rows);
+    let scroll = control_options_clamp_scroll(selection, scroll, item_count, layout.visible_rows);
+
+    // Width Is Measured Over ALL Items, Not Just the Visible Window, so the
+    // Text Column Does Not Shift Sideways as the List Scrolls
     let mut max_item_w = 0.0f32;
     for t in &item_labels {
         max_item_w = max_item_w.max(measure_menu_text_width(ui_scale, t));
     }
 
-    let list_h = (item_count as f32 * row_h).round();
+    let list_h = (shown as f32 * row_h).round();
     let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
 
     let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
     let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
 
-    for idx in 0..item_count {
-        let y = (list_top + idx as f32 * row_h).round();
+    // Scroll Arrow Indicators: Up Only When Items Exist Above the Window,
+    // Down Only When Items Exist Below It
+    let arrow_zone = (CONTROL_SCROLL_ARROW_ZONE * ui_scale).round();
+    let arrow_h = (4.0 * ui_scale).round();
+    let arrow_cx = panel_left + panel_w * 0.5;
+
+    if scroll > 0 {
+        let up_top = (panel_top + border_w + ((arrow_zone - arrow_h) * 0.5)).round();
+        spawn_scroll_arrow(commands, canvas, arrow_cx, up_top, ui_scale, true);
+    }
+    if scroll + shown < item_count {
+        let down_top =
+            (panel_top + panel_h - border_w - arrow_zone + ((arrow_zone - arrow_h) * 0.5)).round();
+        spawn_scroll_arrow(commands, canvas, arrow_cx, down_top, ui_scale, false);
+    }
+
+    for idx in scroll..(scroll + shown) {
+        let y = (list_top + (idx - scroll) as f32 * row_h).round();
         let is_selected = idx == selection;
 
         let gray_run = spawn_menu_bitmap_text(
@@ -2351,11 +2493,12 @@ fn spawn_control_options_ui(
         ));
     }
 
-    // Gun Cursor
+    // Gun Cursor, Positioned by the Selection's Row WITHIN the Scrolled Window
     let cursor_light = asset_server.load(MENU_CURSOR_LIGHT_PATH);
     let cursor_dark = asset_server.load(MENU_CURSOR_DARK_PATH);
 
-    let cursor_y = (list_top + selection as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
+    let cursor_row = selection.saturating_sub(scroll);
+    let cursor_y = (list_top + cursor_row as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
 
     commands.spawn((
         SplashUi,
@@ -5909,6 +6052,7 @@ fn splash_advance_on_any_input(
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                         options.control.selection = 0;
+                        options.control.scroll = 0;
                         options.control.from_pause = is_pause;
                         options.control.hold_dir = 0;
                         options.control.hold_accum = 0.0;
@@ -5922,6 +6066,7 @@ fn splash_advance_on_any_input(
                                 w, h, scale,
                                 imgs,
                                 options.control.selection,
+                                options.control.scroll,
                                 &resources.control_settings,
                             );
 
@@ -6942,6 +7087,7 @@ fn splash_advance_on_any_input(
                     &mut commands, &asset_server,
                     w, h, scale, imgs,
                     options.control.selection,
+                    options.control.scroll,
                     &resources.control_settings,
                 );
                 return;
@@ -6980,6 +7126,35 @@ fn splash_advance_on_any_input(
             if keyboard.just_pressed(KeyCode::ArrowDown) || keyboard.just_pressed(KeyCode::KeyS) || nav.down {
                 options.control.selection = (options.control.selection + 1) % item_count;
                 moved = true;
+            }
+
+            // Keep the Selection Inside the Scrolled Viewport. Crossing Either
+            // Edge (Including Wrap-Around at the Ends) Shifts the Window, Which
+            // Moves Every Row, so the Cheap Visibility-Toggle Path Below No
+            // Longer Applies - Respawn With the New Scroll Instead
+            if moved {
+                let layout = control_options_layout(w);
+                let new_scroll = control_options_clamp_scroll(
+                    options.control.selection,
+                    options.control.scroll,
+                    item_count,
+                    layout.visible_rows,
+                );
+
+                if new_scroll != options.control.scroll {
+                    options.control.scroll = new_scroll;
+                    sfx.write(PlaySfx { kind: SfxKind::MenuMove, pos: Vec3::ZERO });
+
+                    for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+                    spawn_control_options_ui(
+                        &mut commands, &asset_server,
+                        w, h, scale, imgs,
+                        options.control.selection,
+                        options.control.scroll,
+                        &resources.control_settings,
+                    );
+                    return;
+                }
             }
 
             // Left / Right for Numeric Settings
@@ -7105,6 +7280,7 @@ fn splash_advance_on_any_input(
                     &mut commands, &asset_server,
                     w, h, scale, imgs,
                     options.control.selection,
+                    options.control.scroll,
                     &resources.control_settings,
                 );
                 return;
@@ -7133,34 +7309,23 @@ fn splash_advance_on_any_input(
                 *v = if blink_on { Visibility::Hidden } else { Visibility::Visible };
             }
 
-            // Cursor Positioning
-            let ui_scale = (w / BASE_W).round().max(1.0);
-            let hint_native_h = 12.0;
-            let hint_bottom_pad = 6.0;
-            let hint_y = ((BASE_H - hint_native_h - hint_bottom_pad) * ui_scale).round();
-            let panel_left = (18.0 * ui_scale).round();
-            let panel_top = ((EP_LIST_TOP - 4.0) * ui_scale).round();
-            let panel_right = ((BASE_W - 18.0) * ui_scale).round();
-            let panel_w = (panel_right - panel_left).max(1.0);
-            let panel_bottom = (hint_y - (2.0 * ui_scale).round()).max(panel_top + 1.0);
-            let panel_h = (panel_bottom - panel_top).max(1.0);
+            // Cursor Positioning, Through the Same Shared Layout Helper the
+            // Spawn Function Uses so the Highlight Can Never Drift From Its Row
+            let layout = control_options_layout(w);
+            let ui_scale = layout.ui_scale;
             let cursor_w = (19.0 * ui_scale).round();
             let cursor_h = (10.0 * ui_scale).round();
-            // MUST Match the Row Height in spawn_control_options_ui Exactly
-            //
-            // The Cursor Is Positioned by This Copy of the Layout Math While the Rows
-            // Themselves Are Positioned by the Spawn Function's Copy. Leaving This One at
-            // the Fixed 16 px While the Spawn Side Compresses to Fit Eleven Rows Would
-            // Slide the Highlight Progressively Further Below Its Label Down the List
-            //
-            // The Duplication Is Pre-Existing: Every Option Screen Recomputes Its Geometry
-            // Here for Cursor Placement. Worth Extracting Into One Shared Layout Helper,
-            // Which Would Make Exactly This Class of Drift Impossible
-            let row_h_style = 16.0 * ui_scale;
-            let row_h_fit = (panel_h - 2.0 * (2.0 * ui_scale).round()) / (item_count.max(1) as f32);
-            let row_h = row_h_style.min(row_h_fit).round().max(1.0);
-            let list_h = (item_count as f32 * row_h).round();
-            let list_top = (panel_top + ((panel_h - list_h) * 0.5)).round();
+
+            let row_h = layout.row_h;
+            let shown = item_count.min(layout.visible_rows);
+            let scroll = control_options_clamp_scroll(
+                options.control.selection,
+                options.control.scroll,
+                item_count,
+                layout.visible_rows,
+            );
+            let list_h = (shown as f32 * row_h).round();
+            let list_top = (layout.panel_top + ((layout.panel_h - list_h) * 0.5)).round();
 
             let measure_menu_text_width = |ui_scale: f32, text: &str| -> f32 {
                 let s = (ui_scale * MENU_FONT_DRAW_SCALE).max(0.01);
@@ -7177,9 +7342,10 @@ fn splash_advance_on_any_input(
                 max_item_w = max_item_w.max(measure_menu_text_width(ui_scale, label));
             }
 
-            let text_x = (panel_left + ((panel_w - max_item_w) * 0.5)).round().max(0.0);
+            let text_x = (layout.panel_left + ((layout.panel_w - max_item_w) * 0.5)).round().max(0.0);
             let cursor_x = (text_x - cursor_w - (8.0 * ui_scale).round()).round().max(0.0);
-            let cursor_y = (list_top + options.control.selection as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
+            let cursor_row = options.control.selection.saturating_sub(scroll);
+            let cursor_y = (list_top + cursor_row as f32 * row_h + ((row_h - cursor_h) * 0.5)).round();
 
             for mut node in q.q_node.iter_mut() {
                 node.left = Val::Px(cursor_x);
@@ -7204,6 +7370,7 @@ fn splash_advance_on_any_input(
                             &mut commands, &asset_server,
                             w, h, scale, imgs,
                             options.control.selection,
+                            options.control.scroll,
                             &resources.control_settings,
                         );
                     }
@@ -7217,6 +7384,21 @@ fn splash_advance_on_any_input(
                             &mut commands, &asset_server,
                             w, h, scale, imgs,
                             options.control.selection,
+                            options.control.scroll,
+                            &resources.control_settings,
+                        );
+                    }
+
+                    Some(ControlOptionKind::MouseMove) => {
+                        resources.control_settings.mouse_move_enabled = !resources.control_settings.mouse_move_enabled;
+                        resources.control_settings.set_changed(); // Explicitly Mark as Changed
+
+                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
+                        spawn_control_options_ui(
+                            &mut commands, &asset_server,
+                            w, h, scale, imgs,
+                            options.control.selection,
+                            options.control.scroll,
                             &resources.control_settings,
                         );
                     }
@@ -7230,6 +7412,7 @@ fn splash_advance_on_any_input(
                             &mut commands, &asset_server,
                             w, h, scale, imgs,
                             options.control.selection,
+                            options.control.scroll,
                             &resources.control_settings,
                         );
                     }
@@ -7243,6 +7426,7 @@ fn splash_advance_on_any_input(
                             &mut commands, &asset_server,
                             w, h, scale, imgs,
                             options.control.selection,
+                            options.control.scroll,
                             &resources.control_settings,
                         );
                     }
@@ -7535,6 +7719,7 @@ fn splash_advance_on_any_input(
                 for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
 
                 options.control.selection = 0;
+                options.control.scroll = 0;
                 options.control.from_pause = options.key_bindings.from_pause;
                 options.control.hold_dir = 0;
                 options.control.hold_accum = 0.0;
@@ -7545,6 +7730,7 @@ fn splash_advance_on_any_input(
                     &mut commands, &asset_server,
                     w, h, scale, imgs,
                     options.control.selection,
+                    options.control.scroll,
                     &resources.control_settings,
                 );
                 *resources.step = SplashStep::ControlOptions;
@@ -8420,6 +8606,11 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
     let bar_h = (1.0 * scale).max(1.0).round();
     let bar_top = (top + spr_h - bar_h).max(0.0);
 
+    // Inset the Bar From Both Banner Edges so It Stays Inside the Painted Frame
+    let bar_inset = (PSYCHED_BAR_INSET * scale).round();
+    let bar_left = (left + bar_inset).round();
+    let bar_target_w = (spr_w - 2.0 * bar_inset).max(1.0);
+
     let loading = commands
         .spawn((
             LoadingUi,
@@ -8448,10 +8639,10 @@ fn spawn_get_psyched_ui(commands: &mut Commands, asset_server: &AssetServer, win
             ));
 
             root.spawn((
-                PsychedBar { target_w: spr_w },
+                PsychedBar { target_w: bar_target_w },
                 Node {
                     position_type: PositionType::Absolute,
-                    left: Val::Px(left),
+                    left: Val::Px(bar_left),
                     top: Val::Px(bar_top),
                     width: Val::Px(0.0),
                     height: Val::Px(bar_h),

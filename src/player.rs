@@ -252,7 +252,9 @@ pub fn player_move(
 
     // Tile Units (Tile = 1.0)
     const PLAYER_RADIUS: f32 = 0.20;
-    const RUN_MULTIPLIER: f32 = 1.6;
+    // Run Speed Bump: 1.6 Felt Slightly Sluggish in Playtesting, 1.75 Keeps the
+    // Wolf3D Sprint Feel Without Making Corners Uncontrollable. Tune by Feel
+    const RUN_MULTIPLIER: f32 = 1.75;
 
     let Ok(mut transform) = q_player.single_mut() else {
         return;

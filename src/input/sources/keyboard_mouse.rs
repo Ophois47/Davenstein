@@ -18,6 +18,15 @@ use crate::player::cursor_is_captured;
 // Moved Verbatim from the Old player::mouse_look
 const BASE_SENSITIVITY: f32 = 0.002;
 
+// Wolf3D-Style Mouse Push-to-Move Threshold, in Pixels per Second of Vertical
+// Mouse Motion. Pushing the Mouse Faster Than This Walks Forward, Pulling It
+// Back Walks Backward. A RATE Threshold Rather Than a Per-Frame Pixel Count so
+// the Feel Does Not Change With Framerate, and High Enough That the Incidental
+// Y Drift of Ordinary Aiming Does Not Creep the Player Off Their Spot.
+// move_wish Is Normalized Downstream in player.rs, so Crossing the Threshold
+// Gives Normal Walk Speed - Exactly the Original's Push-to-Walk Feel
+const MOUSE_MOVE_RATE_THRESHOLD: f32 = 150.0;
+
 // Keyboard Turn Speeds in Radians per Second. Two-Tier, Faithful to Wolf3D Where
 // Holding Run Turned Faster as Well as Moved Faster. The Base Rate Is Deliberately
 // Low so a Tap Makes a Fine Aiming Adjustment Instead of Whipping Past the Target,
@@ -79,6 +88,27 @@ pub fn contribute(
             let (dx, dy) = controls.scaled_mouse_look(delta);
             look.x -= dx * BASE_SENSITIVITY; // Yaw
             look.y -= dy * BASE_SENSITIVITY; // Pitch
+        }
+    }
+
+    // Mouse Push-to-Move (Wolf3D-Style): Mouse Y Drives Forward / Back Walking
+    //
+    // Sits Alongside Mouselook Rather Than Replacing It - Both Read the Same
+    // Raw Delta, so With Both Enabled a Forward Push Walks AND Pitches, Which
+    // Is How the Original Felt With Its Mouse Enabled. Deliberately Ignores
+    // invert_y: That Is a LOOK Preference, and Pushing the Mouse Away From You
+    // Should Always Mean Walking Forward. Raw (Unscaled) Delta Is Used so
+    // mouse_sensitivity Keeps Meaning Look Speed Only; the Threshold Constant
+    // Above Is the Movement Knob
+    if controls.mouse_move_enabled && captured {
+        let dt = time.delta_secs();
+        if dt > 0.0 {
+            // Bevy Mouse Delta Is Positive DOWNWARD (Toward the Player), so a
+            // Forward Push Reads Negative and Must Map to +Forward
+            let rate = -mouse_motion.delta.y / dt;
+            if rate.abs() >= MOUSE_MOVE_RATE_THRESHOLD {
+                wish.y += rate.signum();
+            }
         }
     }
 
