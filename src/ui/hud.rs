@@ -1831,11 +1831,9 @@ pub(super) fn sync_hud_layout_on_window_change(
         ) in &mut q
         {
             if outer.is_some() {
-                // Keep the Blue Backdrop Exactly as Wide as the Scaled Art (See
-                // spawn_status_bar). Without Updating Width Here the Outer Would Have
-                // Stayed at Its Spawn Width Across Render-Scale Changes, Re-Exposing
-                // the Blue Edge at Non-Multiple-of-320 Scales
-                n.width = Val::Px(layout.hud_w_px);
+                // Height Only. The Outer Backdrop Stays width: 100% (Full Canvas) so
+                // It Always Covers the World Behind the Strip -- Never Set Its Width
+                // Here (See spawn_status_bar for Why hud_w_px Would Break the Layout)
                 n.height = Val::Px(layout.status_h_px);
             }
 
@@ -2018,16 +2016,21 @@ fn spawn_status_bar(
             HudStatusBarOuter,
             ZIndex(95),
             Node {
-                // Width Is the SCALED HUD Width, Not 100%. hud_w_px Is
-                // 320 * floor(canvas_w / 320), so at Scales Where the Canvas Is Not
-                // an Exact Multiple of 320 (e.g. 20% -> 768, 15% -> 576) a Full-Width
-                // Blue Backdrop Would Extend 'canvas_w - hud_w_px' Pixels Past the
-                // Centered Status-Bar Art on Each Side, Leaking the Wolf HUD Blue Out
-                // at the Outer Edges. Matching the Blue to the Art Width Means the
-                // Leftover Region Shows Whatever Sits Behind HudRoot (the Letterbox),
-                // Never a Stray Blue Sliver. The Resync in
-                // sync_hud_layout_on_window_change Sets This Same Width on Scale Change
-                width: Val::Px(layout.hud_w_px),
+                // Full Canvas Width -- This MUST Stay 100%.
+                //
+                // HudRoot Is a Full-Screen Column With align_items: Stretch and a
+                // Transparent Background: the 3-D World Canvas Shows Through Anything
+                // the HUD Does Not Paint Over. This Blue Outer Strip Is What Covers
+                // the World Beneath the Status Bar. The Art (HudStatusBarInner,
+                // hud_w_px Wide) Is CENTERED Inside This Full-Width Strip by the
+                // justify_content Below.
+                //
+                // A Fixed Px Width Narrower Than the Parent Would Break Two Ways at
+                // Once: the Column's Cross-Axis Alignment Snaps the Under-Wide Item to
+                // the Left (HUD Clings Left), AND the Uncovered Right Region Exposes
+                // the Bare World Canvas. Do NOT Set This to hud_w_px. The Full-Width
+                // Blue Is the Original Wolf3D Status-Bar Backdrop and Is Correct
+                width: Val::Percent(100.0),
                 height: Val::Px(layout.status_h_px),
                 justify_content: JustifyContent::Center,
                 align_items: AlignItems::Center,
