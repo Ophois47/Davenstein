@@ -60,6 +60,14 @@ pub(super) struct HudStatusBarInner;
 #[derive(Component)]
 pub(super) struct HudStatusBarImage;
 
+/// Top / Bottom Bevel Rules on the Status Strip, Giving Its Teal Edges the Same
+/// Raised 3-D Frame as the View-Size Border. Marked so the Layout Resync Keeps
+/// Their Scaled Thickness and the Bottom Rule's Y in Sync on Window/Scale Change
+#[derive(Component)]
+pub(super) struct HudStatusBevelTop;
+#[derive(Component)]
+pub(super) struct HudStatusBevelBottom;
+
 #[derive(Component)]
 pub(super) struct HudFloorRow;
 
@@ -1767,6 +1775,8 @@ pub(super) fn sync_hud_layout_on_window_change(
                 Option<&HudStatusBarOuter>,
                 Option<&HudStatusBarInner>,
                 Option<&HudStatusBarImage>,
+                Option<&HudStatusBevelTop>,
+                Option<&HudStatusBevelBottom>,
                 Option<&HudFaceImage>,
                 Option<&HudWeaponIcon>,
                 Option<&HudGoldKeyIcon>,
@@ -1781,6 +1791,8 @@ pub(super) fn sync_hud_layout_on_window_change(
                 With<HudStatusBarOuter>,
                 With<HudStatusBarInner>,
                 With<HudStatusBarImage>,
+                With<HudStatusBevelTop>,
+                With<HudStatusBevelBottom>,
                 With<HudFaceImage>,
                 With<HudWeaponIcon>,
                 With<HudGoldKeyIcon>,
@@ -1819,6 +1831,8 @@ pub(super) fn sync_hud_layout_on_window_change(
             outer,
             inner,
             img,
+            bevel_top,
+            bevel_bottom,
             face,
             wep,
             gold,
@@ -1845,6 +1859,16 @@ pub(super) fn sync_hud_layout_on_window_change(
             if img.is_some() {
                 n.width = Val::Px(layout.hud_w_px);
                 n.height = Val::Px(layout.status_h_px);
+            }
+
+            // Bevel Rules: Keep Scaled Thickness; Bottom Rule Tracks status_h_px
+            if bevel_top.is_some() {
+                n.height = Val::Px(layout.hud_scale.max(1.0));
+            }
+            if bevel_bottom.is_some() {
+                let bevel = layout.hud_scale.max(1.0);
+                n.top = Val::Px(layout.status_h_px - bevel);
+                n.height = Val::Px(bevel);
             }
 
             if face.is_some() {
@@ -2044,6 +2068,43 @@ fn spawn_status_bar(
             BackgroundColor(background_color.into()),
         ))
         .with_children(|bar| {
+            // Frame Bevel on the Status Strip, Matching the View-Size Border: a Black
+            // Rule Across the Top (Like the Border's Dark Top-Left Bevel) and a
+            // Lighter-Teal Rule Across the Bottom (Its Bottom-Right Bevel), so the
+            // Exposed Teal Edges Beside the Centered Art Read as Part of the Frame.
+            // 1 Native Pixel Scaled, Full Width. Marked so the Resync Keeps Them Sized
+            let bevel = layout.hud_scale.max(1.0);
+            let bevel_dark: Srgba = Srgba::new(0.0, 0.0, 0.0, 1.0);
+            let bevel_light: Srgba = Srgba::new(0.0, 48.0 / 255.0, 48.0 / 255.0, 1.0);
+
+            bar.spawn((
+                HudStatusBevelTop,
+                ZIndex(96),
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    top: Val::Px(0.0),
+                    width: Val::Percent(100.0),
+                    height: Val::Px(bevel),
+                    ..default()
+                },
+                BackgroundColor(bevel_dark.into()),
+            ));
+
+            bar.spawn((
+                HudStatusBevelBottom,
+                ZIndex(96),
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(0.0),
+                    top: Val::Px(layout.status_h_px - bevel),
+                    width: Val::Percent(100.0),
+                    height: Val::Px(bevel),
+                    ..default()
+                },
+                BackgroundColor(bevel_light.into()),
+            ));
+
             bar.spawn((
                 HudStatusBarInner,
                 Node {
