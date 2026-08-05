@@ -2008,8 +2008,13 @@ fn spawn_status_bar(
     hud: &HudState,
     current_level: &CurrentLevel,
 ) {
-    // Wolf HUD Blue (0, 0, 164)
-    let background_color: Srgba = Srgba::new(0.0, 0.0, 164.0 / 255.0, 1.0);
+    // Backdrop Behind the Centered Status-Bar Art. The Art (hud_w_px Wide) Covers
+    // the Center; This Color Shows Only in the Left/Right Edge Gaps When the Canvas
+    // Is Wider Than the Art. Use the Same Teal (0,64,64) as the View-Size Border and
+    // the Rest of the Frame So Those Edges Read as the Continuous Border Rather Than
+    // a Stray Blue Strip. (The Original Wolf HUD Blue Was 0,0,164; It Is Kept Only
+    // Where the Actual Status-Bar Art Paints It, Which Is Inside the Centered Image)
+    let background_color: Srgba = Srgba::new(0.0, 64.0 / 255.0, 64.0 / 255.0, 1.0);
 
     commands.entity(parent).with_children(|ui| {
         ui.spawn((
