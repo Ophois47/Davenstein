@@ -60,13 +60,13 @@ pub(super) struct HudStatusBarInner;
 #[derive(Component)]
 pub(super) struct HudStatusBarImage;
 
-/// Top / Bottom Bevel Rules on the Status Strip, Giving Its Teal Edges the Same
-/// Raised 3-D Frame as the View-Size Border. Marked so the Layout Resync Keeps
-/// Their Scaled Thickness and the Bottom Rule's Y in Sync on Window/Scale Change
+/// The Light Highlight Rule Along the Top Edge of the Status Strip. The Status-Bar
+/// Art Has This Exact (125,146,158) Line Baked Across Its Own Top Row (y=0); the
+/// Teal Backdrop Beside the Centered Art Lacked It, so the Raised Frame Appeared to
+/// Stop at the Art's Edge. This Node Continues That Same Line Full Width. Marked so
+/// the Layout Resync Keeps Its Scaled Thickness in Sync on Window/Scale Change
 #[derive(Component)]
 pub(super) struct HudStatusBevelTop;
-#[derive(Component)]
-pub(super) struct HudStatusBevelBottom;
 
 #[derive(Component)]
 pub(super) struct HudFloorRow;
@@ -1776,7 +1776,6 @@ pub(super) fn sync_hud_layout_on_window_change(
                 Option<&HudStatusBarInner>,
                 Option<&HudStatusBarImage>,
                 Option<&HudStatusBevelTop>,
-                Option<&HudStatusBevelBottom>,
                 Option<&HudFaceImage>,
                 Option<&HudWeaponIcon>,
                 Option<&HudGoldKeyIcon>,
@@ -1792,7 +1791,6 @@ pub(super) fn sync_hud_layout_on_window_change(
                 With<HudStatusBarInner>,
                 With<HudStatusBarImage>,
                 With<HudStatusBevelTop>,
-                With<HudStatusBevelBottom>,
                 With<HudFaceImage>,
                 With<HudWeaponIcon>,
                 With<HudGoldKeyIcon>,
@@ -1832,7 +1830,6 @@ pub(super) fn sync_hud_layout_on_window_change(
             inner,
             img,
             bevel_top,
-            bevel_bottom,
             face,
             wep,
             gold,
@@ -1861,14 +1858,9 @@ pub(super) fn sync_hud_layout_on_window_change(
                 n.height = Val::Px(layout.status_h_px);
             }
 
-            // Bevel Rules: Keep Scaled Thickness; Bottom Rule Tracks status_h_px
+            // Top Highlight Rule: Keep Its Scaled Thickness (Full Width, top:0 Fixed)
             if bevel_top.is_some() {
                 n.height = Val::Px(layout.hud_scale.max(1.0));
-            }
-            if bevel_bottom.is_some() {
-                let bevel = layout.hud_scale.max(1.0);
-                n.top = Val::Px(layout.status_h_px - bevel);
-                n.height = Val::Px(bevel);
             }
 
             if face.is_some() {
@@ -2068,15 +2060,12 @@ fn spawn_status_bar(
             BackgroundColor(background_color.into()),
         ))
         .with_children(|bar| {
-            // Frame Bevel on the Status Strip, Matching the View-Size Border: a Black
-            // Rule Across the Top (Like the Border's Dark Top-Left Bevel) and a
-            // Lighter-Teal Rule Across the Bottom (Its Bottom-Right Bevel), so the
-            // Exposed Teal Edges Beside the Centered Art Read as Part of the Frame.
-            // 1 Native Pixel Scaled, Full Width. Marked so the Resync Keeps Them Sized
-            let bevel = layout.hud_scale.max(1.0);
-            let bevel_dark: Srgba = Srgba::new(0.0, 0.0, 0.0, 1.0);
-            let bevel_light: Srgba = Srgba::new(0.0, 48.0 / 255.0, 48.0 / 255.0, 1.0);
-
+            // Extend the Art's Baked-In Top Highlight Across the Full Width. The
+            // status_bar.png Top Row Is (125,146,158) End to End; the Teal Backdrop
+            // Beside the Centered Art Did Not Carry It, Making the Raised Frame Look
+            // Cut Off at the Art's Edge. One Scaled-Pixel Row in the Exact Same Color
+            // Continues the Line to the Screen Edges. The Art Has NO Bottom Bevel
+            // (Its y=40 Row Is Plain Teal), so There Is Deliberately No Bottom Line
             bar.spawn((
                 HudStatusBevelTop,
                 ZIndex(96),
@@ -2085,24 +2074,10 @@ fn spawn_status_bar(
                     left: Val::Px(0.0),
                     top: Val::Px(0.0),
                     width: Val::Percent(100.0),
-                    height: Val::Px(bevel),
+                    height: Val::Px(layout.hud_scale.max(1.0)),
                     ..default()
                 },
-                BackgroundColor(bevel_dark.into()),
-            ));
-
-            bar.spawn((
-                HudStatusBevelBottom,
-                ZIndex(96),
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(0.0),
-                    top: Val::Px(layout.status_h_px - bevel),
-                    width: Val::Percent(100.0),
-                    height: Val::Px(bevel),
-                    ..default()
-                },
-                BackgroundColor(bevel_light.into()),
+                BackgroundColor(Srgba::new(125.0 / 255.0, 146.0 / 255.0, 158.0 / 255.0, 1.0).into()),
             ));
 
             bar.spawn((
