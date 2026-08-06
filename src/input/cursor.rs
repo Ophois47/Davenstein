@@ -48,7 +48,14 @@ pub fn grab_mouse(
         // winit Grab / Hide and Recovers Within a Frame. Re-Locking When Already
         // Locked Is Idempotent, so There Is No Cursor Jump During Normal Play
         cursor.visible = false;
-        cursor.grab_mode = if controls.mouselook_enabled {
+        // Lock the Cursor Whenever ANY Feature Needs Raw Relative Motion: Mouselook
+        // (Turning/Looking) OR Mouse Push-to-Move (Mouse-Y Walking). Previously This
+        // Gated on mouselook_enabled Alone, so Turning Mouselook OFF to Use Mouse-Move
+        // Released the Grab and Left mouse_move With No Captured Cursor to Read -- the
+        // "Mouse Move Does Nothing" Bug. Reading Motion Requires a Locked Cursor
+        // Either Way, so Either Toggle Being On Locks It. With Both Off the Cursor Is
+        // Freed for Keyboard-Only Play
+        cursor.grab_mode = if controls.mouselook_enabled || controls.mouse_move_enabled {
             CursorGrabMode::Locked
         } else {
             CursorGrabMode::None
