@@ -28,7 +28,17 @@ use crate::pushwalls::PushwallMarkers;
 const TILE_SIZE: f32 = 1.0;
 const WALL_H: f32 = 1.0;
 
-const DOOR_THICKNESS: f32 = 0.20;
+// Door Panel Thickness, in Tiles. The Original Wolfenstein 3-D Door Was a Single
+// Flat Plane Sitting Exactly on the Doorway Center Line (Flush With the Jamb's
+// Black Reveal). This Renderer Draws the Door as Two Single-Sided Panels (Front +
+// Back, With Different Textures / Flip). A Non-Zero Thickness Pushed Each Face Off
+// Center by half_thickness, so the Visible Face Read as Slightly Proud or Shy of
+// the Jamb Line Depending on Viewing Side -- Not Matching the Original. Zero Keeps
+// Both Panels on the Center Plane, Flush With the Jamb. This Is Z-Fight-Safe:
+// door_mat Uses the Default Back-Face Culling and the Back Panel Is Rotated PI, so
+// From Any Viewpoint Only One Panel's Front Faces the Camera -- the Two Never
+// Contend for the Same Depth
+const DOOR_THICKNESS: f32 = 0.0;
 const DOOR_NORMAL_LIGHT: usize = 98;
 const DOOR_NORMAL_DARK: usize = 99;
 const DOOR_JAMB_LIGHT: usize = 100;
