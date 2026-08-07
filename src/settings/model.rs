@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use davelib::options::{
     ControlSettings,
     DisplayMode,
+    MouseMode,
     GameplaySettings,
     MsaaSetting,
     RenderScale,
@@ -71,8 +72,9 @@ pub struct VideoDto {
 pub struct ControlDto {
     pub mouse_sensitivity: Option<f32>,
     pub invert_y: Option<bool>,
-    pub mouselook_enabled: Option<bool>,
-    pub mouse_move_enabled: Option<bool>,
+    /// "off" | "look" | "move" (See options::MouseMode). Replaces the Former
+    /// mouselook_enabled + mouse_move_enabled Bool Pair
+    pub mouse_mode: Option<String>,
     pub gamepad_enabled: Option<bool>,
     pub gamepad_sensitivity: Option<f32>,
     pub gamepad_deadzone: Option<f32>,
@@ -203,8 +205,7 @@ impl SettingsFile {
             control: ControlDto {
                 mouse_sensitivity: Some(control.mouse_sensitivity),
                 invert_y: Some(control.invert_y),
-                mouselook_enabled: Some(control.mouselook_enabled),
-                mouse_move_enabled: Some(control.mouse_move_enabled),
+                mouse_mode: Some(control.mouse_mode.to_key().to_string()),
                 gamepad_enabled: Some(control.gamepad_enabled),
                 gamepad_sensitivity: Some(control.gamepad_sensitivity),
                 gamepad_deadzone: Some(control.gamepad_deadzone),
@@ -284,11 +285,8 @@ impl SettingsFile {
         if let Some(v) = self.control.invert_y {
             control.invert_y = v;
         }
-        if let Some(v) = self.control.mouselook_enabled {
-            control.mouselook_enabled = v;
-        }
-        if let Some(v) = self.control.mouse_move_enabled {
-            control.mouse_move_enabled = v;
+        if let Some(v) = self.control.mouse_mode.as_deref().and_then(MouseMode::from_key) {
+            control.mouse_mode = v;
         }
         if let Some(v) = self.control.gamepad_enabled {
             control.gamepad_enabled = v;

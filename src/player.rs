@@ -169,10 +169,11 @@ pub fn apply_look(
 
     look.yaw += delta.x;
 
-    // Vertical Look Only Applies With Mouselook Enabled. When It Is Off, Pitch
-    // Stays Pinned to the Horizon Regardless of Mouse or Gamepad Input, so
-    // Toggling the Option Off Reliably Leaves the Player Looking Straight Ahead
-    if controls.mouselook_enabled {
+    // Vertical Look Only Applies in Mouse LOOK Mode. In Move (Mouse Y Walks) and
+    // Off (No Mouse), Pitch Stays Pinned to the Horizon Regardless of Mouse or
+    // Gamepad Input, so the Player Reliably Looks Straight Ahead -- the Original
+    // Wolfenstein 3-D Had No Vertical Look, Which Move Mode Reproduces
+    if controls.mouse_mode == crate::options::MouseMode::Look {
         look.pitch += delta.y;
         // ~ +/- 88 Degrees
         look.pitch = look.pitch.clamp(-1.54, 1.54);
@@ -221,7 +222,13 @@ pub fn level_pitch_without_mouselook(
     let touch_driving =
         controls.touch_enabled && *active_device == crate::input::ActiveInputDevice::Touch;
 
-    if controls.mouselook_enabled && !touch_driving {
+    // This System Pins Pitch to the Horizon. Skip It Only in LOOK Mode (Where the
+    // Player Controls Pitch) or While Touch Is Driving. In Move and Off There Is No
+    // Pitch, so We Fall Through and Zero It. NOTE: Move Mode's Mouse-Driven WALKING
+    // and TURNING Happen Elsewhere (input::sources::keyboard_mouse -> move_wish /
+    // look_delta); This Early-Return Only Governs the Pitch Pin, so Returning Here
+    // in Look Mode Does Not Block Move Mode's Motion
+    if controls.mouse_mode == crate::options::MouseMode::Look && !touch_driving {
         return;
     }
 

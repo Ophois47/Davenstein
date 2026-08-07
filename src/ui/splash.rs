@@ -1350,8 +1350,7 @@ fn build_sound_options_items(sound: &SoundSettings) -> Vec<(SoundOptionKind, Str
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ControlOptionKind {
     MouseSensitivity,
-    Mouselook,
-    MouseMove,
+    MouseModeRow,
     InvertY,
     GamepadEnabled,
     GamepadSensitivity,
@@ -1374,23 +1373,12 @@ fn build_control_options_items(control: &ControlSettings) -> Vec<(ControlOptionK
         format!("Mouse Sens: {}", mouse_sens_display),
     ));
 
-    // Mouselook Toggle, Mouse Turns You When ON, Keyboard Turn Keys Only When OFF
-    let mouselook_label = if control.mouselook_enabled {
-        "Mouselook: ON"
-    } else {
-        "Mouselook: OFF"
-    };
-    items.push((ControlOptionKind::Mouselook, mouselook_label.to_string()));
-
-    // Mouse Push-to-Move Toggle (Wolf3D-Style), Mouse Y Walks Forward / Back When ON
-    // A Separate Row Beside Mouselook Rather Than a Merged "Use Mouse" so Turn
-    // and Move Can Be Mixed Freely
-    let mouse_move_label = if control.mouse_move_enabled {
-        "Mouse Move: ON"
-    } else {
-        "Mouse Move: OFF"
-    };
-    items.push((ControlOptionKind::MouseMove, mouse_move_label.to_string()));
+    // Single Mouse Mode Row, Cycling Off / Look / Move. These Are Mutually
+    // Exclusive (You Cannot Look and Move With the Same Motion), so One Row
+    // Replaces the Former Separate Mouselook and Mouse Move Toggles. Look = Mouse
+    // Turns and Pitches; Move = Mouse Turns and Walks (Wolf3D); Off = Keyboard Turn
+    let mouse_mode_label = format!("Mouse: {}", control.mouse_mode.label());
+    items.push((ControlOptionKind::MouseModeRow, mouse_mode_label));
 
     // Invert Y
     let invert_label = if control.invert_y { "Invert Y: ON" } else { "Invert Y: OFF" };
@@ -7481,22 +7469,11 @@ fn splash_advance_on_any_input(
                         );
                     }
 
-                    Some(ControlOptionKind::Mouselook) => {
-                        resources.control_settings.mouselook_enabled = !resources.control_settings.mouselook_enabled;
-                        resources.control_settings.set_changed(); // Explicitly Mark as Changed
-
-                        for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }
-                        spawn_control_options_ui(
-                            &mut commands, &asset_server,
-                            w, h, scale, imgs,
-                            options.control.selection,
-                            options.control.scroll,
-                            &resources.control_settings,
-                        );
-                    }
-
-                    Some(ControlOptionKind::MouseMove) => {
-                        resources.control_settings.mouse_move_enabled = !resources.control_settings.mouse_move_enabled;
+                    Some(ControlOptionKind::MouseModeRow) => {
+                        // Cycle Off -> Look -> Move -> Off. One Setting so the Modes
+                        // Stay Mutually Exclusive by Construction
+                        resources.control_settings.mouse_mode =
+                            resources.control_settings.mouse_mode.next();
                         resources.control_settings.set_changed(); // Explicitly Mark as Changed
 
                         for e in q.q_splash_roots.iter() { commands.entity(e).try_despawn(); }

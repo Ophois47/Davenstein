@@ -622,6 +622,75 @@ impl KeyBindings {
 }
 
 #[derive(Resource, Clone, Copy, PartialEq)]
+/// How the Mouse Is Used During Gameplay. These Are Mutually Exclusive by
+/// Construction -- the Old Design Used Two Independent Bools (mouselook_enabled,
+/// mouse_move_enabled) Which Could Both Be On, Meaning You Looked AND Moved With
+/// the Same Motion. A Single Mode Makes the Exclusivity Structural:
+///
+/// - Off:  Mouse Ignored for Gameplay; Turn With Keyboard Keys (Classic).
+/// - Look: Mouse X Yaws, Mouse Y Pitches (Free-Look). Cursor Captured.
+/// - Move: Mouse X Turns, Mouse Y Walks Forward/Back, No Pitch. Cursor Captured.
+///         This Is the Original Wolfenstein 3-D "Mouse Enabled" Scheme, Where the
+///         Mouse Was a MOVEMENT Device (the DOS Game Had No Vertical Look at All)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MouseMode {
+	#[default]
+	Look,
+	Move,
+	Off,
+}
+
+impl MouseMode {
+	pub fn label(self) -> &'static str {
+		match self {
+			MouseMode::Off => "Off",
+			MouseMode::Look => "Look",
+			MouseMode::Move => "Move",
+		}
+	}
+
+	/// Cycle for the Menu Row (Right / Confirm). Off -> Look -> Move -> Off
+	pub fn next(self) -> Self {
+		match self {
+			MouseMode::Off => MouseMode::Look,
+			MouseMode::Look => MouseMode::Move,
+			MouseMode::Move => MouseMode::Off,
+		}
+	}
+
+	pub fn prev(self) -> Self {
+		match self {
+			MouseMode::Off => MouseMode::Move,
+			MouseMode::Look => MouseMode::Off,
+			MouseMode::Move => MouseMode::Look,
+		}
+	}
+
+	/// Whether the Cursor Must Be Captured (Raw Relative Motion) in This Mode.
+	/// Both Look and Move Read Motion; Off Does Not
+	pub fn needs_capture(self) -> bool {
+		matches!(self, MouseMode::Look | MouseMode::Move)
+	}
+
+	/// String Key for settings.ron Persistence
+	pub fn to_key(self) -> &'static str {
+		match self {
+			MouseMode::Off => "off",
+			MouseMode::Look => "look",
+			MouseMode::Move => "move",
+		}
+	}
+
+	pub fn from_key(s: &str) -> Option<Self> {
+		match s {
+			"off" => Some(MouseMode::Off),
+			"look" => Some(MouseMode::Look),
+			"move" => Some(MouseMode::Move),
+			_ => None,
+		}
+	}
+}
+
 pub struct ControlSettings {
 	/// Multiplier Applied to Raw 'MouseMotion' Deltas
 	/// Range: 0.1 ..= 10.0
@@ -629,14 +698,10 @@ pub struct ControlSettings {
 	pub mouse_sensitivity: f32,
 	/// When True, Positive Mouse Y Input Looks *Down*
 	pub invert_y: bool,
-	/// When True, mouse motion turns/looks. When False, the mouse is ignored
-	/// for looking and you turn with the keyboard turn keys (classic style).
-	pub mouselook_enabled: bool,
-	/// When True, Mouse Y Motion Drives Forward / Back Walking, Wolf3D-Style
-	/// (Push the Mouse Away to Walk Forward, Pull It Back to Reverse)
-	/// Independent of mouselook_enabled so Turn and Move Can Be Mixed Freely
-	/// Default: false, so Existing Players Are Not Surprised by New Movement
-	pub mouse_move_enabled: bool,
+	/// How the Mouse Drives Gameplay: Off / Look / Move. Replaces the Former
+	/// mouselook_enabled + mouse_move_enabled Bool Pair, Which Could Both Be On and
+	/// Fight for the Same Motion. See MouseMode
+	pub mouse_mode: MouseMode,
 	/// When False, Skip All Gamepad Input, Including Menu Navigation
 	/// Default: true
 	pub gamepad_enabled: bool,
@@ -689,8 +754,7 @@ impl Default for ControlSettings {
 		Self {
 			mouse_sensitivity: 1.0,
 			invert_y: false,
-			mouselook_enabled: true,
-			mouse_move_enabled: false,
+			mouse_mode: MouseMode::Look,
 			gamepad_enabled: true,
 			gamepad_sensitivity: 1.0,
 			gamepad_deadzone: 0.1,

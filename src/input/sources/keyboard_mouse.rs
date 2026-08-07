@@ -11,21 +11,12 @@ use bevy::window::{CursorOptions, PrimaryWindow};
 
 use crate::input::intent::PlayerIntent;
 use crate::input::menu::MenuNav;
-use crate::options::ControlSettings;
+use crate::options::{ControlSettings, MouseMode};
 use crate::player::cursor_is_captured;
 
 // Base Sensitivity Applied on Top of ControlSettings.mouse_sensitivity
 // Moved Verbatim from the Old player::mouse_look
 const BASE_SENSITIVITY: f32 = 0.002;
-
-// Wolf3D-Style Mouse Push-to-Move Threshold, in Pixels per Second of Vertical
-// Mouse Motion. Pushing the Mouse Faster Than This Walks Forward, Pulling It
-// Back Walks Backward. A RATE Threshold Rather Than a Per-Frame Pixel Count so
-// the Feel Does Not Change With Framerate, and High Enough That the Incidental
-// Y Drift of Ordinary Aiming Does Not Creep the Player Off Their Spot.
-// move_wish Is Normalized Downstream in player.rs, so Crossing the Threshold
-// Gives Normal Walk Speed - Exactly the Original's Push-to-Walk Feel
-const MOUSE_MOVE_RATE_THRESHOLD: f32 = 150.0;
 
 // Keyboard Turn Speeds in Radians per Second. Two-Tier, Faithful to Wolf3D Where
 // Holding Run Turned Faster as Well as Moved Faster. The Base Rate Is Deliberately
@@ -81,35 +72,44 @@ pub fn contribute(
         .next()
         .is_some_and(|c| cursor_is_captured(c.grab_mode));
 
-    if controls.mouselook_enabled && captured {
-        let delta = mouse_motion.delta;
-        if delta != Vec2::ZERO {
-            // Apply the Sensitivity Multiplier and Invert Y Setting
-            let (dx, dy) = controls.scaled_mouse_look(delta);
-            look.x -= dx * BASE_SENSITIVITY; // Yaw
-            look.y -= dy * BASE_SENSITIVITY; // Pitch
-        }
-    }
-
-    // Mouse Push-to-Move (Wolf3D-Style): Mouse Y Drives Forward / Back Walking
-    //
-    // Sits Alongside Mouselook Rather Than Replacing It - Both Read the Same
-    // Raw Delta, so With Both Enabled a Forward Push Walks AND Pitches, Which
-    // Is How the Original Felt With Its Mouse Enabled. Deliberately Ignores
-    // invert_y: That Is a LOOK Preference, and Pushing the Mouse Away From You
-    // Should Always Mean Walking Forward. Raw (Unscaled) Delta Is Used so
-    // mouse_sensitivity Keeps Meaning Look Speed Only; the Threshold Constant
-    // Above Is the Movement Knob
-    if controls.mouse_move_enabled && captured {
-        let dt = time.delta_secs();
-        if dt > 0.0 {
-            // Bevy Mouse Delta Is Positive DOWNWARD (Toward the Player), so a
-            // Forward Push Reads Negative and Must Map to +Forward
-            let rate = -mouse_motion.delta.y / dt;
-            if rate.abs() >= MOUSE_MOVE_RATE_THRESHOLD {
-                wish.y += rate.signum();
+    // Mouse Contribution Depends on the Mouse Mode (Mutually Exclusive by
+    // Construction; See options::MouseMode). Both Look and Move Require a Captured
+    // Cursor to Read Raw Relative Motion
+    match controls.mouse_mode {
+        // LOOK: Mouse X Yaws, Mouse Y Pitches. Free-Look
+        MouseMode::Look if captured => {
+            let delta = mouse_motion.delta;
+            if delta != Vec2::ZERO {
+                // Apply the Sensitivity Multiplier and Invert Y Setting
+                let (dx, dy) = controls.scaled_mouse_look(delta);
+                look.x -= dx * BASE_SENSITIVITY; // Yaw
+                look.y -= dy * BASE_SENSITIVITY; // Pitch
             }
         }
+        // MOVE: the Original Wolfenstein 3-D Mouse Scheme. Mouse X TURNS the
+        // Player (Continuously, Proportional to Mouse Speed, Same Yaw Path as
+        // Mouselook so the Turn Feel and Sensitivity Match), Mouse Y WALKS
+        // Forward/Back (Continuously, No Threshold), and There Is NO Pitch -- the
+        // DOS Game Had No Vertical Look. invert_y Is Deliberately Ignored for the
+        // Walk Axis: Pushing the Mouse Away Always Means Forward, Which Is a
+        // Movement Convention, Not a Look Preference
+        MouseMode::Move if captured => {
+            let delta = mouse_motion.delta;
+            if delta.x != 0.0 {
+                // Reuse scaled_mouse_look for the X Sensitivity Curve; Take Only dx.
+                // Sign Matches Mouselook's Yaw (look.x -= dx) so Turning Feels Identical
+                let (dx, _dy) = controls.scaled_mouse_look(delta);
+                look.x -= dx * BASE_SENSITIVITY;
+            }
+            if delta.y != 0.0 {
+                // Bevy Mouse Delta Is Positive DOWNWARD, so a Forward Push Reads
+                // Negative and Must Map to +Forward. Continuous: Any Motion Walks,
+                // Scaled by mouse_sensitivity, With move_wish Normalized Downstream
+                // in player.rs for Normal Walk Speed. invert_y Is Not Applied Here
+                wish.y += -(delta.y * controls.mouse_sensitivity);
+            }
+        }
+        _ => {}
     }
 
     // Keyboard Turning is Always Available so the Game is Fully Playable Without a Mouse
