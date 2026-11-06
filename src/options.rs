@@ -621,7 +621,6 @@ impl KeyBindings {
 	}
 }
 
-#[derive(Resource, Clone, Copy, PartialEq)]
 /// How the Mouse Is Used During Gameplay. These Are Mutually Exclusive by
 /// Construction -- the Old Design Used Two Independent Bools (mouselook_enabled,
 /// mouse_move_enabled) Which Could Both Be On, Meaning You Looked AND Moved With
@@ -691,6 +690,7 @@ impl MouseMode {
 	}
 }
 
+#[derive(Resource, Clone, Copy, PartialEq)]
 pub struct ControlSettings {
 	/// Multiplier Applied to Raw 'MouseMotion' Deltas
 	/// Range: 0.1 ..= 10.0
